@@ -200,7 +200,9 @@ class VRClubCore {
         // VR optimization settings configuration - ENHANCED FOR HYPERREALISM
         this.vrSettings = {
             desktop: {
-                exposure: 1.2,
+                // Matched to the old 1.2 exposure once the 0.5 output gain was removed, so the dark-room
+                // mean stays put while a tonemapped white (and a strobe) can reach full scale.
+                exposure: 0.6,
                 contrast: 1.2,
                 bloomWeight: 0.28,
                 bloomThreshold: 0.8,
@@ -214,15 +216,17 @@ class VRClubCore {
                 chromaticAberrationEnabled: false,
                 toneMappingEnabled: true,
                 fxaaEnabled: true,
-                sharpenAmount: 0.5, // NB: a brightness gain, not a sharpness (see vr.sharpenGain); see BACKLOG.md
+                // A brightness gain, not a sharpness (see vr.sharpenGain). It must stay 1.0: a value
+                // below 1 caps peak white. Brightness is `exposure` (0.6 replaces the old 1.2 × 0.5 gain).
+                sharpenAmount: 1.0,
                 // Whole-room impulse a strobe adds for its few milliseconds (see updateStrobes()).
                 strobeImpulse: { ambient: 3.2, retinal: 0.18, exposure: 2.1 },
                 fogDensity: 0.028 // Haze/smoke density tuned so spot/laser beams are clearly visible
             },
             vr: {
-                // Base exposure. Tuned for the corrected output gain below: about 1.8x the desktop
-                // frame's mean luminance (a headset panel is dimmer than a monitor) with full-scale
-                // peaks. It was 1.35 while the image was being output at 10% brightness.
+                // Base exposure. The 1.8x headset/desktop ratio was measured while desktop gain was 0.5.
+                // Desktop gain is now 1.0 and its exposure is 0.6, so this value may need to rise if
+                // vr-parity.spec.mjs reports a ratio below 1.0. Do not put the desktop gain back below 1.
                 exposure: 0.6,
                 contrast: 1.18,
                 bloomWeight: 0.22,
@@ -731,9 +735,10 @@ class VRClubCore {
 
         // OPTIMIZED: Disable SSAO in VR (too expensive)
         if (this.ssaoPipeline) {
-            // SSAO remains owned by the inactive desktop camera. Ensure it is not
-            // accidentally attached to the XR camera.
-            this.scene.postProcessRenderPipelineManager.detachCamerasFromRenderPipeline("ssao", xrCamera);
+            // SSAO stays on the inactive desktop camera. Detach the XR camera only if it
+            // was actually attached: Babylon's detach splices indexOf, and -1 removes the
+            // LAST camera, which is what emptied this pipeline on every VR entry.
+            VRClubCore.detachPipelineCamera(this.scene.postProcessRenderPipelineManager, 'ssao', xrCamera);
         }
 
         // Screen-space reflections are far too expensive for a standalone headset:
@@ -741,7 +746,7 @@ class VRClubCore {
         // doubles exactly where the frame budget is tightest.
         if (this.ssrPipeline) {
             this.ssrPipeline.isEnabled = false;
-            this.scene.postProcessRenderPipelineManager.detachCamerasFromRenderPipeline("ssr", xrCamera);
+            VRClubCore.detachPipelineCamera(this.scene.postProcessRenderPipelineManager, 'ssr', xrCamera);
             log.info('⚡ Screen-space reflections disabled for VR');
         }
 
@@ -922,17 +927,34 @@ class VRClubCore {
             }
 
             this._applyTierToPipeline();
+            if (this.renderPipeline.sharpen) {
+                this.renderPipeline.sharpen.colorAmount = desktop.sharpenAmount;
+                this.renderPipeline.sharpen.edgeAmount = 0.35;
+            }
             
             log.info('✨ Re-enabled post-processing pipeline for desktop');
         }
 
-        // Enable SSAO in Desktop mode
-        // It remains attached to the desktop camera while XR is active, so there is
-        // nothing to reattach here (reattaching non-reusable passes logs errors).
+        // SSAO is desktop-only. Reattach the desktop camera if a visit cleared the list;
+        // skip the call when it is already attached (a second attach logs a reuse error).
+        if (this.ssaoPipeline) {
+            try {
+                VRClubCore.attachMissingPipelineCamera(
+                    this.scene.postProcessRenderPipelineManager, 'ssao', this.camera);
+            } catch (err) {
+                log.warn('Could not reattach SSAO:', err);
+            }
+        }
 
         // Restore the heavy desktop-only realism effects.
         if (this.ssrPipeline) {
             this.ssrPipeline.isEnabled = true;
+            try {
+                VRClubCore.attachMissingPipelineCamera(
+                    this.scene.postProcessRenderPipelineManager, 'ssr', this.camera);
+            } catch (err) {
+                log.warn('Could not reattach SSR:', err);
+            }
         } else {
             this._createScreenSpaceReflections();
         }
@@ -1203,6 +1225,33 @@ class VRClubCore {
         let samples = 1;
         for (const candidate of [2, 4]) if (candidate <= wanted && candidate <= cap) samples = candidate;
         return samples;
+    }
+
+    /**
+     * Detach `camera` from a named post-process pipeline only when it is actually in that
+     * pipeline's camera list. Forwarding a camera that is not attached is not a no-op:
+     * PostProcessRenderPipeline._detachCameras splices `indexOf`, and -1 deletes the last camera.
+     * Returns whether a detach was forwarded.
+     */
+    static detachPipelineCamera(manager, name, camera) {
+        const pipeline = manager && manager._renderPipelines && manager._renderPipelines[name];
+        const cameras = pipeline && pipeline._cameras;
+        if (!camera || !cameras || cameras.indexOf(camera) < 0) return false;
+        manager.detachCamerasFromRenderPipeline(name, camera);
+        return true;
+    }
+
+    /**
+     * Attach `camera` when a pipeline exists and does not already include it.
+     * A second attach of a non-reusable pass logs a reuse error and must not be sent.
+     * Returns whether an attach was forwarded.
+     */
+    static attachMissingPipelineCamera(manager, name, camera) {
+        const pipeline = manager && manager._renderPipelines && manager._renderPipelines[name];
+        const cameras = pipeline && pipeline._cameras;
+        if (!pipeline || !camera || (cameras && cameras.indexOf(camera) !== -1)) return false;
+        manager.attachCamerasToRenderPipeline(name, camera);
+        return true;
     }
 
     static resolveVRComfortMode() {

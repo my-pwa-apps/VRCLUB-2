@@ -545,8 +545,11 @@ its pass includes every relevant occluder and the added full-scene draw cost has
 **`pipeline.sharpen.colorAmount` is a brightness GAIN, not a sharpness.** Babylon's sharpen shader is
 `colour * colorAmount - edge * edgeAmount` and runs after tone mapping, so a value below 1 darkens the
 whole image and caps peak white at that value. VR shipped at 0.1 (a headset frame at 10% brightness,
-which no amount of fixture boosting could fix); keep it at 1.0 and set brightness with `exposure`.
-Sharpening strength is `edgeAmount` only. `test/e2e/vr-parity.spec.mjs` fails if the VR gain drifts or
+which no amount of fixture boosting could fix); keep it at 1.0 on both desktop and VR and set brightness
+with `exposure`. Desktop exposure is 0.6 so the dark-room mean matches the old 1.2 × 0.5 path. SSAO and
+SSR detach the XR camera only when it is actually attached (`VRClubCore.detachPipelineCamera`): Babylon
+splices `indexOf`, and -1 used to delete the desktop camera. `applyDesktopSettings()` reattaches SSAO
+only if that camera is missing. Sharpening strength is `edgeAmount` only. `test/e2e/vr-parity.spec.mjs` fails if the VR gain drifts or
 the VR frame is darker than the desktop one. The strobe's whole-room impulse is
 `vrSettings.*.strobeImpulse`, tuned against measured flash luminance, not by eye. A strobe burst is
 about 40 ms in REAL seconds (`STROBE_FLASH_S` in `09-animation-finish.js`, not scaled by
@@ -1384,6 +1387,11 @@ press counts as audio user activation (fallbacks: the Enter VR button and the fi
   taps the source BEFORE all of this, so the light show stays full-band outside. `test/e2e/street.spec.mjs` measures the real
   spectrum: more than 90% of the energy below 250 Hz on the street, under 40% in the room. A unit test walks the stair
   in 10 cm steps and fails if the cutoff ever falls back or jumps more than a third of an octave in one step.
+  Height is a second term, not a change to that floor formula or the sub channel. `MezzanineLayout.paZones()`
+  writes `cover` (1 under the deck or stair soffit, ramped over more than two metres) and `onDeck` (1 on the open
+  balcony). Cover pulls the indoor low-pass toward 780 Hz and adds a little reverb; the balcony is drier and
+  slightly more present. `VenueLayout.bar.listenerShelf()` is a partial shelf (at most 0.55) toward 2.4 kHz.
+  Both are zero when the layout is absent, and the scratch object is reused. The stair walk at x = 0 is unchanged.
   The same already-computed distance/enclosure/exterior model writes `_localPaPresence`
   without allocating. It scales only crowd and DJ reaction energy (including the legacy bass
   animation boost): beat presence, BPM, the analyser and the Show/VJ Directors remain on the

@@ -6,6 +6,92 @@ they are carried forward and re-prioritised.
 
 ---
 
+## Review - 2026-10-14 (later) - Principal experience re-review
+
+Second pass the same day, after the budget and XR-entry fixes above. Executed: `npm run check`
+(80 files, PASS), `npm run lint` (PASS), `npm test` (610 tests, 0 failures, 30.9 s). Inspected
+the current listener, signage, vestibule dressing, desktop sharpen gain and VR surface follower.
+Did not rebuild, did not rerun Playwright, and did not measure a headset. Existing open items
+were not duplicated. The EXIT, coat, bitrate, height-occlusion, desktop-gain and SSAO items
+below were implemented the same day; see their notes. The near-floor camera jump is no longer in
+`_xrHeadHeight()` (any finite sample is kept), while `_fitVRCollisionBody()` still discards
+samples `<= 0.3` and rebuilds height from the camera. That VR item stays open for a headset
+check, not because the old 1.6 m fallback is still in the sampler.
+
+- [x] **In-room EXIT signs point at solid walls, including one under the balcony**
+
+  **Implemented 2026-10-14.** `signagePlan()` in [04-environment.js](js/club/04-environment.js) places the club EXIT on the front-wall lintel (`y 3.58`, centred on the doorway) and keeps the street-door EXIT. The left-wall EXIT is gone. A unit test checks both openings. No booth or entrance screenshot was taken.
+
+  **Priority:** Medium
+  **Category:** Bug
+  **Confidence:** High
+  **Area:** Signage and club circulation
+  **Affected files:** [04-environment.js](js/club/04-environment.js)
+  **Evidence:** `createSignage()` places a green EXIT on the left inner wall at `x = -12.25`, `y = 2.5`, `z = -17.5`, and another on the front inner wall at `x = 3.4`, `y = 3.0`. The only open exits are the front doorway (`x -2..2`) and the street door, which already has its own lintel EXIT. A search of the venue, street and club layers finds no side door, service door or second emergency exit. The left sign sits under the mezzanine deck (`y = 3.0`, `z -19..-10.4`).
+  **Problem:** Two safety signs describe doors that do not exist. The left one is also partly hidden by the balcony it appears to lead into.
+  **User-visible effect:** A guest looking for the way out is pointed at brick, or at the structure under the balcony.
+  **Immersion impact:** A small, high-certainty contradiction. Safety signage is read as fact.
+  **Desktop impact:** Visible on the left wall and beside the entrance.
+  **VR impact:** Stronger, because the sign is at head height and can be walked up to.
+  **Performance impact:** None. This is a placement change.
+  **Recommended solution:** Remove the left-wall EXIT. Move the front-wall EXIT to sit over the real doorway, or delete it and rely on the street-door EXIT plus a small wayfinding mark that actually faces the door. Do not add a fake door to justify the sign.
+  **Regression considerations:** Keep the street-lintel EXIT, the NOCTURNE and BAR signs, the one-atlas signage draw, and the photosensitivity-safe glow path.
+  **Acceptance criteria:** Every EXIT quad is on or directly above an opening a guest can walk through. No EXIT remains under the balcony.
+  **Validation:** Unit assertion on sign positions against `VenueLayout` door spans, plus a booth and entrance screenshot.
+  **Estimated effort:** Small
+  **Product value:** Medium
+  **Technical debt reduction:** Low
+
+- [x] **The coat check a guest walks past is seven flat boxes on a rail**
+
+  **Implemented 2026-10-14.** Six hanging silhouettes (hook, collar, shoulders, body, hem, two tilted sleeves) and two empty hooks share the existing `coatMat` group, so the coat check is still one merged draw. `coatSilhouetteParts()` is tested for shoulder width, rail hang and clearance of the coat-check counter. No arrival-preset screenshot. The ticket desk stays joinery.
+
+  **Priority:** Medium
+  **Category:** Rendering
+  **Confidence:** High
+  **Area:** Entrance stair hall, first interior close-up
+  **Affected files:** [venueDressing.js](js/venueDressing.js)
+  **Evidence:** `createEntranceArea()` builds the coat rail, then seven boxes (`0.08 x ~1.1 x 0.22` m) in one `coatMat` group at the right gallery, eye level on the arrival path (`S + 1.35`, `z 3.3..5.0`). Ticket desk and coat counter are also plain boxes. There is no hanger, collar, sleeve or gap a person could pass a coat through.
+  **Problem:** The first inhabited space after the stair reads as procedural blocks, while the dance floor, DJ and crowd are much more carefully made.
+  **User-visible effect:** Coats look like dark planks. In VR they can be inspected from a few centimetres.
+  **Immersion impact:** High for the arrival sequence, low once the guest is on the floor.
+  **Desktop impact:** Visible from the arrival camera preset.
+  **VR impact:** The worst case. The galleries are at street level and the rail is at about eye height.
+  **Performance impact:** Must stay one merged draw. Do not add a cloth simulation.
+  **Recommended solution:** Replace the seven boxes with a small set of authored coat silhouettes (or one merged low-poly coat mesh, instanced) sharing `coatMat`, hung from the existing rail with uneven spacing and a few empty hangers. Keep the counter as joinery.
+  **Regression considerations:** Vestibule collision blocks, the street-door light list, and the one-draw-per-material dressing rule.
+  **Acceptance criteria:** From the top landing, coats read as hanging garments, not slabs; the coat group remains one draw; gallery collision is unchanged.
+  **Validation:** A headless bounds check that the meshes hang from the rail and do not intersect the counter, plus an arrival-preset screenshot.
+  **Estimated effort:** Medium
+  **Product value:** Medium
+  **Technical debt reduction:** Low
+
+- [x] **The default house set was cut to 112 kbps while the deploy budget now has headroom**
+
+  **Implemented 2026-10-14.** `scripts/build-default-set.mjs` encodes the same 3 cycles (15.5 minutes, 124 BPM) at 160 kbps joint-stereo. `audio/nocturne-house.mp3` is 17.7 MiB (was 12.4 MiB), under the 25 MiB file cap. `dist/` was not rebuilt; the previous 62.4 MiB install plus this 5.3 MiB growth is about 68 MiB, under the 75 MB gate. No headphone listen. `npm test` passed (614).
+
+  **Priority:** Medium
+  **Category:** Audio
+  **Confidence:** High for the encode, Medium for how audible the cut is
+  **Area:** Entry music and kick detection
+  **Affected files:** [build-default-set.mjs](scripts/build-default-set.mjs), [nocturne-house.mp3](audio/nocturne-house.mp3)
+  **Evidence:** The file on disk is 13,007,511 bytes (12.41 MiB), written when the 2026-10-14 budget fix re-encoded 3 cycles at 112 kbps joint-stereo. The existing `dist/` measures 62.4 MiB against the 75 MB CI gate, about 12 MiB of unused budget. The kick detector and crowd lock to this file whenever a guest has no saved set.
+  **Problem:** Joint-stereo 112 kbps is a weak encode for a kick-plus-sub arrangement. The budget cut that required it is no longer tight.
+  **User-visible effect:** Entry music can sound soft, narrow and smeared in the low end, which is also the band the show and the crowd listen to.
+  **Immersion impact:** Medium. This is the first sound in the room.
+  **Desktop impact:** Same file.
+  **VR impact:** Same file, and a Quest speaker or headphone will not hide a weak kick as kindly as a desktop PA simulation might.
+  **Performance impact:** A 160 kbps encode of the same 15.5 minutes is about 18 MiB, roughly +6 MiB, still under the gate if nothing else grows.
+  **Recommended solution:** A/B the current file against a 160 kbps (or Opus, if the playback path can play it) render of the same score. Keep 112 kbps only if the kick-band RMS and a listening check show no loss. Do not lengthen the set.
+  **Regression considerations:** Stay under 75 MB installed, keep 124 BPM, 16-bar phrases, the kick-less breakdown and the same-origin autoplay path. Do not put the set back into `vrclub.questMusic`.
+  **Acceptance criteria:** The shipped file is the better of the two encodes, `du -sm dist` stays `<= 75`, and the kick-band unit test still locks to 124 BPM on it.
+  **Validation:** Rebuild the set, `npm test` kick cases, `npm run build`, and a short listen on headphones at the dance floor and on the stair.
+  **Estimated effort:** Small
+  **Product value:** Medium
+  **Technical debt reduction:** Low
+
+---
+
 ## Review - 2026-10-14 - Principal ultrahyperrealism, architecture & release review
 
 Review pass over the current repository state. Executed: `npm run check` (80 JS files, PASS),
@@ -160,7 +246,9 @@ with new evidence or satisfied criteria are updated in place without duplicates.
   **Product value:** High
   **Technical debt reduction:** Low
 
-- [ ] **Audio occlusion and PA presence ignore vertical elevation (`pos.y`), treating the mezzanine balcony as floor-level and outdoor height as flat**
+- [x] **Audio occlusion and PA presence ignore vertical elevation (`pos.y`), treating the mezzanine balcony as floor-level and outdoor height as flat**
+
+  **Implemented 2026-10-14.** `updateSpatialAudioListener()` now multiplies the indoor low-pass, reverb, presence and make-up gain by `MezzanineLayout.paZones()` (`cover` under the deck or stair soffit, `onDeck` on the open balcony) and `VenueLayout.bar.listenerShelf()` (at most 0.55, toward 2.4 kHz). Edges ramp over more than two metres. The 2D stage distance, the stair sweep and the sub channel are unchanged. A unit test covers the four zones and the 10 cm edge walk. `test/e2e/audio-spatial.spec.mjs` and `test/e2e/street.spec.mjs` were not re-run. The crowd bed is still one panner at the floor; that width was not part of this change.
 
   **Priority:** Medium
   **Category:** Spatial Audio
@@ -703,6 +791,8 @@ traversal and the additional mirror-spot GPU cost still need Quest validation.
   **Technical debt reduction:** Low
 
 - [ ] **Preserve valid near-floor tracked head heights in the VR surface follower**
+
+  **Rechecked 2026-10-14 (later):** `_xrHeadHeight()` now returns any finite sample, including zero, and `_updateVRWalkSurface()` adds that sample to the surface. The old "0.25 becomes 1.6" camera jump is not in the sampler. `_fitVRCollisionBody()` still ignores a sample `<= 0.3` and reconstructs height from `camera.position.y - _walkLevel`, so a low pose can still size the collider from a stale camera for a frame. Leave open until a headset crouch is checked.
 
   **Priority:** High
   **Category:** VR
@@ -1799,7 +1889,9 @@ Checked and found sound (do not re-raise without new evidence):
   **Product value:** High
   **Technical debt reduction:** Medium
 
-- [ ] **Desktop output is halved by the same sharpen gain (0.5)**
+- [x] **Desktop output is halved by the same sharpen gain (0.5)**
+
+  **Implemented 2026-10-14.** Desktop `sharpenAmount` is 1.0 and `exposure` is 0.6, so the dark-room mean matches the old 1.2 × 0.5 path in the linear ACES toe while peaks are no longer capped at 0.5. `pipeline.sharpenGain` was removed from `INTENTIONAL_DIFFERENCES`. Mean luminance was not recaptured, and `vr-parity.spec.mjs` was not re-run. If that ratio falls below 1.0, raise VR exposure only.
 
   **Priority:** Medium
   **Category:** Rendering
@@ -1827,11 +1919,12 @@ Checked and found sound (do not re-raise without new evidence):
   **Product value:** Medium
   **Technical debt reduction:** Low
 
-- [ ] **Desktop loses SSAO after a VR visit**
+- [x] **Desktop loses SSAO after a VR visit**
 
-  **Rechecked 2026-10-06:** The unchanged isolated parity run passed its exact
-  `KNOWN_DESKTOP_RESTORE_DRIFT` comparison, which still includes both SSAO fields.
-  This is tolerated drift, not proof of correct restoration.
+  **Implemented 2026-10-14.** `VRClubCore.detachPipelineCamera()` forwards a detach only when the camera is in the pipeline list, so entering VR no longer splices the desktop camera off SSAO or SSR. `applyDesktopSettings()` reattaches SSAO only if that camera is missing. Both SSAO keys left `KNOWN_DESKTOP_RESTORE_DRIFT`. A unit test covers the guard. `vr-parity.spec.mjs` was not re-run.
+
+  **Historical evidence (2026-10-06):** an isolated parity run still listed both SSAO fields in
+  `KNOWN_DESKTOP_RESTORE_DRIFT`. That list no longer includes them. The spec itself was not re-run.
 
   **Priority:** Medium
   **Category:** Bug

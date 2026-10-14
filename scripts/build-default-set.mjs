@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// Generates audio/nocturne-house.mp3: the club's own, original house set (about 21 minutes, 124 BPM).
+// Generates audio/nocturne-house.mp3: the club's own, original house set (3 cycles, 15.5 minutes, 124 BPM).
 //
 // Why it exists: a guest who has not added any music used to enter a silent club. This set is written entirely by this
 // script (drums, bass, pads and a lead are synthesised from maths, with no samples and no third-party material), so there is
@@ -420,7 +420,7 @@ async function main() {
     console.log(`Pass 1: raw peak ${stats.peak.toFixed(2)}, RMS ${stats.rms.toFixed(3)}; gain ${gain.toFixed(2)}`);
 
     const ffmpeg = spawn('ffmpeg', ['-y', '-hide_banner', '-loglevel', 'error', '-f', 's16le', '-ar', String(SR), '-ac', '2', '-i', 'pipe:0',
-        '-c:a', 'libmp3lame', '-b:a', '112k', '-joint_stereo', '1', '-fflags', '+bitexact', '-flags:a', '+bitexact',
+        '-c:a', 'libmp3lame', '-b:a', '160k', '-joint_stereo', '1', '-fflags', '+bitexact', '-flags:a', '+bitexact',
         '-id3v2_version', '3', '-metadata', 'title=NOCTURNE House', '-metadata', 'artist=NOCTURNE', '-metadata', 'album=NOCTURNE club set',
         '-metadata', 'comment=Original generated music, MIT licence', OUT], { stdio: ['pipe', 'inherit', 'inherit'] });
     const done = new Promise((resolve, reject) => {

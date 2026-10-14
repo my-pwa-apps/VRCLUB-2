@@ -284,7 +284,7 @@ embedded in each GLB, not by file name).
 
 | Path | What it is | Licence |
 |------|------------|---------|
-| `audio/nocturne-house.mp3` | The club's own original house set: about 21 minutes at 124 BPM, 128 kbps stereo. | MIT, original work of this project |
+| `audio/nocturne-house.mp3` | The club's own original house set: 3 cycles, 15.5 minutes at 124 BPM, 160 kbps joint-stereo. | MIT, original work of this project |
 
 Every sound in it is synthesised from maths by `scripts/build-default-set.mjs` (kick, claps, hats, bass, pads and a lead,
 arranged in 16-bar phrases with builds, a breakdown and drops so the light show and crowd have a real structure to follow).

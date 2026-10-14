@@ -19,7 +19,6 @@ const INTENTIONAL_DIFFERENCES = new Map([
     ['pipeline.bloomKernel', 'smaller blur kernel in VR'],
     ['pipeline.bloomScale', 'vrSettings.vr'],
     ['pipeline.sharpenEdge', 'vrSettings.vr.edgeSharpness'],
-    ['pipeline.sharpenGain', 'desktop runs a 0.5 gain (BACKLOG: halves the desktop image); VR must be 1.0'],
     ['pipeline.exposure', 'vrSettings.vr, eye-adapted'],
     ['pipeline.contrast', 'vrSettings.vr'],
     ['pipeline.vignette', 'a vignette causes discomfort in a headset'],
@@ -43,9 +42,7 @@ const INTENTIONAL_DIFFERENCES = new Map([
  * when one is fixed this test fails until the entry is removed, so the list can only shrink.
  */
 const KNOWN_DESKTOP_RESTORE_DRIFT = [
-    'environment.environmentIntensity',
-    'screenSpace.ssaoAttached',
-    'screenSpace.ssaoCameras'
+    'environment.environmentIntensity'
 ];
 
 const flatten = (value, path = '') => Object.entries(value).flatMap(([key, child]) => {

@@ -7027,6 +7027,117 @@ test('walking down the entrance stair lifts the muffling gradually instead of op
         'the room must be shut away at the top of the stair');
 });
 
+test('the deck muffles the ear under it, the balcony is clearer, and the bar is only a shelf', () => {
+    const { club, window } = createAudioHarness();
+    window.CityLayout = loadClassic('js/cityDistrict.js').window.CityLayout;
+    window.MezzanineLayout = loadClassic('js/mezzanine.js').window.MezzanineLayout;
+    club._connectAudioSourceOnce();
+    club._audioFrameData = { average: 0 };
+    const stand = (x, y, z) => {
+        club.scene = { activeCamera: { globalPosition: { x, y, z }, getForwardRay: () => ({ direction: { x: 0, y: 0, z: 1 } }), upVector: { x: 0, y: 1, z: 0 } } };
+        club.updateSpatialAudioListener();
+        return {
+            c1: club.occlusionFilter.frequency.value,
+            reverb: club.reverbSend.gain.value,
+            sub: club.subGain.gain.value,
+            presence: club._localPaPresence
+        };
+    };
+    const floor = stand(0, 1.7, -15);
+    const under = stand(-11, 1.7, -15);
+    const balcony = stand(-11, 4.7, -15);
+    const bar = stand(9.6, 1.6, -10);
+    const openBarZ = stand(0, 1.6, -10);
+    assert.ok(Math.abs(floor.c1 - 20000) < 1, 'the open floor still hears the whole PA');
+    assert.ok(under.c1 < 900 && under.c1 > 700, `under the deck the top end closes toward 780 Hz (${under.c1.toFixed(0)})`);
+    assert.ok(under.reverb > floor.reverb, 'the soffit adds room, it does not dry the ear');
+    assert.ok(under.presence < floor.presence, 'people under the deck hear less of the PA');
+    assert.ok(balcony.c1 > 18000, 'the open balcony keeps the top end');
+    assert.ok(balcony.reverb < under.reverb, 'the balcony is more direct than the ear under the same deck');
+    assert.ok(balcony.presence > under.presence, 'the balcony is nearer the flown boxes than the floor beneath it');
+    assert.equal(under.sub, balcony.sub, 'the sub channel does not follow the soffit');
+    assert.ok(bar.c1 < openBarZ.c1 && bar.c1 > 6000, `the bar is a partial shelf (${bar.c1.toFixed(0)} Hz), not a wall`);
+    assert.ok(bar.reverb > openBarZ.reverb, 'the alcove adds a little room');
+    // The room-facing edge ramps over more than a metre, so a 10 cm step cannot jump the filter.
+    let previous = stand(-8, 1.7, -15).c1;
+    for (let x = -8.1; x >= -11; x -= 0.1) {
+        const here = stand(Number(x.toFixed(3)), 1.7, -15).c1;
+        assert.ok(here <= previous + 1, `the soffit opened walking under it at x ${x}`);
+        assert.ok(Math.abs(Math.log2(here / previous)) < 0.35, `the soffit jumped at x ${x}`);
+        previous = here;
+    }
+});
+
+test('an unlisted camera is not detached from a post-process pipeline', () => {
+    const { window } = loadClassic('js/club/01-core.js', {
+        BABYLON: { Material: { AllDirtyFlag: 63 } },
+        log: { info() {}, warn() {} },
+        localStorage: { getItem: () => null, setItem() {} }
+    });
+    const desktop = { name: 'camera' };
+    const xr = { name: 'xr' };
+    const cameras = [desktop];
+    const calls = [];
+    const manager = {
+        _renderPipelines: { ssao: { _cameras: cameras } },
+        detachCamerasFromRenderPipeline(name, camera) {
+            calls.push(camera);
+            cameras.splice(cameras.indexOf(camera), 1);
+        },
+        attachCamerasToRenderPipeline(name, camera) { cameras.push(camera); }
+    };
+    assert.equal(window.VRClubCore.detachPipelineCamera(manager, 'ssao', xr), false);
+    assert.deepEqual(calls, [], 'forwarding the XR camera would splice the desktop camera at index -1');
+    assert.deepEqual(cameras, [desktop]);
+    assert.equal(window.VRClubCore.detachPipelineCamera(manager, 'ssao', desktop), true);
+    assert.deepEqual(cameras, []);
+    assert.equal(window.VRClubCore.attachMissingPipelineCamera(manager, 'ssao', desktop), true);
+    assert.equal(window.VRClubCore.attachMissingPipelineCamera(manager, 'ssao', desktop), false);
+    assert.deepEqual(cameras.map(camera => camera.name), ['camera']);
+});
+
+test('every EXIT sign sits over a real opening', () => {
+    const { window } = loadClassic('js/club/04-environment.js', { VRClubRendering: class {} });
+    const vestibule = loadClassic('js/venueDressing.js').window.VenueLayout.vestibule;
+    const signs = window.signagePlan(vestibule.streetLevel);
+    const exits = signs.filter(sign => sign.cell === 'exit');
+    assert.equal(exits.length, 2);
+    const clubDoor = exits.find(sign => sign.wall < 1);
+    const streetDoor = exits.find(sign => sign.wall > 1);
+    assert.ok(clubDoor && streetDoor);
+    assert.equal(clubDoor.axis, 'z');
+    assert.ok(Math.abs(clubDoor.along) <= 2, 'the club EXIT must be over the doorway, not beside it');
+    assert.ok(clubDoor.y > 3.4 && clubDoor.y < 3.4 + 0.4, 'the club EXIT sits on the lintel');
+    assert.equal(streetDoor.along, 0);
+    assert.ok(streetDoor.y > vestibule.streetLevel + vestibule.doorHeight);
+    assert.ok(streetDoor.y < vestibule.streetLevel + vestibule.doorHeight + 0.5);
+    assert.ok(signs.every(sign => sign.cell !== 'exit' || sign.axis !== 'x'), 'no EXIT remains on a side wall');
+    assert.ok(signs.some(sign => sign.cell === 'nocturne') && signs.some(sign => sign.cell === 'bar'));
+});
+
+test('coats hang from the rail as garments, clear of the coat-check counter', () => {
+    const { window } = loadClassic('js/venueDressing.js');
+    const railY = 2.8 + 1.95;
+    const parts = window.coatSilhouetteParts(12, railY, 3.38, 1);
+    const shoulder = parts.find(part => part.d >= 0.35);
+    assert.ok(shoulder && shoulder.d > shoulder.w * 3, 'a coat has shoulders, not a slab face');
+    assert.ok(parts.every(part => part.w < 0.12), 'no coat part is a wide plank');
+    assert.ok(parts.some(part => part.tilt), 'sleeves leave the body');
+    const hook = parts.find(part => part.h < 0.08 && !part.tilt);
+    assert.ok(hook && hook.y > railY - 0.05 && hook.y < railY, 'the garment hangs from the rail');
+    const hem = Math.min(...parts.map(part => part.y - part.h / 2));
+    assert.ok(hem < railY - 0.7, 'the hem is a coat length below the rail');
+    const counterEnd = 2.1 + 1.0;
+    for (const scale of [0.86, 1, 1.06]) {
+        for (const z of [3.38, 3.96, 5.16]) {
+            for (const part of window.coatSilhouetteParts(12, railY, z, scale)) {
+                const reach = part.h / 2 * Math.sin(Math.abs(part.tilt || 0)) + part.d / 2;
+                assert.ok(part.z - reach > counterEnd, `a coat overlaps the counter at z ${z}`);
+            }
+        }
+    }
+});
+
 test('the street is drawn only near the entrance (with hysteresis) and the outdoors amount eases', () => {
     const { window } = loadClassic('js/cityDistrict.js');
     const toggles = [];

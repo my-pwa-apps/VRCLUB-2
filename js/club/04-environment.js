@@ -1,4 +1,27 @@
 'use strict';
+
+/**
+ * Every wall sign. EXIT quads must sit on an opening a guest can walk through: the club doorway
+ * (x -2..2, top y 3.4) and the street door (centred, sill at street level). There is no side door.
+ */
+function signagePlan(streetLevel) {
+    const WALL_RIGHT = 12.25, WALL_FRONT = -0.25;
+    const level = streetLevel || 0;
+    return [
+        // The club's name over the doorway, facing the DJ and the dance floor (top of the door is y 3.4).
+        { cell: 'nocturne', kind: 'nocturne', w: 6.0, h: 6.0 * 272 / 1024, wall: WALL_FRONT, axis: 'z', y: 5.2, along: 0, yaw: 0, plate: false },
+        // The same logo faces outward above the street door, so the entrance remains branded from the avenue.
+        { cell: 'nocturne', kind: 'nocturne', w: 4.9, h: 4.9 * 272 / 1024, wall: 6.0, axis: 'z', y: level + 4.25, along: 0, yaw: Math.PI, plate: false },
+        { cell: 'bar', kind: 'neon', color: [1, 0.55, 0.12], w: 1.5, h: 1.07, wall: WALL_RIGHT, axis: 'x', y: 3.95, along: -9.9, yaw: Math.PI / 2 },
+        // Over the club doorway, on the lintel, facing the room. Not beside the opening.
+        { cell: 'exit', kind: 'exit', color: [0.1, 1, 0.35], w: 0.5, h: 0.18, wall: WALL_FRONT, axis: 'z', y: 3.58, along: 0, yaw: 0 },
+        // The vestibule: ENTER over the doorway on the stair side, EXIT over the street door on its lintel.
+        { cell: 'enter', kind: 'neon', color: [0.1, 0.9, 1], w: 1.44, h: 0.4, wall: 0.25, axis: 'z', y: 3.5, along: 0, yaw: Math.PI },
+        { cell: 'exit', kind: 'exit', color: [0.1, 1, 0.35], w: 0.5, h: 0.18, wall: 6.0, axis: 'z', y: level + 3.3, along: 0, yaw: 0 }
+    ];
+}
+window.signagePlan = signagePlan;
+
 class VRClubEnvironment extends VRClubRendering {
     // === DANCE FLOOR EDGE LIGHTING ===
     createDanceFloorLighting() {
@@ -126,23 +149,11 @@ class VRClubEnvironment extends VRClubRendering {
      * The glow layer's selector gives `signageGlow` a glow (see _createGlowLayer).
      */
     createSignage() {
-        const WALL_RIGHT = 12.25, WALL_LEFT = -12.25, WALL_FRONT = -0.25; // inner faces of the shell
         const PLATE = 0.06;
         // The street door is at the top of the entrance stair (the club is a basement).
         const streetLevel = (window.VenueLayout && window.VenueLayout.vestibule.streetLevel) || 0;
         // yaw: a plane faces (-sin yaw, -cos yaw), so PI/2 faces -x (the right wall looks into the room).
-        const signs = [
-            // The club's name over the doorway, facing the DJ and the dance floor (top of the door is y 3.4).
-            { cell: 'nocturne', kind: 'nocturne', w: 6.0, h: 6.0 * 272 / 1024, wall: WALL_FRONT, axis: 'z', y: 5.2, along: 0, yaw: 0, plate: false },
-            // The same logo faces outward above the street door, so the entrance remains branded from the avenue.
-            { cell: 'nocturne', kind: 'nocturne', w: 4.9, h: 4.9 * 272 / 1024, wall: 6.0, axis: 'z', y: streetLevel + 4.25, along: 0, yaw: Math.PI, plate: false },
-            { cell: 'bar', kind: 'neon', color: [1, 0.55, 0.12], w: 1.5, h: 1.07, wall: WALL_RIGHT, axis: 'x', y: 3.95, along: -9.9, yaw: Math.PI / 2 },
-            { cell: 'exit', kind: 'exit', color: [0.1, 1, 0.35], w: 0.5, h: 0.18, wall: WALL_FRONT, axis: 'z', y: 3.0, along: 3.4, yaw: 0 },
-            { cell: 'exit', kind: 'exit', color: [0.1, 1, 0.35], w: 0.5, h: 0.18, wall: WALL_LEFT, axis: 'x', y: 2.5, along: -17.5, yaw: -Math.PI / 2 },
-            // The vestibule: ENTER over the doorway on the stair side, EXIT over the street door on its lintel.
-            { cell: 'enter', kind: 'neon', color: [0.1, 0.9, 1], w: 1.44, h: 0.4, wall: 0.25, axis: 'z', y: 3.5, along: 0, yaw: Math.PI },
-            { cell: 'exit', kind: 'exit', color: [0.1, 1, 0.35], w: 0.5, h: 0.18, wall: 6.0, axis: 'z', y: streetLevel + 3.3, along: 0, yaw: 0 }
-        ];
+        const signs = signagePlan(streetLevel);
 
         // Atlas cells in pixels: x, y, w, h. Aspect ratios match the signs they feed.
         const W = 1024, H = 512;
