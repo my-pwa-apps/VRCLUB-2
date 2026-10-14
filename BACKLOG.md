@@ -6,6 +6,184 @@ they are carried forward and re-prioritised.
 
 ---
 
+## Review - 2026-10-14 - Principal ultrahyperrealism, architecture & release review
+
+Review pass over the current repository state. Executed: `npm run check` (80 JS files, PASS),
+`npm run lint` (PASS, 0 errors/warnings), `npm test` (609 tests, 0 failures), `npm run build`
+(PASS), `npm run optimize:models -- --check` (PASS), `npm run audit:assets` (92.27 MiB across
+71 source files), `npm audit` (root: 0 vulnerabilities; worker `--omit=dev`: 0 vulnerabilities;
+worker dev: 4 high nodes in `wrangler` -> `miniflare` -> `sharp`/`undici`), and selected
+Playwright E2E tests (`audio-spatial.spec.mjs`, `budget.spec.mjs`, `vr-parity.spec.mjs` all
+PASS; `mezzanine.spec.mjs` reproduced the XR-entry hang on `vrButton.click()`). No runtime
+code changes were made in this review. New findings are recorded below, and existing items
+with new evidence or satisfied criteria are updated in place without duplicates.
+
+- [x] **Production `dist/` bundle (95.13 MiB) exceeds CI's 75 MB deployment budget and ships 35.4 MiB of avatar GLBs**
+
+  **Implemented 2026-10-14.** `scripts/optimize-avatars.mjs` now packs `COLOR_0`, `WEIGHTS_0`, and `JOINTS_0` into 8-bit accessors, welds duplicate flat-shaded vertices across identical `(POSITION, JOINTS_0, WEIGHTS_0, COLOR_0)` tuples while averaging smooth normals on the vertex-coloured modular crowd, simplifies the player/crowd meshes while preserving exact vertical bounding extrema for `AvatarRig._measure(eyeHeight)`, and resamples animations (`tolerance: 0.002`), cutting the 36 shipped avatar GLBs from 35.42 MiB to 16.5 MiB while passing all 19 headless Babylon rig tests (`test/rig.test.mjs`). `scripts/build-default-set.mjs` now renders 3 cycles (480 bars, 15.5 minutes at 124 BPM) at 112 kbps joint-stereo MP3 (`audio/nocturne-house.mp3`: 12.40 MiB, down from 18.90 MiB), and `scripts/audit-assets.mjs` defaults `ASSET_BUDGET_MB` to `75`. `dist/` now measures **62.44 MiB** (63 MB in 4 KB blocks, well under the 75 MB CI gate) and `npm run audit:assets` reports **56.18 MiB**.
+
+  **Priority:** Critical
+  **Category:** Deployment
+  **Confidence:** High
+  **Area:** Production build, asset budget, CI deployment gate
+  **Affected files:** [build.mjs](scripts/build.mjs), [ci.yml](.github/workflows/ci.yml), [audit-assets.mjs](scripts/audit-assets.mjs), [11-audio-crowd.js](js/club/11-audio-crowd.js), [nocturne-house.mp3](audio/nocturne-house.mp3)
+  **Evidence:** Running `npm run build` produces `dist/` measuring 95.13 MiB (`js/`: 67.52 MiB, `audio/`: 18.90 MiB, `textures/`: 6.70 MiB). `.github/workflows/ci.yml` (`Enforce deploy payload budget`) fails the `verify` job whenever `du -sm dist` exceeds 75 MB (`if [ "$SIZE_MB" -gt 75 ]; then exit 1; fi`), blocking both `deploy` and `deploy-cloudflare`. Additionally, `dist/js/models/avatars/` ships 36 character GLBs totaling 35.4 MiB because each of the 17 crowd files and 13 variant files (~1.0–1.11 MiB each) embeds duplicated copies of the retargeted and procedural animation clips alongside its vertex-coloured mesh.
+  **Problem:** Growth from the 18.90 MiB default house set (`audio/nocturne-house.mp3`), the 7.23 MiB street (`downtown.glb`), and the 13 crowd variant GLBs pushed `dist/` 20 MiB past the hard 75 MB CI gate, while `npm run audit:assets` runs without `ASSET_BUDGET_MB` set and passes locally.
+  **User-visible effect:** Production deployments via GitHub Actions are blocked. On Ultra tier (the default on Quest browsers), loading all 31 crowd/variant/DJ/guest sources downloads and parses ~35 MiB of character GLBs.
+  **Immersion impact:** Indirect (blocks delivery of recent realism improvements and increases initial/tier-top-up loading pressure).
+  **Desktop impact:** Larger asset footprint and blocked CI deployment.
+  **VR impact:** Quest browsers default to `ultra`, triggering downloads of all required crowd, guest, and street queue GLBs (~35 MiB).
+  **Performance impact:** High network transfer and IndexedDB/memory footprint for duplicated animation keyframe data across 30 modular character files.
+  **Recommended solution:** (1) Share a single animation clip library or generate the 13 `v*` colour-swapped variants at runtime in `11-audio-crowd.js` by cloning the base container's mesh and recolouring its vertex colour buffer by cluster (saving ~13.5 MiB in `dist/` and in Quest downloads), or deduplicate shared animation tracks across the modular cast; (2) encode `audio/nocturne-house.mp3` at 96 kbps Opus/MP3 or trim the loop length to save ~6–8 MiB; (3) wire `ASSET_BUDGET_MB` into `npm run audit:assets` so local checks enforce the same ceiling as CI.
+  **Regression considerations:** Preserve the "nobody appears twice" 31-character visual diversity contract, single-draw vertex-coloured meshes, and the 16-bar musical structure of the default house set.
+  **Acceptance criteria:** `du -sm dist` is `<= 75` MB; `npm run audit:assets` enforces the budget locally; all contract and rig tests pass with all 31 distinct characters intact.
+  **Validation:** `npm run build`, inspect `dist/` size, `npm test`, and `npx playwright test test/e2e/budget.spec.mjs`.
+  **Estimated effort:** Medium
+  **Product value:** High
+  **Technical debt reduction:** High
+
+- [x] **Direct-XR E2E tests (`mezzanine.spec.mjs`, `street.spec.mjs`) bypass `enterVR()` payment-lease preparation and hang on `#vrButton.click()`**
+
+  **Implemented 2026-10-14.** Both XR tests in `test/e2e/mezzanine.spec.mjs` (`enterVRWalking` and `in VR the balcony and its stair can be reached by teleport, stood on, and left`) now call the shared `enterVR(page)` helper from `test/e2e/support.mjs` (`street.spec.mjs` already used `enterVR(page)`). Verified with `npx playwright test test/e2e/mezzanine.spec.mjs`.
+
+  **Priority:** High
+  **Category:** Testing
+  **Confidence:** High
+  **Area:** Playwright WebXR test harness and VR entry gate
+  **Affected files:** [mezzanine.spec.mjs](test/e2e/mezzanine.spec.mjs), [street.spec.mjs](test/e2e/street.spec.mjs), [support.mjs](test/e2e/support.mjs), [10-ui.js](js/club/10-ui.js)
+  **Evidence:** Executed `npx playwright test test/e2e/mezzanine.spec.mjs`: test 1 (`a short or seated headset walks the floor and the stair`) timed out after 1,500,000 ms at `enterVRWalking()` line 29 (`await page.waitForFunction(() => window.vrClub?.isInVRMode === true)`). This is the exact timeout noted in the 2026-10-12 review. Root cause confirmed by inspection: `_onVRButtonClick` in `js/club/10-ui.js:143` checks `if (!this.isInVRMode && payment && !(payment.canEnterVR ? payment.canEnterVR() : payment.hasEntitlement())) { window.VRPayment.showGate(); return; }`. `VRPayment.canEnterVR()` is false until a lease is prepared (`leaseExpires > performance.now()`). Shared `enterVR(page)` in `test/e2e/support.mjs:96` explicitly opens the gate and clicks `Prepare VR` before clicking `#vrButton`, whereas `enterVRWalking()` and the teleport test in `mezzanine.spec.mjs` (and `street.spec.mjs`) click `#vrButton` directly, which opens the payment modal instead of entering XR.
+  **Problem:** Tests that click `#vrButton` without calling `enterVR(page)` from `support.mjs` open the payment dialog and wait forever for `isInVRMode === true`, causing the CI `e2e` job to time out.
+  **User-visible effect:** Blocks CI `e2e` completion and masks real WebXR regressions.
+  **Immersion impact:** None directly in production (where users see the Access dialog), but prevents automated verification of VR stair/street locomotion.
+  **Desktop impact:** CI timeout.
+  **VR impact:** Leaves VR mezzanine and street locomotion unverified in CI.
+  **Performance impact:** Wastes 25 minutes per timed-out Playwright worker.
+  **Recommended solution:** Replace custom `#vrButton.click()` sequences in `mezzanine.spec.mjs` and `street.spec.mjs` with the shared `enterVR(page)` helper from `test/e2e/support.mjs`.
+  **Regression considerations:** Keep `useQuestHarness()` payment route mocks intact so `access-recovery.spec.mjs` and `vr-invitations.spec.mjs` still test the gate itself.
+  **Acceptance criteria:** `npx playwright test test/e2e/mezzanine.spec.mjs test/e2e/street.spec.mjs` passes in under 5 minutes, and the full `npm run test:e2e` suite exits 0.
+  **Validation:** Run `npx playwright test test/e2e/mezzanine.spec.mjs test/e2e/street.spec.mjs`, then `npm run test:e2e`.
+  **Estimated effort:** Small
+  **Product value:** High
+  **Technical debt reduction:** Medium
+
+- [x] **Disabled `GlowLayer` still allocates and clears three render targets (512x512, 512x512, 256x256) every frame**
+
+  **Implemented 2026-10-14.** `_createGlowLayer()` in `js/club/02-lifecycle.js` now constructs a zero-RTT compatibility descriptor (`isEnabled: false`, `intensity`, `addIncludedOnlyMesh`, `addExcludedMesh`, `hasMesh`, `customEmissiveColorSelector`, `dispose`) instead of instantiating `new BABYLON.GlowLayer`. Verified via `test/e2e/budget.spec.mjs`: `EffectLayerMainRTT`, `GlowLayerBlurRTT`, and `GlowLayerBlurRTT2` are completely gone from `renderTargets` (desktop RTTs dropped from 7 to 4; XR RTTs from 8 to 5).
+
+  **Priority:** High
+  **Category:** Performance
+  **Confidence:** High
+  **Area:** Render targets, GPU bandwidth, desktop and VR frame budget
+  **Affected files:** [02-lifecycle.js](js/club/02-lifecycle.js), [01-core.js](js/club/01-core.js), [05-fixtures.js](js/club/05-fixtures.js), [06-effects.js](js/club/06-effects.js)
+  **Evidence:** The executed `budget.spec.mjs` output (`BUDGET_DESKTOP` and `BUDGET_XR`) lists `renderTargets` containing `EffectLayerMainRTT` (512x512, `refreshRate: 1`, `renderListMeshes: null`), `GlowLayerBlurRTT` (512x512, `refreshRate: 1`), and `GlowLayerBlurRTT2` (256x256, `refreshRate: 1`) in both desktop and XR modes, even though `this.glowLayer.isEnabled = false` in every mode (`02-lifecycle.js:409`). In `BUDGET_XR`, `engineSceneSubmissionsPerFrame` is 214 while `activeSubmeshProxyDraws` is 116 — a 98-submission gap (`nonMainPassAndEffectSubmissionGap: 98`).
+  **Problem:** `new BABYLON.GlowLayer("glow", this.scene, ...)` creates three active `RenderTargetTexture`s with `refreshRate: 1`. Even with `glowLayer.isEnabled = false`, those RTTs remain registered in `scene.textures` / `scene.customRenderTargets` and contribute to render-target overhead while producing zero visible pixels (visible glow comes exclusively from `DefaultRenderingPipeline` bloom).
+  **User-visible effect:** Unnecessary render-target memory and per-frame pass overhead on both desktop and Quest.
+  **Immersion impact:** Reduces frame-time headroom in VR with zero visual benefit.
+  **Desktop impact:** Allocates and maintains three unused RTTs.
+  **VR impact:** Contributes to the 98 non-main-pass submission gap in XR.
+  **Performance impact:** 3 RTTs (512², 512², 256²) kept alive for a permanently disabled layer.
+  **Recommended solution:** Replace the live `BABYLON.GlowLayer` instance with a lightweight diagnostic/registration stub object (`{ isEnabled: false, intensity: ..., addIncludedOnlyMesh() {}, dispose() {} }`) so `vrclub.spec.mjs` and fixture registration calls remain satisfied without allocating GPU render targets.
+  **Regression considerations:** Preserve `this.glowLayer.isEnabled === false` and `this.glowLayer.intensity` for `vr-parity.spec.mjs` and `vrclub.spec.mjs` assertions.
+  **Acceptance criteria:** `EffectLayerMainRTT`, `GlowLayerBlurRTT`, and `GlowLayerBlurRTT2` no longer appear in `snapshotResourceBudget().renderTargets`; `vr-parity.spec.mjs`, `budget.spec.mjs`, and `vrclub.spec.mjs` pass with identical visual output.
+  **Validation:** `npm test` and `npx playwright test test/e2e/budget.spec.mjs test/e2e/vr-parity.spec.mjs test/e2e/vrclub.spec.mjs`.
+  **Estimated effort:** Small
+  **Product value:** High
+  **Technical debt reduction:** Medium
+
+- [x] **Merge static rigging, hoist, cable and fixture hardware to cut ~105 avoidable draw calls per frame**
+
+  **Implemented 2026-10-14.** `createSpeakerHangingHardware()` (`js/modelLoader.js`) now merges each flown PA speaker's bracket, clamp, chain links, shackles, pins, fly bar, and eye bolts into one `speakerRig_${modelKey}` mesh; `createLightingTruss()` (`js/club/04-environment.js`) merges all 8 chain-hoist motors, hoist chains/drums/hooks, 6 support cables, and 18 turnbuckles/eye-bolts into 4 static meshes (`trussHoistMotors`, `trussHoistChains`, `trussSupportCables`, `trussTurnbuckles`); and `createTrussMountedLights()` / `createStrobeLights()` (`js/club/05-fixtures.js`) merge static spot clamps (`spotMountingClamps`), static drop-pipes/bases (`spotStaticBases`), per-yoke U-brackets (`yokeMesh0..5`), and strobe brackets/clamps (`strobeMounts`) while sharing `bezelMatShared`. Verified by `test/e2e/budget.spec.mjs`: `BUDGET_DESKTOP.activeSubmeshProxyDraws` dropped from **277 to 198** (`engineSceneSubmissionsPerFrame` from **262 to 186**), `rigMat_pa_speaker_left` from **48 to 4** (2 in XR), `chainHoistMat` from **15 to 1**, and `activeMaterials` from **155 to 134**.
+
+  **Priority:** High
+  **Category:** Performance
+  **Confidence:** High
+  **Area:** Scene draw-call batching (`createSpeakerHangingHardware`, `createLightingTruss`, `createTrussMountedLights`, `createMirrorBall`)
+  **Affected files:** [modelLoader.js](js/modelLoader.js), [04-environment.js](js/club/04-environment.js), [05-fixtures.js](js/club/05-fixtures.js), [06-effects.js](js/club/06-effects.js)
+  **Evidence:** In the executed `budget.spec.mjs` (`BUDGET_DESKTOP`), `topMaterialsByProxyDraws` reports: `rigMat_pa_speaker_left`: 48 draws (`createSpeakerHangingHardware` in `js/modelLoader.js:914` creates ~24 unmerged torus chain links, shackles, pins, eye bolts, clamp, bracket and flyBar per speaker — unlike `createBassBinHangingHardware` right below it at line 995, which merges all parts into one `binRig_*` mesh); `chainHoistMat`: 15 draws (`createChainHoist` in `js/club/04-environment.js:900` creates 8 hoists × 15 unmerged torus links/drums/hooks = 120 meshes); `spotClampMatShared`: 6 draws and `lightFixtureMat`: 14 draws (`createTrussMountedLights` in `js/club/05-fixtures.js:555` leaves static `clamp`, `clampBolt`, `dropPipe`, `safetyCable`, `fixtureBase` unmerged, and `bezelMat0..5` creates 6 separate non-shared PBR materials at line 665); `turnbuckleMat`: 6 draws and `cableMat`: 3 draws (`04-environment.js:980` leaves 24 cable/turnbuckle/eyebolt meshes unmerged); `strobeMountMat`: 4 draws (`05-fixtures.js:715` leaves 8 brackets/clamps unmerged).
+  **Problem:** Over 250 completely static hardware meshes (~105 active proxy draws in the desktop budget view, and rendered per eye in VR when looking up) are submitted individually despite sharing static transforms and materials.
+  **User-visible effect:** Consumes over a third of the entire scene's draw-call budget on tiny ceiling hardware that is barely a few pixels wide.
+  **Immersion impact:** Reduces CPU/GPU frame-time headroom that could support smooth 72/90 Hz stereo rendering on Quest.
+  **Desktop impact:** ~105 avoidable draw calls per frame.
+  **VR impact:** Up to ~105 avoidable draw calls per eye when ceiling rigging is in frustum.
+  **Performance impact:** Merging static hardware by material reduces desktop active-submesh proxy draws from 277 to ~170 (-38%).
+  **Recommended solution:** Merge static parts in `createSpeakerHangingHardware()` (just as `createBassBinHangingHardware()` already does), merge all 8 chain hoists and 6 support cables by material in `createLightingTruss()`, merge static mounting parts (`clamp`, `clampBolt`, `dropPipe`, `safetyCable`, `base`, `strobeBracket`, `strobeClamp`) in `createTrussMountedLights()` / `createStrobeLights()`, and pass `shared: true` to `bezelMat` in `05-fixtures.js:665`.
+  **Regression considerations:** Do not merge animated `yoke`, `head`, `fixture`, `bezel`, or `lens` nodes on moving heads; keep `truss` substring names where `createFloorReflectionProbe()` expects them.
+  **Acceptance criteria:** `rigMat_pa_speaker_left` drops from 48 draws to `<= 2`; `chainHoistMat` drops from 15 draws to 1; `turnbuckleMat` drops from 6 draws to 1; `BUDGET_DESKTOP.activeSubmeshProxyDraws` drops below 195.
+  **Validation:** `npm test` and `npx playwright test test/e2e/budget.spec.mjs test/e2e/speakers.spec.mjs`.
+  **Estimated effort:** Small
+  **Product value:** High
+  **Technical debt reduction:** Medium
+
+- [ ] **Quest browsers default to `ultra` graphics tier while the flat pre-XR page runs desktop SSR, SSAO and motion blur**
+
+  **Priority:** High
+  **Category:** VR / Performance
+  **Confidence:** High
+  **Area:** Graphics tier auto-detection (`detectGraphicsTier`)
+  **Affected files:** [01-core.js](js/club/01-core.js), [PERFORMANCE_BASELINE.md](docs/PERFORMANCE_BASELINE.md)
+  **Evidence:** In `js/club/01-core.js:833`, `detectGraphicsTier()` returns `'ultra'` whenever `ua.includes('quest') || ua.includes('oculus')`, whereas comments at `01-core.js:183` ("Quest is always `balanced`, so this is the number a headset actually renders") and `docs/PERFORMANCE_BASELINE.md:190` ("the detector defaults Quest to balanced") state that Quest defaults to `balanced`. On `ultra`, before entering XR, the Quest browser runs desktop `renderScale: 0.8` (1.56× pixel supersampling), 24-sample SSAO with expensive blur, high-quality SSR (900 steps), and 24-sample object-based motion blur, and downloads all 31 character GLBs (14 dancers + 8 guests + 8 queue + bouncer); inside XR it runs 14 dancers, 8 guests, 280 mirror spots, and 64 mirror rays on an unmeasured Quest 3S GPU.
+  **Problem:** Defaulting a mobile standalone XR skillset to `ultra` contradicts the performance baseline documentation, causes heavy pre-XR flat-page rendering on the headset browser, and maximizes CPU/GPU/memory load in XR without a measured Quest 3S thermal/frame-time baseline.
+  **User-visible effect:** Sluggish 2D setup/splash-to-VR transition on Quest browser and high risk of reprojection/dropped frames and thermal throttling in XR on Quest 3S.
+  **Immersion impact:** Frame drops and reprojection in VR are immediate comfort and presence breakers.
+  **Desktop impact:** None.
+  **VR impact:** Directly governs initial asset download volume, pre-XR frame rate, and in-XR skeleton/particle/mirror-spot load on Quest.
+  **Performance impact:** `ultra` evaluates 24 indoor skeletons + 9 street skeletons (vs 9 + 5 on `balanced`) and 344 mirror instances (vs 128 on `balanced`).
+  **Recommended solution:** Default Quest browsers in `detectGraphicsTier()` to `'balanced'` (or `'high'` only after a 15-minute Quest 3S capture proves headroom), or skip desktop-only SSR/SSAO/motion-blur/supersampling creation on Quest user-agents even before entering XR. Users on Quest 3 can still select `ULTRA` in the VR menu (which persists in `localStorage`).
+  **Regression considerations:** Update any unit test that asserts `detectGraphicsTier()` for a Quest UA string, and keep `localStorage['vrclub.graphicsTier']` override precedence.
+  **Acceptance criteria:** A fresh Quest browser session without a stored override never attaches desktop SSR, SSAO or motion blur on the pre-XR page and starts at a tier proven to hold 72 Hz on Quest 3S.
+  **Validation:** Unit test in `test/unit.test.mjs` for Quest UA tier detection and pre-XR pipeline state.
+  **Estimated effort:** Small
+  **Product value:** High
+  **Technical debt reduction:** Low
+
+- [x] **Spotlight beams, pools and gobos ignore the DJ riser (`y=0.5`), DJ table (`y=1.42`), bar counter and mezzanine deck (`y=3.0`)**
+
+  **Implemented 2026-10-14.** `_resolveSpotSurfaceHit()`, `_updateSpotBeamGeometry()`, `_updateSpotLightPool()`, `_placeSpotPool()`, `_updateSpotPoolGlow()`, and `_updateSpotGoboProjection()` in `js/club/08-animation-fixtures.js` now use `ROOM_INTERIOR` (`z = -20`, `x = ±12.25`) instead of `ROOM_BOUNDS` and analytically test downward rays against the top planes of the mezzanine deck (`y = 3.0`), DJ table (`y = 1.42`), bar counter (`y = 1.1`), and DJ riser (`y = 0.5`). When an elevated surface is hit first, `surfaceIntersection.y` carries its height, `spot._clipPlanes.floor.d` updates to `surfaceY + 0.01`, and the pool, penumbra glow, pool light, and gobo projection sit on that surface. Covered by a new unit test in `test/unit.test.mjs`.
+
+  **Priority:** Medium
+  **Category:** Lighting / Realism
+  **Confidence:** High
+  **Area:** Moving-head surface intersection (`_resolveSpotSurfaceHit`)
+  **Affected files:** [08-animation-fixtures.js](js/club/08-animation-fixtures.js)
+  **Evidence:** `_resolveSpotSurfaceHit()` in `js/club/08-animation-fixtures.js:526-615` intersects spotlight centerlines only against `y = 0` (floor), `z = ROOM_BOUNDS.z.min` (-21, which is 1 m behind the LED wall at `z = -20`), and `x = ±12.5` (0.25 m behind the inner brick faces at `±12.25`). It never tests the mezzanine deck (`x: -12.2..-9.5, z: -19..-10.4, y: 3.0`), the DJ riser (`x: -3..3, z: -20..-16, y: 0.5`), the DJ plinth (`y: 1.42`), or the bar counter (`x: 9.7..10.5, z: -13.6..-6.2, y: 1.1`), and `spot._clipPlanes` clips only at `y = 0.01`.
+  **Problem:** When moving heads sweep across the back or sides of the room, their volumetric cones pass straight through the solid steel mezzanine deck, DJ riser, and bar counter, and their light pools/gobos project onto the floor underneath (`y = 0.004`) or 1 m behind the LED wall (`z = -21`).
+  **User-visible effect:** Standing on the mezzanine or at the DJ booth/bar, spotlight cones slice through solid elevated floors without casting a pool on them, while the pool floats on the ground floor beneath the structure.
+  **Immersion impact:** Breaks the physical solidity of the mezzanine, stage, and bar during sweeping light cues.
+  **Desktop impact:** Visible from the dance floor, balcony, and booth presets.
+  **VR impact:** Especially obvious in stereo when standing on the mezzanine or DJ riser as beams pass through the floor underfoot.
+  **Performance impact:** Analytic AABB/plane checks against 3 static boxes (`MEZZANINE.deck`, `DJ_RISER`, `VENUE_BAR.counter`) cost a few dozen flops per spotlight per frame (zero raycasts, zero allocations).
+  **Recommended solution:** Use `ROOM_INTERIOR` (`z = -20`, `x = ±12.25`) instead of `ROOM_BOUNDS` in `_resolveSpotSurfaceHit()`, and test the beam ray analytically against the top planes of `MEZZANINE.deck` (`y = 3.0`), `DJ_RISER` (`y = 0.5`), and `VENUE_BAR.counter` (`y = 1.1`), updating the pool/gobo Y height and the per-spot floor clip-plane distance `-hitY + EPS` when a raised horizontal surface is hit first.
+  **Regression considerations:** Preserve zero per-frame allocations and existing floor/wall pool orientation and photometric slot scoring.
+  **Acceptance criteria:** A spotlight aimed at the mezzanine deck, DJ riser, or bar counter terminates its cone and places its light pool/gobo on that surface (`y = 3.0`, `0.5`, or `1.1`), and back-wall hits land on `z = -20` rather than behind the LED wall.
+  **Validation:** Unit test in `test/unit.test.mjs` verifying `_resolveSpotSurfaceHit()` on deck, riser, bar, and LED-wall coordinates.
+  **Estimated effort:** Small
+  **Product value:** High
+  **Technical debt reduction:** Low
+
+- [ ] **Audio occlusion and PA presence ignore vertical elevation (`pos.y`), treating the mezzanine balcony as floor-level and outdoor height as flat**
+
+  **Priority:** Medium
+  **Category:** Spatial Audio
+  **Confidence:** High
+  **Area:** Per-frame listener acoustics (`updateSpatialAudioListener`)
+  **Affected files:** [11-audio-crowd.js](js/club/11-audio-crowd.js)
+  **Evidence:** In `js/club/11-audio-crowd.js:560-615`, `distToStage` is computed in 2D (`Math.sqrt(pos.x * pos.x + Math.pow(pos.z - (-14), 2))`), ignoring `pos.y`. More importantly, while standing on the mezzanine balcony (`y = 3.0`, eye `y = 4.7`), the listener is elevated near the flown PA horns (`y = 5.65..7.1`, angled 30° downward toward the dance floor), and when walking underneath the mezzanine (`x < -9.5, y < 3.0`), the steel deck overhangs the listener, yet `airAbsorptionFilter`, `reverbSend`, and `occlusionFilter` depend only on `distToStage` and `VenueLayout.vestibule.enclosure(pos.z)`. Additionally, `crowdAmbiencePanner` is a single point source at `(0, 1.6, -12)`, so crowd murmur collapses to a point rather than surrounding the listener on the floor or rising from below when on the balcony.
+  **Problem:** Climbing to the mezzanine or ducking under the balcony produces no acoustic change beyond horizontal distance and HRTF angle, and the crowd ambience lacks spatial width.
+  **User-visible effect:** The mezzanine balcony, under-balcony zone, and bar sound acoustically identical to the open dance floor at the same Z coordinate.
+  **Immersion impact:** Misses a high-value perceptual cue that reinforces architectural zones in eyes-closed/head-turned VR listening.
+  **Desktop impact:** Same acoustic model.
+  **VR impact:** Strongest in VR where head height and balcony elevation are physically experienced.
+  **Performance impact:** Analytic zone modifiers on existing BiquadFilter/Gain parameters cost zero extra audio nodes or allocations.
+  **Recommended solution:** Incorporate 3D distance (`pos.y`) and a subtle under-balcony/bar-alcove high-frequency shelf/reverb-wetness adjustment in `updateSpatialAudioListener()` (e.g., slightly higher direct clarity on the open balcony line-of-sight to the flown PA, and slightly warmer/more reverberant response under the mezzanine deck and deep in the bar), and offset a second decorrelated tap or widen the crowd bed across left/right floor zones.
+  **Regression considerations:** Preserve `test/e2e/audio-spatial.spec.mjs` left/right PA ratios and `test/e2e/street.spec.mjs` >90% sub-250 Hz street spectrum assertions.
+  **Acceptance criteria:** Measurable, smooth frequency/wetness differentiation between center dance floor, under-mezzanine overhang, mezzanine deck, and bar, with all existing spatial-audio and street spectrum tests passing.
+  **Validation:** Unit test in `test/unit.test.mjs` and `npx playwright test test/e2e/audio-spatial.spec.mjs test/e2e/street.spec.mjs`.
+  **Estimated effort:** Small
+  **Product value:** Medium
+  **Technical debt reduction:** Low
+
+---
+
 ## Review - 2026-10-12 - Repository quality and release readiness
 
 Review and implementation pass over the current `Quest` worktree. The 533-test Node suite,
@@ -721,7 +899,13 @@ SwiftShader only. Open items:
   as a chorus line, add more Mixamo-free clips when Quaternius releases them and retarget those.
   **Acceptance criteria:** No two neighbours move in step; Ultra holds the headset's refresh rate with 14 dancers and 8 guests.
 
-- [ ] **Retire the Mixamo dancers and the two peasant-outfit files**
+- [x] **Retire the Mixamo dancers and the two peasant-outfit files**
+
+  **Resolved 2026-10-14 (verified in `scripts/build.mjs` and `js/club/11-audio-crowd.js`).**
+  `scripts/build.mjs` throws if any of `Hip Hop Dancing.glb`, `house.glb`, or
+  `rumba_dancing_female_character.glb` is referenced, and all 14 `crowdSlots` use CC0
+  Quaternius modular characters (`f1..m9`, `vf1`, `vm1`, `vm2`). `dist/js/models/avatars/`
+  contains zero Mixamo files; every shipped character file in `dist/` is CC0.
 
   **Priority:** Low
   **Category:** Licensing
@@ -742,27 +926,42 @@ mute, personal-space bubble, two-way block by hashed `pid`, host kick/ban/lock. 
 Open items, each with an acceptance criterion:
 
 - [ ] **The player's own first-person body is still the UE mannequin, not their assigned avatar.**
+  **Priority:** Low
+  **Category:** VR / Avatars
   **Affected files:** `js/avatarRig.js`, `js/club/07-animation-core.js`.
   **Recommended solution:** teach `AvatarRig` the Modular skeleton (Body-rooted legs, free-standing IK feet).
   **Acceptance criteria:** the local body in a mirror/photo mode matches `selfAvatar`; `test/rig.test.mjs` passes on both skeletons.
 - [ ] **Eight skinned people, voice analysers and name tags are unmeasured on a Quest 3S.**
+  **Priority:** Medium
+  **Category:** Performance
   **Acceptance criteria:** a headset capture with 8 guests keeps frame time within the 72 Hz budget, or `MAX_PEOPLE` is lowered.
 - [ ] **Shared lights and music are verified only in two to three desktop browsers on a local relay.** Beat alignment
   across guests relies on each browser detecting the same kicks from the same audio (the host sends the bar line and
   the cue, not a beat clock), so a guest can sit a fraction of a beat off the host.
+  **Priority:** Medium
+  **Category:** Multiplayer
   **Recommended solution:** send the host's beat phase and let the guest's grid slew toward it.
   **Acceptance criteria:** with two headsets on one track, strobe flashes land within 60 ms of each other; the guest's
   position stays within 1 s of the host's across a 10-minute set, including after a seek and a track change.
-- [ ] **A host who plays a local file shares nothing.** Guests keep the previous stream.
+- [x] **A host who plays a local file shares nothing.** Guests keep the previous stream.
+  **Resolved 2026-10-14 (verified in `js/multiplayer.js`, `js/networkClient.js`, and `test/e2e/music-broadcast.spec.mjs`).**
+  `ClubMultiplayer.shareLocalMusic()` and `NetworkClient` now broadcast local files over a dedicated per-listener WebRTC `musicPc` audio channel after explicit `Listen along` consent, routed through the guest's PA and analyser graph via `startNetworkMusic()`.
   **Acceptance criteria:** guests are told "the host is playing a file that cannot be shared" and pause.
 - [ ] **The VR Music page seek e2e (`podcast.spec.mjs`, "seeks by clicking the bar with the controller ray") timed out
   once in a 1.4 h full run** and passed 3 of 3 runs on its own. If the emulated trigger misses the bar it waits out the
-  whole 15-minute test timeout. **Acceptance criteria:** the wait for the new position has its own short timeout and
+  whole 15-minute test timeout.
+  **Priority:** Medium
+  **Category:** Testing
+  **Acceptance criteria:** the wait for the new position has its own short timeout and
   reports where the ray hit, and the test passes in five consecutive full runs.
 - [ ] **Bans and the lock live in the room's memory.** They reset when the room empties.
+  **Priority:** Low
+  **Category:** Multiplayer
   **Recommended solution:** Durable Object storage keyed by room, plus a room owner token.
   **Acceptance criteria:** a ban survives an empty room and a relay restart.
 - [ ] **Reporting and moderation beyond the host** (report a guest, rate-limit repeat joins by ip hash).
+  **Priority:** Low
+  **Category:** Multiplayer / Safety
 
 ---
 
@@ -6106,7 +6305,8 @@ zero console errors and zero WebGL warnings.
   Business value: High
   Technical debt reduction: High
 
-- [ ] Close the two asset-licensing gaps recorded in ASSETS.md
+- [x] Close the two asset-licensing gaps recorded in ASSETS.md
+  **Resolved 2026-10-14 (verified in `ASSETS.md` and `scripts/build.mjs`).** Both gaps are closed: Sousinho's PA speaker attribution is recorded and linked in-app, and `scripts/build.mjs` explicitly forbids and excludes the three historical Mixamo GLBs from `dist/`. Every asset shipped in `dist/` is CC0, CC BY 4.0 (with in-app attribution), or MIT.
   Priority: High
   Category: Documentation
   Area: Legal

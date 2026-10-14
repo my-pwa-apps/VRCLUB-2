@@ -10292,3 +10292,64 @@ test('laser colour changes the lasers and sheet together, and match-all writes o
     assert.deepEqual([club.mirrorBallSpotlightColor.r, club.mirrorBallSpotlightColor.g, club.mirrorBallSpotlightColor.b], [0, 0, 1],
         'spot colour keeps the whole rig matched while the lock is active');
 });
+
+test('moving-head beams clip and place pools on elevated venue surfaces (mezzanine deck, DJ table/riser, bar counter) and inner walls', () => {
+    const BABYLON = require('../js/vendor/babylon.js');
+    const ROOM_INTERIOR = { x: { min: -12.25, max: 12.25 }, y: { min: 0, max: 9.85 }, z: { min: -20, max: -0.25 } };
+    const ROOM_BOUNDS = { x: { min: -12.5, max: 12.5 }, z: { min: -21, max: -5 } };
+    const fixtures = loadClassic('js/club/08-animation-fixtures.js', {
+        BABYLON, VRClubAnimationCore: class {}, ROOM_INTERIOR, ROOM_BOUNDS
+    }).window.VRClubAnimationFixtures.prototype;
+
+    const club = Object.assign(Object.create(fixtures), {
+        vecPool: { up: new BABYLON.Vector3(), spotAxis: new BABYLON.Vector3() },
+        _quatIdentity: BABYLON.Quaternion.Identity(),
+        _quatFlipX: BABYLON.Quaternion.RotationAxis(new BABYLON.Vector3(1, 0, 0), Math.PI),
+        lightsActive: true,
+        goboEnabled: true,
+        goboRotation: 0
+    });
+
+    const makeSpot = (x, y, z) => ({
+        basePos: new BABYLON.Vector3(x, y, z),
+        beam: { position: new BABYLON.Vector3(), scaling: new BABYLON.Vector3(1, 1, 1), rotationQuaternion: new BABYLON.Quaternion() },
+        beamMat: {},
+        lightPool: { position: new BABYLON.Vector3(), rotation: new BABYLON.Vector3(), scaling: new BABYLON.Vector3(1, 1, 1), visibility: 1 },
+        lightPoolGlow: { position: new BABYLON.Vector3(), rotation: new BABYLON.Vector3(), scaling: new BABYLON.Vector3(1, 1, 1), visibility: 1 },
+        goboProjection: {
+            position: new BABYLON.Vector3(), rotation: new BABYLON.Vector3(), scaling: new BABYLON.Vector3(1, 1, 1),
+            visibility: 0, setEnabled() {}
+        },
+        goboMat: { emissiveTexture: {}, emissiveColor: new BABYLON.Color3() }
+    });
+
+    // 1. Beam aimed straight down over the mezzanine deck (x = -11, z = -15) stops at y = 3.0, not y = 0.
+    const mezzSpot = makeSpot(-11, 7.3, -15);
+    const down = new BABYLON.Vector3(0, -1, 0);
+    const mezzGeom = club._updateSpotBeamGeometry(mezzSpot, 0, down, 0, 1, 1);
+    assert.equal(mezzGeom.hitSurface, 'floor');
+    assert.ok(Math.abs(mezzGeom.surfaceIntersection.y - 3.0) < 1e-6, `expected y=3.0 on mezzanine deck, got ${mezzGeom.surfaceIntersection.y}`);
+    assert.ok(Math.abs(mezzSpot.beamMat.clipPlane4.d - 3.01) < 1e-6, 'clipPlane4.d must clip at y = 3.01');
+    club._placeSpotPool(mezzSpot, down, mezzGeom.hitSurface, mezzGeom.surfaceIntersection, 0.8, 0.8, 0, 0, 0);
+    assert.ok(Math.abs(mezzSpot.lightPool.position.y - 3.004) < 1e-6, 'pool rests on the 3.0 m deck');
+    club._updateSpotGoboProjection(mezzSpot, mezzGeom, { beamVisible: true, physicsIntensity: 1, spotColor: new BABYLON.Color3(1, 1, 1) });
+    assert.ok(Math.abs(mezzSpot.goboProjection.position.y - 3.025) < 1e-6, 'gobo rests on the 3.0 m deck');
+
+    // 2. Beam aimed down at the bar counter (x = 10.1, z = -10) stops at y = 1.1.
+    const barSpot = makeSpot(10.1, 7.3, -10);
+    const barHit = club._resolveSpotSurfaceHit(barSpot, down);
+    assert.ok(Math.abs(barHit.surfaceIntersection.y - 1.1) < 1e-6, `expected y=1.1 on bar counter, got ${barHit.surfaceIntersection.y}`);
+
+    // 3. Beam aimed down at the DJ riser (x = 2.5, z = -17) stops at y = 0.5, and at the DJ table (x = 0, z = -18.5) stops at y = 1.42.
+    const riserSpot = makeSpot(2.5, 7.3, -17);
+    assert.ok(Math.abs(club._resolveSpotSurfaceHit(riserSpot, down).surfaceIntersection.y - 0.5) < 1e-6);
+    const tableSpot = makeSpot(0, 7.3, -18.5);
+    assert.ok(Math.abs(club._resolveSpotSurfaceHit(tableSpot, down).surfaceIntersection.y - 1.42) < 1e-6);
+
+    // 4. Beam aimed at the back wall stops at ROOM_INTERIOR.z.min (-20), not ROOM_BOUNDS.z.min (-21).
+    const backSpot = makeSpot(0, 7.3, -16);
+    const backDir = new BABYLON.Vector3(0, -0.2, -1).normalize();
+    const backHit = club._resolveSpotSurfaceHit(backSpot, backDir);
+    assert.equal(backHit.hitSurface, 'backWall');
+    assert.ok(Math.abs(backHit.surfaceIntersection.z - (-20)) < 1e-6, `expected backWall at z=-20, got ${backHit.surfaceIntersection.z}`);
+});

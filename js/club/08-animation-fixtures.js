@@ -957,13 +957,13 @@ class VRClubAnimationFixtures extends VRClubAnimationCore {
         const surfaceIntersection = spot._surfaceIntersection;
         let hitSurface = 'floor'; // 'floor', 'backWall', 'leftWall', 'rightWall'
         
-        // Club boundaries. Sourced from ROOM_BOUNDS (01-core.js) rather than
-        // re-derived: the previous literals (-25.8 / ±10) disagreed with the
-        // geometry actually built, so beams terminated 2.5 m short of the side
-        // walls and 4.8 m behind the back wall.
-        const BACK_WALL_Z = ROOM_BOUNDS.z.min;
-        const LEFT_WALL_X = ROOM_BOUNDS.x.min;
-        const RIGHT_WALL_X = ROOM_BOUNDS.x.max;
+        // Club optical boundaries. Sourced from ROOM_INTERIOR (01-core.js) when available,
+        // plus elevated horizontal venue surfaces (mezzanine deck, DJ table/riser, bar counter)
+        // so beams terminate on the real structure instead of passing through to y = 0.
+        const bounds = typeof ROOM_INTERIOR !== 'undefined' ? ROOM_INTERIOR : ROOM_BOUNDS;
+        const BACK_WALL_Z = bounds.z.min;
+        const LEFT_WALL_X = bounds.x.min;
+        const RIGHT_WALL_X = bounds.x.max;
         
         // Calculate distances to each surface (only if beam is heading toward it)
         let distToFloor = Infinity;
@@ -971,9 +971,25 @@ class VRClubAnimationFixtures extends VRClubAnimationCore {
         let distToLeftWall = Infinity;
         let distToRightWall = Infinity;
         
-        // Floor intersection (beam pointing down)
+        // Horizontal surface intersections (floor and elevated decks/counters when pointing down)
         if (direction.y < -0.01) {
-            distToFloor = emissionPoint.y / Math.abs(direction.y);
+            const invNegY = -1 / direction.y;
+            distToFloor = emissionPoint.y * invNegY;
+            // Mezzanine deck (y = 3.0), DJ table (y = 1.42), bar counter (y = 1.1), DJ riser (y = 0.5)
+            const checkSlab = (topY, x0, x1, z0, z1) => {
+                if (emissionPoint.y <= topY) return;
+                const t = (emissionPoint.y - topY) * invNegY;
+                if (t <= 0 || t >= distToFloor) return;
+                const hx = emissionPoint.x + direction.x * t;
+                const hz = emissionPoint.z + direction.z * t;
+                if (hx >= x0 && hx <= x1 && hz >= z0 && hz <= z1) {
+                    distToFloor = t;
+                }
+            };
+            checkSlab(3.0, -12.2, -9.5, -19.0, -10.4);
+            checkSlab(1.42, -2.0, 2.0, -19.0, -18.0);
+            checkSlab(1.1, 9.7, 10.5, -13.6, -6.2);
+            checkSlab(0.5, -3.0, 3.0, -20.0, -16.0);
         }
         
         // Back wall intersection (beam pointing back/negative Z)
@@ -1032,9 +1048,10 @@ class VRClubAnimationFixtures extends VRClubAnimationCore {
      */
     _updateSpotBeamGeometry(spot, i, direction, time, dtScale, speedMultiplier) {
         const { centerDistanceToSurface, hitSurface, emissionPoint, surfaceIntersection } = this._resolveSpotSurfaceHit(spot, direction);
-        const BACK_WALL_Z = ROOM_BOUNDS.z.min;
-        const LEFT_WALL_X = ROOM_BOUNDS.x.min;
-        const RIGHT_WALL_X = ROOM_BOUNDS.x.max;
+        const bounds = typeof ROOM_INTERIOR !== 'undefined' ? ROOM_INTERIOR : ROOM_BOUNDS;
+        const BACK_WALL_Z = bounds.z.min;
+        const LEFT_WALL_X = bounds.x.min;
+        const RIGHT_WALL_X = bounds.x.max;
 
         // HYPERREALISTIC BEAM: Extend beam PAST floor so cone edges touch floor
         // 
@@ -1165,6 +1182,9 @@ class VRClubAnimationFixtures extends VRClubAnimationCore {
                     leftWall:  new BABYLON.Plane(-1, 0, 0, LEFT_WALL_X - EPS),
                     rightWall: new BABYLON.Plane(1, 0, 0, -RIGHT_WALL_X - EPS)
                 };
+            }
+            if (hitSurface === 'floor' && surfaceIntersection) {
+                spot._clipPlanes.floor.d = (surfaceIntersection.y || 0) + EPS;
             }
             spot.beamMat.clipPlane4 = spot._clipPlanes[hitSurface] || spot._clipPlanes.floor;
         }
@@ -1378,7 +1398,7 @@ class VRClubAnimationFixtures extends VRClubAnimationCore {
                     if (hitSurface === 'floor') {
                         spot.poolLight.position.set(
                             surfaceIntersection.x,
-                            0.4,
+                            (surfaceIntersection.y || 0) + 0.4,
                             surfaceIntersection.z
                         );
                     } else {
@@ -1421,14 +1441,15 @@ class VRClubAnimationFixtures extends VRClubAnimationCore {
 
     /** Position and orient the light pool on the floor or wall the beam hits. */
     _placeSpotPool(spot, direction, hitSurface, surfaceIntersection, minorRadius, majorRadius, tiltDirX, tiltDirZ, tiltMagnitude) {
-        const BACK_WALL_Z = ROOM_BOUNDS.z.min;
-        const LEFT_WALL_X = ROOM_BOUNDS.x.min;
-        const RIGHT_WALL_X = ROOM_BOUNDS.x.max;
+        const bounds = typeof ROOM_INTERIOR !== 'undefined' ? ROOM_INTERIOR : ROOM_BOUNDS;
+        const BACK_WALL_Z = bounds.z.min;
+        const LEFT_WALL_X = bounds.x.min;
+        const RIGHT_WALL_X = bounds.x.max;
         if (hitSurface === 'floor') {
-            // Floor hit - pool lies flat on floor
+            // Floor or elevated horizontal surface hit - pool lies flat on surface
             spot.lightPool.position.set(
                 surfaceIntersection.x,
-                0.004, // Just above floor (prevent z-fighting)
+                (surfaceIntersection.y || 0) + 0.004, // Just above surface (prevent z-fighting)
                 surfaceIntersection.z
             );
             spot.lightPool.rotation.x = Math.PI / 2; // Flat on floor
@@ -1501,7 +1522,7 @@ class VRClubAnimationFixtures extends VRClubAnimationCore {
             spot.lightPoolGlow.position.copyFrom(spot.lightPool.position);
             // Offset slightly toward viewer to prevent z-fighting
             if (hitSurface === 'floor') {
-                spot.lightPoolGlow.position.y = 0.002;
+                spot.lightPoolGlow.position.y = (spot.lightPool.position.y || 0.004) - 0.002;
             } else if (hitSurface === 'backWall') {
                 spot.lightPoolGlow.position.z += 0.008;
             } else if (hitSurface === 'leftWall') {
@@ -1553,10 +1574,10 @@ class VRClubAnimationFixtures extends VRClubAnimationCore {
                 const goboRotAngle = this.goboRotation + goboLocalOffset;
                 
                 if (hitSurface === 'floor') {
-                    // Floor: flat disc on XZ plane
+                    // Floor or elevated horizontal surface: flat disc on XZ plane
                     spot.goboProjection.position.set(
                         spot.lightPool.position.x,
-                        0.025, // Just above floor
+                        (spot.lightPool.position.y || 0.004) + 0.021, // Just above surface
                         spot.lightPool.position.z
                     );
                     spot.goboProjection.rotation.x = Math.PI / 2;

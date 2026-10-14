@@ -880,24 +880,23 @@ class VRClubEnvironment extends VRClubRendering {
         });
         
         // === HYPERREALISTIC CHAIN MOTOR HOISTS ===
-        // Professional stage rigging with chain hoists at strategic points
+        // Professional stage rigging with chain hoists at strategic points, merged by material into two static draws.
+        const hoistMotorMat = this.materialFactory.createPBRMaterial("hoistMotorMat", {
+            baseColor: [0.05, 0.05, 0.05],
+            metallic: 0.6,
+            roughness: 0.7
+        }, true);
+        const hoistMotorParts = [];
+        const hoistChainParts = [];
         const createChainHoist = (position, name) => {
-            const hoistParent = new BABYLON.TransformNode(name + "_hoist", this.scene);
-            hoistParent.position = position;
-            
             // Motor housing (black box unit)
             const motor = BABYLON.MeshBuilder.CreateBox(name + "_motor", {
                 width: 0.4,
                 height: 0.35,
                 depth: 0.3
             }, this.scene);
-            motor.position.y = 1.2;
-            motor.parent = hoistParent;
-            motor.material = this.materialFactory.createPBRMaterial(name + "_motorMat", {
-                baseColor: [0.05, 0.05, 0.05],
-                metallic: 0.6,
-                roughness: 0.7
-            });
+            motor.position.set(position.x, position.y + 1.2, position.z);
+            hoistMotorParts.push(motor);
             
             // Chain drum (silver cylinder)
             const drum = BABYLON.MeshBuilder.CreateCylinder(name + "_drum", {
@@ -906,9 +905,8 @@ class VRClubEnvironment extends VRClubRendering {
                 tessellation: 16
             }, this.scene);
             drum.rotation.z = Math.PI / 2;
-            drum.position = new BABYLON.Vector3(0, 1.0, 0);
-            drum.parent = hoistParent;
-            drum.material = chainMat;
+            drum.position.set(position.x, position.y + 1.0, position.z);
+            hoistChainParts.push(drum);
             
             // Chain links (multiple small tori for realistic chain)
             const chainLength = 1.0; // Distance from drum to truss
@@ -920,9 +918,8 @@ class VRClubEnvironment extends VRClubRendering {
                     tessellation: 8
                 }, this.scene);
                 link.rotation.x = (i % 2 === 0) ? 0 : Math.PI / 2;
-                link.position.y = 0.95 - (i * (chainLength / linkCount));
-                link.parent = hoistParent;
-                link.material = chainMat;
+                link.position.set(position.x, position.y + 0.95 - (i * (chainLength / linkCount)), position.z);
+                hoistChainParts.push(link);
             }
             
             // Hook at bottom
@@ -933,9 +930,8 @@ class VRClubEnvironment extends VRClubRendering {
                 arc: 0.75
             }, this.scene);
             hook.rotation.z = Math.PI;
-            hook.position.y = -0.1;
-            hook.parent = hoistParent;
-            hook.material = chainMat;
+            hook.position.set(position.x, position.y - 0.1, position.z);
+            hoistChainParts.push(hook);
             
             // Safety latch
             const latch = BABYLON.MeshBuilder.CreateBox(name + "_latch", {
@@ -943,18 +939,8 @@ class VRClubEnvironment extends VRClubRendering {
                 height: 0.04,
                 depth: 0.06
             }, this.scene);
-            latch.position = new BABYLON.Vector3(0.035, -0.08, 0);
-            latch.parent = hoistParent;
-            latch.material = chainMat;
-            
-            // Freeze all components
-            hoistParent.getChildMeshes().forEach(mesh => {
-                mesh.freezeWorldMatrix();
-                mesh.doNotSyncBoundingInfo = true;
-                mesh.isPickable = false;
-            });
-            
-            return hoistParent;
+            latch.position.set(position.x + 0.035, position.y - 0.08, position.z);
+            hoistChainParts.push(latch);
         };
         
         // Add chain hoists at key truss intersection points
@@ -973,19 +959,19 @@ class VRClubEnvironment extends VRClubRendering {
             createChainHoist(new BABYLON.Vector3(pos.x, 9, pos.z), "hoist" + i);
         });
         
-        // Diagonal support cables/wires from ceiling to truss (safety redundancy) (safety redundancy)
+        // Diagonal support cables/wires from ceiling to truss (safety redundancy)
         const cableMat = this.materialFactory.createPBRMaterial("cableMat", {
             baseColor: [0.15, 0.15, 0.15],
             metallic: 0.85,
             roughness: 0.5
-        });
+        }, true);
         
         // Turnbuckle material (brighter steel)
         const turnbuckleMat = this.materialFactory.createPBRMaterial("turnbuckleMat", {
             baseColor: [0.5, 0.5, 0.52],
             metallic: 0.95,
             roughness: 0.3
-        });
+        }, true);
         
         // Support cables with turnbuckles
         const cablePositions = [
@@ -996,6 +982,8 @@ class VRClubEnvironment extends VRClubRendering {
             { x: 0, z: -8 },
             { x: 0, z: -16 }
         ];
+        const cableParts = [];
+        const turnbuckleParts = [];
         
         cablePositions.forEach((pos, i) => {
             // Main steel cable
@@ -1005,8 +993,7 @@ class VRClubEnvironment extends VRClubRendering {
                 tessellation: 8
             }, this.scene);
             cable.position = new BABYLON.Vector3(pos.x, 9, pos.z);
-            cable.material = cableMat;
-            cable.isPickable = false;
+            cableParts.push(cable);
             
             // Turnbuckle tensioner (middle of cable)
             const turnbuckle = BABYLON.MeshBuilder.CreateCylinder("turnbuckle" + i, {
@@ -1015,8 +1002,7 @@ class VRClubEnvironment extends VRClubRendering {
                 tessellation: 12
             }, this.scene);
             turnbuckle.position = new BABYLON.Vector3(pos.x, 9, pos.z);
-            turnbuckle.material = turnbuckleMat;
-            turnbuckle.isPickable = false;
+            turnbuckleParts.push(turnbuckle);
             
             // End eye bolts
             const eyeBolt1 = BABYLON.MeshBuilder.CreateTorus("eyeBolt1_" + i, {
@@ -1026,8 +1012,7 @@ class VRClubEnvironment extends VRClubRendering {
             }, this.scene);
             eyeBolt1.rotation.z = Math.PI / 2;
             eyeBolt1.position = new BABYLON.Vector3(pos.x, 9.95, pos.z);
-            eyeBolt1.material = turnbuckleMat;
-            eyeBolt1.isPickable = false;
+            turnbuckleParts.push(eyeBolt1);
             
             const eyeBolt2 = BABYLON.MeshBuilder.CreateTorus("eyeBolt2_" + i, {
                 diameter: 0.03,
@@ -1036,19 +1021,24 @@ class VRClubEnvironment extends VRClubRendering {
             }, this.scene);
             eyeBolt2.rotation.z = Math.PI / 2;
             eyeBolt2.position = new BABYLON.Vector3(pos.x, 8.05, pos.z);
-            eyeBolt2.material = turnbuckleMat;
-            eyeBolt2.isPickable = false;
-            
-            // Freeze static geometry
-            cable.freezeWorldMatrix();
-            cable.doNotSyncBoundingInfo = true;
-            turnbuckle.freezeWorldMatrix();
-            turnbuckle.doNotSyncBoundingInfo = true;
-            eyeBolt1.freezeWorldMatrix();
-            eyeBolt1.doNotSyncBoundingInfo = true;
-            eyeBolt2.freezeWorldMatrix();
-            eyeBolt2.doNotSyncBoundingInfo = true;
+            turnbuckleParts.push(eyeBolt2);
         });
+
+        for (const [name, parts, mat] of [
+            ['trussHoistMotors', hoistMotorParts, hoistMotorMat],
+            ['trussHoistChains', hoistChainParts, chainMat],
+            ['trussSupportCables', cableParts, cableMat],
+            ['trussTurnbuckles', turnbuckleParts, turnbuckleMat]
+        ]) {
+            const merged = BABYLON.Mesh.MergeMeshes(parts, true, true, undefined, false, false);
+            if (merged) {
+                merged.name = name;
+                merged.material = mat;
+                merged.isPickable = false;
+                merged.freezeWorldMatrix();
+                merged.doNotSyncBoundingInfo = true;
+            }
+        }
     }
     
 }

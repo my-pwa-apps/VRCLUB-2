@@ -27,7 +27,7 @@ const BEAT = 60 / BPM;
 const BAR = 4 * BEAT;
 const STEP = BEAT / 4;
 const TAIL = Math.round(1.6 * SR);
-const CYCLES = 4;
+const CYCLES = 3;
 const CYCLE_BARS = 160;
 const TOTAL_BARS = CYCLES * CYCLE_BARS;
 const TWO_PI = Math.PI * 2;
@@ -420,7 +420,7 @@ async function main() {
     console.log(`Pass 1: raw peak ${stats.peak.toFixed(2)}, RMS ${stats.rms.toFixed(3)}; gain ${gain.toFixed(2)}`);
 
     const ffmpeg = spawn('ffmpeg', ['-y', '-hide_banner', '-loglevel', 'error', '-f', 's16le', '-ar', String(SR), '-ac', '2', '-i', 'pipe:0',
-        '-c:a', 'libmp3lame', '-b:a', '128k', '-joint_stereo', '1', '-fflags', '+bitexact', '-flags:a', '+bitexact',
+        '-c:a', 'libmp3lame', '-b:a', '112k', '-joint_stereo', '1', '-fflags', '+bitexact', '-flags:a', '+bitexact',
         '-id3v2_version', '3', '-metadata', 'title=NOCTURNE House', '-metadata', 'artist=NOCTURNE', '-metadata', 'album=NOCTURNE club set',
         '-metadata', 'comment=Original generated music, MIT licence', OUT], { stdio: ['pipe', 'inherit', 'inherit'] });
     const done = new Promise((resolve, reject) => {

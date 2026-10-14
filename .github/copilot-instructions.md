@@ -534,11 +534,12 @@ Change the config and call `applyVRSettings(xrCamera)` / `applyDesktopSettings()
 set pipeline values inline. Grain and chromatic aberration are disabled on both targets
 (they read as haze); bloom is kept minimal.
 
-The selective Babylon `GlowLayer` object remains available for fixture registration and diagnostics but is deliberately
-`isEnabled = false` in EVERY mode: `applyVRSettings()` and `applyDesktopSettings()` only change its intensity (a unit
-test fails if any club layer sets it `true`). It renders selected emitters into a private target without the opaque venue or characters in its
+The selective `glowLayer` descriptor remains available for fixture registration (`addIncludedOnlyMesh`, `addExcludedMesh`,
+`hasMesh`) and diagnostics (`intensity`), but is deliberately `isEnabled = false` in EVERY mode and allocates no
+`BABYLON.GlowLayer` render targets: `applyVRSettings()` and `applyDesktopSettings()` only change its intensity (a unit
+test fails if any club layer sets it `true`). A selective `GlowLayer` renders emitters into a private target without the opaque venue or characters in its
 depth buffer, which made lights and halos visible through walls and Quaternius people. Visible glow comes only from the
-default rendering pipeline's bloom, after the main scene has resolved depth. Never re-enable the selective layer unless
+default rendering pipeline's bloom, after the main scene has resolved depth. Never re-enable a selective glow pass unless
 its pass includes every relevant occluder and the added full-scene draw cost has been measured.
 
 **`pipeline.sharpen.colorAmount` is a brightness GAIN, not a sharpness.** Babylon's sharpen shader is

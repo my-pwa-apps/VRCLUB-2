@@ -853,27 +853,27 @@ class ModelLoader {
                 roughness: 0.35
             }, true) :
             new BABYLON.StandardMaterial('rigMat_' + modelKey, this.scene);
+        const parts = [];
+        const add = mesh => { mesh.material = rigMat; parts.push(mesh); return mesh; };
         
         // === DROP BRACKET (bolted under the truss chord) ===
-        const bracket = BABYLON.MeshBuilder.CreateBox('speakerBracket_' + modelKey, {
+        const bracket = add(BABYLON.MeshBuilder.CreateBox('speakerBracket_' + modelKey, {
             width: 0.4,
             height: 0.08,
             depth: 0.15
-        }, this.scene);
+        }, this.scene));
         bracket.position = new BABYLON.Vector3(x, bracketY, z);
         bracket.rotation.y = yaw;
-        bracket.material = rigMat;
         
         // Truss clamp (U-bolt style) wrapping the chord itself
-        const clamp = BABYLON.MeshBuilder.CreateTorus('speakerClamp_' + modelKey, {
+        const clamp = add(BABYLON.MeshBuilder.CreateTorus('speakerClamp_' + modelKey, {
             diameter: 0.12,
             thickness: 0.015,
             tessellation: 16,
             arc: 0.75
-        }, this.scene);
+        }, this.scene));
         clamp.position = new BABYLON.Vector3(x, anchorY, z);
         clamp.rotation.x = Math.PI / 2;
-        clamp.material = rigMat;
         
         // === CHAIN LINKS (2 parallel chains for stability) ===
         const chainOffsets = [-0.12, 0.12]; // Two chains, offset from centre
@@ -888,11 +888,11 @@ class ModelLoader {
         chainOffsets.forEach((offset, chainIdx) => {
             for (let i = 0; i < numLinks; i++) {
                 // Alternate link orientation for chain appearance
-                const link = BABYLON.MeshBuilder.CreateTorus('chainLink_' + modelKey + '_' + chainIdx + '_' + i, {
+                const link = add(BABYLON.MeshBuilder.CreateTorus('chainLink_' + modelKey + '_' + chainIdx + '_' + i, {
                     diameter: 0.04,
                     thickness: 0.008,
                     tessellation: 8
-                }, this.scene);
+                }, this.scene));
                 
                 link.position = new BABYLON.Vector3(
                     offsetX(offset),
@@ -907,20 +907,18 @@ class ModelLoader {
                     link.rotation.x = Math.PI / 2;
                     link.rotation.y = yaw;
                 }
-                
-                link.material = rigMat;
             }
         });
         
         // === SHACKLES (connect chains to the flying frame) ===
         chainOffsets.forEach((offset, shackleIdx) => {
             // D-shackle at bottom of each chain
-            const shackle = BABYLON.MeshBuilder.CreateTorus('shackle_' + modelKey + '_' + shackleIdx, {
+            const shackle = add(BABYLON.MeshBuilder.CreateTorus('shackle_' + modelKey + '_' + shackleIdx, {
                 diameter: 0.06,
                 thickness: 0.01,
                 tessellation: 12,
                 arc: 0.7
-            }, this.scene);
+            }, this.scene));
             shackle.position = new BABYLON.Vector3(
                 offsetX(offset),
                 flyBarY + 0.045, // Straddles the eye bolt below it
@@ -928,13 +926,12 @@ class ModelLoader {
             );
             shackle.rotation.z = Math.PI; // Open side up
             shackle.rotation.y = yaw;
-            shackle.material = rigMat;
             
             // Shackle pin (bolt)
-            const pin = BABYLON.MeshBuilder.CreateCylinder('shacklePin_' + modelKey + '_' + shackleIdx, {
+            const pin = add(BABYLON.MeshBuilder.CreateCylinder('shacklePin_' + modelKey + '_' + shackleIdx, {
                 diameter: 0.015,
                 height: 0.08
-            }, this.scene);
+            }, this.scene));
             pin.position = new BABYLON.Vector3(
                 offsetX(offset),
                 flyBarY + 0.015,
@@ -942,27 +939,25 @@ class ModelLoader {
             );
             pin.rotation.z = Math.PI / 2;
             pin.rotation.y = yaw;
-            pin.material = rigMat;
         });
         
         // === FLYING FRAME (top mounting point on speaker) ===
         // Steel bar across top of speaker where chains attach
-        const flyBar = BABYLON.MeshBuilder.CreateBox('flyBar_' + modelKey, {
+        const flyBar = add(BABYLON.MeshBuilder.CreateBox('flyBar_' + modelKey, {
             width: 0.5,
             height: 0.04,
             depth: 0.04
-        }, this.scene);
+        }, this.scene));
         flyBar.position = new BABYLON.Vector3(x, flyBarY, z);
         flyBar.rotation.y = yaw;
-        flyBar.material = rigMat;
         
         // Eye bolts on flying frame (where shackles attach)
         chainOffsets.forEach((offset, eyeIdx) => {
-            const eyeBolt = BABYLON.MeshBuilder.CreateTorus('eyeBolt_' + modelKey + '_' + eyeIdx, {
+            const eyeBolt = add(BABYLON.MeshBuilder.CreateTorus('eyeBolt_' + modelKey + '_' + eyeIdx, {
                 diameter: 0.03,
                 thickness: 0.006,
                 tessellation: 10
-            }, this.scene);
+            }, this.scene));
             eyeBolt.position = new BABYLON.Vector3(
                 offsetX(offset),
                 flyBarY,
@@ -970,8 +965,16 @@ class ModelLoader {
             );
             eyeBolt.rotation.x = Math.PI / 2;
             eyeBolt.rotation.z = yaw;
-            eyeBolt.material = rigMat;
         });
+
+        const merged = BABYLON.Mesh.MergeMeshes(parts, true, true, undefined, false, false);
+        if (merged) {
+            merged.name = `speakerRig_${modelKey}`;
+            merged.material = rigMat;
+            merged.isPickable = false;
+            merged.freezeWorldMatrix();
+            merged.doNotSyncBoundingInfo = true;
+        }
         
         this.log.info(`   ⛓️ Rigged ${modelKey}: ${numLinks}-link chains spanning ${chainSpan.toFixed(2)}m from truss y=${anchorY} to fly bar y=${flyBarY.toFixed(2)}`);
     }

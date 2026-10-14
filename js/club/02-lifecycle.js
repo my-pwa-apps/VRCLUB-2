@@ -400,14 +400,20 @@ class VRClubLifecycle extends VRClubCore {
     _createGlowLayer() {
         // A GlowLayer redraws only selected emissive meshes into its own render target. The opaque venue and
         // characters are absent from that depth buffer, so emitters and halos behind them appear to shine through.
-        // Keep the object for fixture registration and diagnostics, but disable its composite. The default rendering
-        // pipeline's bloom runs on the already depth-tested camera image and supplies the same visible glow safely.
-        this.glowLayer = new BABYLON.GlowLayer("glow", this.scene, {
-            mainTextureFixedSize: 512,
-            blurKernelSize: 32  // Wider blur for more realistic light halos
-        });
-        this.glowLayer.intensity = this.vrSettings.desktop.glowIntensity;
-        this.glowLayer.isEnabled = false;
+        // Keep a lightweight descriptor for fixture registration and diagnostics without allocating the three unused
+        // EffectLayer/GlowLayer render targets. The default rendering pipeline's bloom runs on the already depth-tested
+        // camera image and supplies the same visible glow safely.
+        const includedOnly = new Set();
+        const excluded = new Set();
+        this.glowLayer = {
+            name: 'glow',
+            isEnabled: false,
+            intensity: this.vrSettings.desktop.glowIntensity,
+            addIncludedOnlyMesh(mesh) { if (mesh) includedOnly.add(mesh); },
+            addExcludedMesh(mesh) { if (mesh) { excluded.add(mesh); includedOnly.delete(mesh); } },
+            hasMesh(mesh) { return Boolean(mesh) && !excluded.has(mesh) && (includedOnly.size === 0 || includedOnly.has(mesh)); },
+            dispose: () => { includedOnly.clear(); excluded.clear(); }
+        };
         
         // Custom glow intensity per mesh type - selective glow for realism
         // LED panels and strobes get strong glow, lasers get intense glow, structures get none
