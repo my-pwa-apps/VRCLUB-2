@@ -189,5 +189,35 @@ mirror-ball, sheet and peak safe cues. Record the headset's native refresh targe
 frame times, missed/reprojected frames, memory and thermal behaviour over 15 minutes. The DOM
 diagnostics overlay (`Ctrl+Shift+D` with a keyboard outside immersive mode) is supporting
 evidence, not a substitute for a headset timing capture. Compare quality tiers explicitly:
-the detector defaults Quest to balanced, but a persisted tier override can change the selected
+the detector defaults Quest to Ultra, and a persisted tier override can change the selected
 content budget. Do not infer stable headset performance from the emulator or one FPS sample.
+
+## 2026-10-14 Quest 3S first physical capture and fill-rate pass
+
+The SideQuest production build was sampled over remote debugging while worn on a Quest 3S at
+the persisted Ultra tier. Babylon reported a 59.1 ms median frame and 66.5 ms p95 over 348
+rendered frames (about 17.6 fps average), with roughly 464 engine-reported submissions in the
+sampled view. Head tracking could still feel smooth because the compositor reprojects the last
+application frame; this is not evidence of native 72 Hz rendering.
+
+The matching balanced IWER resource baseline was 226 engine submissions, 122 active-submesh
+proxy draws and 15 transparent proxy draws. Because XR stereo submission accounts for much of
+that gap and transparent geometry was already bounded, the first physical-device optimization
+targets redundant pixel work rather than removing scene content: the XR framebuffer scale is
+1.0 instead of 1.2, Ultra/High pipeline MSAA is 2x instead of 4x, Balanced relies on the retained
+FXAA pass, and the production engine no longer preserves an unread back buffer. The authored
+geometry, people, cue state, transparent effects and update cadences are unchanged.
+
+A worn localhost capture of that package improved Ultra to 51.7 ms median / 57.7 ms p95
+(19.4 fps average). High remained effectively identical at 52.8 / 58.8 ms, and Balanced reached
+48.4 / 53.3 ms. Per-method instrumentation put the application's animation updates near 1 ms a
+frame; suppressing all transparent meshes and particles changed the median by less than 1 ms,
+all characters by about 2.5 ms, and the post-process chain by about 5 ms. The constant cost was
+Babylon's per-eye opaque scene submission.
+
+Quest Browser exposes `XRWebGLBinding`, `XRProjectionLayer`, and the multiview extensions.
+Enabling Babylon 9.28's WebXR Layers projection with `preferMultiviewOnInit` reduced Balanced to
+28.3 ms median / 32.0 ms p95 (35.1 fps average, 118 reported submissions) and settled Ultra to
+30.5 / 33.9 ms (32.8 fps average, about 142 submissions). No people, geometry, fixture, effect,
+interaction, or update cadence was removed. This is a large improvement and still not native
+72 Hz: repeat the full 15-minute route after deployment before calling either tier release-ready.

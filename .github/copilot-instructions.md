@@ -602,7 +602,7 @@ SSAO, motion blur or shadows in XR:
 | VR feature | Ultra | High | Balanced |
 |------------|-------|------|----------|
 | Bloom kernel | 64 | 48 | 32 |
-| Pipeline MSAA default | 4 | 4 | 4 |
+| Pipeline MSAA default | 2 | 2 | 1 |
 | Anisotropic filtering | 12× | 8× | 4× |
 | Haze / dust rates | 90 / 50 | 78 / 40 | 65 / 30 |
 | Fog-machine output | 85% | 70% | 55% |
@@ -616,6 +616,14 @@ Quest browsers auto-detect `ultra` (the owner's Quest 3 runs it; the Quest 3S is
 selection always wins, and the VR menu steps down to `high` or `balanced`. Because the flat (pre-XR) page on a Quest also runs the
 desktop tier path, ultra's SSR, SSAO and motion blur render there until the headset session starts, and are detached on entry.
 High and Ultra remain unmeasured on a Quest 3S.
+
+The XR layer renders at native scale (`framebufferScaleFactor: 1.0`). The old 1.2 scale multiplied every stereo
+post-process target by 1.44 on top of pipeline MSAA and FXAA. Ultra and High retain 2x pipeline MSAA plus FXAA;
+Balanced uses FXAA without multisampling. `vrclub.vrMsaa` can still override the tier with 1, 2 or 4 for diagnostics.
+Before session entry `_enableXRMultiview()` enables Babylon's WebXR Layers projection with
+`preferMultiviewOnInit` only when the runtime exposes `XRWebGLBinding` and the engine reports the multiview
+extension. Quest Browser then submits both eyes through one projection pass; unsupported runtimes and IWER keep
+Babylon's standard stereo layer. Never make Layers required or remove that fallback.
 
 The fixed XR effect cadences are CPU/upload budgets, not animation clocks: LED patterns, mirror rotation and laser motion still
 derive from elapsed time, so skipped uploads never slow the show or make it refresh-rate dependent. When three or more transparent

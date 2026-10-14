@@ -174,10 +174,13 @@ test('VR keeps the desktop rendering features and image structure at the same gr
         expect(vrState.screenSpace).toMatchObject({ ssaoAttached: false, ssrActive: false, motionBlur: false });
         expect(vrState.lighting.shadowCasters).toBe(0);
         expect(vrState.environment.probeRefreshRate).toBe(0);
-        // MSAA is on in the headset (the XR layer's own antialias does not reach this pipeline's
-        // offscreen target), up to what the GPU supports.
-        const maxMsaa = await page.evaluate(() => window.vrClub.engine.getCaps().maxMSAASamples);
-        expect(vrState.pipeline.samples).toBe(Math.min(4, maxMsaa || 1));
+        // Balanced keeps FXAA but does not multisample the stereo post-process target.
+        // Higher tiers use 2x MSAA, clamped to what the GPU supports.
+        const { configuredMsaa, maxMsaa } = await page.evaluate(() => ({
+            configuredMsaa: window.vrClub.tierSettings.vrMsaaSamples,
+            maxMsaa: window.vrClub.engine.getCaps().maxMSAASamples
+        }));
+        expect(vrState.pipeline.samples).toBe(Math.min(configuredMsaa, maxMsaa || 1));
         expect(vrState.resolution.hardwareScaling).toBe(1);
     });
 

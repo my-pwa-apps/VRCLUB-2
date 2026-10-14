@@ -56,7 +56,9 @@ class VRClubCore {
     constructor() {
         this.canvas = document.getElementById('canvas');
         this.engine = new BABYLON.Engine(this.canvas, true, {
-            preserveDrawingBuffer: true,
+            // Browser/Playwright screenshots use the compositor and no runtime path
+            // reads the previous back buffer. Let the mobile tile renderer discard it.
+            preserveDrawingBuffer: false,
             stencil: true,
             antialias: true,
             // PERFORMANCE: Additional engine optimizations
@@ -84,7 +86,7 @@ class VRClubCore {
                 pipelineSamples: 4,        // MSAA on the pipeline render target
                 bloomKernel: 160,
                 vrBloomKernel: 64,
-                vrMsaaSamples: 4,
+                vrMsaaSamples: 2,
                 vrAnisotropy: 12,
                 vrHazeEmitRate: 90,
                 vrDustEmitRate: 50,
@@ -120,7 +122,7 @@ class VRClubCore {
                 pipelineSamples: 4,
                 bloomKernel: 128,
                 vrBloomKernel: 48,
-                vrMsaaSamples: 4,
+                vrMsaaSamples: 2,
                 vrAnisotropy: 8,
                 vrHazeEmitRate: 78,
                 vrDustEmitRate: 40,
@@ -156,7 +158,7 @@ class VRClubCore {
                 pipelineSamples: 1,
                 bloomKernel: 96,
                 vrBloomKernel: 32,
-                vrMsaaSamples: 4, // the shipped Quest default; MSAA tops out at 4, so the tiers differ elsewhere
+                vrMsaaSamples: 1,
                 vrAnisotropy: 4,
                 vrHazeEmitRate: 65,
                 vrDustEmitRate: 30,
@@ -244,7 +246,10 @@ class VRClubCore {
                 grainEnabled: false,
                 chromaticAberrationEnabled: false,
                 toneMappingEnabled: true, // ENABLE — same color/luminance response as desktop
-                framebufferScaleFactor: 1.2, // Moderate supersampling for thin truss and rail edges
+                // The pipeline already resolves MSAA and FXAA before the XR layer.
+                // Supersampling this layer at 1.2 multiplied every stereo post-process
+                // target by 1.44 on the fill-limited Quest 3S.
+                framebufferScaleFactor: 1.0,
                 edgeSharpness: 0.1, // Do not re-amplify residual stair-stepping after FXAA
                 // Babylon's sharpen stage computes `colour * gain - edge * edgeAmount`, so this is a
                 // brightness MULTIPLIER on the final image, not a strength. It was 0.1 ("colorSharpness"),
@@ -263,11 +268,10 @@ class VRClubCore {
                 // MSAA on the headset pipeline's render target (1, 2 or 4). The scene is drawn into
                 // this offscreen target before the post chain reaches the XR layer, so the layer's own
                 // `antialias` never touches geometry edges: with 1 only FXAA was running and the DJ,
-                // rails and truss stair-stepped (measured: clean edges at 4, rough at 1). A tiled
-                // mobile GPU resolves MSAA cheaply, but this is NOT measured on a Quest 3S. Clamped to
-                // the GPU's limit; override with localStorage `vrclub.vrMsaa` (1 | 2 | 4) to trade
-                // edge quality for frame time without a rebuild.
-                msaaSamples: 4,
+                // rails and truss stair-stepped (measured: clean edges at 4, rough at 1).
+                // The tier normally supplies 2x on Ultra/High and FXAA-only on Balanced;
+                // override with localStorage `vrclub.vrMsaa` (1 | 2 | 4) for diagnostics.
+                msaaSamples: 2,
                 fogDensity: 0.022 // Smoke in VR — denser so beams read as 3D volumes, not flat lines
             }
         };

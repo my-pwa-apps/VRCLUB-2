@@ -4345,8 +4345,22 @@ test('headset MSAA follows the config, never exceeds the GPU, and can be overrid
     // The headset pipeline must use it: the XR layer's own antialias never reaches the offscreen target.
     const core = readFileSync(join(ROOT, 'js/club/01-core.js'), 'utf8');
     assert.match(core, /renderPipeline\.samples = VRClubCore\.resolveVRMsaaSamples\(/);
+    assert.match(core, /preserveDrawingBuffer:\s*false/,
+        'the production engine must not retain an unread back buffer');
+    assert.match(core, /framebufferScaleFactor:\s*1\.0/,
+        'the XR layer must stay at native scale instead of multiplying stereo post-process fill');
     assert.ok(!/renderPipeline\.samples = 1;/.test(core.slice(core.indexOf('applyVRSettings('), core.indexOf('applyDesktopSettings()'))),
         'the headset pipeline is back to no MSAA');
+
+    const lifecycle = readFileSync(join(ROOT, 'js/club/02-lifecycle.js'), 'utf8');
+    assert.match(lifecycle, /typeof XRWebGLBinding === 'undefined'/,
+        'WebXR Layers must stay behind a runtime capability check');
+    assert.match(lifecycle, /caps\.multiview/,
+        'multiview must stay behind the engine extension check');
+    assert.match(lifecycle, /preferMultiviewOnInit:\s*true/,
+        'supported Quest sessions should use one multiview projection pass');
+    assert.match(lifecycle, /WebXR multiview unavailable; using the standard stereo layer/,
+        'unsupported runtimes must retain the standard stereo fallback');
 });
 
 test('switching strobes on by hand resets a leftover show speed, but never a guest-chosen one', () => {
