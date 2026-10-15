@@ -1,5 +1,5 @@
 import { test, expect } from '@playwright/test';
-import { browserFailures, enterClub, expectHealthyRuntime, useQuestHarness } from './support.mjs';
+import { browserFailures, enterClub, enterVR, expectHealthyRuntime, useQuestHarness } from './support.mjs';
 
 useQuestHarness();
 
@@ -505,13 +505,7 @@ test('Quest 3 emulation enters WebXR, registers controllers, and restores deskto
         hasHelper: true,
         xrDiagnostics: []
     });
-    // Entry waits for the background GLB load and shader compile (30 s ceiling).
-    await expect(vrButton).toBeEnabled({ timeout: 60_000 });
-    await expect(vrButton).toContainText('Enter VR');
-    await vrButton.click();
-
-    await page.waitForFunction(() => window.vrClub?.isInVRMode === true);
-    await page.waitForFunction(() => window.vrClub?._xrControllers?.length === 2);
+    await enterVR(page);
     const xrState = await page.evaluate(() => ({
         inVR: window.vrClub.isInVRMode,
         diagnosticsInVR: window.vrClub.getDiagnostics().isInVR,
@@ -559,7 +553,7 @@ test('Quest 3 emulation enters WebXR, registers controllers, and restores deskto
         teleportEnabled: true,
         locomotionFailures: [],
         renderScale: 1,
-        xrFramebufferScale: 1.2,
+        xrFramebufferScale: 1,
         fxaaEnabled: true,
         vrBrightnessApplied: {
             bloomWeight: true,

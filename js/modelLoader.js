@@ -185,6 +185,39 @@ class ModelLoader {
                 disableEmission: true,
                 metallicFactor: 0,
                 attribution: 'Old Couch by Oliver Triplett (CC BY 4.0; optimized textures)'
+            },
+            // Nearfield DJ booth monitor speakers: iPoly3D "Speaker" (CC0). Only the left monitor is placed here;
+            // the right monitor is instantiated on the opposite end of the DJ table (VenueDressing._furnishDJMonitors).
+            dj_monitor: {
+                name: 'DJ Booth Monitor Speaker',
+                url: './js/models/monitors/source/monitor_speaker.glb',
+                rotation: new BABYLON.Vector3(0, Math.PI + 0.52, 0),
+                scale: new BABYLON.Vector3(1, 1, 1),
+                placement: { fitAxis: 'y', fitSize: 0.42, centerX: -1.78, centerZ: -18.22, bottomY: 1.42 },
+                emissiveFloor: 0.03,
+                attribution: 'Speaker by iPoly3D (CC0)'
+            },
+            // Club restroom porcelain toilet: Quaternius "Toilet" (CC0). The first stall's toilet is placed here;
+            // the second stall's toilet is instantiated in VenueDressing._furnishRestroom.
+            restroom_toilet: {
+                name: 'Restroom Toilet',
+                url: './js/models/restroom/source/toilet.glb',
+                rotation: new BABYLON.Vector3(0, Math.PI / 2, 0),
+                scale: new BABYLON.Vector3(1, 1, 1),
+                placement: { fitAxis: 'y', fitSize: 0.78, centerX: -15.32, centerZ: -5.4, bottomY: 0 },
+                emissiveFloor: 0.025,
+                attribution: 'Toilet by Quaternius (CC0)'
+            },
+            // Club restroom pedestal washbasin: Quaternius "Bathroom Sink" (CC0). Two basins stand along the
+            // mirror wall (the second is instantiated in VenueDressing._furnishRestroom).
+            restroom_sink: {
+                name: 'Restroom Washbasin',
+                url: './js/models/restroom/source/bathroom_sink.glb',
+                rotation: new BABYLON.Vector3(0, -Math.PI / 2, 0),
+                scale: new BABYLON.Vector3(1, 1, 1),
+                placement: { fitAxis: 'y', fitSize: 0.88, centerX: -12.78, centerZ: -5.2, bottomY: 0 },
+                emissiveFloor: 0.025,
+                attribution: 'Bathroom Sink by Quaternius (CC0)'
             }
         };
     }
@@ -1141,8 +1174,9 @@ class ModelLoader {
             await Promise.allSettled(modelKeys.filter(k => k.startsWith('bass_bin')).map(key => this.loadModel(key)));
 
             // Set dressing is last: nothing waits on it.
-            await Promise.allSettled(modelKeys.filter(k => k.startsWith('bar_') || k.startsWith('lounge_'))
-                .map(key => this.loadModel(key)));
+            await Promise.allSettled(modelKeys.filter(k =>
+                k.startsWith('bar_') || k.startsWith('lounge_') || k.startsWith('dj_monitor') || k.startsWith('restroom_')
+            ).map(key => this.loadModel(key)));
             
             const loadTime = ((performance.now() - startTime) / 1000).toFixed(2);
             this.log.info(`✅ All models loaded in ${loadTime}s`);

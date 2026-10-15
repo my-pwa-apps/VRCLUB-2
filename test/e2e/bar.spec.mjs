@@ -47,14 +47,29 @@ test('the entrance vestibule and the bar are built, lit by their own accents and
         // The stools stop a walker well short of the counter, so the counter's own collision is checked directly.
         const counter = byName('barJoinery');
         const throughStools = push(new BABYLON.Vector3(6, 1.7, -9.9), new BABYLON.Vector3(0.25, 0, 0), 60);
+        const intoRestroom = push(new BABYLON.Vector3(-11.2, 1.7, -3.2), new BABYLON.Vector3(-0.2, 0, 0), 30);
         camera.position.copyFrom(start);
         club._walkLevel = startLevel;
+
+        const monitors = (club._djMonitors || []).map(mesh => {
+            mesh.computeWorldMatrix(true);
+            const box = mesh.getBoundingInfo().boundingBox;
+            return { min: box.minimumWorld.asArray(), max: box.maximumWorld.asArray(), slots: slots(mesh) };
+        });
+        const restroomFixtures = (club._restroomFixtures || []);
+        const toiletSeats = restroomFixtures.flatMap(mesh => (mesh.metadata && mesh.metadata.vrclubSeats) || []).map(seat => seat.id);
 
         return {
             counterCollides: counter.checkCollisions && counter.getBoundingInfo().boundingBox.minimumWorld.x < layout.bar.counter.xFront,
             stoolBlocks: scene.meshes.filter(mesh => /^barStoolBlock/.test(mesh.name) && mesh.checkCollisions).length,
-            built: ['barJoinery', 'barBottles', 'barBacklight', 'vestibuleWalls', 'vestibuleCarpet', 'vestibuleFrame', 'frontWallLintel']
+            built: ['barJoinery', 'barBottles', 'barBacklight', 'vestibuleWalls', 'vestibuleCarpet', 'vestibuleFrame', 'frontWallLintel',
+                'restroomWalls', 'restroomPartitions', 'restroomMirrors', 'restroomFloor']
                 .filter(name => !byName(name)),
+            monitors,
+            restroomFixtureCount: restroomFixtures.length,
+            restroomSlots: slots(byName('restroomWalls')),
+            toiletSeats,
+            intoRestroomX: intoRestroom.x,
             bottleCount: bottles.bottleCount,
             bottleTriangles: bottles.getTotalIndices() / 3,
             bottleOpaque: !bottles.material.needAlphaBlending() && bottles.material.alpha === 1,
@@ -94,7 +109,17 @@ test('the entrance vestibule and the bar are built, lit by their own accents and
         expect(slots[0]).toBe('barLight');
     }
     expect(state.vestibuleSlots[0]).toBe('entranceLight');
+    expect(state.restroomSlots[0]).toBe('restroomLight');
     expect(state.roomSlots[0]).toBe('ambient');
+    expect(state.monitors.length).toBe(2);
+    expect(state.monitors[0].min[1]).toBeCloseTo(1.42, 2);
+    expect(state.monitors[1].min[1]).toBeCloseTo(1.42, 2);
+    expect(state.monitors[0].slots[0]).toBe('djConsoleLight');
+    expect(state.monitors[1].slots[0]).toBe('djConsoleLight');
+    expect(state.restroomFixtureCount).toBe(4);
+    expect(state.toiletSeats).toEqual(['toilet-0', 'toilet-1']);
+    expect(state.intoRestroomX).toBeLessThan(-13.2);
+    expect(state.intoRestroomX).toBeGreaterThan(-16.0);
     expect(state.bartender.enabled).toBe(true);
     expect(state.bartender.rigged, 'the bartender is posed by her AvatarRig').toBe(true);
     expect(state.bartender.hands).toBe(2);

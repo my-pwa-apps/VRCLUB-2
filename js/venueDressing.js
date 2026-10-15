@@ -14,7 +14,19 @@ const VENUE_BAR = {
     backBar: { xFront: 11.55, xWall: 12.25, z0: -13.8, z1: -6.0, shelves: [1.42, 1.86, 2.30] },
     stoolX: 9.2,
     stoolZ: [-12.9, -11.6, -10.3, -9.0, -7.7],
-    bartender: { x: 10.85, z: -9.9 }
+    bartender: { x: 10.85, z: -9.9 },
+
+    listenerShelf(x, y, z) {
+        const c = this.counter;
+        const edge = (outer, inner, value) => {
+            const t = Math.min(1, Math.max(0, (value - outer) / (inner - outer)));
+            return t * t * (3 - 2 * t);
+        };
+        const inZ = edge(c.z0 - 0.5, c.z0 + 0.4, z) * edge(c.z1 + 0.5, c.z1 - 0.4, z);
+        const inX = edge(8.2, 9.4, x) * edge(11.3, 10.2, x);
+        const head = edge(0.5, 1.3, y) * edge(2.5, 1.7, y);
+        return 0.55 * inZ * inX * head;
+    }
 };
 
 // A two-seat sofa against the front wall, centred between the entrance and the bar-side wall, facing the DJ (-z).
@@ -23,6 +35,41 @@ const VENUE_BAR = {
 const VENUE_LOUNGE = {
     x: 7.1, z: -0.72, width: 2.1, depth: 0.9, seatY: 0.4, facing: Math.PI,
     seatZ: -0.89, seats: [-0.42, 0.42]
+};
+
+// Nearfield DJ booth monitor speakers on the left and right ends of the DJ table (y 1.42), angled toward the DJ.
+const VENUE_MONITORS = {
+    tableY: 1.42,
+    height: 0.42,
+    left: { x: -1.78, z: -18.22, yaw: Math.PI + 0.52 },
+    right: { x: 1.78, z: -18.22, yaw: Math.PI - 0.52 }
+};
+
+// The club restroom off the front-left corner of the hall (x -12.5..-16.2, z -6.2..-1.2), entered through a 1.8 m
+// doorway in the left wall (z -4.1..-2.3). Two toilet stalls along the far wall (-x) and two washbasins with a
+// backlit mirror along the inner wall (+x).
+const VENUE_RESTROOM = {
+    wallX: -12.75,   // inner face of the club's 0.5 m left wall (centred on x -12.5)
+    farX: -16.0,     // inner face of the restroom's back wall
+    z0: -6.2,        // stage-side inner face
+    z1: -1.2,        // entrance-side inner face
+    height: 3.2,
+    door: { z0: -4.1, z1: -2.3, height: 2.8 },
+    stallFrontX: -14.55,
+    stallDoorHalf: 0.42,
+    toiletX: -15.32,
+    toiletSeatX: -15.22,
+    toiletSeatY: 0.42,
+    toiletZ: [-5.4, -2.0],
+    sinkX: -13.10,
+    sinkZ: [-5.2, -2.1],
+
+    /** Acoustic muffling inside the restroom: 0 in the main hall, easing to 0.72 inside the tiled room. */
+    enclosure(x, z) {
+        if (x >= -12.1 || z < this.z0 - 0.3 || z > this.z1 + 0.3) return 0;
+        const t = Math.min(1, Math.max(0, (-12.1 - x) / 1.5));
+        return 0.72 * t * t * (3 - 2 * t);
+    }
 };
 
 const VENUE_VESTIBULE = {
@@ -634,7 +681,228 @@ const VenueDressing = {
         this._collisionBlock('loungeCouchBlock', max.x - min.x, max.y - min.y, max.z - min.z,
             center.x, center.y, center.z);
         this._loungeCouch = meshes;
+    },
+
+    // ------------------------------------------------------------------------------------------
+    // DJ MONITOR SPEAKERS: nearfield studio monitors on the left and right ends of the DJ table.
+    // ------------------------------------------------------------------------------------------
+    createDJMonitors() {
+        this.modelLoadPromise.then(() => { if (!this._disposed) this._furnishDJMonitors(); });
+    },
+
+    _furnishDJMonitors() {
+        const record = this.modelLoader?.loadedModels?.dj_monitor;
+        if (!record?.rootMesh || !record.placed) return;
+        const M = VENUE_MONITORS;
+        const { container, rootMesh } = record;
+        const leftMeshes = container.meshes.filter(mesh => mesh.getTotalVertices && mesh.getTotalVertices() > 0);
+        leftMeshes.forEach(mesh => { mesh.isPickable = false; });
+
+        const entry = container.instantiateModelsToScene(name => `djMonitorRight_${name}`, false, { doNotInstantiate: false });
+        const rightRoot = entry.rootNodes[0];
+        const rightMeshes = [];
+        if (rightRoot) {
+            rightRoot.rotationQuaternion = null;
+            rightRoot.scaling.copyFrom(rootMesh.scaling);
+            rightRoot.rotation.set(0, M.right.yaw, 0);
+            rightRoot.position.set(0, 0, 0);
+            const world = rightRoot.getHierarchyBoundingVectors(true);
+            rightRoot.position.set(
+                M.right.x - (world.min.x + world.max.x) / 2,
+                M.tableY - world.min.y,
+                M.right.z - (world.min.z + world.max.z) / 2
+            );
+            rightRoot.computeWorldMatrix(true);
+            rightRoot.getChildMeshes().forEach(mesh => {
+                if (!mesh.getTotalVertices || mesh.getTotalVertices() <= 0) return;
+                mesh.isPickable = false;
+                rightMeshes.push(mesh);
+            });
+        }
+
+        const allMeshes = [...leftMeshes, ...rightMeshes];
+        const djLight = this.scene && this.scene.getLightByName('djConsoleLight');
+        if (djLight) this._extendAccentLight(djLight, allMeshes);
+        this._djMonitors = allMeshes;
+    },
+
+    // ------------------------------------------------------------------------------------------
+    // RESTROOM (WC): a tiled underground club restroom off the front-left corner of the main hall,
+    // with two toilet stalls, two washbasins, backlit vanity mirrors and neon cove lighting.
+    // ------------------------------------------------------------------------------------------
+    createRestroom() {
+        log.info('🚻 Creating club restroom...');
+        const R = VENUE_RESTROOM;
+        const { wallX: XN, farX: XF, z0: Z0, z1: Z1, height: H, door: D, stallFrontX: SX } = R;
+        const factory = this.materialFactory;
+        const b = this._dressingBuilder('restroom');
+        const widthX = XN - XF + 0.3;
+        const lengthZ = Z1 - Z0 + 0.3;
+        const midX = (XF - 0.3 + XN) / 2;
+        const midZ = (Z0 + Z1) / 2;
+
+        const wallMat = factory.getPreset('wall');
+        const wallScale = (this.textureLoader && this.textureLoader.textureConfigs.walls.scale) || { u: 1, v: 1 };
+        const ceilingScale = (this.textureLoader && this.textureLoader.textureConfigs.ceiling.scale) || { u: 1, v: 1 };
+        const brick = mesh => this._applyWorldUVs(mesh, 1.5, wallScale);
+
+        const walls = b.group('Walls', wallMat);
+        b.box(walls, 0.3, H, lengthZ, XF - 0.15, H / 2, midZ, brick);
+        b.box(walls, widthX, H, 0.3, midX, H / 2, Z0 - 0.15, brick);
+        b.box(walls, widthX, H, 0.3, midX, H / 2, Z1 + 0.15, brick);
+
+        const ceiling = b.group('Ceiling', factory.getPreset('ceiling'));
+        b.box(ceiling, widthX + 0.5, 0.14, lengthZ, (XF - 0.3 + XN + 0.5) / 2, H + 0.07, midZ,
+            mesh => this._applyWorldUVs(mesh, 3, ceilingScale));
+
+        const floorMat = factory.createPBRMaterial('restroomFloorMat', {
+            baseColor: [0.04, 0.042, 0.048], metallic: 0.18, roughness: 0.32, mutable: true
+        });
+        const floor = b.group('Floor', floorMat);
+        b.box(floor, XN - XF + 0.55, 0.02, Z1 - Z0, (XF + XN + 0.55) / 2, 0.01, midZ);
+
+        // Door frame around the left-wall opening (x -12.5, z -4.1..-2.3) and two dark cubicle partitions.
+        const partitionMat = factory.createPBRMaterial('restroomPartitionMat', {
+            baseColor: [0.055, 0.058, 0.068], metallic: 0.45, roughness: 0.38
+        }, true);
+        const partitions = b.group('Partitions', partitionMat);
+        const doorSpan = D.z1 - D.z0;
+        b.box(partitions, 0.56, D.height, 0.12, -12.5, D.height / 2, D.z0 + 0.06);
+        b.box(partitions, 0.56, D.height, 0.12, -12.5, D.height / 2, D.z1 - 0.06);
+        b.box(partitions, 0.56, 0.12, doorSpan, -12.5, D.height - 0.06, (D.z0 + D.z1) / 2);
+
+        const stallH = 2.15, stallBottom = 0.12, panelH = stallH - stallBottom, panelY = stallBottom + panelH / 2;
+        const stallDepth = SX - XF;
+        for (const z of [-4.6, -2.8]) {
+            b.box(partitions, stallDepth, panelH, 0.05, XF + stallDepth / 2, panelY, z);
+        }
+        // Stall front pilaster piers either side of the two 0.84 m cubicle doorways.
+        const pier = 0.36;
+        for (const z of [Z0 + pier / 2, -4.6 - pier / 2, -2.8 + pier / 2, Z1 - pier / 2]) {
+            b.box(partitions, 0.05, stallH, pier, SX, stallH / 2, z);
+        }
+        // Top header rails across the two cubicle fronts, plus ajar doors angled invitingly inward.
+        for (const [zA, zB, zCenter, swing] of [
+            [Z0, -4.6, R.toiletZ[0], -1],
+            [-2.8, Z1, R.toiletZ[1], 1]
+        ]) {
+            b.box(partitions, 0.05, 0.10, Math.abs(zB - zA), SX, stallH - 0.05, (zA + zB) / 2);
+            b.box(partitions, 0.035, panelH - 0.08, 0.72, SX - 0.25, panelY, zCenter + swing * 0.26, mesh => {
+                mesh.rotation.y = swing * 0.92;
+            });
+        }
+
+        // Specular wall mirrors above both washbasins, plus chrome plumbing, soap dispensers and hand dryer.
+        const mirrorMat = factory.createPBRMaterial('restroomMirrorMat', {
+            baseColor: [0.82, 0.86, 0.90], metallic: 0.98, roughness: 0.04
+        }, true);
+        const mirrors = b.group('Mirrors', mirrorMat);
+        const fixtures = b.group('Fixtures', factory.getPreset('stanchionPost'));
+        for (const sz of R.sinkZ) {
+            b.box(mirrors, 0.02, 0.92, 0.72, XN - 0.03, 1.48, sz);
+            b.box(fixtures, 0.08, 0.18, 0.10, XN - 0.06, 1.16, sz + 0.46);
+        }
+        for (const tz of R.toiletZ) {
+            b.cylinder(fixtures, 0.11, 0.14, XF + 0.10, 0.68, tz + 0.42, 'z', 12);
+        }
+        // Stainless hand dryer between the doorway and the stage-side basin.
+        b.box(fixtures, 0.14, 0.26, 0.24, XN - 0.08, 1.18, -4.42);
+
+        // Neon coves and warm backlit mirror halos.
+        const magenta = b.group('CoveMagenta', this._emissive('restroomMagentaMat', [1.0, 0.14, 0.55]));
+        const cyan = b.group('CoveCyan', this._emissive('restroomCyanMat', [0.1, 0.72, 1.0]));
+        const warm = b.group('MirrorGlow', this._emissive('restroomWarmMat', [1.0, 0.78, 0.48]));
+        b.box(magenta, 0.04, 0.035, Z1 - Z0 - 0.3, XF + 0.04, H - 0.12, midZ);
+        b.box(cyan, 0.04, 0.035, Z1 - Z0 - 0.3, XN - 0.04, H - 0.12, midZ);
+        for (const sz of R.sinkZ) {
+            b.box(warm, 0.012, 0.98, 0.78, XN - 0.015, 1.48, sz);
+        }
+
+        const built = b.finish({ collide: ['Walls', 'Ceiling', 'Partitions'] });
+        const scoped = Object.values(built);
+        ['leftWallFront', 'leftWallLintel'].forEach(name => {
+            const wall = this.scene.getMeshByName(name);
+            if (wall) scoped.push(wall);
+        });
+        this._restroomLight = this._createScopedAccent('restroomLight', new BABYLON.Vector3(-14.1, 2.75, midZ),
+            { intensity: 1.55, range: 7.5, diffuse: [1, 0.84, 0.72], group: 'restroom' }, scoped);
+        this._restroomFloor = built.Floor || null;
+        this._restroomMeshes = scoped;
+
+        this.modelLoadPromise.then(() => { if (!this._disposed) this._furnishRestroom(); });
+        log.info('✅ Club restroom created');
+    },
+
+    /** Place the second toilet and second washbasin, tag the toilets as seats, and add collision blocks. */
+    _furnishRestroom() {
+        const models = this.modelLoader && this.modelLoader.loadedModels;
+        if (!models) return;
+        const R = VENUE_RESTROOM;
+        const placed = [];
+
+        const toiletRecord = models.restroom_toilet;
+        if (toiletRecord && toiletRecord.rootMesh) {
+            const { container, rootMesh } = toiletRecord;
+            const firstMeshes = container.meshes.filter(mesh => mesh.getTotalVertices && mesh.getTotalVertices() > 0);
+            const homeZ = R.toiletZ[0];
+            R.toiletZ.forEach((z, index) => {
+                let seatMeshes = firstMeshes;
+                if (index > 0) {
+                    const entry = container.instantiateModelsToScene(name => `restroomToilet${index}_${name}`, false, { doNotInstantiate: false });
+                    const root = entry.rootNodes[0];
+                    if (!root) return;
+                    root.position.x = rootMesh.position.x;
+                    root.position.y = rootMesh.position.y;
+                    root.position.z = rootMesh.position.z + (z - homeZ);
+                    root.rotation.copyFrom(rootMesh.rotation);
+                    root.scaling.copyFrom(rootMesh.scaling);
+                    root.computeWorldMatrix(true);
+                    seatMeshes = root.getChildMeshes().filter(mesh => mesh.getTotalVertices && mesh.getTotalVertices() > 0);
+                }
+                seatMeshes.forEach(mesh => placed.push(mesh));
+                const seat = this._seat('a toilet', `toilet-${index}`, R.toiletSeatX, z, 0, R.toiletSeatY,
+                    Math.PI / 2, R.toiletSeatX + 0.42, z);
+                this._tagSeatMeshes(seatMeshes, [seat]);
+                this._collisionBlock(`restroomToiletBlock${index}`, 0.56, 0.85, 0.52, R.toiletX, 0.425, z);
+            });
+        }
+
+        const sinkRecord = models.restroom_sink;
+        if (sinkRecord && sinkRecord.rootMesh) {
+            const { container, rootMesh } = sinkRecord;
+            const firstMeshes = container.meshes.filter(mesh => mesh.getTotalVertices && mesh.getTotalVertices() > 0);
+            const homeZ = R.sinkZ[0];
+            R.sinkZ.forEach((z, index) => {
+                let sinkMeshes = firstMeshes;
+                if (index > 0) {
+                    const entry = container.instantiateModelsToScene(name => `restroomSink${index}_${name}`, false, { doNotInstantiate: false });
+                    const root = entry.rootNodes[0];
+                    if (!root) return;
+                    root.position.x = rootMesh.position.x;
+                    root.position.y = rootMesh.position.y;
+                    root.position.z = rootMesh.position.z + (z - homeZ);
+                    root.rotation.copyFrom(rootMesh.rotation);
+                    root.scaling.copyFrom(rootMesh.scaling);
+                    root.computeWorldMatrix(true);
+                    sinkMeshes = root.getChildMeshes().filter(mesh => mesh.getTotalVertices && mesh.getTotalVertices() > 0);
+                }
+                sinkMeshes.forEach(mesh => {
+                    mesh.isPickable = false;
+                    placed.push(mesh);
+                });
+                this._collisionBlock(`restroomSinkBlock${index}`, 0.48, 0.9, 0.62, R.sinkX, 0.45, z);
+            });
+        }
+
+        this._extendAccentLight(this._restroomLight, placed);
+        this._restroomFixtures = placed;
     }
 };
-window.VenueLayout = { bar: VENUE_BAR, lounge: VENUE_LOUNGE, vestibule: VENUE_VESTIBULE };
+window.VenueLayout = {
+    bar: VENUE_BAR,
+    lounge: VENUE_LOUNGE,
+    monitors: VENUE_MONITORS,
+    restroom: VENUE_RESTROOM,
+    vestibule: VENUE_VESTIBULE
+};
 window.VenueDressing = VenueDressing;

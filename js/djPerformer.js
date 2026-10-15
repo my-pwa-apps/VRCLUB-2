@@ -8,14 +8,14 @@
  * in it, so it is unit-tested on its own.
  *
  * The performance is a set of ACTIVITIES, chosen on bar lines (never mid-bar), each held for a few bars:
- *   mix      leaning over the decks: one hand riding a jog wheel, the other moving between mixer knobs and twisting
+ *   mix      leaning over the decks: one hand nudging a jog wheel, the other turning and holding a mixer knob
  *   cue      one hand holding a headphone cup to the ear, the other on the mixer: listening to the next track
- *   tweak    both hands on the mixer's knobs, twisting harder the more energy the music has (a build)
- *   crowd    looking up and out over the floor, scanning it, hands resting on the console; a fist pumps when it is loud
- *   handsUp  both hands in the air, pumping on the beat: when a drop lands
+ *   tweak    both hands on the mixer, alternating deliberate knob turns during a build
+ *   crowd    looking up and out over the floor, scanning it, hands resting on the console; an occasional fist accent
+ *   handsUp  both hands in the air with alternating accents: briefly when a drop lands
  *   wave     a hand raised and waving toward a visitor who has just walked up to the booth, head turned to them
- * Throughout, the head nods and the knees bounce on the beat, deeper as the music gets more energetic. Without music
- * it keeps a slow internal tempo and a calm repertoire (no hands up, small nods).
+ * Throughout, shaped head nods and knee bounces land just after the beat and grow with the music. Slow gaze and breath
+ * offsets keep held poses alive. Without music it keeps a slow internal tempo and a calm repertoire.
  *
  * Every target is eased (a hand travels between places in a few tenths of a second), so changes read as movement,
  * not as snaps. Nothing is allocated per frame: the pose object, hand objects and scratch numbers are kept.
@@ -24,10 +24,10 @@ class DJPerformer {
     /** Bars each activity lasts, and its base weight when one is picked. */
     static ACTIVITIES = Object.freeze({
         mix: { bars: 4, weight: 3 },
-        cue: { bars: 4, weight: 2 },
+        cue: { bars: 2, weight: 2 },
         tweak: { bars: 2, weight: 1 },
         crowd: { bars: 2, weight: 1.5 },
-        handsUp: { bars: 2, weight: 0 },
+        handsUp: { bars: 1, weight: 0 },
         wave: { bars: 2, weight: 0 }
     });
 
@@ -51,6 +51,8 @@ class DJPerformer {
         this.time = 0;
         this._clockBeats = 0;          // the internal tempo when there is no music
         this._knob = { left: 0, right: 0, at: -1 };
+        this._deckSide = -1;
+        this._activityStartedAt = 0;
         this._waved = new Map();       // visitor id -> time of the last wave
         this._visitor = { x: 0, z: 0, id: null }; // locked target while waving
         this._wasInZone = new Map();
@@ -94,6 +96,8 @@ class DJPerformer {
     _begin(name, bars) {
         this.activity = name;
         this.barsLeft = bars || DJPerformer.ACTIVITIES[name].bars;
+        this._activityStartedAt = this.time;
+        if (name === 'mix') this._deckSide = this.rng() < 0.5 ? -1 : 1;
     }
 
     _inVisitorZone(v) {
@@ -162,7 +166,7 @@ class DJPerformer {
         const beatRate = audio && music.bpm > 40 ? music.bpm / 60 : 118 / 60;
 
         // Events that cut in: a drop puts the hands up; a new visitor gets a wave.
-        if (audio && music.drop) this._begin('handsUp', 2);
+        if (audio && music.drop) this._begin('handsUp', 1);
         this._trackVisitor(visitors);
         // A wave is attention-locked. New arrivals are still recorded as being in the
         // zone, but cannot steal the DJ's gaze halfway through the gesture.
@@ -191,8 +195,8 @@ class DJPerformer {
         this._targets(beatPhase, beatRate, energy, audio);
 
         // Ease toward the goals: hands travel in a few tenths of a second, the head a little slower.
-        const kh = 1 - Math.exp(-dt * (this.activity === 'handsUp' || this.activity === 'wave' ? 9 : 12));
-        const ka = 1 - Math.exp(-dt * 7);
+        const kh = 1 - Math.exp(-dt * (this.activity === 'handsUp' || this.activity === 'wave' ? 8 : 7.5));
+        const ka = 1 - Math.exp(-dt * 5.5);
         if (!this._started) { this._started = true; DJPerformer._copyHand(this._goalL, this.left); DJPerformer._copyHand(this._goalR, this.right); }
         DJPerformer._easeHand(this.left, this._goalL, kh);
         DJPerformer._easeHand(this.right, this._goalR, kh);
@@ -201,9 +205,13 @@ class DJPerformer {
         this.lean += (this._goalLean - this.lean) * ka;
 
         // On every beat: a nod (down on the beat) and a knee bounce, both deeper with energy.
-        const onBeat = 0.5 + 0.5 * Math.cos(2 * Math.PI * beatPhase);       // 1 on the beat, 0 between
-        const nod = (audio ? 0.05 + 0.13 * energy : 0.04) * onBeat;
-        const bounce = (audio ? 0.008 + 0.028 * energy : 0.006) * onBeat;
+        let nodPhase = beatPhase - 0.08;
+        if (nodPhase < 0) nodPhase += 1;
+        const beatWave = Math.max(0, Math.cos(2 * Math.PI * nodPhase));
+        const accent = beatWave * beatWave;
+        const nod = (audio ? 0.045 + 0.115 * energy : 0.035) * accent;
+        const bounce = (audio ? 0.007 + 0.024 * energy : 0.005) * accent;
+        const breath = 0.008 * Math.sin(this.time * 0.72);
 
         const p = this.pose;
         p.x = this.home.x;
@@ -211,8 +219,8 @@ class DJPerformer {
         p.groundY = this.home.groundY;
         p.eyeY = this.home.groundY + this.eye - bounce;
         p.headYaw = this.headYaw;
-        p.headPitch = this.headPitch - nod;
-        p.lean = this.lean;
+        p.headPitch = this.headPitch - nod + 0.012 * Math.sin(this.time * 0.43);
+        p.lean = this.lean + breath;
         return p;
     }
 
@@ -225,7 +233,7 @@ class DJPerformer {
         const jogX = d.halfWidth * 0.58, jogZ = d.near + depth * 0.3;
         const mixZ = d.near + depth * 0.3;
         // Mixer knobs: a small grid in the middle; a hand moves to a new one every two beats.
-        const beatIndex = Math.floor(t * beatRate / 2);
+        const beatIndex = Math.floor(t * beatRate / 4);
         if (beatIndex !== this._knob.at) {
             this._knob.at = beatIndex;
             this._knob.left = Math.floor(this.rng() * 6);
@@ -234,18 +242,25 @@ class DJPerformer {
         const palmDown = DJPerformer._palmDown;
         const twistAmp = 0.25 + 0.45 * energy;
         const TAU = 2 * Math.PI;
+        const activityAge = t - this._activityStartedAt;
+        const beatNumber = Math.floor(t * beatRate);
 
         let yaw = 0, pitch = -0.45, lean = 0.26;
         switch (this.activity) {
             case 'mix': {
-                // Left hand rides the jog wheel in small circles, right hand works the mixer.
-                const a = t * 2.2;
-                L.x = d.cx - jogX + 0.018 * Math.cos(a); L.z = jogZ + 0.018 * Math.sin(a); L.y = top;
-                palmDown(L, -1, 0);
-                this._knobAt(this._knob.right, 1, R, mixZ, top);
-                palmDown(R, 1, twistAmp * Math.sin(TAU * (t * beatRate * 0.5)));
-                yaw = 0.08 * Math.sin(t * 0.5);
-                pitch = -0.55; lean = 0.45;
+                const deckHand = this._deckSide < 0 ? L : R;
+                const mixerHand = this._deckSide < 0 ? R : L;
+                const nudge = Math.sin(TAU * t * beatRate * 0.25);
+                deckHand.x = d.cx + this._deckSide * jogX + 0.012 * nudge;
+                deckHand.z = jogZ + 0.022 * nudge;
+                deckHand.y = top - 0.003 * Math.max(0, nudge);
+                palmDown(deckHand, this._deckSide, 0.08 * nudge);
+                const mixerSide = -this._deckSide;
+                const knob = mixerSide < 0 ? this._knob.left : this._knob.right;
+                this._knobAt(knob, mixerSide, mixerHand, mixZ, top);
+                palmDown(mixerHand, mixerSide, twistAmp * DJPerformer._turnGesture(t * beatRate * 0.5));
+                yaw = this._deckSide * 0.08 + 0.025 * Math.sin(t * 0.37);
+                pitch = -0.52; lean = 0.43;
                 break;
             }
             case 'cue': {
@@ -254,43 +269,47 @@ class DJPerformer {
                 L.x = this.home.x - 0.11; L.y = headY; L.z = this.home.z + 0.06;
                 L.fx = 0; L.fy = 1; L.fz = 0.1; L.ux = 0; L.uy = 0; L.uz = 1;
                 this._knobAt(this._knob.right, 1, R, mixZ, top);
-                palmDown(R, 1, twistAmp * Math.sin(TAU * (t * beatRate * 0.25)));
-                yaw = -0.12; pitch = -0.38; lean = 0.36;
+                palmDown(R, 1, 0.7 * twistAmp * DJPerformer._turnGesture(t * beatRate * 0.25));
+                yaw = -0.13 + 0.02 * Math.sin(t * 0.31);
+                pitch = -0.34; lean = 0.34;
                 break;
             }
             case 'tweak': {
                 this._knobAt(this._knob.left, -1, L, mixZ, top);
                 this._knobAt(this._knob.right, 1, R, mixZ, top);
-                palmDown(L, -1, twistAmp * Math.sin(TAU * (t * beatRate * 0.5 + 0.25)));
-                palmDown(R, 1, twistAmp * Math.sin(TAU * (t * beatRate * 0.5)));
-                pitch = -0.6; lean = 0.52;
+                const turn = twistAmp * DJPerformer._turnGesture(t * beatRate);
+                palmDown(L, -1, beatNumber % 2 === 0 ? turn : 0);
+                palmDown(R, 1, beatNumber % 2 === 1 ? turn : 0);
+                yaw = beatNumber % 2 === 0 ? -0.05 : 0.05;
+                pitch = -0.57; lean = 0.49;
                 break;
             }
             case 'crowd': {
                 // Hands rest on the console's near edge; looking out over the floor, scanning it.
                 L.x = d.cx - 0.22; L.z = d.near + 0.06; L.y = top;
                 palmDown(L, -1, 0);
-                if (audio && energy > 0.6) {
-                    // A fist pumped on the beat.
-                    const pump = 0.5 + 0.5 * Math.cos(2 * Math.PI * beatPhase);
-                    R.x = this.home.x + 0.22; R.y = this.home.groundY + this.eye + 0.18 + 0.1 * pump; R.z = this.home.z + 0.3;
+                if (audio && energy > 0.72 && beatNumber % 2 === 0) {
+                    const pump = Math.pow(Math.max(0, Math.cos(2 * Math.PI * beatPhase)), 2);
+                    R.x = this.home.x + 0.22; R.y = this.home.groundY + this.eye + 0.12 + 0.12 * pump; R.z = this.home.z + 0.3;
                     R.fx = 0; R.fy = 1; R.fz = 0.2; R.ux = -1; R.uy = 0; R.uz = 0;
                 } else {
                     R.x = d.cx + 0.22; R.z = d.near + 0.06; R.y = top;
                     palmDown(R, 1, 0);
                 }
-                yaw = 0.45 * Math.sin(t * 0.35);
+                yaw = 0.28 * Math.sin(t * 0.22) + 0.09 * Math.sin(t * 0.57);
                 pitch = 0.04; lean = 0.08;
                 break;
             }
             case 'handsUp': {
-                const pump = 0.5 + 0.5 * Math.cos(2 * Math.PI * beatPhase);
-                const y = this.home.groundY + this.eye + 0.32 + 0.08 * pump;
-                L.x = this.home.x - 0.32; L.y = y; L.z = this.home.z + 0.18;
-                R.x = this.home.x + 0.32; R.y = y; R.z = this.home.z + 0.18;
+                const pump = Math.pow(Math.max(0, Math.cos(2 * Math.PI * beatPhase)), 2);
+                const leftAccent = beatNumber % 2 === 0 ? 0.15 * pump : 0.015 * pump;
+                const rightAccent = beatNumber % 2 === 1 ? 0.15 * pump : 0.015 * pump;
+                const baseY = this.home.groundY + this.eye + 0.28;
+                L.x = this.home.x - 0.31 - 0.025 * Math.sin(t * 1.1); L.y = baseY + leftAccent; L.z = this.home.z + 0.18;
+                R.x = this.home.x + 0.34 + 0.02 * Math.sin(t * 0.9); R.y = baseY + rightAccent; R.z = this.home.z + 0.2;
                 L.fx = -0.25; L.fy = 1; L.fz = 0.15; L.ux = 0; L.uy = 0; L.uz = 1;
                 R.fx = 0.25; R.fy = 1; R.fz = 0.15; R.ux = 0; R.uy = 0; R.uz = 1;
-                pitch = 0.18; lean = 0;
+                yaw = 0.04 * Math.sin(t * 0.8); pitch = 0.15; lean = 0.02;
                 break;
             }
             case 'wave': {
@@ -299,8 +318,11 @@ class DJPerformer {
                 const dx = v ? v.x - this.home.x : 0, dz = v ? v.z - this.home.z : 4;
                 yaw = Math.max(-0.8, Math.min(0.8, Math.atan2(dx, dz)));
                 pitch = Math.max(-0.3, Math.min(0.15, Math.atan2(1.6 - (this.home.groundY + this.eye), Math.hypot(dx, dz))));
-                const swing = Math.sin(t * 2 * Math.PI * 1.7);
-                R.x = this.home.x + 0.3 + 0.09 * swing; R.y = this.home.groundY + this.eye + 0.22; R.z = this.home.z + 0.28;
+                const waving = activityAge < 2.4;
+                const swing = waving ? Math.sin(activityAge * TAU * 1.15) : 0;
+                R.x = this.home.x + 0.3 + 0.09 * swing;
+                R.y = this.home.groundY + this.eye + (waving ? 0.22 : 0.09);
+                R.z = this.home.z + 0.28;
                 R.fx = 0.25 * swing; R.fy = 1; R.fz = 0.15; R.ux = 0; R.uy = 0; R.uz = 1;
                 L.x = d.cx - 0.22; L.z = d.near + 0.06; L.y = top;
                 palmDown(L, -1, 0);
@@ -327,6 +349,17 @@ class DJPerformer {
         h.fx = 0; h.fy = -0.55; h.fz = 0.84;
         const c = Math.cos(twist), s = Math.sin(twist);
         h.ux = -side * c; h.uy = s; h.uz = 0;
+    }
+
+    static _turnGesture(beats) {
+        const phase = beats - Math.floor(beats);
+        if (phase < 0.2) {
+            const t = phase / 0.2;
+            return t * t * (3 - 2 * t);
+        }
+        if (phase < 0.65) return 1;
+        const t = (phase - 0.65) / 0.35;
+        return 1 - t * t * (3 - 2 * t);
     }
 
     static _copyHand(from, to) {

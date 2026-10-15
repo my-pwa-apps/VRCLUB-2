@@ -139,6 +139,7 @@ class VRClubEnvironment extends VRClubRendering {
             { cell: 'bar', kind: 'neon', color: [1, 0.55, 0.12], w: 1.5, h: 1.07, wall: WALL_RIGHT, axis: 'x', y: 3.95, along: -9.9, yaw: Math.PI / 2 },
             { cell: 'exit', kind: 'exit', color: [0.1, 1, 0.35], w: 0.5, h: 0.18, wall: WALL_FRONT, axis: 'z', y: 3.0, along: 3.4, yaw: 0 },
             { cell: 'exit', kind: 'exit', color: [0.1, 1, 0.35], w: 0.5, h: 0.18, wall: WALL_LEFT, axis: 'x', y: 2.5, along: -17.5, yaw: -Math.PI / 2 },
+            { cell: 'wc', kind: 'neon', color: [1, 0.18, 0.55], w: 0.72, h: 0.42, wall: WALL_LEFT, axis: 'x', y: 3.15, along: -3.2, yaw: -Math.PI / 2 },
             // The vestibule: ENTER over the doorway on the stair side, EXIT over the street door on its lintel.
             { cell: 'enter', kind: 'neon', color: [0.1, 0.9, 1], w: 1.44, h: 0.4, wall: 0.25, axis: 'z', y: 3.5, along: 0, yaw: Math.PI },
             { cell: 'exit', kind: 'exit', color: [0.1, 1, 0.35], w: 0.5, h: 0.18, wall: 6.0, axis: 'z', y: streetLevel + 3.3, along: 0, yaw: 0 }
@@ -150,7 +151,8 @@ class VRClubEnvironment extends VRClubRendering {
             nocturne: [0, 0, 1024, 272, 'NOCTURNE'],
             bar: [0, 288, 179, 128, 'BAR'],
             exit: [193, 288, 356, 128, 'EXIT'],
-            enter: [563, 288, 461, 128, 'ENTER']
+            enter: [563, 288, 461, 128, 'ENTER'],
+            wc: [0, 420, 220, 92, 'WC']
         };
         const atlas = new BABYLON.DynamicTexture('signageAtlas', { width: W, height: H }, this.scene, true);
         atlas.anisotropicFilteringLevel = this.tierSettings ? this.tierSettings.anisotropy : 4;

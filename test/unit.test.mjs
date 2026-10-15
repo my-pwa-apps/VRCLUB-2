@@ -4312,6 +4312,13 @@ test('headset MSAA follows the config, never exceeds the GPU, and can be overrid
     // The headset pipeline must use it: the XR layer's own antialias never reaches the offscreen target.
     const core = readFileSync(join(ROOT, 'js/club/01-core.js'), 'utf8');
     assert.match(core, /renderPipeline\.samples = VRClubCore\.resolveVRMsaaSamples\(/);
+    assert.match(core, /preserveDrawingBuffer:\s*false/,
+        'the production engine must not retain an unread back buffer');
+    assert.match(core, /framebufferScaleFactor:\s*1\.0/,
+        'the XR layer must stay at native scale instead of multiplying stereo post-process fill');
+    assert.match(core, /ultra:\s*\{[\s\S]*?vrMsaaSamples:\s*2/);
+    assert.match(core, /high:\s*\{[\s\S]*?vrMsaaSamples:\s*2/);
+    assert.match(core, /balanced:\s*\{[\s\S]*?vrMsaaSamples:\s*1/);
     assert.ok(!/renderPipeline\.samples = 1;/.test(core.slice(core.indexOf('applyVRSettings('), core.indexOf('applyDesktopSettings()'))),
         'the headset pipeline is back to no MSAA');
 });
@@ -4618,12 +4625,14 @@ test('VR comfort swaps mutually exclusive movement and teleportation features wi
     const sceneMeshes = new Map(['frontWall', 'backWall', 'leftWall', 'rightWall', 'djPlatform', 'djPlatformTop',
         'vestibuleWalls', 'vestibuleFrame', 'barJoinery', 'mezzRails']
         .map(name => [name, { name, checkCollisions: true, isEnabled: () => true }]));
+    const ledWallCollider = { name: 'ledWallCollider', checkCollisions: false, isEnabled: () => true };
     const club = {
         vjManualMode: false,
         movementFeature: null,
         floorMesh: { name: 'floor' },
         _mezzDeck: { name: 'mezzDeck' },
         scene: { meshes: [...sceneMeshes.values()] },
+        _ledWallCollider: ledWallCollider,
         vrHelper: {
             input: { name: 'input' },
             pointerSelection: { name: 'pointer' },
@@ -4685,9 +4694,9 @@ test('VR comfort swaps mutually exclusive movement and teleportation features wi
     club.setVRComfortMode(true);
     assert.deepEqual(
         club.vrHelper.teleportation.options.pickBlockerMeshes.map(mesh => mesh.name).sort(),
-        [...sceneMeshes.keys()].sort()
+        [...sceneMeshes.keys(), 'ledWallCollider'].sort()
     );
-    assert.equal(originalTeleport.options.pickBlockerMeshes.length, sceneMeshes.size);
+    assert.equal(originalTeleport.options.pickBlockerMeshes.length, sceneMeshes.size + 1);
     // The balcony deck (with its stair treads) is a teleport floor alongside the club floor, registered once.
     assert.deepEqual([...club.vrHelper.teleportation.options.floorMeshes].map(mesh => mesh.name), ['floor', 'mezzDeck']);
     assert.deepEqual([...originalTeleport.options.floorMeshes].map(mesh => mesh.name).sort(), ['floor', 'mezzDeck']);
@@ -6790,6 +6799,82 @@ test('the bass bin GLB is optimised: six draws, 512 px maps, and its credit is i
     assert.match(html, /Bass Bin 3 - Subwoofer[\s\S]{0,400}darksoundlab[\s\S]{0,300}CC BY 4\.0/, 'the CC BY credit must name title, creator and licence');
     assert.match(readFileSync(join(ROOT, 'ASSETS.md'), 'utf8'), /bass_bin_3\.glb/);
 });
+
+test('the DJ booth monitor speakers and restroom fixtures are one-draw vertex-coloured CC0 GLBs and sit on the DJ table and in the restroom', () => {
+    for (const file of [
+        'js/models/monitors/source/monitor_speaker.glb',
+        'js/models/restroom/source/toilet.glb',
+        'js/models/restroom/source/bathroom_sink.glb'
+    ]) {
+        const json = readGlbJson(file);
+        assert.equal(json.meshes.reduce((sum, mesh) => sum + mesh.primitives.length, 0), 1, `${file} must cost one draw`);
+        assert.equal(json.materials.length, 1, `${file} must use one material`);
+        assert.equal((json.images || []).length, 0, `${file} should use vertex colours rather than extra textures`);
+        assert.ok(json.meshes[0].primitives[0].attributes.COLOR_0 !== undefined, `${file} must carry COLOR_0 vertex colours`);
+    }
+
+    const BABYLON = require('../js/vendor/babylon.js');
+    const CLUB_POSITIONS = { paSpeakers: { left: { x: -6, y: 7.1, z: -16 }, right: { x: 6, y: 7.1, z: -16 } } };
+    const { window: loaderWindow } = loadClassic('js/modelLoader.js', {
+        BABYLON, CLUB_POSITIONS, navigator: { userAgent: '' }, AbortController, IndexedDBAssetCache: class {}, InFlightRegistry: class {}
+    });
+    const configs = loaderWindow.ModelLoader.prototype.getModelConfigs.call({});
+    const { window: venueWindow } = loadClassic('js/venueDressing.js');
+    const { monitors, restroom } = venueWindow.VenueLayout;
+
+    // Monitor speakers sit on the DJ table (y 1.42) on either side of the VJ desk, angled toward the DJ.
+    assert.equal(configs.dj_monitor.placement.bottomY, monitors.tableY);
+    assert.equal(configs.dj_monitor.placement.fitSize, monitors.height);
+    assert.equal(configs.dj_monitor.placement.centerX, monitors.left.x);
+    assert.equal(configs.dj_monitor.placement.centerZ, monitors.left.z);
+    assert.equal(monitors.right.x, -monitors.left.x);
+    assert.equal(monitors.right.z, monitors.left.z);
+
+    // Restroom toilet and washbasin sit on the restroom floor inside the room's bounds.
+    assert.equal(configs.restroom_toilet.placement.centerX, restroom.toiletX);
+    assert.equal(configs.restroom_toilet.placement.centerZ, restroom.toiletZ[0]);
+    assert.equal(configs.restroom_toilet.placement.bottomY, 0);
+    assert.equal(configs.restroom_sink.placement.location ?? configs.restroom_sink.placement.bottomY, 0);
+    assert.equal(configs.restroom_sink.placement.centerZ, restroom.sinkZ[0]);
+
+    // Real Babylon geometry check for the restroom shell, partitions, doorway and acoustic muffling.
+    const scene = new BABYLON.Scene(new BABYLON.NullEngine());
+    const club = Object.assign({
+        scene,
+        modelLoadPromise: Promise.resolve(),
+        materialFactory: {
+            getPreset: name => new BABYLON.StandardMaterial(name, scene),
+            createPBRMaterial: name => new BABYLON.StandardMaterial(name, scene),
+            createStandardMaterial: name => new BABYLON.StandardMaterial(name, scene)
+        },
+        lightFactory: { createPointLight: (name, position) => new BABYLON.PointLight(name, position, scene) },
+        textureLoader: null,
+        concreteTextures: null,
+        _applyWorldUVs() {}
+    }, venueWindow.VenueDressing);
+    club.createRestroom();
+
+    assert.ok(club._restroomFloor, 'restroom floor must be created for teleportation');
+    assert.ok(club._restroomLight, 'restroom must have its own scoped accent light');
+    const walls = scene.getMeshByName('restroomWalls');
+    const partitions = scene.getMeshByName('restroomPartitions');
+    const mirrors = scene.getMeshByName('restroomMirrors');
+    assert.ok(walls && walls.checkCollisions, 'restroom outer walls must collide');
+    assert.ok(partitions && partitions.checkCollisions, 'restroom stall partitions must collide');
+    assert.ok(mirrors, 'restroom mirrors must be built');
+
+    // A ray from the main hall through the doorway centre (z -3.2) enters unobstructed until the far wall (x -16).
+    const doorRay = new BABYLON.Ray(new BABYLON.Vector3(-11.5, 1.2, -3.2), new BABYLON.Vector3(-1, 0, 0), 6);
+    const doorHit = scene.pickWithRay(doorRay, mesh => mesh.checkCollisions && mesh.isEnabled());
+    assert.ok(doorHit && doorHit.hit && Math.abs(doorHit.pickedPoint.x - restroom.farX) < 0.05,
+        `expected doorway ray to reach the far restroom wall (${restroom.farX}), hit ${doorHit && doorHit.pickedPoint && doorHit.pickedPoint.x}`);
+
+    // Acoustic enclosure is 0 on the dance floor and rises smoothly inside the restroom.
+    assert.equal(restroom.enclosure(0, -12), 0);
+    assert.equal(restroom.enclosure(-11.8, -3.2), 0);
+    assert.ok(restroom.enclosure(-14.2, -3.2) > 0.6, 'restroom interior should muffle the PA');
+    scene.dispose();
+});
 // ---------------------------------------------------------------------------
 // The street outside the club
 // ---------------------------------------------------------------------------
@@ -6951,6 +7036,53 @@ test('walking down the entrance stair lifts the muffling gradually instead of op
     // And the room's own tail arrives with it rather than being heard at full strength from the stairwell.
     assert.ok(top.reverb < bottom.reverb * 0.1 && top.delay < bottom.delay * 0.1 && top.crowd < bottom.crowd * 0.1,
         'the room must be shut away at the top of the stair');
+});
+
+test('the deck muffles the ear under it, the balcony is clearer, and the bar is only a shelf', () => {
+    const { club, window } = createAudioHarness();
+    window.CityLayout = loadClassic('js/cityDistrict.js').window.CityLayout;
+    window.MezzanineLayout = loadClassic('js/mezzanine.js').window.MezzanineLayout;
+    club._connectAudioSourceOnce();
+    club._audioFrameData = { average: 0 };
+    const stand = (x, y, z) => {
+        club.scene = {
+            activeCamera: {
+                globalPosition: { x, y, z },
+                getForwardRay: () => ({ direction: { x: 0, y: 0, z: 1 } }),
+                upVector: { x: 0, y: 1, z: 0 }
+            }
+        };
+        club.updateSpatialAudioListener();
+        return {
+            cutoff: club.occlusionFilter.frequency.value,
+            reverb: club.reverbSend.gain.value,
+            sub: club.subGain.gain.value,
+            presence: club._localPaPresence
+        };
+    };
+    const floor = stand(0, 1.7, -15);
+    const under = stand(-11, 1.7, -15);
+    const balcony = stand(-11, 4.7, -15);
+    const bar = stand(9.6, 1.6, -10);
+    const openBarZ = stand(0, 1.6, -10);
+    assert.ok(Math.abs(floor.cutoff - 20000) < 1);
+    assert.ok(under.cutoff < 900 && under.cutoff > 700);
+    assert.ok(under.reverb > floor.reverb);
+    assert.ok(under.presence < floor.presence);
+    assert.ok(balcony.cutoff > 18000);
+    assert.ok(balcony.reverb < under.reverb);
+    assert.ok(balcony.presence > under.presence);
+    assert.equal(under.sub, balcony.sub);
+    assert.ok(bar.cutoff < openBarZ.cutoff && bar.cutoff > 6000);
+    assert.ok(bar.reverb > openBarZ.reverb);
+
+    let previous = stand(-8, 1.7, -15).cutoff;
+    for (let x = -8.1; x >= -11; x -= 0.1) {
+        const here = stand(Number(x.toFixed(3)), 1.7, -15).cutoff;
+        assert.ok(here <= previous + 1, `the soffit opened walking under it at x ${x}`);
+        assert.ok(Math.abs(Math.log2(here / previous)) < 0.35, `the soffit jumped at x ${x}`);
+        previous = here;
+    }
 });
 
 test('the street is drawn only near the entrance (with hysteresis) and the outdoors amount eases', () => {
@@ -8780,7 +8912,20 @@ function perform(dj, seconds, { energy = 0.5, hasAudio = true, visitors = null, 
         music.drop = false;
         if (each) each(music, t);
         const pose = dj.update(1 / 60, music, visitors);
-        frames.push({ t, bar: music.bar, activity: dj.activity, pitch: pose.headPitch, eyeY: pose.eyeY, leftY: pose.left.y, rightY: pose.right.y, pose });
+        frames.push({
+            t,
+            bar: music.bar,
+            activity: dj.activity,
+            pitch: pose.headPitch,
+            eyeY: pose.eyeY,
+            leftX: pose.left.x,
+            leftY: pose.left.y,
+            rightX: pose.right.x,
+            rightY: pose.right.y,
+            goalLeftTwist: dj._goalL.uy,
+            goalRightTwist: dj._goalR.uy,
+            pose
+        });
     }
     return frames;
 }
@@ -8885,6 +9030,45 @@ test('the DJ nods and bounces on the beat, deeper when the music is louder', () 
     const onBeat = frames.filter(f => (f.t * 124 / 60) % 1 < 0.04).slice(-4);
     const offBeat = frames.filter(f => Math.abs((f.t * 124 / 60) % 1 - 0.5) < 0.04).slice(-4);
     assert.ok(Math.max(...onBeat.map(f => f.eyeY)) < Math.min(...offBeat.map(f => f.eyeY)), 'down on the beat, up between');
+});
+
+test('the DJ uses deliberate, asymmetric role gestures instead of mirrored continuous loops', () => {
+    const { dj, DJPerformer } = loadDJPerformer();
+    assert.equal(DJPerformer.ACTIVITIES.cue.bars, 2, 'cueing holds the headphone for too long');
+    assert.equal(DJPerformer.ACTIVITIES.handsUp.bars, 1, 'a drop reaction should be an accent, not a section');
+    assert.equal(DJPerformer._turnGesture(0.3), 1);
+    assert.equal(DJPerformer._turnGesture(0.6), 1, 'a knob turn needs a readable hold');
+    assert.ok(DJPerformer._turnGesture(0.05) < DJPerformer._turnGesture(0.15));
+    assert.ok(DJPerformer._turnGesture(0.75) > DJPerformer._turnGesture(0.95));
+
+    dj._begin('tweak', 99);
+    const tweaking = perform(dj, 4, { energy: 0.8 });
+    const intentional = tweaking.filter(frame =>
+        Math.abs(frame.goalLeftTwist) > 0.05 || Math.abs(frame.goalRightTwist) > 0.05);
+    assert.ok(intentional.some(frame => Math.abs(frame.goalLeftTwist) > 0.05));
+    assert.ok(intentional.some(frame => Math.abs(frame.goalRightTwist) > 0.05));
+    assert.ok(intentional.every(frame =>
+        !(Math.abs(frame.goalLeftTwist) > 0.05 && Math.abs(frame.goalRightTwist) > 0.05)),
+    'both hands twist in mechanical synchrony');
+
+    dj._begin('handsUp', 99);
+    const celebrating = perform(dj, 2, { energy: 0.9, t0: 4 });
+    assert.ok(Math.max(...celebrating.map(frame => Math.abs(frame.leftY - frame.rightY))) > 0.035,
+        'hands-up remains perfectly mirrored');
+
+    dj._visitor.x = 2;
+    dj._visitor.z = -15;
+    dj._visitor.id = 'guest';
+    dj._begin('wave', 99);
+    const waving = perform(dj, 2.4, { t0: 6 });
+    let crossings = 0;
+    let previous = Math.sign(waving[0].rightX - (dj.home.x + 0.3));
+    for (const frame of waving.slice(1)) {
+        const sign = Math.sign(frame.rightX - (dj.home.x + 0.3));
+        if (sign && previous && sign !== previous) crossings++;
+        if (sign) previous = sign;
+    }
+    assert.ok(crossings >= 3 && crossings <= 6, `the wave changed direction ${crossings} times`);
 });
 
 // ---------------------------------------------------------------------------
@@ -9209,6 +9393,28 @@ test('every move the choreographer knows is in the dancers\' files, as long as i
             assert.ok(animation, `${file} has no ${name}`);
             const duration = Math.max(...animation.channels.map(c => json.accessors[animation.samplers[c.sampler].input].max[0]));
             assert.ok(Math.abs(duration - meta.beats * 60 / CrowdDance.CLIP_BPM) < 0.02, `${file} ${name}: ${duration} s is not ${meta.beats} beats`);
+        }
+    }
+});
+
+test('shipped avatar GLBs keep compact skin attributes within the Quest payload budget', () => {
+    const files = readdirSync(join(ROOT, 'js/models/avatars'))
+        .filter(file => /^club-.*\.glb$/.test(file));
+    const totalBytes = files.reduce((sum, file) => sum + readFileSync(join(ROOT, 'js/models/avatars', file)).length, 0);
+    assert.ok(totalBytes < 15 * 1024 * 1024, `${(totalBytes / 1048576).toFixed(2)} MiB of shipped avatar GLBs`);
+
+    for (const file of files) {
+        const json = readGlbJson(`js/models/avatars/${file}`);
+        for (const primitive of json.meshes.flatMap(mesh => mesh.primitives)) {
+            const attributes = primitive.attributes;
+            for (const semantic of ['JOINTS_0', 'WEIGHTS_0', 'COLOR_0']) {
+                if (attributes[semantic] === undefined) continue;
+                const accessor = json.accessors[attributes[semantic]];
+                assert.equal(accessor.componentType, 5121, `${file} ${semantic} is not packed to Uint8`);
+                if (semantic !== 'JOINTS_0') {
+                    assert.equal(accessor.normalized, true, `${file} ${semantic} is not normalized`);
+                }
+            }
         }
     }
 });

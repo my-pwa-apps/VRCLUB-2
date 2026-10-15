@@ -20,6 +20,22 @@ kept in lockstep with `index.html`, `sw.js` and `serviceworker.js` by
 
 ### Added
 
+- **The resident DJ moves more like a working DJ.** Jog-wheel movement is now a controlled nudge rather
+  than a continuous circle; knob turns use turn, hold and release phases; two-hand tweaks alternate
+  intent; crowd pumps occur as occasional accents; drop poses alternate arms instead of mirroring; and
+  waves are slower and finite. Beat motion is a short compression just after the beat, with restrained
+  gaze and breathing motion between actions.
+- **Smaller avatars on Quest.** The avatar optimizer now packs skin weights, joint indices and vertex
+  colours into 8-bit accessors, welds the vertex-coloured crowd, simplifies eligible meshes and resamples
+  animation keys while preserving rig height. The 24 shipped `club-*` GLBs total 14.35 MiB after optimization.
+- **Height-aware club acoustics.** The balcony hears the flown PA more directly, the deck and stair
+  soffits muffle the top end and add room, and the bar alcove applies a smaller warm shelf. The existing
+  entrance-stair and street acoustics, beat analysis and sub channel remain unchanged.
+- **The LED wall is now a complete movement and teleport barrier.** A continuous collider overlaps the
+  side-wall volumes, preventing desktop or XR guests from entering the space behind the wall.
+- **Lower-cost Quest rendering defaults.** XR now renders at native framebuffer scale instead of 1.2x
+  supersampling, does not retain an unread drawing buffer, and uses tiered pipeline MSAA defaults:
+  2x on Ultra/High and FXAA-only on Balanced. The `vrclub.vrMsaa` override remains available.
 - **The crowd dances, on the beat, in many ways.** Everyone on the floor used to do the same single dance. Now each
   dancer moves between nine moves: the original dance, a knee bounce, side taps, clapping, fist pumps, the twist,
   hands in the air and a slow sway. Every move is locked to the music's beat at any tempo, so knees bend and hands

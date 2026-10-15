@@ -1,4 +1,27 @@
 'use strict';
+
+function _logMix(open, closed, amount) {
+    const t = amount > 0 ? Math.min(amount, 1) : 0;
+    if (t === 0 || !(open > 0) || !(closed > 0)) return open;
+    return Math.exp(Math.log(open) + (Math.log(closed) - Math.log(open)) * t);
+}
+
+const _paZoneScratch = { cover: 0, onDeck: 0, shelf: 0 };
+
+function _paListenerZones(x, y, z) {
+    _paZoneScratch.cover = 0;
+    _paZoneScratch.onDeck = 0;
+    _paZoneScratch.shelf = 0;
+    const mezzanine = typeof window !== 'undefined' ? window.MezzanineLayout : null;
+    if (mezzanine && mezzanine.paZones) mezzanine.paZones(x, y, z, _paZoneScratch);
+    const bar = typeof window !== 'undefined' && window.VenueLayout && window.VenueLayout.bar;
+    if (bar && bar.listenerShelf) _paZoneScratch.shelf = bar.listenerShelf(x, y, z);
+    const restroom = typeof window !== 'undefined' && window.VenueLayout && window.VenueLayout.restroom;
+    if (restroom && restroom.enclosure) {
+        _paZoneScratch.cover = Math.max(_paZoneScratch.cover, restroom.enclosure(x, z));
+    }
+    return _paZoneScratch;
+}
 class VRClubAudioCrowd extends VRClubUI {
     static _vector3Interpolation(start, end, gradient) {
         BABYLON.Vector3.LerpToRef(start, end, gradient, this._vrclubInterpolationValue);
@@ -616,6 +639,7 @@ class VRClubAudioCrowd extends VRClubUI {
         // Real-world acoustic zone attenuation:
         // Dance floor center is at (0, 0, -12); PA speakers flown at z = -16; entrance is at z = 0.
         const distToStage = Math.sqrt(pos.x * pos.x + Math.pow(pos.z - (-14), 2));
+        const zones = _paListenerZones(pos.x, pos.y, pos.z);
 
         // How far outdoors the listener is (0 in the club and vestibule, 1 on the street) and how far from the door.
         const city = typeof window !== 'undefined' ? window.CityLayout : null;
@@ -630,7 +654,8 @@ class VRClubAudioCrowd extends VRClubUI {
         // Listener-local PA presence for character performance only. Beat/BPM/show analysis remains on the
         // unattenuated analyser tap; this scalar merely lets the crowd and DJ calm as this guest leaves the room.
         const distancePresence = Math.max(0.65, Math.min(1, 1 - Math.max(0, distToStage - 4) / 34));
-        this._localPaPresence = distancePresence * enclosure * (1 - exterior);
+        const heightPresence = (1 + 0.18 * zones.onDeck) * (1 - 0.35 * zones.cover) * (1 - 0.08 * zones.shelf);
+        this._localPaPresence = distancePresence * enclosure * (1 - exterior) * heightPresence;
         
         // Sub-bass intensity: peak punch on dance floor (0-8m from stage), rolling off gently near entrance
         if (this.subGain && this.subGain.gain) {
@@ -642,7 +667,8 @@ class VRClubAudioCrowd extends VRClubUI {
 
         // Air absorption: high frequency roll-off with distance
         if (this.airAbsorptionFilter && this.airAbsorptionFilter.frequency) {
-            const cutoff = Math.max(5000, Math.min(18000, 18000 - distToStage * 650));
+            const open = Math.max(5000, Math.min(18000, 18000 - distToStage * 650));
+            const cutoff = _logMix(open * (1 + 0.12 * zones.onDeck), 3200, zones.cover);
             this.airAbsorptionFilter.frequency.setTargetAtTime(cutoff, now, 0.05);
         }
 
@@ -652,7 +678,8 @@ class VRClubAudioCrowd extends VRClubUI {
         // street neither is heard. Without that fade the stairwell got the room's full-band tail at
         // its loudest, which is most of why the club used to sound wide open from up there.
         if (this.reverbSend && this.reverbSend.gain) {
-            const wet = Math.max(0.08, Math.min(0.62, distToStage / 30)) * enclosure * (1 - exterior);
+            const wet = Math.max(0.08, Math.min(0.62, distToStage / 30)) * enclosure * (1 - exterior)
+                * (1 - 0.4 * zones.onDeck) * (1 + 0.35 * zones.cover) * (1 + 0.25 * zones.shelf);
             this.reverbSend.gain.setTargetAtTime(wet, now, 0.12);
         }
         if (this.roomDelayGain && this.roomDelayGain.gain) {
@@ -670,16 +697,18 @@ class VRClubAudioCrowd extends VRClubUI {
             const STAIR_HZ = 520;
             const OPEN_HZ = 20000;
             const corridorCutoff = Math.exp(Math.log(STAIR_HZ) + (Math.log(OPEN_HZ) - Math.log(STAIR_HZ)) * enclosure);
+            const coveredCutoff = _logMix(_logMix(corridorCutoff, 780, zones.cover), 2400, zones.shelf);
             const leak = Math.max(0, 1 - doorDistance / 14);
             const streetCutoff = 90 + 90 * leak * leak;
             // Interpolate in log-frequency so the sweep is even to the ear.
             const lerpLog = (from, to) => Math.exp(Math.log(from) + (Math.log(to) - Math.log(from)) * exterior);
-            this.occlusionFilter.frequency.setTargetAtTime(lerpLog(corridorCutoff, streetCutoff), now, 0.08);
+            this.occlusionFilter.frequency.setTargetAtTime(lerpLog(coveredCutoff, streetCutoff), now, 0.08);
             if (this.occlusionFilter2 && this.occlusionFilter2.frequency) {
                 this.occlusionFilter2.frequency.setTargetAtTime(lerpLog(22050, streetCutoff), now, 0.08);
             }
             if (this.audioMasterGain && this.audioMasterGain.gain) {
-                const indoorGain = 0.72 + (1.15 - 0.72) * enclosure;
+                const indoorGain = (0.72 + (1.15 - 0.72) * enclosure)
+                    * (1 + 0.08 * zones.onDeck) * (1 - 0.12 * zones.cover);
                 // Outdoors the make-up gain keeps the thump present at the door, and the level then falls with distance
                 // from it (the sound comes up the entrance stair and out of the door): -6 dB 8 m out, -10 dB on the far
                 // pavement, -18 dB at the end of the block.

@@ -2689,14 +2689,19 @@ class VRClubUI extends VRClubAnimationFinish {
         return this.vrComfortMode;
     }
 
-    /** Surfaces the VR teleport arc may land on: the club floor, the balcony deck and stair, the entrance's floors and stair, and the street. */
+    /** Surfaces the VR teleport arc may land on: the club floor, the balcony deck and stair, the entrance's floors and stair, the restroom floor, and the street. */
     _teleportFloorMeshes() {
-        return [this.floorMesh, this._mezzDeck, this._vestibuleFloor, this._vestibuleStair, ...(this._cityGround || [])].filter(Boolean);
+        return [this.floorMesh, this._mezzDeck, this._vestibuleFloor, this._vestibuleStair, this._restroomFloor, ...(this._cityGround || [])].filter(Boolean);
     }
 
     _teleportBlockerMeshes() {
         const floors = this._teleportFloorMeshes();
-        return this.scene.meshes.filter(mesh => mesh.checkCollisions && mesh.isEnabled() && !floors.includes(mesh));
+        const blockers = this.scene.meshes.filter(mesh => mesh.checkCollisions && mesh.isEnabled() && !floors.includes(mesh));
+        if (this._ledWallCollider && this._ledWallCollider.isEnabled() &&
+            !floors.includes(this._ledWallCollider) && !blockers.includes(this._ledWallCollider)) {
+            blockers.push(this._ledWallCollider);
+        }
+        return blockers;
     }
 
     _xrMovementOptions() {

@@ -186,14 +186,17 @@ Rules when editing it:
 `Idle_Loop` clip if the rig refuses it) and `_updateDJ(dt, audio)` (from `updateDancers`) feeds it `beatPhase` (from
 `barPhase`), `bar` (`vjDirector.beatNumber / 4`), the kick band's `energy`, `bpm`, a `drop` edge (the show's `release`
 set-piece starting or the movement entering `ignition`) and the visitors (this guest and every remote guest).
-- Activities: `mix` (jog wheel + a mixer knob), `cue` (a headphone cup held to the ear), `tweak` (both hands on knobs),
-  `crowd` (looking out, a fist pumped when energy > 0.6), `handsUp` (on a drop) and `wave` (at a visitor who walks into
+- Activities: `mix` (a deliberate jog-wheel nudge plus a turn-hold-release mixer gesture), `cue` (a headphone cup held
+  to the ear), `tweak` (alternating hands on knobs rather than mirrored wrist loops),
+  `crowd` (looking out, with an occasional every-other-beat fist accent at high energy), `handsUp` (a one-bar,
+  alternating-arm drop accent) and `wave` (a slower finite gesture at a visitor who walks into
   the zone in front of the booth, once per `WAVE_COOLDOWN` = 45 s each). Activities change ONLY on bar lines, except the
   drop and the wave, which cut in. Simultaneous arrivals are ranked by distance with a small centre-line salience
   tie-break, not array order; a wave locks attention to that visitor and tracks them until the gesture ends. With no
   music it keeps its own 118 BPM and never throws its hands up.
-- On every beat a nod and a knee bounce, both deeper with energy. Everything is eased; the pose object and its hands are
-  reused (no per-frame allocation).
+- A short nod and knee compression land just after each beat and deepen with energy instead of following a continuous
+  cosine. Subtle gaze and breathing offsets keep held poses alive. Everything is eased; the pose object and its hands
+  are reused (no per-frame allocation).
 - **Placement is measured, not guessed.** The desk is `console_final`'s world bounds (`_djDesk()`, with a fallback);
   the DJ's eyes stand 0.18 m behind its near edge on the 0.5 m riser, eyes at 93% of the look's height. Both DJs' arms
   (~0.49 m shoulder to wrist) reach every knob only from there with the activity's lean; further back they stop short.
@@ -547,7 +550,10 @@ the Warehouse pattern may still run its explicitly tested slow Safe Mode swell.
 **The XR layer's `antialias` does not antialias the scene.** The headset renders into the pipeline's
 offscreen target first, so MSAA must be set on that pipeline: `vrSettings.vr.msaaSamples` through
 `VRClubCore.resolveVRMsaaSamples()` (clamped to `maxMSAASamples`, overridable with `localStorage`
-`vrclub.vrMsaa` = 1, 2 or 4). It was 1 and only FXAA ran. Its Quest 3S cost is unmeasured.
+`vrclub.vrMsaa` = 1, 2 or 4). Ultra/High default to 2x and Balanced to 1x plus FXAA. The XR
+framebuffer stays at native scale (`framebufferScaleFactor: 1.0`) and the engine does not preserve
+an unread back buffer; do not restore the old 1.2x stereo supersampling or
+`preserveDrawingBuffer: true` without a physical-headset measurement.
 
 ### Graphics quality tiers
 `vrSettings` covers *desktop vs VR*. A second, orthogonal axis covers *how strong a GPU
@@ -586,7 +592,7 @@ SSAO, motion blur or shadows in XR:
 | VR feature | Ultra | High | Balanced |
 |------------|-------|------|----------|
 | Bloom kernel | 64 | 48 | 32 |
-| Pipeline MSAA default | 4 | 4 | 4 |
+| Pipeline MSAA default | 2 | 2 | 1 |
 | Anisotropic filtering | 12× | 8× | 4× |
 | Haze / dust rates | 90 / 50 | 78 / 40 | 65 / 30 |
 | Fog-machine output | 85% | 70% | 55% |
@@ -781,8 +787,10 @@ and fail `npm test`.
   inside the file, EXCEPT the crowd (next bullet). `_spawnAvatar(..., { clip })` keeps one clip and
   disposes the rest; `_spawnAvatar(..., { clips })` keeps several named ones as `npc.poses`
   (see "the guest who works the room"). After building or replacing one, run
-  `npm run optimize:avatars -- <file>` (it merges skinned parts that share a skin and material, so a
-  character is ~6 draws, and a contract test fails above 6). Add every new GLB to `ASSETS.md`. The three
+  `npm run optimize:avatars -- <file>` (it merges skinned parts that share a skin and material, packs
+  `COLOR_0`, `WEIGHTS_0` and `JOINTS_0` into normalized 8-bit accessors, welds the vertex-coloured crowd,
+  simplifies non-DJ/non-guest meshes while preserving their vertical extrema, and resamples animation
+  keys; a character remains ~6 draws and a contract test fails above 6). Add every new GLB to `ASSETS.md`. The three
   Mixamo GLBs are source-only historical assets, excluded from Quest distribution
   (Quaternius's free libraries have ONE dance clip, `Dance_Loop`). The two Quaternius sci-fi prop packs were evaluated and not used:
   chunky pieces (a 1.6 m chair, 2 m desks, 4-6k-vertex crates) that do not fit this club.
@@ -965,7 +973,8 @@ and fail `npm test`.
   `panel.material.emissiveColor` (a plain holder, not a Babylon material), and `_flushLedWall()`
   copies those colours into the wall's 21x10 emissive texture at the end of `updateLEDWallPass`.
   Do not split it back into per-panel meshes, and do not add a code path that writes a panel colour
-  after that flush.
+  after that flush. `ledWallCollider` is a continuous invisible movement/teleport barrier that
+  overlaps the side-wall collision volumes; keep it explicit in `_teleportBlockerMeshes()`.
 - **PBR environment**: local `./js/vendor/environmentSpecular.env`. It used to be fetched
   from `assets.babylonjs.com`; a contract test now forbids any third-party origin in the
   critical path, because one CDN outage silently stripped every reflection in the scene.
@@ -1260,6 +1269,10 @@ Real SQLite migration/redemption/concurrency tests run under Node 24; Node 20 ru
   the stair no longer gets the room's full-band tail at its loudest, which was most of why the club used to sound wide
   open from the stairwell. The make-up gain ramps with it too (0.72 at the top of the stair to 1.15 on the floor)
   instead of stepping. The **sub channel is deliberately left alone**: bass through a wall is correct.
+  Height is a second acoustic: `MezzanineLayout.paZones()` closes the top end and adds room under the
+  deck/stair soffits while keeping the open balcony direct, and `VenueLayout.bar.listenerShelf()` gives
+  the bar alcove only a partial warm shelf. These helpers write a shared scratch object and allocate
+  nothing per frame. They do not alter the stair sweep or the sub channel.
   Past the street door (`CityLayout.exteriorAmount`) both poles close, interpolated in log-frequency, to a bass-only
   24 dB/oct (90 Hz down the avenue, 180 Hz at the door), the room's reverb send and early reflection and the crowd bed
   fade to zero, the

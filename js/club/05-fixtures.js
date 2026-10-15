@@ -254,6 +254,20 @@ class VRClubFixtures extends VRClubEnvironment {
         });
         wallMat.backFaceCulling = false; // Ensure visible from both sides
         wall.material = wallMat;
+        wall.checkCollisions = true;
+
+        const wallCollider = BABYLON.MeshBuilder.CreateBox('ledWallCollider', {
+            width: wallWidth + 0.4,
+            height: rows * panelHeight,
+            depth: 0.3
+        }, this.scene);
+        wallCollider.position.set(0, rows * panelHeight / 2 + 0.05, -20.15);
+        wallCollider.checkCollisions = true;
+        wallCollider.isPickable = false;
+        wallCollider.isVisible = false;
+        wallCollider.freezeWorldMatrix();
+        wallCollider.doNotSyncBoundingInfo = true;
+        this._ledWallCollider = wallCollider;
 
         // PERFORMANCE: static geometry
         wall.freezeWorldMatrix();

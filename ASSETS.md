@@ -38,6 +38,9 @@ in `index.html`).
 | `js/models/bassbin/source/bass_bin_3.glb` | [Bass Bin 3 - Subwoofer](https://sketchfab.com/3d-models/bass-bin-3-subwoofer-0f5b16da5e704357aa94fbf632a88455) | darksoundlab (<https://sketchfab.com/darksoundlab>) | CC BY 4.0 | Yes, including source and derivative notice |
 | `js/models/barstool/source/bar_stool.glb` | [Metal Stool 03](https://polyhaven.com/a/metal_stool_03) | Flo Tasser, Poly Haven | CC0 1.0 | Credited as courtesy |
 | `js/models/lounge/source/old_couch.glb` | [Old Couch](https://sketchfab.com/3d-models/old-couch-8da7e0d122f544e2862b4e592988e183) | Oliver Triplett (<https://sketchfab.com/OliverTriplett>) | CC BY 4.0 | Yes, with source and modification notice |
+| `js/models/monitors/source/monitor_speaker.glb` | [Speaker](https://poly.pizza/m/zOQOThSpuo) | iPoly3D (<https://poly.pizza/u/iPoly3D>) | CC0 1.0 | Credited as courtesy |
+| `js/models/restroom/source/toilet.glb` | [Toilet](https://poly.pizza/m/WAu50yGFVt) | Quaternius (<https://quaternius.com>) | CC0 1.0 | Credited as courtesy |
+| `js/models/restroom/source/bathroom_sink.glb` | [Bathroom Sink](https://poly.pizza/m/OMCJDgMUui) | Quaternius (<https://quaternius.com>) | CC0 1.0 | Credited as courtesy |
 | `js/models/city/downtown.glb` | [Downtown City MegaKit (Standard)](https://quaternius.com), [Car Pack](https://quaternius.com) and [Ultimate House Interior Pack](https://quaternius.com) | Quaternius (<https://quaternius.com>) | CC0 1.0 | Credited as courtesy |
 
 ### Textures bundled with the models
@@ -73,6 +76,19 @@ A worn two-seat sofa stands against the entrance wall, centred between the doorw
 produced by `npm run optimize:models`: its three 1024 px PNG maps become 512 px WebP and its seven parts are joined into one
 mesh, so it is one draw, 936 triangles and 0.5 MB (the source was 4.3 MB). Geometry and materials are otherwise unchanged. At
 run time the loader sizes it to 2.1 m wide and turns it toward the DJ; the two cushions are the interactive seats.
+
+### The DJ booth monitor speakers and the club restroom
+
+Two nearfield studio monitor speakers stand on the left and right ends of the DJ table (`VenueLayout.monitors`), angled inward toward
+the DJ. They use *Speaker* by iPoly3D (CC0 1.0, published on Poly Pizza), baked into normalized 8-bit `COLOR_0` vertex colour and
+joined into one mesh and one PBR material (`js/models/monitors/source/monitor_speaker.glb`, 1 draw, 794 triangles; the right monitor
+is an instance of the left).
+
+The club restroom (`VenueLayout.restroom`) opens off the front-left corner of the hall through a 1.8 m doorway under a pink neon `WC`
+sign. Its two stalls and wash area use Quaternius's *Toilet* (`js/models/restroom/source/toilet.glb`, 1 draw, 402 triangles) and
+*Bathroom Sink* (`js/models/restroom/source/bathroom_sink.glb`, 1 draw, 350 triangles), both CC0 1.0, with vertex-baked porcelain
+and brushed-steel colours, instanced for the second stall and second basin, and lit by the scoped `restroomLight` accent. Both toilets
+are tagged as interactive seats. `node scripts/build-restroom-monitor-assets.mjs` rebuilds all three GLBs from their CC0 sources.
 
 ### The street
 

@@ -18,7 +18,7 @@ const GRAFFITI_PIECES = [
     { cell: 'vaps', wall: 'front', along: -7.6, y: 1.9, width: 4.4 },
     { cell: 'tagCluster', wall: 'right', along: -17.5, y: 1.7, width: 3.2 },
     { cell: 'klw', wall: 'right', along: -2.6, y: 1.55, width: 3.8 },
-    { cell: 'tagWall', wall: 'left', along: -2.7, y: 1.5, width: 2.6 }
+    { cell: 'tagWall', wall: 'left', along: -7.5, y: 1.5, width: 2.2 }
 ];
 class VRClubRendering extends VRClubLifecycle {
     addPostProcessing() {
@@ -625,18 +625,36 @@ class VRClubRendering extends VRClubLifecycle {
         backWall.freezeWorldMatrix(); // OPTIMIZATION: Freeze static wall
         backWall.doNotSyncBoundingInfo = true;
         
-        // Left wall: ends at the front wall's outer face (z 0.25); it used to run on 12 m past it.
+        // Left wall: ends at the front wall's outer face (z 0.25); a 1.8 m doorway (z -4.1..-2.3, 2.8 m high)
+        // opens into the club restroom on the left side (see VenueDressing.createRestroom).
+        const wcDoorZ0 = -4.1, wcDoorZ1 = -2.3, wcDoorH = 2.8;
         const leftWall = BABYLON.MeshBuilder.CreateBox("leftWall", {
             width: 0.5,
             height: 10,
-            depth: 21.5
+            depth: wcDoorZ0 - (-21.25)
         }, this.scene);
-        leftWall.position = new BABYLON.Vector3(-12.5, 5, -10.5);
+        leftWall.position = new BABYLON.Vector3(-12.5, 5, (-21.25 + wcDoorZ0) / 2);
         this._applyWorldUVs(leftWall, wallTile, wallScale);
         leftWall.material = wallMat;
         leftWall.receiveShadows = false; // Optimization Phase 3: Disable shadows on walls
         leftWall.freezeWorldMatrix(); // OPTIMIZATION: Freeze static wall
         leftWall.doNotSyncBoundingInfo = true;
+
+        const leftPieces = [
+            { name: 'leftWallFront', depth: 0.25 - wcDoorZ1, height: 10, z: (wcDoorZ1 + 0.25) / 2, y: 5 },
+            { name: 'leftWallLintel', depth: wcDoorZ1 - wcDoorZ0, height: 10 - wcDoorH, z: (wcDoorZ0 + wcDoorZ1) / 2, y: (10 + wcDoorH) / 2 }
+        ].map(piece => {
+            const mesh = BABYLON.MeshBuilder.CreateBox(piece.name, {
+                width: 0.5, height: piece.height, depth: piece.depth
+            }, this.scene);
+            mesh.position = new BABYLON.Vector3(-12.5, piece.y, piece.z);
+            this._applyWorldUVs(mesh, wallTile, wallScale);
+            mesh.material = wallMat;
+            mesh.receiveShadows = false;
+            mesh.freezeWorldMatrix();
+            mesh.doNotSyncBoundingInfo = true;
+            return mesh;
+        });
         
         // Right wall
         const rightWall = BABYLON.MeshBuilder.CreateBox("rightWall", {
@@ -672,7 +690,7 @@ class VRClubRendering extends VRClubLifecycle {
         });
 
         // Walking and teleport blockers both use the visible shell, including its doorway.
-        for (const wall of [backWall, leftWall, rightWall, ...frontPieces]) wall.checkCollisions = true;
+        for (const wall of [backWall, leftWall, ...leftPieces, rightWall, ...frontPieces]) wall.checkCollisions = true;
         
         // Add industrial wall details
         this.createIndustrialWallDetails();
