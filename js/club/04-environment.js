@@ -318,71 +318,7 @@ class VRClubEnvironment extends VRClubRendering {
 
     // === ENHANCED DJ BOOTH ACCESSORIES ===
     createDJBoothAccessories() {
-        log.info("🎧 Creating DJ booth accessories...");
-        
-        // === LAPTOP STAND WITH LAPTOP ===
-        // Right-hand end of the VJ control inlay on the DJ plinth
-        // (inlay top y = 1.45, centred on z = -18.17 - see createDJBooth()).
-        // These used to sit at z ~ -17.6, which after the booth re-layout is
-        // 0.4 m in front of the plinth: the laptop was floating in mid-air.
-        const laptopMat = this.materialFactory.getPreset('laptopBody');
-        
-        // Stand (adjustable laptop stand)
-        const standBase = BABYLON.MeshBuilder.CreateBox("laptopStandBase", {
-            width: 0.3, height: 0.02, depth: 0.25
-        }, this.scene);
-        standBase.position = new BABYLON.Vector3(1.5, 1.45, -18.17);
-        standBase.material = this.materialFactory.getPreset('barStool');
-        
-        const standArm = BABYLON.MeshBuilder.CreateBox("laptopStandArm", {
-            width: 0.04, height: 0.15, depth: 0.04
-        }, this.scene);
-        standArm.position = new BABYLON.Vector3(1.5, 1.53, -18.22);
-        standArm.material = this.materialFactory.getPreset('barStool');
-        
-        // Laptop base
-        const laptopBase = BABYLON.MeshBuilder.CreateBox("laptopBase", {
-            width: 0.32, height: 0.015, depth: 0.22
-        }, this.scene);
-        laptopBase.position = new BABYLON.Vector3(1.5, 1.63, -18.12);
-        laptopBase.rotation.x = -0.2; // Tilted toward DJ
-        laptopBase.material = laptopMat;
-        
-        // Laptop screen
-        const laptopScreen = BABYLON.MeshBuilder.CreateBox("laptopScreen", {
-            width: 0.3, height: 0.2, depth: 0.008
-        }, this.scene);
-        laptopScreen.position = new BABYLON.Vector3(1.5, 1.79, -18.21);
-        laptopScreen.rotation.x = -0.5;
-        laptopScreen.material = laptopMat;
-        
-        // Screen display (glowing)
-        const screenDisplay = BABYLON.MeshBuilder.CreatePlane("laptopDisplay", {
-            width: 0.28, height: 0.18
-        }, this.scene);
-        screenDisplay.position = new BABYLON.Vector3(1.5, 1.79, -18.205);
-        screenDisplay.rotation.x = -0.5;
-        const screenMat = this.materialFactory.createStandardMaterial("laptopScreenMat", {
-            emissiveColor: [0.2, 0.4, 0.8], // Blue waveform display
-            disableLighting: true
-        });
-        screenDisplay.material = screenMat;
-        
-
-        
-        // OPTIMIZATION: Freeze static DJ booth accessories (never move)
-        standBase.freezeWorldMatrix();
-        standArm.freezeWorldMatrix();
-        laptopBase.freezeWorldMatrix();
-        laptopScreen.freezeWorldMatrix();
-        screenDisplay.freezeWorldMatrix();
-        
-        // Freeze materials too
-        [standBase, standArm, laptopBase, laptopScreen].forEach(mesh => {
-            if (mesh.material && mesh.material.freeze) mesh.material.freeze();
-        });
-        
-        log.info("✅ Created DJ booth accessories (laptop) - frozen for performance");
+        // Laptop and stand removed at the owner's request; method retained as a no-op for API compatibility.
     }
 
     createCollisionBoundaries() {

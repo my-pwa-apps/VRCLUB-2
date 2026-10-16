@@ -293,7 +293,6 @@ class VRClubLifecycle extends VRClubCore {
         this.createCollisionBoundaries(); // Add invisible collision walls
         this.createCeiling();
         this.createDJBooth();
-        this.createDJBoothAccessories(); // Add laptop stand with laptop
         this.createPASpeakers();
         
         // Use modular LED wall system
@@ -978,6 +977,7 @@ class VRClubLifecycle extends VRClubCore {
             try { this.networkManager.dispose(); } catch (_) { /* ignore */ }
             this.networkManager = null;
         }
+        if (typeof this._disposeMirrorDouble === 'function') this._disposeMirrorDouble();
         if (this._localRig) {
             try { this._localRig.dispose(); } catch (_) { /* ignore */ }
             this._localRig = null;
@@ -1028,7 +1028,7 @@ class VRClubLifecycle extends VRClubCore {
         // the parked desktop chain while an XR session is active: disposing mid-session
         // without it leaks an entire second HDR pipeline.
         for (const key of ['ssrPipeline', 'motionBlur', 'renderPipeline', '_desktopRenderPipeline',
-                           'ssaoPipeline', 'glowLayer', 'floorReflectionProbe', 'strobeRetinalFlash']) {
+                           'ssaoPipeline', 'glowLayer', 'floorReflectionProbe', 'restroomMirrorTexture', 'strobeRetinalFlash']) {
             if (this[key]) {
                 try { this[key].dispose(); } catch (_) { /* ignore */ }
                 this[key] = null;

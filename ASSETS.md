@@ -38,7 +38,7 @@ in `index.html`).
 | `js/models/bassbin/source/bass_bin_3.glb` | [Bass Bin 3 - Subwoofer](https://sketchfab.com/3d-models/bass-bin-3-subwoofer-0f5b16da5e704357aa94fbf632a88455) | darksoundlab (<https://sketchfab.com/darksoundlab>) | CC BY 4.0 | Yes, including source and derivative notice |
 | `js/models/barstool/source/bar_stool.glb` | [Metal Stool 03](https://polyhaven.com/a/metal_stool_03) | Flo Tasser, Poly Haven | CC0 1.0 | Credited as courtesy |
 | `js/models/lounge/source/old_couch.glb` | [Old Couch](https://sketchfab.com/3d-models/old-couch-8da7e0d122f544e2862b4e592988e183) | Oliver Triplett (<https://sketchfab.com/OliverTriplett>) | CC BY 4.0 | Yes, with source and modification notice |
-| `js/models/monitors/source/monitor_speaker.glb` | [Speaker](https://poly.pizza/m/zOQOThSpuo) | iPoly3D (<https://poly.pizza/u/iPoly3D>) | CC0 1.0 | Credited as courtesy |
+| `js/models/monitors/source/monitor_speaker.glb` | [Yamaha HS8 Studio Monitor](https://sketchfab.com/3d-models/yamaha-hs8-studio-monitor-d82ed6ea096c40358229fc0c31b0e8e8) | Ivan_WSK (<https://sketchfab.com/ivan-wsk>) | CC BY 4.0 | Yes, with source and modification notice |
 | `js/models/restroom/source/toilet.glb` | [Toilet](https://poly.pizza/m/WAu50yGFVt) | Quaternius (<https://quaternius.com>) | CC0 1.0 | Credited as courtesy |
 | `js/models/restroom/source/bathroom_sink.glb` | [Bathroom Sink](https://poly.pizza/m/OMCJDgMUui) | Quaternius (<https://quaternius.com>) | CC0 1.0 | Credited as courtesy |
 | `js/models/city/downtown.glb` | [Downtown City MegaKit (Standard)](https://quaternius.com), [Car Pack](https://quaternius.com) and [Ultimate House Interior Pack](https://quaternius.com) | Quaternius (<https://quaternius.com>) | CC0 1.0 | Credited as courtesy |
@@ -79,16 +79,18 @@ run time the loader sizes it to 2.1 m wide and turns it toward the DJ; the two c
 
 ### The DJ booth monitor speakers and the club restroom
 
-Two nearfield studio monitor speakers stand on the left and right ends of the DJ table (`VenueLayout.monitors`), angled inward toward
-the DJ. They use *Speaker* by iPoly3D (CC0 1.0, published on Poly Pizza), baked into normalized 8-bit `COLOR_0` vertex colour and
-joined into one mesh and one PBR material (`js/models/monitors/source/monitor_speaker.glb`, 1 draw, 794 triangles; the right monitor
-is an instance of the left).
+Two nearfield studio monitor speakers stand on the DJ table behind the console, one either side of it (`VenueLayout.monitors`, 0.30 m
+tall), facing the DJ and toed in toward the middle of the booth. A pair of balanced signal cables (one merged mesh) runs from each
+cabinet's rear connector across the table to the console's rear jacks. They use *Yamaha HS8 Studio Monitor* by Ivan_WSK (CC BY 4.0,
+Sketchfab), a one-off derivative: the geometry was simplified to 5,614 triangles and its 4096 px base-colour atlas (one-pixel
+strips per polygon, which turn to noise when downscaled) was sampled into vertex colour, so the GLB carries no textures
+(`js/models/monitors/source/monitor_speaker.glb`, 1 draw, 0.2 MB; the right monitor is an instance of the left).
 
 The club restroom (`VenueLayout.restroom`) opens off the front-left corner of the hall through a 1.8 m doorway under a pink neon `WC`
 sign. Its two stalls and wash area use Quaternius's *Toilet* (`js/models/restroom/source/toilet.glb`, 1 draw, 402 triangles) and
 *Bathroom Sink* (`js/models/restroom/source/bathroom_sink.glb`, 1 draw, 350 triangles), both CC0 1.0, with vertex-baked porcelain
 and brushed-steel colours, instanced for the second stall and second basin, and lit by the scoped `restroomLight` accent. Both toilets
-are tagged as interactive seats. `node scripts/build-restroom-monitor-assets.mjs` rebuilds all three GLBs from their CC0 sources.
+are tagged as interactive seats. `node scripts/build-restroom-monitor-assets.mjs` rebuilds the restroom GLBs from their CC0 sources.
 
 ### The street
 

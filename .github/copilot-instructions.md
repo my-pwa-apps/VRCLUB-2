@@ -107,11 +107,20 @@ Key lifecycle members:
   `doNotHandleContextLost: true`).
 
 ### `js/ledPatterns.js`
-The LED wall's 20 `pattern*` implementations (exactly the playlist in `updateLEDWall()`;
-unreachable patterns were deleted, including a 15 Hz full-field strobe) plus `updateLEDPanel()` and the two stateful
+The LED wall's 21 `pattern*` implementations (exactly the playlist in `updateLEDWall()`;
+unreachable patterns were deleted, including a 15 Hz full-field strobe) plus `updateLEDPanel()`,
+`extractSetDjName()` and the stateful
 palette/shape helpers. It publishes `window.LEDPatterns`; `club_hyperrealistic.js` mixes
 that map into `VRClub.prototype` after defining the class, preserving the club instance
 as `this` without wrappers or call-site changes.
+
+`patternNocturneMarquee` (index 20, used in `chromaticRoom`, `driftAway` and `bdAurora`) is a 32-bar,
+four-act marquee on the 21x10 tile grid (NEON IGNITION, 5x7 NOCTURNE SCROLL, WORDMARK HALO, and SET DJ /
+NOCTURNE SCROLL). O, R and E use the club's own NOCTURNE letterforms (a cut O, a stemless R, and three
+detached bars). `LEDPatterns.extractSetDjName()` conservatively extracts a high-confidence DJ name from
+the active set's metadata (`nowPlayingLabel`, saved set name, or known artist feed/stream URL), never
+prepending `DJ` unless `DJ` is explicitly part of that artist's real name, and returning `null` whenever
+uncertain so Act IV stays on `NOCTURNE` rather than guessing.
 
 `patternUndergroundSequence` (index 18, the `theWave` look) is a 38-bar, six-scene film
 (DESCENT, SIGNAL, CONCRETE, HAZARD, DATAFALL, SUB) clocked from `vjDirector.beatNumber` /

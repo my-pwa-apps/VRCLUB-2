@@ -55,6 +55,7 @@ const CityLayout = {
      */
     exteriorAmount(x, z) {
         if (z < 0.25 && Math.abs(x) < 13) return 0;
+        if (x < -12 && x >= -16.8 && z >= -6.6 && z <= -0.8) return 0;
         if (z < 7.4 && Math.abs(x) < 4.2) {
             const t = Math.min(1, Math.max(0, (z - 5.0) / 2.4));
             return t * t * (3 - 2 * t);

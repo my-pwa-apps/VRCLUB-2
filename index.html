@@ -132,6 +132,12 @@
                 VR Comfort — Teleport &amp; Snap Turn: <span id="splashVRComfortState">OFF</span>
             </button>
 
+            <div class="splash-room-invite" id="splashRoomInvite" hidden>
+                <div class="splash-room-title" id="splashRoomLabel">Joining room</div>
+                <label class="splash-room-field" for="splashGuestName">Your name</label>
+                <input type="text" class="audio-input splash-room-input" id="splashGuestName" maxlength="32" autocomplete="nickname" placeholder="Your name">
+            </div>
+
             <button class="splash-button" id="enterClubBtn" type="button">
                 ENTER CLUB
             </button>
@@ -144,7 +150,7 @@
             </p>
 
             <p class="splash-hint splash-credits">
-                3D models and textures by TwoPixels.studio, Sousinho, darksoundlab, karlwirbelwind and Oliver Triplett
+                3D models and textures by TwoPixels.studio, Sousinho, darksoundlab, karlwirbelwind, Oliver Triplett and Ivan_WSK
                 (<a href="https://creativecommons.org/licenses/by/4.0/" target="_blank" rel="noopener noreferrer">CC BY 4.0</a>)
                 and Poly Haven (CC0). Titles, sources and changes: <strong>Credits</strong>, bottom left in the club.
             </p>
@@ -643,16 +649,6 @@
                 </div>
             </div>
 
-            <!-- Shared music consent: a guest's browser only fetches the host's stream
-                 after the guest opts in, because it discloses their IP to that server. -->
-            <div class="audio-section" id="networkListenAlong" hidden>
-                <div id="networkMusicInfo" class="network-help" role="status" aria-live="polite"></div>
-                <button class="audio-button network-primary" id="networkListenAlongBtn" type="button">
-                    <span aria-hidden="true">🎧</span>
-                    <span>Listen along</span>
-                </button>
-            </div>
-
             <div class="audio-section" id="networkTalk" hidden>
                 <div class="vj-section-title">Talk</div>
                 <div id="networkVoiceAudience"></div>
@@ -886,9 +882,14 @@
             — CC0
         </div>
         <div>
-            • Restroom and DJ booth monitors: "Toilet" and "Bathroom Sink" by
+            • <a href="https://sketchfab.com/3d-models/yamaha-hs8-studio-monitor-d82ed6ea096c40358229fc0c31b0e8e8" target="_blank" rel="noopener noreferrer" class="credit-link">"Yamaha HS8 Studio Monitor"</a>
+            by <a href="https://sketchfab.com/ivan-wsk" target="_blank" rel="noopener noreferrer" class="credit-link">Ivan_WSK</a>
+            — <a href="https://creativecommons.org/licenses/by/4.0/" target="_blank" rel="noopener noreferrer" class="credit-link">CC BY 4.0</a>
+            (geometry simplified, colour baked into vertex colours)
+        </div>
+        <div>
+            • Restroom: "Toilet" and "Bathroom Sink" by
             <a href="https://quaternius.com/" target="_blank" rel="noopener noreferrer" class="credit-link">Quaternius</a>
-            and "Speaker" by <a href="https://poly.pizza/m/zOQOThSpuo" target="_blank" rel="noopener noreferrer" class="credit-link">iPoly3D</a>
             — CC0
         </div>
         <div>
@@ -911,7 +912,7 @@
         <div class="credits-note">
             Links you choose are fetched directly from the audio host, which receives your IP address.
             Local files stay on your device. In a multiplayer room, the host's music URL and playback position
-            are shared through the relay; guests must choose Listen along before contacting that audio host.
+            are shared through the relay so everyone in the room hears the host's music automatically.
         </div>
         <div class="credits-heading"><strong>Software</strong></div>
         <div>Babylon.js and its loaders/procedural textures — Apache License 2.0.

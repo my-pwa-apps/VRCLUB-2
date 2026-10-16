@@ -3835,6 +3835,124 @@ test('every LED wall pattern runs without throwing', () => {
     assert.equal(bad.length, 0, 'a pattern wrote a non-finite colour');
 });
 
+test('the NOCTURNE & set-DJ LED marquee extracts only high-confidence DJ names, keeps "DJ" only when part of the name, and stays under the photosensitivity limit', () => {
+    const BABYLON = makeBabylonStub();
+    const { window } = loadClassic('js/ledPatterns.js', { BABYLON });
+    const { extractSetDjName, inferSetDjGender } = window.LEDPatterns;
+
+    // High-confidence DJ names, without prepending "DJ" unless it is genuinely part of the name.
+    assert.equal(extractSetDjName({ label: 'Resident by Hernan Cattaneo' }), 'HERNAN CATTANEO');
+    assert.equal(extractSetDjName({ label: 'Hernan Cattaneo : Resident 682' }), 'HERNAN CATTANEO');
+    assert.equal(extractSetDjName({ label: 'Miss Melera - Colourizon 168' }), 'MISS MELERA');
+    assert.equal(extractSetDjName({ label: 'Colourizon 168 by Miss Melera' }), 'MISS MELERA');
+    assert.equal(extractSetDjName({ label: 'DJ Koze - Pampa Vol. 1' }), 'DJ KOZE');
+    assert.equal(extractSetDjName({ label: 'DJ Tennis - Life and Death Mix' }), 'DJ TENNIS');
+    assert.equal(extractSetDjName({ label: 'Charlotte de Witte - KNTXT Podcast 042' }), 'CHARLOTTE DE WITTE');
+    assert.equal(extractSetDjName({ label: 'Ben Böhmer live at Cercle' }), 'BEN BOHMER');
+    assert.equal(extractSetDjName({ label: 'Sasha & John Digweed - Northern Exposure' }), 'SASHA & JOHN DIGWEED');
+    assert.equal(extractSetDjName({ label: 'Episode 804', url: 'https://podcast.hernancattaneo.com/feed.xml' }), 'HERNAN CATTANEO');
+
+    // High-confidence DJ gender inference switches the booth DJ to male or female only when sure.
+    assert.equal(inferSetDjGender({ label: 'Miss Melera - Colourizon 168' }), 'female');
+    assert.equal(inferSetDjGender({ label: 'Charlotte de Witte - KNTXT Podcast 042' }), 'female');
+    assert.equal(inferSetDjGender({ label: 'Amelie Lens - Exhale Session' }), 'female');
+    assert.equal(inferSetDjGender({ label: 'Nora En Pure - Purified Radio' }), 'female');
+    assert.equal(inferSetDjGender({ label: 'Resident by Hernan Cattaneo' }), 'male');
+    assert.equal(inferSetDjGender({ label: 'Ben Böhmer live at Cercle' }), 'male');
+    assert.equal(inferSetDjGender({ label: 'DJ Koze - Pampa Vol. 1' }), 'male');
+    assert.equal(inferSetDjGender({ label: 'Carl Cox - Global Radio' }), 'male');
+    assert.equal(inferSetDjGender({ label: 'Sasha - Last Night On Earth' }), 'male');
+    assert.equal(inferSetDjGender({ label: 'SoundCloud set' }), null);
+    assert.equal(inferSetDjGender({ label: 'track01.mp3' }), null);
+    assert.equal(inferSetDjGender({ label: 'Alex & Taylor - Club Mix' }), null);
+
+    // syncDJFromSet switches the active DJ when sure and leaves the current DJ alone when uncertain.
+    const { window: crowdWindow } = loadClassic('js/club/11-audio-crowd.js', { BABYLON, VRClubUI: class {} });
+    crowdWindow.LEDPatterns = window.LEDPatterns;
+    const djSwitchingClub = Object.create(crowdWindow.VRClubAudioCrowd.prototype);
+    const switchedTo = [];
+    djSwitchingClub.setDJ = id => { switchedTo.push(id); return Promise.resolve(true); };
+    assert.equal(djSwitchingClub.syncDJFromSet({ label: 'Miss Melera - Colourizon 168' }), 'female');
+    assert.equal(djSwitchingClub.syncDJFromSet({ label: 'Hernan Cattaneo : Resident 682' }), 'male');
+    assert.equal(djSwitchingClub.syncDJFromSet({ label: 'Unknown Track 01.mp3' }), null);
+    assert.deepEqual(switchedTo, ['female', 'male']);
+
+    // Ambiguous, generic or non-DJ strings must return null rather than guessing.
+    for (const uncertain of [
+        { label: 'SoundCloud set' },
+        { label: 'Host broadcast' },
+        { label: 'https://example.com/stream.mp3' },
+        { label: 'track01.mp3' },
+        { label: '01 - Intro.mp3' },
+        { label: 'Deep House Mix 2026.mp3' },
+        { label: 'Saturday Night Set - Live Recording' },
+        { label: 'DJ - Mix 01.mp3' },
+        { label: 'The DJ - Club Session' },
+        { label: '' }
+    ]) {
+        assert.equal(extractSetDjName(uncertain), null, `should not guess a DJ name from ${JSON.stringify(uncertain)}`);
+    }
+
+    // Simulate the full 32-bar marquee loop at 128 and 174 BPM with and without a verified DJ name.
+    const cols = 21, rows = 10;
+    const panels = [];
+    for (let row = 0; row < rows; row++) {
+        for (let col = 0; col < cols; col++) {
+            panels.push({ col, row, colorBuffer: new BABYLON.Color3(), material: { emissiveColor: new BABYLON.Color3() } });
+        }
+    }
+    const club = {
+        ledPanels: panels, ledCols: cols, ledRows: rows, ledMonochrome: false,
+        bpm: 128, vjDirector: { beatNumber: 0 }, barPhase: 0,
+        nowPlayingLabel: 'Miss Melera - Colourizon 168',
+        ledAccentColor: new BABYLON.Color3(1, 0.2, 0.6)
+    };
+    Object.assign(club, window.LEDPatterns);
+    const colour = new BABYLON.Color3(0.1, 0.85, 1.0);
+    const audio = { hasAudio: true, bass: 0.7, mid: 0.5, treble: 0.3 };
+    const lum = p => (p.material.emissiveColor.r + p.material.emissiveColor.g + p.material.emissiveColor.b) / 3;
+
+    const prev = new Float32Array(panels.length), rising = new Int32Array(panels.length);
+    let worstPanel = 0, lastMean = 0, maxStep = 0, act2Diff = 0;
+    for (let f = 0; f < 64 * 60; f++) {
+        const beats = (f / 60) * 128 / 60;
+        club.vjDirector.beatNumber = Math.floor(beats);
+        club.barPhase = ((Math.floor(beats) % 4) + (beats - Math.floor(beats))) / 4;
+        club.patternNocturneMarquee(colour, 100 + f / 60, audio);
+        let mean = 0;
+        for (let i = 0; i < panels.length; i++) {
+            const v = lum(panels[i]);
+            assert.ok(Number.isFinite(v), 'non-finite marquee panel luminance');
+            mean += v;
+            if (prev[i] < 0.5 && v >= 0.5) rising[i]++;
+            prev[i] = v;
+        }
+        mean /= panels.length;
+        if (f > 60) maxStep = Math.max(maxStep, Math.abs(mean - lastMean));
+        lastMean = mean;
+        if (f % 60 === 59) {
+            for (let i = 0; i < panels.length; i++) { worstPanel = Math.max(worstPanel, rising[i]); rising[i] = 0; }
+        }
+    }
+    assert.ok(worstPanel <= 3, `a panel crossed half brightness ${worstPanel}x in one second`);
+    assert.ok(maxStep < 0.12, `the marquee stepped the whole wall by ${maxStep.toFixed(3)} in one frame`);
+
+    // Act IV (bar 26) paints the verified DJ name when present, and falls back to NOCTURNE when uncertain.
+    club.vjDirector.beatNumber = 26 * 4;
+    club.barPhase = 0.25;
+    club.nowPlayingLabel = 'Miss Melera - Colourizon 168';
+    club._mq = null;
+    club.patternNocturneMarquee(colour, 500, audio);
+    const withDj = panels.map(lum);
+
+    club.nowPlayingLabel = 'track01.mp3';
+    club._mq = null;
+    club.patternNocturneMarquee(colour, 500, audio);
+    const withoutDj = panels.map(lum);
+    for (let i = 0; i < withDj.length; i++) act2Diff += Math.abs(withDj[i] - withoutDj[i]);
+    assert.ok(act2Diff > 5, 'Act IV should switch between the verified DJ marquee and the NOCTURNE wordmark');
+});
+
 test('per-frame exposure never dirties every material, and a strobe spike survives eye adaptation', () => {
     const BABYLON = makeBabylonStub();
     const { window } = loadClassic('js/club/07-animation-core.js', {
@@ -5715,6 +5833,40 @@ test('mirror reflections use analytic room hits and thin-instance tier counts', 
     assert.ok(hit.pz > 0.25, `doorway reflection stopped on the old front-wall plane at z ${hit.pz}`);
     assert.ok(hit.py >= 0 && hit.py <= 2.83, `doorway reflection missed the stair at y ${hit.py}`);
     assert.ok(hit.ny === 1 || hit.nz === -1, 'doorway reflection did not land on a tread or riser');
+
+    // The restroom doorway is an opening, not a wall: a ray through it lands inside the restroom, never on the
+    // wall plane in the doorway, and a ray that misses the opening still lands on the wall.
+    ROOM_INTERIOR.restroomDoor = { z0: -4.1, z1: -2.3, height: 2.8, frame: 0.12 };
+    ROOM_INTERIOR.columns = { z: [-5, -15], halfWidth: 0.3, faceX: 12.2 };
+    effectsModule.window.VenueLayout.restroom = { wallX: -12.75, farX: -16.4, z0: -6.2, z1: -1.2, height: 3.2 };
+    const toward = (x, y, z) => new BABYLON.Vector3(x - 0, y - 6.5, z - -12).normalize();
+    let d = toward(-12.25, 1.5, -3.2);
+    effects._intersectRoomInterior(0, 6.5, -12, d.x, d.y, d.z, hit);
+    assert.ok(hit.px < -12.75, `a ray through the doorway stopped in the opening at x ${hit.px}`);
+    assert.ok(hit.px >= -16.4 && hit.pz >= -6.2 && hit.pz <= -1.2 && hit.py >= 0 && hit.py <= 3.2,
+        `a ray through the doorway left the restroom: ${hit.px}, ${hit.py}, ${hit.pz}`);
+    assert.ok(Math.abs(hit.t - Math.hypot(hit.px, hit.py - 6.5, hit.pz + 12)) < 1e-6, 'the hit distance must follow the hit point');
+    for (const [z, label] of [[-4.0, 'the frame post'], [-2.35, 'the other post'], [-6.5, 'beside the doorway']]) {
+        d = toward(-12.25, 1.5, z);
+        effects._intersectRoomInterior(0, 6.5, -12, d.x, d.y, d.z, hit);
+        assert.ok(Math.abs(hit.px - -12.23) < 1e-6, `${label}: a ray that misses the opening must land on the wall (x ${hit.px})`);
+    }
+    d = toward(-12.25, 3.1, -3.2);
+    effects._intersectRoomInterior(0, 6.5, -12, d.x, d.y, d.z, hit);
+    assert.ok(Math.abs(hit.px - -12.23) < 1e-6, `a ray over the lintel must land on the wall (x ${hit.px})`);
+
+    // Concrete columns stand 5 cm proud of the side walls: reflections land on their faces, not inside them.
+    for (const [side, wallX] of [[-1, -12.25], [1, 12.25]]) {
+        for (const z of [-5, -15, -4.8]) {
+            d = toward(wallX, 2, z);
+            effects._intersectRoomInterior(0, 6.5, -12, d.x, d.y, d.z, hit);
+            assert.ok(Math.abs(hit.px - side * 12.2) < 1e-6, `a reflection at z ${z} on the ${side < 0 ? 'left' : 'right'} wall is inside a column (x ${hit.px})`);
+            assert.ok(Math.abs(hit.t - Math.hypot(hit.px, hit.py - 6.5, hit.pz + 12)) < 1e-6);
+        }
+        d = toward(wallX, 2, -10);
+        effects._intersectRoomInterior(0, 6.5, -12, d.x, d.y, d.z, hit);
+        assert.ok(Math.abs(hit.px - side * 12.23) < 1e-6, 'between the columns the reflection stays on the wall');
+    }
 });
 
 test('laser sheet uses bounded two-axis motion for vertical and lateral cues', () => {
@@ -6781,8 +6933,10 @@ test('the lounge couch GLB is optimised: one mesh, 512 px WebP maps, and its CC 
     assert.equal(json.meshes.reduce((sum, mesh) => sum + mesh.primitives.length, 0), 1, 'the couch must cost one draw');
     assert.ok(json.images.length <= 3 && json.images.every(image => image.mimeType === 'image/webp'));
     const source = readFileSync(join(ROOT, 'js/modelLoader.js'), 'utf8');
-    assert.match(source, /lounge_couch:\s*\{[\s\S]*?emissiveFloor:\s*0\b[\s\S]*?disableEmission:\s*true\b[\s\S]*?metallicFactor:\s*0\b/,
-        'the couch must be non-emissive and dielectric instead of reflecting the room like polished metal');
+    assert.match(source, /lounge_couch:\s*\{[\s\S]*?emissiveFloor:\s*0\b[\s\S]*?disableEmission:\s*true\b[\s\S]*?metallicFactor:\s*0\b[\s\S]*?matte:\s*true\b/,
+        'the couch must be non-emissive, dielectric and fully matte instead of shining at its seams');
+    assert.match(source, /config\.matte[\s\S]*?metallicTexture = null[\s\S]*?specularIntensity = 0/,
+        'matte must remove the packed gloss map and every specular term');
     assert.match(source, /if \(config\.disableEmission\)[\s\S]*?emissiveColor\.set\(0, 0, 0\)[\s\S]*?ambientColor\.set\(0, 0, 0\)/,
         'disableEmission must clear both emission and the generic ambient floor');
     const html = readFileSync(join(ROOT, 'index.html'), 'utf8');
@@ -6800,7 +6954,11 @@ test('the bass bin GLB is optimised: six draws, 512 px maps, and its credit is i
     assert.match(readFileSync(join(ROOT, 'ASSETS.md'), 'utf8'), /bass_bin_3\.glb/);
 });
 
-test('the DJ booth monitor speakers and restroom fixtures are one-draw vertex-coloured CC0 GLBs and sit on the DJ table and in the restroom', () => {
+test('the DJ booth Yamaha HS8 monitor speakers and restroom fixtures are one-draw vertex-coloured GLBs and sit on the DJ table and in the restroom', () => {
+    const html = readFileSync(join(ROOT, 'index.html'), 'utf8');
+    assert.match(html, /"Yamaha HS8 Studio Monitor"[\s\S]{0,400}Ivan_WSK[\s\S]{0,300}CC BY 4\.0/,
+        'the Yamaha HS8 CC BY 4.0 credit must name title, creator and licence');
+
     for (const file of [
         'js/models/monitors/source/monitor_speaker.glb',
         'js/models/restroom/source/toilet.glb',
@@ -6819,7 +6977,10 @@ test('the DJ booth monitor speakers and restroom fixtures are one-draw vertex-co
         BABYLON, CLUB_POSITIONS, navigator: { userAgent: '' }, AbortController, IndexedDBAssetCache: class {}, InFlightRegistry: class {}
     });
     const configs = loaderWindow.ModelLoader.prototype.getModelConfigs.call({});
-    const { window: venueWindow } = loadClassic('js/venueDressing.js');
+    const { window: venueWindow } = loadClassic('js/venueDressing.js', {
+        BABYLON,
+        log: { info() {}, warn() {}, error() {} }
+    });
     const { monitors, restroom } = venueWindow.VenueLayout;
 
     // Monitor speakers sit on the DJ table (y 1.42) on either side of the VJ desk, angled toward the DJ.
@@ -6872,7 +7033,98 @@ test('the DJ booth monitor speakers and restroom fixtures are one-draw vertex-co
     // Acoustic enclosure is 0 on the dance floor and rises smoothly inside the restroom.
     assert.equal(restroom.enclosure(0, -12), 0);
     assert.equal(restroom.enclosure(-11.8, -3.2), 0);
-    assert.ok(restroom.enclosure(-14.2, -3.2) > 0.6, 'restroom interior should muffle the PA');
+    assert.ok(restroom.enclosure(-14.2, -3.2) > 0.35 && restroom.enclosure(-14.2, -3.2) < 0.65,
+        'restroom interior should muffle the PA without silencing it');
+
+    // Nearfield monitor panners sit at the Yamaha HS8 positions, aimed inward toward the DJ, and fade in only in the booth.
+    const { club: audioClub } = createAudioHarness();
+    audioClub._connectAudioSourceOnce();
+    assert.ok(audioClub.monitorPannerLeft && audioClub.monitorPannerRight && audioClub.monitorGain,
+        'the audio graph must include nearfield HRTF panners for the left and right DJ monitors');
+    assert.equal(audioClub.monitorPannerLeft.positionX.value, -monitors.left.x, 'Web Audio X must be mirrored for left monitor');
+    assert.equal(audioClub.monitorPannerRight.positionX.value, -monitors.right.x, 'Web Audio X must be mirrored for right monitor');
+    assert.equal(audioClub.monitorPannerLeft.positionZ.value, monitors.left.z);
+    // Each cabinet faces the DJ behind the decks (-z) and toes in toward the middle of the booth.
+    for (const [side, panner, inward] of [[monitors.left, audioClub.monitorPannerLeft, 1], [monitors.right, audioClub.monitorPannerRight, -1]]) {
+        assert.ok(Math.cos(side.yaw) < -0.7, 'monitors must face the DJ (-z), not the dance floor');
+        assert.ok(Math.sin(side.yaw) * inward > 0.3, 'monitors must toe in toward the middle of the booth');
+        assert.ok(panner.orientationZ.value < -0.7, 'the monitor panner must aim at the DJ');
+        assert.ok(Math.abs(panner.orientationX.value - -Math.sin(side.yaw)) < 1e-6, 'Web Audio X must be mirrored');
+    }
+    assert.equal(monitors.height, 0.3, 'the studio monitors are the compact size');
+    audioClub.scene = { activeCamera: { globalPosition: { x: 0, y: 2.2, z: -19.1 }, getForwardRay: () => ({ direction: { x: 0, y: 0, z: 1 } }), upVector: { x: 0, y: 1, z: 0 } } };
+    audioClub.updateSpatialAudioListener();
+    const boothGain = audioClub.monitorGain.gain.value;
+    audioClub.scene.activeCamera.globalPosition = { x: 0, y: 1.7, z: -10 };
+    audioClub.updateSpatialAudioListener();
+    const floorGain = audioClub.monitorGain.gain.value;
+    assert.ok(boothGain > 0.5, `monitors should be active in the DJ booth (got ${boothGain})`);
+    assert.equal(floorGain, 0, 'monitors should roll off to zero out on the dance floor');
+
+    // A ray into each cubicle doorway from the washroom aisle hits the back wall, not a stall door or toilet.
+    for (const tz of restroom.toiletZ) {
+        const stallRay = new BABYLON.Ray(new BABYLON.Vector3(-13.8, 0.55, tz), new BABYLON.Vector3(-1, 0, 0), 3.5);
+        const stallHit = scene.pickWithRay(stallRay, mesh => mesh.checkCollisions && mesh.isEnabled());
+        assert.ok(stallHit && stallHit.hit && Math.abs(stallHit.pickedPoint.x - restroom.farX) < 0.05,
+            `stall doorway ray at z=${tz} must reach far wall (${restroom.farX}), not a door across the toilet`);
+    }
+    // Each cubicle doorway is wide enough for the desktop collision body (1 m across) with room to spare.
+    for (const [z0, z1] of [[-6.2, -4.6], [-2.8, -1.2]]) {
+        const gap = z1 - z0 - 2 * restroom.stallPier;
+        assert.ok(gap >= 1.2, `a cubicle doorway is ${gap.toFixed(2)} m wide; the desktop body is 1 m`);
+        const across = new BABYLON.Ray(new BABYLON.Vector3(restroom.stallFrontX, 1.0, z0 + restroom.stallPier + 0.02),
+            new BABYLON.Vector3(0, 0, 1), gap - 0.04);
+        const blocked = scene.pickWithRay(across, mesh => mesh.checkCollisions && mesh.isEnabled());
+        assert.ok(!blocked.hit, `something stands in the cubicle doorway at z ${z0}..${z1}`);
+    }
+    // Every collidable partition vertex in the toilet bowl zone belongs only to the thin dividing walls
+    // at z = -4.6 and z = -2.8, never inside the stall where the toilet sits.
+    partitions.computeWorldMatrix(true);
+    const partPos = partitions.getVerticesData('position');
+    for (let i = 0; i < partPos.length; i += 3) {
+        const vx = partPos[i], vy = partPos[i + 1], vz = partPos[i + 2];
+        if (vx < restroom.stallFrontX - 0.05 && vy < 1.2) {
+            const onDivider = Math.abs(vz - (-4.6)) < 0.06 || Math.abs(vz - (-2.8)) < 0.06;
+            assert.ok(onDivider, `partition vertex (${vx.toFixed(2)}, ${vy.toFixed(2)}, ${vz.toFixed(2)}) intrudes into toilet stall`);
+        }
+    }
+    // The open stall doors are visual only and keep clear of the toilet (it spans 0.4 m either side of its centre
+    // along x and 0.34 m along z) and of the doorway.
+    const stallDoors = scene.getMeshByName('restroomStallDoors');
+    assert.ok(stallDoors, 'the stall doors must be built');
+    assert.equal(stallDoors.checkCollisions, false, 'an open door must not catch the player');
+    const doorPos = stallDoors.getVerticesData('position');
+    for (let i = 0; i < doorPos.length; i += 3) {
+        const [vx, vz] = [doorPos[i], doorPos[i + 2]];
+        for (const tz of restroom.toiletZ) {
+            const inToilet = Math.abs(vx - restroom.toiletX) < 0.4 && Math.abs(vz - tz) < 0.34;
+            assert.ok(!inToilet, `a stall door vertex (${vx.toFixed(2)}, ${vz.toFixed(2)}) is inside the toilet at z ${tz}`);
+        }
+        assert.ok(vx < restroom.stallFrontX, `a stall door vertex at x ${vx.toFixed(2)} is out in the aisle`);
+    }
+
+    // Nothing covers a vanity mirror: the doorway frame posts are on the same wall, so each pane must stand clear.
+    const mirrorBox = mirrors.getBoundingInfo().boundingBox;
+    const mirrorSpans = restroom.sinkZ.map(z => [z - 0.36, z + 0.36]);
+    for (let i = 0; i < partPos.length; i += 3) {
+        const vx = partPos[i], vy = partPos[i + 1], vz = partPos[i + 2];
+        if (vx < restroom.wallX - 0.03 && vx > restroom.wallX - 0.15 && vy > 1.02 && vy < 1.94) {
+            for (const [a, b] of mirrorSpans) {
+                assert.ok(vz <= a || vz >= b, `a partition at z ${vz.toFixed(2)} covers a mirror (${a.toFixed(2)}..${b.toFixed(2)})`);
+            }
+        }
+    }
+    assert.ok(mirrorBox.minimumWorld.x < restroom.wallX - 0.02, 'the mirrors stand proud of the wall');
+    // The club's concrete pillar pokes into the restroom: no mirror may be hidden by it.
+    for (const [a, b] of mirrorSpans) {
+        assert.ok(b <= restroom.pillarZ[0] || a >= restroom.pillarZ[1],
+            `a mirror (${a.toFixed(2)}..${b.toFixed(2)}) is covered by the pillar at z ${restroom.pillarZ}`);
+        assert.ok(a >= restroom.z0 && b <= restroom.z1, 'a mirror runs past the restroom wall');
+    }
+    // The mirror reflects through a plane facing AWAY from the viewer: the pane looks into the room (-x).
+    if (club.restroomMirrorTexture) {
+        assert.equal(club.restroomMirrorTexture.mirrorPlane.normal.x, 1, 'Babylon mirrors need the normal pointing away from the viewer');
+    }
     scene.dispose();
 });
 // ---------------------------------------------------------------------------
@@ -6923,7 +7175,7 @@ test('the vestibule\'s enclosure curve runs from the room\'s mouth to the top of
 
 test('how far outdoors a guest is: nothing in the club, everything on the street, one smooth ramp through the door', () => {
     const L = loadClassic('js/cityDistrict.js').window.CityLayout;
-    for (const [x, z] of [[0, -15], [10, -3], [-12, -0.5], [0, 0.2], [0, 3], [0, 4.9]]) {
+    for (const [x, z] of [[0, -15], [10, -3], [-12, -0.5], [-14.2, -3.2], [-15.7, -5.4], [0, 0.2], [0, 3], [0, 4.9]]) {
         assert.equal(L.exteriorAmount(x, z), 0, `(${x}, ${z}) is inside`);
     }
     // The forecourt beside the vestibule is outdoors even though it is only a metre from the club's wall.

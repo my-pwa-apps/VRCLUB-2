@@ -184,18 +184,24 @@ class ModelLoader {
                 emissiveFloor: 0,
                 disableEmission: true,
                 metallicFactor: 0,
+                roughnessFactor: 0.92,
+                matte: true,
+                environmentIntensity: 0.12,
+                specularIntensity: 0,
+                albedoTint: 0.72,
                 attribution: 'Old Couch by Oliver Triplett (CC BY 4.0; optimized textures)'
             },
-            // Nearfield DJ booth monitor speakers: iPoly3D "Speaker" (CC0). Only the left monitor is placed here;
-            // the right monitor is instantiated on the opposite end of the DJ table (VenueDressing._furnishDJMonitors).
+            // Nearfield DJ booth monitor speakers: Ivan_WSK "Yamaha HS8 Studio Monitor" (CC BY 4.0). Only the left
+            // monitor is placed here; the right monitor is instantiated on the opposite side of the DJ controller
+            // (VenueDressing._furnishDJMonitors).
             dj_monitor: {
                 name: 'DJ Booth Monitor Speaker',
                 url: './js/models/monitors/source/monitor_speaker.glb',
-                rotation: new BABYLON.Vector3(0, Math.PI + 0.52, 0),
+                rotation: new BABYLON.Vector3(0, Math.PI - 0.6, 0),
                 scale: new BABYLON.Vector3(1, 1, 1),
-                placement: { fitAxis: 'y', fitSize: 0.42, centerX: -1.78, centerZ: -18.22, bottomY: 1.42 },
-                emissiveFloor: 0.03,
-                attribution: 'Speaker by iPoly3D (CC0)'
+                placement: { fitAxis: 'y', fitSize: 0.3, centerX: -0.72, centerZ: -18.22, bottomY: 1.42 },
+                emissiveFloor: 0.02,
+                attribution: 'Yamaha HS8 Studio Monitor by Ivan_WSK (CC BY 4.0; optimized textures)'
             },
             // Club restroom porcelain toilet: Quaternius "Toilet" (CC0). The first stall's toilet is placed here;
             // the second stall's toilet is instantiated in VenueDressing._furnishRestroom.
@@ -204,7 +210,7 @@ class ModelLoader {
                 url: './js/models/restroom/source/toilet.glb',
                 rotation: new BABYLON.Vector3(0, Math.PI / 2, 0),
                 scale: new BABYLON.Vector3(1, 1, 1),
-                placement: { fitAxis: 'y', fitSize: 0.78, centerX: -15.32, centerZ: -5.4, bottomY: 0 },
+                placement: { fitAxis: 'y', fitSize: 0.78, centerX: -15.72, centerZ: -5.4, bottomY: 0 },
                 emissiveFloor: 0.025,
                 attribution: 'Toilet by Quaternius (CC0)'
             },
@@ -215,7 +221,7 @@ class ModelLoader {
                 url: './js/models/restroom/source/bathroom_sink.glb',
                 rotation: new BABYLON.Vector3(0, -Math.PI / 2, 0),
                 scale: new BABYLON.Vector3(1, 1, 1),
-                placement: { fitAxis: 'y', fitSize: 0.88, centerX: -12.78, centerZ: -5.2, bottomY: 0 },
+                placement: { fitAxis: 'y', fitSize: 0.88, centerX: -12.78, centerZ: -5.78, bottomY: 0 },
                 emissiveFloor: 0.025,
                 attribution: 'Bathroom Sink by Quaternius (CC0)'
             }
@@ -619,6 +625,37 @@ class ModelLoader {
 
                     if (config.metallicFactor !== undefined && mesh.material.metallic !== undefined) {
                         mesh.material.metallic = config.metallicFactor;
+                    }
+                    if (config.roughnessFactor !== undefined && mesh.material.roughness !== undefined) {
+                        mesh.material.roughness = config.roughnessFactor;
+                    }
+                    // Upholstery, felt and carpet have no gloss at all. The packed metallic-roughness map would still
+                    // make torn seams and creases shiny, and a normal-mapped crease at a grazing angle then throws
+                    // a thin white highlight that the headset's bloom blows into a glowing outline.
+                    if (config.matte && mesh.material.metallicTexture !== undefined) {
+                        mesh.material.metallicTexture = null;
+                        mesh.material.metallic = 0;
+                        mesh.material.roughness = 1;
+                        mesh.material.useRoughnessFromMetallicTextureGreen = false;
+                        mesh.material.useMetallnessFromMetallicTextureBlue = false;
+                        if ('specularIntensity' in mesh.material) mesh.material.specularIntensity = 0;
+                        if (mesh.material.reflectivityColor) mesh.material.reflectivityColor.set(0, 0, 0);
+                        if ('enableSpecularAntiAliasing' in mesh.material) mesh.material.enableSpecularAntiAliasing = true;
+                    }
+                    if (config.environmentIntensity !== undefined && 'environmentIntensity' in mesh.material) {
+                        mesh.material.environmentIntensity = config.environmentIntensity;
+                    }
+                    if (config.specularIntensity !== undefined) {
+                        if ('directIntensity' in mesh.material && 'specularIntensity' in mesh.material) {
+                            mesh.material.specularIntensity = config.specularIntensity;
+                        }
+                        if (mesh.material.reflectivityColor) {
+                            mesh.material.reflectivityColor.set(
+                                config.specularIntensity,
+                                config.specularIntensity,
+                                config.specularIntensity
+                            );
+                        }
                     }
                     
                     // A model can darken its own albedo (the bass bin's carpet is a mid grey, the PA above it is near black).

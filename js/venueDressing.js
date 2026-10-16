@@ -37,38 +37,45 @@ const VENUE_LOUNGE = {
     seatZ: -0.89, seats: [-0.42, 0.42]
 };
 
-// Nearfield DJ booth monitor speakers on the left and right ends of the DJ table (y 1.42), angled toward the DJ.
+// Nearfield DJ booth monitor speakers on the DJ table (y 1.42), either side of the console and behind it (crowd side),
+// aimed back at the DJ. The Yamaha HS8 GLB's woofer baffle is local +z and Babylon's glTF root only mirrors X, so
+// yaw 0 faces the dance floor (+z): yaw PI faces the DJ (-z), and +-0.6 rad toes each cabinet in toward x = 0.
+// A model faces (sin yaw, cos yaw).
 const VENUE_MONITORS = {
     tableY: 1.42,
-    height: 0.42,
-    left: { x: -1.78, z: -18.22, yaw: Math.PI + 0.52 },
-    right: { x: 1.78, z: -18.22, yaw: Math.PI - 0.52 }
+    height: 0.3,
+    left: { x: -0.72, z: -18.22, yaw: Math.PI - 0.6 },
+    right: { x: 0.72, z: -18.22, yaw: Math.PI + 0.6 }
 };
 
-// The club restroom off the front-left corner of the hall (x -12.5..-16.2, z -6.2..-1.2), entered through a 1.8 m
+// The club restroom off the front-left corner of the hall (x -12.5..-16.6, z -6.2..-1.2), entered through a 1.8 m
 // doorway in the left wall (z -4.1..-2.3). Two toilet stalls along the far wall (-x) and two washbasins with a
 // backlit mirror along the inner wall (+x).
 const VENUE_RESTROOM = {
     wallX: -12.75,   // inner face of the club's 0.5 m left wall (centred on x -12.5)
-    farX: -16.0,     // inner face of the restroom's back wall
+    farX: -16.4,     // inner face of the restroom's back wall
     z0: -6.2,        // stage-side inner face
     z1: -1.2,        // entrance-side inner face
     height: 3.2,
     door: { z0: -4.1, z1: -2.3, height: 2.8 },
-    stallFrontX: -14.55,
-    stallDoorHalf: 0.42,
-    toiletX: -15.32,
-    toiletSeatX: -15.22,
+    stallFrontX: -14.45,
+    stallPier: 0.16,
+    toiletX: -15.72,
+    toiletSeatX: -15.62,
     toiletSeatY: 0.42,
     toiletZ: [-5.4, -2.0],
     sinkX: -13.10,
-    sinkZ: [-5.2, -2.1],
+    // Both basins stand on bare wall. The club's concrete pillar at z -5.3..-4.7 pokes 5 cm through the wall into the
+    // restroom, so the first basin sits in the strip between it and the stage-side wall, and the second in the strip
+    // between the doorway frame and the entrance-side wall.
+    pillarZ: [-5.3, -4.7],
+    sinkZ: [-5.78, -1.72],
 
-    /** Acoustic muffling inside the restroom: 0 in the main hall, easing to 0.72 inside the tiled room. */
+    /** Acoustic muffling inside the restroom: 0 in the main hall, easing to 0.42 inside the tiled room. */
     enclosure(x, z) {
         if (x >= -12.1 || z < this.z0 - 0.3 || z > this.z1 + 0.3) return 0;
         const t = Math.min(1, Math.max(0, (-12.1 - x) / 1.5));
-        return 0.72 * t * t * (3 - 2 * t);
+        return 0.42 * t * t * (3 - 2 * t);
     }
 };
 
@@ -721,9 +728,71 @@ const VenueDressing = {
         }
 
         const allMeshes = [...leftMeshes, ...rightMeshes];
+        const cables = this._createDJMonitorCables();
+        if (cables) allMeshes.push(cables);
         const djLight = this.scene && this.scene.getLightByName('djConsoleLight');
         if (djLight) this._extendAccentLight(djLight, allMeshes);
-        this._djMonitors = allMeshes;
+        this._djMonitors = allMeshes.filter(mesh => mesh !== cables);
+        this._djMonitorCables = cables;
+    },
+
+    /**
+     * Two balanced signal cables, one merged mesh: each runs from the rear connector panel of a monitor, down onto the
+     * table and across it to the console's rear output jacks. Ends are small plugs. The route is derived from the
+     * monitor layout and the console's measured bounds, so it follows either if they move.
+     */
+    _createDJMonitorCables() {
+        if (!this.scene || !BABYLON.Curve3 || !BABYLON.MeshBuilder) return null;
+        const M = VENUE_MONITORS;
+        const console_ = this.scene.getMeshByName('console_final');
+        let bounds = { minY: M.tableY, maxZ: -18.35, halfX: 0.51 };
+        if (console_) {
+            console_.computeWorldMatrix(true);
+            const box = console_.getHierarchyBoundingVectors(true);
+            bounds = { minY: box.min.y, maxZ: box.max.z, halfX: Math.min(-box.min.x, box.max.x) };
+        }
+        const jackY = bounds.minY + 0.07;
+        const onTable = M.tableY + 0.008;
+        const radius = 0.0055;
+        const pieces = [];
+        const plug = (name, x, y, z, yaw) => {
+            const mesh = BABYLON.MeshBuilder.CreateBox(name, { width: 0.022, height: 0.022, depth: 0.04 }, this.scene);
+            mesh.position.set(x, y, z);
+            mesh.rotation.y = yaw;
+            return mesh;
+        };
+        for (const [name, side] of [['Left', M.left], ['Right', M.right]]) {
+            const sign = side.x < 0 ? -1 : 1;
+            // The monitor faces (sin yaw, cos yaw); its connector panel is on the opposite face.
+            const bx = -Math.sin(side.yaw), bz = -Math.cos(side.yaw);
+            const reach = M.height * 0.42;
+            const rear = { x: side.x + bx * reach, y: M.tableY + M.height * 0.28, z: side.z + bz * reach };
+            const jack = { x: sign * Math.min(0.24, bounds.halfX * 0.5), y: jackY, z: bounds.maxZ };
+            const points = [
+                new BABYLON.Vector3(rear.x, rear.y, rear.z),
+                new BABYLON.Vector3(rear.x + bx * 0.05, rear.y - 0.05, rear.z + bz * 0.05),
+                new BABYLON.Vector3(rear.x + bx * 0.07 + (jack.x - rear.x) * 0.2, onTable, rear.z + bz * 0.07 + 0.02),
+                new BABYLON.Vector3((rear.x + jack.x) / 2, onTable, (rear.z + jack.z + 0.09) / 2),
+                new BABYLON.Vector3(jack.x + (rear.x - jack.x) * 0.15, onTable + 0.004, jack.z + 0.09),
+                new BABYLON.Vector3(jack.x, jack.y - 0.04, jack.z + 0.07),
+                new BABYLON.Vector3(jack.x, jack.y, jack.z + 0.045)
+            ];
+            const path = BABYLON.Curve3.CreateCatmullRomSpline(points, 8, false).getPoints();
+            const tube = BABYLON.MeshBuilder.CreateTube(`djMonitorCable${name}`, { path, radius, tessellation: 6, cap: BABYLON.Mesh.CAP_ALL }, this.scene);
+            pieces.push(tube,
+                plug(`djMonitorPlugRear${name}`, rear.x, rear.y, rear.z, Math.atan2(bx, bz)),
+                plug(`djMonitorPlugJack${name}`, jack.x, jack.y, jack.z + 0.03, 0));
+        }
+        const merged = BABYLON.Mesh.MergeMeshes(pieces, true, true);
+        if (!merged) return null;
+        merged.name = 'djMonitorCables';
+        merged.material = this.materialFactory.createPBRMaterial('djMonitorCableMat', {
+            baseColor: [0.018, 0.018, 0.022], metallic: 0.1, roughness: 0.62
+        }, true);
+        merged.isPickable = false;
+        merged.freezeWorldMatrix();
+        merged.doNotSyncBoundingInfo = true;
+        return merged;
     },
 
     // ------------------------------------------------------------------------------------------
@@ -776,31 +845,33 @@ const VenueDressing = {
         for (const z of [-4.6, -2.8]) {
             b.box(partitions, stallDepth, panelH, 0.05, XF + stallDepth / 2, panelY, z);
         }
-        // Stall front pilaster piers either side of the two 0.84 m cubicle doorways.
-        const pier = 0.36;
+        // Stall front pilaster piers either side of the two 1.28 m cubicle doorways (wide enough for the desktop
+        // collision body, which is 1 m across).
+        const pier = R.stallPier;
         for (const z of [Z0 + pier / 2, -4.6 - pier / 2, -2.8 + pier / 2, Z1 - pier / 2]) {
             b.box(partitions, 0.05, stallH, pier, SX, stallH / 2, z);
         }
-        // Top header rails across the two cubicle fronts, plus ajar doors angled invitingly inward.
-        for (const [zA, zB, zCenter, swing] of [
-            [Z0, -4.6, R.toiletZ[0], -1],
-            [-2.8, Z1, R.toiletZ[1], 1]
+        // Header rails across the two cubicle fronts. The doors stand open INSIDE each stall, flat against the
+        // divider behind the centre pier: they never cross a doorway and never reach the toilet (they are not
+        // collidable, so nothing can catch on them either).
+        const doorW = 0.62, doorT = 0.035;
+        const doors = b.group('StallDoors', partitionMat);
+        for (const [zA, zB, hingeZ, side] of [
+            [Z0, -4.6, -4.6 - pier, -1],
+            [-2.8, Z1, -2.8 + pier, 1]
         ]) {
             b.box(partitions, 0.05, 0.10, Math.abs(zB - zA), SX, stallH - 0.05, (zA + zB) / 2);
-            b.box(partitions, 0.035, panelH - 0.08, 0.72, SX - 0.25, panelY, zCenter + swing * 0.26, mesh => {
-                mesh.rotation.y = swing * 0.92;
-            });
+            b.box(doors, doorW, panelH - 0.08, doorT, SX - 0.04 - doorW / 2, panelY, hingeZ + side * doorT / 2);
         }
 
-        // Specular wall mirrors above both washbasins, plus chrome plumbing, soap dispensers and hand dryer.
-        const mirrorMat = factory.createPBRMaterial('restroomMirrorMat', {
-            baseColor: [0.82, 0.86, 0.90], metallic: 0.98, roughness: 0.04
-        }, true);
+        // Planar vanity mirrors above both washbasins, plus chrome plumbing, soap dispensers and hand dryer.
+        const mirrorFaceX = XN - 0.04;
+        const mirrorMat = this._createRestroomMirrorMaterial(mirrorFaceX);
         const mirrors = b.group('Mirrors', mirrorMat);
         const fixtures = b.group('Fixtures', factory.getPreset('stanchionPost'));
         for (const sz of R.sinkZ) {
             b.box(mirrors, 0.02, 0.92, 0.72, XN - 0.03, 1.48, sz);
-            b.box(fixtures, 0.08, 0.18, 0.10, XN - 0.06, 1.16, sz + 0.46);
+            b.box(fixtures, 0.08, 0.18, 0.10, XN - 0.06, 1.16, sz + 0.44);
         }
         for (const tz of R.toiletZ) {
             b.cylinder(fixtures, 0.11, 0.14, XF + 0.10, 0.68, tz + 0.42, 'z', 12);
@@ -896,9 +967,274 @@ const VenueDressing = {
 
         this._extendAccentLight(this._restroomLight, placed);
         this._restroomFixtures = placed;
+        this._syncRestroomMirrorRenderList();
+    },
+
+    /**
+     * Build the vanity mirror material backed by a real planar `MirrorTexture` when available.
+     * Both mirrors lie on the same `x = mirrorX` plane facing `-x`, so one texture serves both panes.
+     */
+    _createRestroomMirrorMaterial(mirrorX) {
+        const factory = this.materialFactory;
+        if (!BABYLON.MirrorTexture || !BABYLON.Plane) {
+            return factory.createPBRMaterial('restroomMirrorMat', {
+                baseColor: [0.82, 0.86, 0.90], metallic: 0.98, roughness: 0.04
+            }, true);
+        }
+        const mat = factory.createStandardMaterial('restroomMirrorMat', {
+            diffuseColor: [0.06, 0.07, 0.08],
+            specularColor: [0, 0, 0],
+            emissiveColor: [0.02, 0.025, 0.03],
+            mutable: true
+        });
+        try {
+            const mirrorTex = new BABYLON.MirrorTexture('restroomMirrorTex', 512, this.scene, true);
+            // Babylon's mirror plane faces AWAY from the viewer (a floor mirror uses a downward normal): the pane's
+            // face looks toward -x, into the restroom, so the plane's normal is +x. The opposite sign clips the room
+            // and leaves the reflection black.
+            mirrorTex.mirrorPlane = BABYLON.Plane.FromPositionAndNormal(
+                new BABYLON.Vector3(mirrorX, 0, 0), new BABYLON.Vector3(1, 0, 0));
+            mirrorTex.level = 0.92;
+            mirrorTex.refreshRate = 0;
+            mirrorTex._revealed = [];
+            // Everything that is hidden in the normal view but belongs in the reflection: the player's own head (hidden
+            // so it cannot fill the camera) and the double of the character the relay gave this guest.
+            mirrorTex.onBeforeRenderObservable.add(() => {
+                const shown = mirrorTex._revealed;
+                shown.length = 0;
+                const reveal = this._mirrorReveal;
+                if (!reveal) return;
+                for (let i = 0; i < reveal.length; i++) {
+                    const mesh = reveal[i];
+                    if (mesh && !mesh.isVisible && !mesh.isDisposed()) {
+                        mesh.isVisible = true;
+                        shown.push(mesh);
+                    }
+                }
+                // A hidden mesh is skipped by the scene's own pass, so its skeleton was not advanced this frame.
+                const double = this._mirrorDouble;
+                if (double && double.skeletons) for (let i = 0; i < double.skeletons.length; i++) double.skeletons[i].prepare(true);
+            });
+            mirrorTex.onAfterRenderObservable.add(() => {
+                const shown = mirrorTex._revealed;
+                for (let i = 0; i < shown.length; i++) if (!shown[i].isDisposed()) shown[i].isVisible = false;
+                shown.length = 0;
+            });
+            mat.reflectionTexture = mirrorTex;
+            this.restroomMirrorTexture = mirrorTex;
+        } catch (err) {
+            log.warn('⚠️ Failed to create restroom MirrorTexture, using metallic fallback:', err);
+        }
+        return mat;
+    },
+
+    /**
+     * What the mirror draws: the restroom, the people in it, and the player. Online, the player is the character the relay
+     * assigned them (the one everybody else sees), built as a hidden double that only the mirror renders; offline it is
+     * the first-person body for their chosen style, with its head shown for the reflection.
+     */
+    _syncRestroomMirrorRenderList() {
+        const tex = this.restroomMirrorTexture;
+        if (!tex || !tex.renderList) return;
+        const list = tex.renderList;
+        list.length = 0;
+        const reveal = this._mirrorReveal || (this._mirrorReveal = []);
+        reveal.length = 0;
+        const seen = new Set();
+        const add = mesh => {
+            if (!mesh || seen.has(mesh) || mesh.name === 'restroomMirrors') return;
+            seen.add(mesh);
+            list.push(mesh);
+        };
+        if (this._restroomMeshes) this._restroomMeshes.forEach(add);
+        if (this._restroomFixtures) this._restroomFixtures.forEach(add);
+        const double = this._mirrorDouble;
+        if (double) {
+            double.meshes.forEach(mesh => { add(mesh); reveal.push(mesh); });
+        } else if (this._localRig && this._localRig.meshes) {
+            this._localRig.meshes.forEach(mesh => {
+                add(mesh);
+                if (typeof AvatarRig !== 'undefined' && AvatarRig.HEAD_MESH.test(mesh.name)) reveal.push(mesh);
+            });
+        }
+        const manager = this.avatarManager;
+        if (manager && manager.remotes) {
+            manager.remotes.forEach(peer => {
+                if (peer.person && peer.person.meshes) peer.person.meshes.forEach(add);
+                else if (peer.body) { add(peer.body); add(peer.head); }
+            });
+        }
+    },
+
+    /** Follow the relay's assignment: the double exists while this guest is in a room with an assigned character. */
+    _syncMirrorDouble() {
+        const mp = this.multiplayer;
+        const avatarId = mp && mp.connected ? mp.selfAvatar : null;
+        const double = this._mirrorDouble;
+        if (double && double.avatarId === avatarId) return;
+        if (double) this._disposeMirrorDouble();
+        if (!avatarId || this._mirrorDoubleLoading === avatarId) return;
+        this._mirrorDoubleLoading = avatarId;
+        this._buildMirrorDouble(avatarId)
+            .catch(err => log.warn('Could not build the mirror reflection of your character:', err))
+            .finally(() => { if (this._mirrorDoubleLoading === avatarId) this._mirrorDoubleLoading = null; });
+    },
+
+    async _buildMirrorDouble(avatarId) {
+        const Crowd = window.VRClubAudioCrowd;
+        const index = Crowd ? Crowd.sourceIndex(avatarId) : -1;
+        if (index < 0 || typeof this._loadCrowdSource !== 'function' || !this._crowdSourceContainers) return;
+        const container = await this._loadCrowdSource(index);
+        const mp = this.multiplayer;
+        if (!container || this._disposed || !this.scene || this._mirrorDouble || !mp || !mp.connected || mp.selfAvatar !== avatarId) return;
+
+        const prefix = 'mirrorSelf_';
+        const entry = container.instantiateModelsToScene(name => `${prefix}${name}`, false, { doNotInstantiate: true });
+        const node = entry.rootNodes[0];
+        if (!node) { entry.dispose(); return; }
+        const root = new BABYLON.TransformNode('mirrorSelfRoot', this.scene);
+        node.parent = root;
+        node.rotationQuaternion = null;
+        node.rotation.set(0, 0, 0);
+        node.scaling.setAll(1);
+        node.position.set(0, 0, 0);
+        node.computeWorldMatrix(true);
+        // The same real-world height and feet-on-the-floor placement the remote guests get.
+        const heights = (window.AvatarManager && window.AvatarManager.PERSON_HEIGHT) || {};
+        const height = heights[avatarId[0]] || 1.72;
+        let bounds = node.getHierarchyBoundingVectors(true);
+        const raw = bounds.max.y - bounds.min.y;
+        if (raw > 1e-6) node.scaling.setAll(height / raw);
+        node.computeWorldMatrix(true);
+        bounds = node.getHierarchyBoundingVectors(true);
+        node.position.y -= bounds.min.y;
+
+        const meshes = node.getChildMeshes();
+        meshes.forEach(mesh => {
+            mesh.isPickable = false;
+            mesh.alwaysSelectAsActiveMesh = true;
+            mesh.isVisible = false;   // only the mirror draws it (see the mirror's before/after render handlers)
+        });
+        const wanted = new Set(['Idle', 'Walk', 'Run', 'Seated_Loop']);
+        const groups = {};
+        for (const group of entry.animationGroups) {
+            const clip = group.name.startsWith(prefix) ? group.name.slice(prefix.length) : group.name;
+            if (!wanted.has(clip)) { group.dispose(); continue; }
+            group.enableBlending = true;
+            group.blendingSpeed = 0.06;
+            groups[clip] = group;
+        }
+        if (!groups.Idle) { entry.dispose(); root.dispose(); return; }
+        const arms = typeof AvatarRig !== 'undefined' ? AvatarRig.createTrackedArms(node, prefix) : null;
+        const double = {
+            avatarId, entry, root, node, meshes, groups, arms, current: null, speed: 0,
+            skeletons: Array.from(new Set(meshes.map(mesh => mesh.skeleton).filter(Boolean))),
+            hands: { left: null, right: null }, handBuffers: { left: {}, right: {} },
+            prevX: NaN, prevZ: NaN, observer: null
+        };
+        // Live controller arms go in after the clips have been evaluated, or the clip would erase them.
+        double.observer = this.scene.onAfterAnimationsObservable.add(() => {
+            if (!double.active || !double.arms || !(double.hands.left || double.hands.right)) return;
+            double.arms.updateTrackedArms(double.hands, double.root.rotation.y, this._activeSeat ? 1.2 : 1.7);
+        });
+        this._mirrorDouble = double;
+        this._extendAccentLight(this._restroomLight, meshes);
+        this._playMirrorDouble(double, 'Idle', 1);
+        this._mirrorSignature = -1;
+    },
+
+    _playMirrorDouble(double, clip, speedRatio) {
+        const group = double.groups[clip];
+        if (!group) return;
+        if (double.current === clip) { group.speedRatio = speedRatio; return; }
+        const previous = double.groups[double.current];
+        if (previous) previous.stop();
+        group.start(true, speedRatio);
+        group.speedRatio = speedRatio;
+        double.current = clip;
+    },
+
+    _disposeMirrorDouble() {
+        const double = this._mirrorDouble;
+        if (!double) return;
+        this._mirrorDouble = null;
+        if (this.scene && double.observer) this.scene.onAfterAnimationsObservable.remove(double.observer);
+        try { double.entry.dispose(); } catch (_) { /* already gone */ }
+        try { double.root.dispose(); } catch (_) { /* already gone */ }
+        this._mirrorSignature = -1;
+    },
+
+    /** Put the double where the player stands, facing where they look, walking when they walk. */
+    _updateMirrorDouble(dt) {
+        const double = this._mirrorDouble;
+        if (!double || !(dt > 0)) return;
+        const cam = this._playerCamera ? this._playerCamera() : this.camera;
+        const pos = cam && (cam.globalPosition || cam.position);
+        if (!pos) return;
+        const seat = this._activeSeat;
+        const dir = this._mirrorDir || (this._mirrorDir = new BABYLON.Vector3());
+        cam.getDirectionToRef(BABYLON.Axis.Z, dir);
+        double.root.position.set(seat ? seat.x : pos.x, seat ? seat.floorY : (this._walkLevel || 0), seat ? seat.z : pos.z);
+        double.root.rotation.y = seat ? seat.facing : Math.atan2(dir.x, dir.z);
+        if (Number.isFinite(double.prevX)) {
+            const instant = Math.hypot(pos.x - double.prevX, pos.z - double.prevZ) / dt;
+            double.speed += (Math.min(instant, 8) - double.speed) * (1 - Math.pow(0.8, dt * 60));
+        }
+        double.prevX = pos.x; double.prevZ = pos.z;
+        if (seat && double.groups.Seated_Loop) this._playMirrorDouble(double, 'Seated_Loop', 1);
+        else if (double.speed > 2.6 && double.groups.Run) this._playMirrorDouble(double, 'Run', Math.min(1.5, double.speed / 4));
+        else if (double.speed > 0.25 && double.groups.Walk) this._playMirrorDouble(double, 'Walk', Math.min(1.7, Math.max(0.6, double.speed / 1.4)));
+        else this._playMirrorDouble(double, 'Idle', 1);
+        // In a headset the controllers move the double's arms, as they do for everyone else's view of this guest.
+        for (const side of ['left', 'right']) {
+            const tracked = this.isInVRMode && this._handPose ? this._handPose(side, pos) : null;
+            if (!tracked) { double.hands[side] = null; continue; }
+            const hand = double.handBuffers[side];
+            hand.x = tracked.x - pos.x; hand.y = tracked.y - pos.y; hand.z = tracked.z - pos.z;
+            hand.fx = tracked.fx; hand.fy = tracked.fy; hand.fz = tracked.fz;
+            hand.ux = tracked.ux; hand.uy = tracked.uy; hand.uz = tracked.uz;
+            double.hands[side] = hand;
+        }
+    },
+
+    /** Enable planar mirror rendering only when the guest is inside or right at the doorway of the restroom. */
+    updateRestroomMirror(ctx) {
+        const tex = this.restroomMirrorTexture;
+        if (!tex || !this.scene) return;
+        const cam = (this.isInVRMode && this.vrHelper?.baseExperience?.camera) || this.camera;
+        const pos = cam && (cam.globalPosition || cam.position);
+        const R = VENUE_RESTROOM;
+        const nearRestroom = !!pos && pos.x < -10.0 && pos.z > R.z0 - 1.2 && pos.z < R.z1 + 1.2;
+        const double = this._mirrorDouble;
+        if (double) double.active = nearRestroom;
+        if (!nearRestroom) {
+            if (tex.refreshRate !== 0) tex.refreshRate = 0;
+            if (this.scene.customRenderTargets) {
+                const idx = this.scene.customRenderTargets.indexOf(tex);
+                if (idx !== -1) this.scene.customRenderTargets.splice(idx, 1);
+            }
+            // Nothing is built for a guest who never goes near the restroom; the double is dropped again online-to-offline.
+            if (double && !(this.multiplayer && this.multiplayer.connected)) this._disposeMirrorDouble();
+            return;
+        }
+        if (this.scene.customRenderTargets && this.scene.customRenderTargets.indexOf(tex) === -1) {
+            this.scene.customRenderTargets.push(tex);
+        }
+        this._syncMirrorDouble();
+        this._updateMirrorDouble(ctx && ctx.dt);
+        // Rebuild the list when who is in the mirror changes: the double or the body, and every guest's character.
+        const manager = this.avatarManager;
+        let people = 0;
+        if (manager && manager.remotes) manager.remotes.forEach(peer => { people += peer.person ? 2 : 1; });
+        const signature = (this._mirrorDouble ? 1 : 0) + 2 * ((this._localRig && this._localRig.meshes) ? this._localRig.meshes.length : 0) + 1000 * people;
+        if (this._mirrorSignature !== signature) {
+            this._mirrorSignature = signature;
+            this._syncRestroomMirrorRenderList();
+        }
+        const targetRate = this.isInVRMode ? 2 : 1;
+        if (tex.refreshRate !== targetRate) tex.refreshRate = targetRate;
     }
-};
-window.VenueLayout = {
+};window.VenueLayout = {
     bar: VENUE_BAR,
     lounge: VENUE_LOUNGE,
     monitors: VENUE_MONITORS,

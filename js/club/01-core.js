@@ -27,7 +27,12 @@ const ROOM_INTERIOR = {
     x: { min: -12.25, max: 12.25 },
     y: { min: 0, max: 9.85 },
     z: { min: -20, max: -0.25 },
-    entrance: { halfWidth: 1.86, height: 3.26 }
+    entrance: { halfWidth: 1.86, height: 3.26 },
+    // Concrete columns (createIndustrialWallDetails) are 0.6 m square, centred on the side wall planes x ±12.5, so
+    // their faces stand 0.05 m proud of the wall: optics that land on the wall plane end up inside the column.
+    columns: { z: [-5, -15], halfWidth: 0.3, faceX: 12.2 },
+    // The restroom doorway in the left wall; the frame's posts and lintel narrow the opening by `frame`.
+    restroomDoor: { z0: -4.1, z1: -2.3, height: 2.8, frame: 0.12 }
 };
 window.ROOM_INTERIOR = ROOM_INTERIOR;
 

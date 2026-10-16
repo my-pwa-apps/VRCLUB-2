@@ -61,6 +61,5 @@ test('the lounge couch faces the DJ from the entrance wall and two people can si
         cam.setTarget(new BABYLON.Vector3(7.1, 0.7, -0.7));
     });
     await page.waitForTimeout(1500);
-    await page.screenshot({ path: 'test-results/lounge-couch.png' });
     await expectHealthyRuntime(page);
 });

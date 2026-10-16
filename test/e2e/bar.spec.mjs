@@ -59,6 +59,25 @@ test('the entrance vestibule and the bar are built, lit by their own accents and
         const restroomFixtures = (club._restroomFixtures || []);
         const toiletSeats = restroomFixtures.flatMap(mesh => (mesh.metadata && mesh.metadata.vrclubSeats) || []).map(seat => seat.id);
 
+        // Stand inside the restroom facing the vanity mirror and verify the planar mirror activates and includes
+        // the player's body + restroom in its renderList, while exteriorAmount stays 0 (indoors).
+        camera.position.set(-13.8, 1.7, -5.2);
+        camera.setTarget(new BABYLON.Vector3(-12.75, 1.5, -5.2));
+        for (let i = 0; i < 4; i++) {
+            await new Promise(resolve => scene.onAfterRenderObservable.addOnce(resolve));
+        }
+        const mirrorTex = club.restroomMirrorTexture;
+        const mirrorRenderNames = (mirrorTex && mirrorTex.renderList || []).map(m => m.name);
+        const mirrorActiveInRestroom = !!(mirrorTex && mirrorTex.refreshRate > 0 && scene.customRenderTargets.includes(mirrorTex));
+        const mirrorReflectsLocalPlayer = !!(club._localRig && club._localRig.meshes.some(m => mirrorRenderNames.includes(m.name)));
+        const restroomExterior = window.CityLayout.exteriorAmount(-14.2, -3.2);
+        camera.position.copyFrom(start);
+        club._walkLevel = startLevel;
+        for (let i = 0; i < 2; i++) {
+            await new Promise(resolve => scene.onAfterRenderObservable.addOnce(resolve));
+        }
+        const mirrorIdleOnDanceFloor = !!(mirrorTex && mirrorTex.refreshRate === 0 && !scene.customRenderTargets.includes(mirrorTex));
+
         return {
             counterCollides: counter.checkCollisions && counter.getBoundingInfo().boundingBox.minimumWorld.x < layout.bar.counter.xFront,
             stoolBlocks: scene.meshes.filter(mesh => /^barStoolBlock/.test(mesh.name) && mesh.checkCollisions).length,
@@ -70,6 +89,10 @@ test('the entrance vestibule and the bar are built, lit by their own accents and
             restroomSlots: slots(byName('restroomWalls')),
             toiletSeats,
             intoRestroomX: intoRestroom.x,
+            mirrorActiveInRestroom,
+            mirrorReflectsLocalPlayer,
+            mirrorIdleOnDanceFloor,
+            restroomExterior,
             bottleCount: bottles.bottleCount,
             bottleTriangles: bottles.getTotalIndices() / 3,
             bottleOpaque: !bottles.material.needAlphaBlending() && bottles.material.alpha === 1,
@@ -119,7 +142,11 @@ test('the entrance vestibule and the bar are built, lit by their own accents and
     expect(state.restroomFixtureCount).toBe(4);
     expect(state.toiletSeats).toEqual(['toilet-0', 'toilet-1']);
     expect(state.intoRestroomX).toBeLessThan(-13.2);
-    expect(state.intoRestroomX).toBeGreaterThan(-16.0);
+    expect(state.intoRestroomX).toBeGreaterThan(-16.5);
+    expect(state.mirrorActiveInRestroom).toBe(true);
+    expect(state.mirrorReflectsLocalPlayer).toBe(true);
+    expect(state.mirrorIdleOnDanceFloor).toBe(true);
+    expect(state.restroomExterior).toBe(0);
     expect(state.bartender.enabled).toBe(true);
     expect(state.bartender.rigged, 'the bartender is posed by her AvatarRig').toBe(true);
     expect(state.bartender.hands).toBe(2);
@@ -137,5 +164,39 @@ test('the entrance vestibule and the bar are built, lit by their own accents and
     expect(state.counterCollides).toBe(true);
     expect(state.stoolBlocks).toBe(5);
     expect(state.counterX).toBeLessThan(state.counterFront);
+
+    // Online, the mirror shows the character the relay assigned this guest, not the default first-person body.
+    const online = await page.evaluate(async () => {
+        const club = window.vrClub, mp = club.multiplayer;
+        const client = new window.NetworkClient({ serverUrl: 'wss://relay.example' });
+        client.status = 'connected';
+        mp.client = client;
+        mp.selfAvatar = 'm3';
+        club.camera.position.set(-14.4, 1.7, -1.72);
+        club.camera.setTarget(new BABYLON.Vector3(-12.77, 1.45, -1.72));
+        const deadline = performance.now() + 20000;
+        while (!club._mirrorDouble && performance.now() < deadline) await new Promise(r => club.scene.onAfterRenderObservable.addOnce(r));
+        for (let i = 0; i < 6; i++) await new Promise(r => club.scene.onAfterRenderObservable.addOnce(r));
+        const double = club._mirrorDouble, tex = club.restroomMirrorTexture;
+        const result = {
+            built: !!double, avatar: double && double.avatarId,
+            listed: !!double && double.meshes.every(mesh => tex.renderList.includes(mesh)),
+            hiddenInView: !!double && double.meshes.every(mesh => !mesh.isVisible),
+            playing: double && double.current,
+            lit: !!double && double.meshes[0].lightSources.some(light => light.name === 'restroomLight')
+        };
+        mp.client = null; mp.selfAvatar = null;
+        club.camera.position.set(-5, 1.7, -8);
+        for (let i = 0; i < 4; i++) await new Promise(r => club.scene.onAfterRenderObservable.addOnce(r));
+        result.goneAfterLeaving = !club._mirrorDouble;
+        return result;
+    });
+    expect(online.built, 'the relay-assigned character must be built for the mirror').toBe(true);
+    expect(online.avatar).toBe('m3');
+    expect(online.listed, 'the mirror must draw it').toBe(true);
+    expect(online.hiddenInView, 'only the mirror may draw it').toBe(true);
+    expect(online.playing).toBe('Idle');
+    expect(online.lit, 'it takes the restroom light like everyone else in there').toBe(true);
+    expect(online.goneAfterLeaving, 'it is released again when the guest leaves the room').toBe(true);
     await expectHealthyRuntime(page);
 });

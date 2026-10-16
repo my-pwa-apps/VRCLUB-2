@@ -1,9 +1,7 @@
 #!/usr/bin/env node
-// Rebuild the club restroom and DJ monitor speaker GLBs from their CC0 Poly Pizza / Quaternius / iPoly3D sources.
+// Rebuild the club restroom GLBs from their CC0 Quaternius sources (the DJ monitor speaker is built from Ivan_WSK's
+// CC BY 4.0 "Yamaha HS8 Studio Monitor" on Sketchfab and optimized with 512 px WebP PBR maps).
 //
-//   js/models/monitors/source/monitor_speaker.glb  iPoly3D "Speaker" (CC0, poly.pizza/m/zOQOThSpuo). Flat materials
-//                                                  baked into normalized 8-bit COLOR_0 vertex colours and merged into
-//                                                  one mesh / one PBR material (1 draw, 794 triangles).
 //   js/models/restroom/source/toilet.glb           Quaternius "Toilet" (CC0, poly.pizza/m/WAu50yGFVt). Porcelain
 //                                                  colour baked into COLOR_0 and flattened into 1 draw (402 triangles).
 //   js/models/restroom/source/bathroom_sink.glb    Quaternius "Bathroom Sink" (CC0, poly.pizza/m/OMCJDgMUui).
@@ -24,20 +22,6 @@ const FORCE = process.argv.includes('--force');
 const io = new NodeIO().registerExtensions(ALL_EXTENSIONS);
 
 const ASSETS = [
-    {
-        label: 'DJ monitor speaker',
-        url: 'https://static.poly.pizza/202d1d68-2821-4482-a349-d86983b02df7.glb',
-        out: 'js/models/monitors/source/monitor_speaker.glb',
-        materialName: 'monitorSpeakerMat',
-        metallic: 0.22,
-        roughness: 0.52,
-        palette: {
-            'Material.013': [0.05, 0.05, 0.06, 1], // Matte black studio cabinet
-            'Material.001': [0.16, 0.17, 0.19, 1], // Dark steel isolation base
-            'BlackStruss': [0.09, 0.09, 0.11, 1],  // Front acoustic baffle & ports
-            'Material.014': [0.82, 0.64, 0.18, 1]  // Studio monitor woofer & tweeter cones
-        }
-    },
     {
         label: 'Restroom toilet',
         url: 'https://static.poly.pizza/e3c404e8-3149-49ca-92dc-a81d972b71b8.glb',

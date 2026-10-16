@@ -133,6 +133,36 @@ class VRClubAudioCrowd extends VRClubUI {
                 AudioUtils.setPannerPosition(this.pannerRight, CLUB_POSITIONS.paSpeakers.right.x, CLUB_POSITIONS.paSpeakers.right.y, CLUB_POSITIONS.paSpeakers.right.z);
                 AudioUtils.setPannerOrientation(this.pannerRight, -0.2, -0.5, 1.0);
 
+                // 2b. Nearfield DJ Booth Studio Monitors (Yamaha HS8 pair behind the mixer, aimed at the DJ)
+                // The main PA arrays sit at z = -16 aimed out at the dance floor (+z), so a DJ at z = -19.2 is behind
+                // their cones. Nearfield monitors at (-0.62, 1.62, -18.22) and (+0.62, 1.62, -18.22) aimed at the
+                // booth operator (-z, inward) provide tight, crisp direct sound on the riser and roll off outside it.
+                const monLayout = (typeof window !== 'undefined' && window.VenueLayout && window.VenueLayout.monitors) || {
+                    tableY: 1.42, height: 0.3,
+                    left: { x: -0.72, z: -18.22, yaw: Math.PI - 0.6 },
+                    right: { x: 0.72, z: -18.22, yaw: Math.PI + 0.6 }
+                };
+                const monAcousticY = monLayout.tableY + monLayout.height * 0.55;
+                const makeMonitorPanner = side => {
+                    const p = this.audioContext.createPanner();
+                    p.panningModel = 'HRTF';
+                    p.distanceModel = 'inverse';
+                    p.refDistance = 0.85;
+                    p.maxDistance = 8;
+                    p.rolloffFactor = 2.2;
+                    p.coneInnerAngle = 75;
+                    p.coneOuterAngle = 150;
+                    p.coneOuterGain = 0.18;
+                    AudioUtils.setPannerPosition(p, side.x, monAcousticY, side.z);
+                    // The model faces (sin yaw, 0, cos yaw): the woofer baffle points back at the DJ behind the decks.
+                    AudioUtils.setPannerOrientation(p, Math.sin(side.yaw), 0.08, Math.cos(side.yaw));
+                    return p;
+                };
+                this.monitorPannerLeft = makeMonitorPanner(monLayout.left);
+                this.monitorPannerRight = makeMonitorPanner(monLayout.right);
+                this.monitorGain = this.audioContext.createGain();
+                this.monitorGain.gain.value = 0.0;
+
                 // 3. Omni-directional Sub-bass Channel (club subs hit physical low end)
                 this.subFilter = this.audioContext.createBiquadFilter();
                 this.subFilter.type = 'lowpass';
@@ -494,6 +524,11 @@ class VRClubAudioCrowd extends VRClubUI {
                 const busIn = this.occlusionFilter || this.audioCompressor;
                 this.pannerLeft.connect(busIn);
                 this.pannerRight.connect(busIn);
+                if (this.monitorPannerLeft && this.monitorPannerRight && this.monitorGain) {
+                    this.monitorPannerLeft.connect(this.monitorGain);
+                    this.monitorPannerRight.connect(this.monitorGain);
+                    this.monitorGain.connect(busIn);
+                }
                 if (this.occlusionFilter) {
                     // The second stage (street) sits after the first; either alone reaches the bus.
                     this.occlusionFilter.connect(this.occlusionFilter2 || this.audioCompressor);
@@ -538,6 +573,10 @@ class VRClubAudioCrowd extends VRClubUI {
         }
         if (this.pannerLeft && this.pannerRight && this.airAbsorptionFilter && this.audioCompressor) {
             audible.connect(this.airAbsorptionFilter);
+            if (this.monitorPannerLeft && this.monitorPannerRight) {
+                audible.connect(this.monitorPannerLeft);
+                audible.connect(this.monitorPannerRight);
+            }
             if (this.subFilter && this.subGain) audible.connect(this.subFilter);
         }
     }
@@ -561,6 +600,7 @@ class VRClubAudioCrowd extends VRClubUI {
         this._networkMusic = remote;
         this._audioKind = 'network';
         this.nowPlayingLabel = state?.title || 'Host broadcast';
+        if (typeof this.syncDJFromSet === 'function') this.syncDJFromSet({ label: this.nowPlayingLabel });
         element.play().catch(error => {
             if (this._networkMusic === remote) this.showErrorMessage(`Broadcast playback was blocked: ${error.message}. Press Listen along again.`);
         });
@@ -657,6 +697,15 @@ class VRClubAudioCrowd extends VRClubUI {
         const heightPresence = (1 + 0.18 * zones.onDeck) * (1 - 0.35 * zones.cover) * (1 - 0.08 * zones.shelf);
         this._localPaPresence = distancePresence * enclosure * (1 - exterior) * heightPresence;
         
+        // Nearfield DJ booth studio monitors: crisp direct sound in the booth behind the main PA line,
+        // fading smoothly to zero out on the dance floor so they never compete with the flown PA arrays.
+        if (this.monitorGain && this.monitorGain.gain) {
+            const boothDist = Math.hypot(pos.x / 2.2, pos.z - (-18.9));
+            const boothProximity = Math.max(0, Math.min(1, 1 - Math.max(0, boothDist - 0.6) / 3.2));
+            const monLevel = 0.58 * boothProximity * boothProximity * (3 - 2 * boothProximity) * enclosure * (1 - exterior);
+            this.monitorGain.gain.setTargetAtTime(monLevel, now, 0.05);
+        }
+
         // Sub-bass intensity: peak punch on dance floor (0-8m from stage), rolling off gently near entrance
         if (this.subGain && this.subGain.gain) {
             let subLevel = Math.max(0.45, Math.min(1.15, 1.15 - (distToStage / 22) * 0.55));
@@ -1378,6 +1427,33 @@ class VRClubAudioCrowd extends VRClubUI {
         return true;
     }
 
+    /**
+     * When a set's metadata unambiguously identifies a male or female DJ, switch the booth DJ to match (`setDJ` only;
+     * the guest's saved `vrclub.questDJ` default is left untouched, and uncertain sets leave the current DJ alone).
+     */
+    syncDJFromSet(info) {
+        const infer = typeof window !== 'undefined' && window.LEDPatterns && typeof window.LEDPatterns.inferSetDjGender === 'function'
+            ? window.LEDPatterns.inferSetDjGender
+            : null;
+        if (!infer) return null;
+        const current = this.musicLibrary && typeof this.musicLibrary.current === 'function'
+            ? this.musicLibrary.current()
+            : null;
+        const payload = typeof info === 'object' && info !== null ? info : {
+            label: typeof info === 'string' ? info : (this.nowPlayingLabel || ''),
+            savedName: (current && current.name) || '',
+            url: this._audioStreamUrl || this._soundCloudUrl || (current && current.url) || ''
+        };
+        const gender = infer(payload);
+        if (!gender) return null;
+        Promise.resolve(this.setDJ(gender)).catch(() => {});
+        const select = typeof document !== 'undefined' && typeof document.getElementById === 'function'
+            ? document.getElementById('djStyle')
+            : null;
+        if (select) select.value = gender;
+        return gender;
+    }
+
     /** Load one avatar GLB into a container with its materials normalised. Null when it cannot be loaded. */
     async _loadAvatarSource(url, garmentColor = null, hairColor = null) {
         try {
@@ -1436,8 +1512,9 @@ class VRClubAudioCrowd extends VRClubUI {
     async _applyDJ(id) {
         const look = VRClubAudioCrowd.djLook(id);
         if (!look) return false;
+        this._djWanted = id;
         // Sent home: remember the local choice and fetch nothing until the DJ is asked back.
-        if (!this.isPeopleVisible('dj')) { this._djWanted = id; return false; }
+        if (!this.isPeopleVisible('dj')) return false;
         if (this._djId === id) return true;
         this._djContainers = this._djContainers || {};
         if (!this._djContainers[id]) this._djContainers[id] = await this._loadAvatarSource(look.url, look.garment, look.hair);

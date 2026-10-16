@@ -20,6 +20,7 @@ class VRClubAnimationCore extends VRClubEffects {
         this.updateEyeAdaptation(ctx);
         this.updateNetworkPresence(ctx);
         if (typeof this.updateVJDesk === 'function') this.updateVJDesk(ctx);
+        if (typeof this.updateRestroomMirror === 'function') this.updateRestroomMirror(ctx);
     }
 
     /**
