@@ -227,6 +227,35 @@ class ModelLoader {
                 placement: { fitAxis: 'y', fitSize: 0.88, centerX: -12.78, centerZ: -5.78, bottomY: 0 },
                 emissiveFloor: 0.025,
                 attribution: 'Bathroom Sink by Quaternius (CC0)'
+            },
+            // Realistic restroom props, all Poly Haven (CC0), built by scripts/build-restroom-props.mjs. Their spots are
+            // authoritative in VenueLayout.restroom.props (kept in step by a unit test).
+            restroom_bin: {
+                name: 'Restroom Waste Bin',
+                url: './js/models/restroom/source/metal_trash_can.glb',
+                rotation: new BABYLON.Vector3(0, Math.PI / 2, 0),
+                scale: new BABYLON.Vector3(1, 1, 1),
+                placement: { fitAxis: 'y', fitSize: 0.62, centerX: -13.0, centerZ: -4.8, bottomY: 0 },
+                emissiveFloor: 0.02,
+                attribution: 'Metal Trash Can by GurJas Studios, Poly Haven (CC0)'
+            },
+            restroom_wetsign: {
+                name: 'Wet Floor Sign',
+                url: './js/models/restroom/source/wet_floor_sign.glb',
+                rotation: new BABYLON.Vector3(0, 2.6, 0),
+                scale: new BABYLON.Vector3(1, 1, 1),
+                placement: { fitAxis: 'y', fitSize: 0.62, centerX: -13.95, centerZ: -4.1, bottomY: 0 },
+                emissiveFloor: 0.05,
+                attribution: 'Wet Floor Sign 01 by Fran Calvente, Poly Haven (CC0)'
+            },
+            restroom_plunger: {
+                name: 'Restroom Plunger',
+                url: './js/models/restroom/source/plunger.glb',
+                rotation: new BABYLON.Vector3(0, 0.5, 0),
+                scale: new BABYLON.Vector3(1, 1, 1),
+                placement: { fitAxis: 'y', fitSize: 0.42, centerX: -16.1, centerZ: -4.84, bottomY: 0 },
+                emissiveFloor: 0.02,
+                attribution: 'Plunger by James Ray Cock, Poly Haven (CC0)'
             }
         };
     }

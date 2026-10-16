@@ -42,6 +42,9 @@ in `index.html`).
 | `js/models/monitors/source/monitor_speaker.glb` | [Yamaha HS8 Studio Monitor](https://sketchfab.com/3d-models/yamaha-hs8-studio-monitor-d82ed6ea096c40358229fc0c31b0e8e8) | Ivan_WSK (<https://sketchfab.com/ivan-wsk>) | CC BY 4.0 | Yes, with source and modification notice |
 | `js/models/restroom/source/toilet.glb` | [Toilet](https://poly.pizza/m/WAu50yGFVt) | Quaternius (<https://quaternius.com>) | CC0 1.0 | Credited as courtesy |
 | `js/models/restroom/source/bathroom_sink.glb` | [Bathroom Sink](https://poly.pizza/m/OMCJDgMUui) | Quaternius (<https://quaternius.com>) | CC0 1.0 | Credited as courtesy |
+| `js/models/restroom/source/metal_trash_can.glb` | [Metal Trash Can](https://polyhaven.com/a/metal_trash_can) | GurJas Studios, Poly Haven | CC0 1.0 | Credited as courtesy |
+| `js/models/restroom/source/wet_floor_sign.glb` | [Wet Floor Sign 01](https://polyhaven.com/a/WetFloorSign_01) | Fran Calvente, Poly Haven | CC0 1.0 | Credited as courtesy |
+| `js/models/restroom/source/plunger.glb` | [Plunger](https://polyhaven.com/a/plunger) | James Ray Cock, Poly Haven | CC0 1.0 | Credited as courtesy |
 | `js/models/city/downtown.glb` | [Downtown City MegaKit (Standard)](https://quaternius.com), [Car Pack](https://quaternius.com) and [Ultimate House Interior Pack](https://quaternius.com) | Quaternius (<https://quaternius.com>) | CC0 1.0 | Credited as courtesy |
 
 ### Textures bundled with the models
@@ -92,6 +95,17 @@ sign. Its two stalls and wash area use Quaternius's *Toilet* (`js/models/restroo
 *Bathroom Sink* (`js/models/restroom/source/bathroom_sink.glb`, 1 draw, 350 triangles), both CC0 1.0, with vertex-baked porcelain
 and brushed-steel colours, instanced for the second stall and second basin, and lit by the scoped `restroomLight` accent. Both toilets
 are tagged as interactive seats. `node scripts/build-restroom-monitor-assets.mjs` rebuilds the restroom GLBs from their CC0 sources.
+
+Three small Poly Haven props (CC0) dress it: a metal waste bin under the hand dryer (1,221 triangles, 1 draw; the asset's rusty twin and
+lids are left out), a wet floor sign in the aisle (228 triangles, 1 draw) and a plunger in the first stall (1,147 triangles, 1 draw),
+each with 512 px WebP maps and a few hundred KiB (`node scripts/build-restroom-props.mjs` rebuilds them from Poly Haven). Foliage was
+left out deliberately: its alpha-masked cards cannot be drawn in the club, where every imported surface is forced opaque.
+
+The walls are dressed from ONE painted atlas, `js/restroomArt.js` (2048 x 1024, painted at run time with Canvas 2D, no image files and
+no web fonts): a backlit NOCTURNE poster in a steel box at the end of the aisle, two event flyers, a safety poster, a hygiene and
+no-smoking sign, die-cut stickers and marker tags on the dividers, inside the stalls and on the stall doors. It is original artwork
+with generic wording (no brands, no artists), costing two draws plus one per door. A toilet roll, paper holder, soap dispenser pumps
+and hand-dryer nozzle are procedural.
 
 ### The street
 

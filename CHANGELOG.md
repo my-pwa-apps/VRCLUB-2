@@ -20,6 +20,15 @@ kept in lockstep with `index.html`, `sw.js` and `serviceworker.js` by
 
 ### Added
 
+- **A livelier restroom.** The walls now carry event flyers, a safety poster, hygiene and no-smoking signs, die-cut stickers, marker tags and a
+  backlit NOCTURNE poster at the end of the aisle (one painted atlas, `js/restroomArt.js`), with a waste bin, a wet floor sign and a
+  plunger from Poly Haven (CC0). Fixtures lost their brass look: chrome, plastic dispensers, paper rolls beside each toilet.
+- **Stall doors close.** Sitting on a toilet swings its door shut (with a free/occupied lamp); standing opens it. Doors stand ajar otherwise.
+  Doors are shared: a guest seated on a toilet shuts that door for everyone in the room (derived from the seated state frames, no relay change).
+- **The mirror no longer shakes.** It was drawn twice a frame on desktop and every other frame in a headset (one eye's view for both,
+  trailing the head); it now renders once per eye, every frame, at a sharper antialiased size per tier, and the reflected character
+  is smoothed against headset tremor with hysteresis on walk/idle.
+
 - **The resident DJ moves more like a working DJ.** Jog-wheel movement is now a controlled nudge rather
   than a continuous circle; knob turns use turn, hold and release phases; two-hand tweaks alternate
   intent; crowd pumps occur as occasional accents; drop poses alternate arms instead of mirroring; and

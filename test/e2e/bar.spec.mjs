@@ -68,7 +68,7 @@ test('the entrance vestibule and the bar are built, lit by their own accents and
         }
         const mirrorTex = club.restroomMirrorTexture;
         const mirrorRenderNames = (mirrorTex && mirrorTex.renderList || []).map(m => m.name);
-        const mirrorActiveInRestroom = !!(mirrorTex && mirrorTex.refreshRate > 0 && scene.customRenderTargets.includes(mirrorTex));
+        const mirrorActiveInRestroom = !!(mirrorTex && mirrorTex.refreshRate === 1 && !scene.customRenderTargets.includes(mirrorTex));
         const mirrorReflectsLocalPlayer = !!(club._localRig && club._localRig.meshes.some(m => mirrorRenderNames.includes(m.name)));
         const restroomExterior = window.CityLayout.exteriorAmount(-14.2, -3.2);
         camera.position.copyFrom(start);
@@ -76,7 +76,7 @@ test('the entrance vestibule and the bar are built, lit by their own accents and
         for (let i = 0; i < 2; i++) {
             await new Promise(resolve => scene.onAfterRenderObservable.addOnce(resolve));
         }
-        const mirrorIdleOnDanceFloor = !!(mirrorTex && mirrorTex.refreshRate === 0 && !scene.customRenderTargets.includes(mirrorTex));
+        const mirrorIdleOnDanceFloor = !!(mirrorTex && mirrorTex.refreshRate === 0);
 
         return {
             counterCollides: counter.checkCollisions && counter.getBoundingInfo().boundingBox.minimumWorld.x < layout.bar.counter.xFront,
@@ -139,7 +139,7 @@ test('the entrance vestibule and the bar are built, lit by their own accents and
     expect(state.monitors[1].min[1]).toBeCloseTo(1.42, 2);
     expect(state.monitors[0].slots[0]).toBe('djConsoleLight');
     expect(state.monitors[1].slots[0]).toBe('djConsoleLight');
-    expect(state.restroomFixtureCount).toBe(4);
+    expect(state.restroomFixtureCount).toBe(7);
     expect(state.toiletSeats).toEqual(['toilet-0', 'toilet-1']);
     expect(state.intoRestroomX).toBeLessThan(-13.2);
     expect(state.intoRestroomX).toBeGreaterThan(-16.5);
@@ -198,5 +198,61 @@ test('the entrance vestibule and the bar are built, lit by their own accents and
     expect(online.playing).toBe('Idle');
     expect(online.lit, 'it takes the restroom light like everyone else in there').toBe(true);
     expect(online.goneAfterLeaving, 'it is released again when the guest leaves the room').toBe(true);
+
+    // The mirror draws once a frame (it used to draw twice), the walls carry the art, and a stall door shuts around a guest
+    // sitting on its toilet and opens again when they stand.
+    const dressed = await page.evaluate(async () => {
+        const club = window.vrClub, scene = club.scene;
+        const frames = async n => { for (let i = 0; i < n; i++) await new Promise(r => scene.onAfterRenderObservable.addOnce(r)); };
+        const until = async (test, ms = 30000) => { const end = performance.now() + ms; while (!test() && performance.now() < end) await frames(1); return test(); };
+        club.camera.position.set(-14.4, 1.7, -1.72);
+        club.camera.setTarget(new BABYLON.Vector3(-12.77, 1.45, -1.72));
+        await frames(6);
+        const tex = club.restroomMirrorTexture;
+        let renders = 0;
+        const observer = tex.onAfterRenderObservable.add(() => { renders++; });
+        await frames(10);
+        tex.onAfterRenderObservable.remove(observer);
+        const result = { mirrorRendersPerFrame: renders / 10, mirrorSamples: tex.samples, mirrorSize: tex.getSize().width };
+        const meshes = ['restroomPosters', 'restroomLightbox', 'restroomDoorArt0', 'restroomDoorArt1'].map(name => scene.getMeshByName(name));
+        result.art = meshes.map(mesh => !!mesh && mesh.getTotalVertices() >= 4);
+        result.atlas = club._restroomArtAtlas && club._restroomArtAtlas.getSize();
+        result.litByBack = club._restroomFixtures.every(mesh => mesh.lightSources.some(light => light.name === 'restroomBackLight'));
+        const seat = club._restroomFixtures.map(mesh => mesh.metadata && mesh.metadata.vrclubSeats).find(Boolean)[0];
+        const doors = club._restroomDoors;
+        result.ajar = doors.map(door => door.open);
+        club.sitAtSeat(seat);
+        result.shut = await until(() => doors[0].open === 0);
+        result.otherStillAjar = doors[1].open === 1;
+        result.lampBusy = doors[0].lamp.material === doors[0].busy;
+        club.standFromSeat(false);
+        result.reopened = await until(() => doors[0].open === 1);
+        // A remote guest sitting on the second toilet (through the real AvatarManager, as a state frame would deliver it)
+        // shuts that door here too, and it opens when they stand.
+        const manager = club.avatarManager = new window.AvatarManager(club);
+        const frame = seated => ({ x: seat.x, y: seated ? 0 : 1.7, z: -2.0, rotY: Math.PI / 2, seated, floorY: 0 });
+        manager.updatePeerState('guest-b', 'Guest B', frame(true));
+        result.remoteShut = await until(() => doors[1].open === 0);
+        result.firstUntouched = doors[0].open === 1;
+        manager.updatePeerState('guest-b', 'Guest B', frame(false));
+        result.remoteReopened = await until(() => doors[1].open === 1);
+        manager.dispose();
+        club.avatarManager = null;
+        return result;
+    });
+    expect(dressed.mirrorRendersPerFrame, 'the mirror renders once per frame').toBeLessThanOrEqual(1.05);
+    expect(dressed.mirrorRendersPerFrame).toBeGreaterThanOrEqual(0.9);
+    expect(dressed.mirrorSize).toBeGreaterThanOrEqual(512);
+    expect(dressed.art, 'posters, light box and both doors carry art').toEqual([true, true, true, true]);
+    expect(dressed.atlas).toEqual({ width: 2048, height: 1024 });
+    expect(dressed.litByBack, 'every fixture takes the back light as well').toBe(true);
+    expect(dressed.ajar).toEqual([1, 1]);
+    expect(dressed.shut, 'the door shuts when the guest sits on its toilet').toBe(true);
+    expect(dressed.otherStillAjar).toBe(true);
+    expect(dressed.lampBusy).toBe(true);
+    expect(dressed.reopened, 'and opens when they stand').toBe(true);
+    expect(dressed.remoteShut, 'a remote guest on the other toilet shuts that door for everyone').toBe(true);
+    expect(dressed.firstUntouched).toBe(true);
+    expect(dressed.remoteReopened, 'and it opens when they stand').toBe(true);
     await expectHealthyRuntime(page);
 });

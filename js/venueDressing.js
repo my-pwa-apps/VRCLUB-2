@@ -67,6 +67,13 @@ const VENUE_RESTROOM = {
     toiletSeatX: -15.62,
     toiletSeatY: 0.42,
     toiletZ: [-5.4, -2.0],
+    // The two 1.28 m cubicle openings in the stall front (z ranges between the piers), and how the doors move:
+    // ajar about 57 degrees on the hall side (clear of the basins), shut in doorSeconds while the guest sits.
+    stallOpenings: [[-6.04, -4.76], [-2.64, -1.36]],
+    doorAjar: 1.0,
+    doorSeconds: 0.6,
+    // Where the three Poly Haven props stand (a unit test keeps ModelLoader's placements in step with these).
+    props: { bin: { x: -13.0, z: -4.8 }, wetSign: { x: -13.95, z: -4.1 }, plunger: { x: -16.1, z: -4.84 } },
     sinkX: -13.10,
     // Both basins stand on bare wall. The club's concrete pillar at z -5.3..-4.7 pokes 5 cm through the wall into the
     // restroom, so the first basin sits in the strip between it and the stage-side wall, and the second in the strip
@@ -863,33 +870,43 @@ const VenueDressing = {
         for (const z of [Z0 + pier / 2, -4.6 - pier / 2, -2.8 + pier / 2, Z1 - pier / 2]) {
             b.box(partitions, 0.05, stallH, pier, SX, stallH / 2, z);
         }
-        // Header rails across the two cubicle fronts. The doors stand open INSIDE each stall, flat against the
-        // divider behind the centre pier: they never cross a doorway and never reach the toilet (they are not
-        // collidable, so nothing can catch on them either).
-        const doorW = 0.62, doorT = 0.035;
-        const doors = b.group('StallDoors', partitionMat);
-        for (const [zA, zB, hingeZ, side] of [
-            [Z0, -4.6, -4.6 - pier, -1],
-            [-2.8, Z1, -2.8 + pier, 1]
-        ]) {
+        // Steel housing of the backlit NOCTURNE poster at the end of the aisle (js/restroomArt.js places the picture on it).
+        const housing = b.group('LightboxHousing', partitionMat);
+        b.box(housing, 0.05, 1.26 + 0.08, 0.9 + 0.08, XF + 0.025, 1.6, -3.7);
+        // Header rails across the two cubicle fronts. The doors are separate hinged leaves (see _createStallDoors): they
+        // stand ajar on the hall side of the front, hinged on the outer wall side so they never cross the opening, and
+        // swing shut when the guest sits on that toilet.
+        for (const [zA, zB] of [[Z0, -4.6], [-2.8, Z1]]) {
             b.box(partitions, 0.05, 0.10, Math.abs(zB - zA), SX, stallH - 0.05, (zA + zB) / 2);
-            b.box(doors, doorW, panelH - 0.08, doorT, SX - 0.04 - doorW / 2, panelY, hingeZ + side * doorT / 2);
         }
 
-        // Planar vanity mirrors above both washbasins, plus chrome plumbing, soap dispensers and hand dryer.
+        // Planar vanity mirrors above both washbasins, plus chrome plumbing, soap dispensers, paper rolls and hand dryer.
         const mirrorFaceX = XN - 0.04;
         const mirrorMat = this._createRestroomMirrorMaterial(mirrorFaceX);
         const mirrors = b.group('Mirrors', mirrorMat);
-        const fixtures = b.group('Fixtures', factory.getPreset('stanchionPost'));
+        const fixtures = b.group('Fixtures', factory.createPBRMaterial('restroomChromeMat', {
+            baseColor: [0.74, 0.76, 0.8], metallic: 0.92, roughness: 0.26
+        }, true));
+        const plastic = b.group('Dispensers', factory.createPBRMaterial('restroomPlasticMat', {
+            baseColor: [0.78, 0.8, 0.83], metallic: 0, roughness: 0.38
+        }, true));
+        const paper = b.group('PaperRolls', factory.createPBRMaterial('restroomPaperMat', {
+            baseColor: [0.84, 0.82, 0.76], metallic: 0, roughness: 0.92
+        }, true));
         for (const sz of R.sinkZ) {
             b.box(mirrors, 0.02, 0.92, 0.72, XN - 0.03, 1.48, sz);
-            b.box(fixtures, 0.08, 0.18, 0.10, XN - 0.06, 1.16, sz + 0.44);
+            // Soap dispenser beside the basin: a plastic body with a chrome pump.
+            b.box(plastic, 0.08, 0.18, 0.10, XN - 0.06, 1.16, sz + 0.44);
+            b.cylinder(fixtures, 0.025, 0.05, XN - 0.14, 1.19, sz + 0.44, 'x', 10);
         }
-        for (const tz of R.toiletZ) {
-            b.cylinder(fixtures, 0.11, 0.14, XF + 0.10, 0.68, tz + 0.42, 'z', 12);
+        // A toilet roll on a holder against each cubicle's divider, beside the toilet.
+        for (const rz of [-4.675, -2.725]) {
+            b.cylinder(paper, 0.12, 0.10, -15.55, 0.72, rz, 'z', 14);
+            b.box(fixtures, 0.02, 0.02, 0.016, -15.55, 0.72, rz + (rz < -3.5 ? 0.058 : -0.058));
         }
-        // Stainless hand dryer between the doorway and the stage-side basin.
-        b.box(fixtures, 0.14, 0.26, 0.24, XN - 0.08, 1.18, -4.42);
+        // Stainless hand dryer between the doorway and the stage-side basin, with its downward nozzle.
+        b.box(fixtures, 0.16, 0.28, 0.24, XN - 0.09, 1.2, -4.42);
+        b.cylinder(fixtures, 0.07, 0.06, XN - 0.1, 1.03, -4.42, 'y', 12);
 
         // Neon coves and warm backlit mirror halos.
         const magenta = b.group('CoveMagenta', this._emissive('restroomMagentaMat', [1.0, 0.14, 0.55]));
@@ -903,17 +920,197 @@ const VenueDressing = {
 
         const built = b.finish({ collide: ['Walls', 'Ceiling', 'Partitions'] });
         const scoped = Object.values(built);
+        this._createStallDoors(partitionMat, scoped);
+        this._createRestroomArt(scoped);
         ['leftWallFront', 'leftWallLintel'].forEach(name => {
             const wall = this.scene.getMeshByName(name);
             if (wall) scoped.push(wall);
         });
         this._restroomLight = this._createScopedAccent('restroomLight', new BABYLON.Vector3(-14.1, 2.75, midZ),
             { intensity: 1.55, range: 7.5, diffuse: [1, 0.84, 0.72], group: 'restroom' }, scoped);
+        // A dim magenta light behind the stalls' fronts (the glow of the NOCTURNE box): the light above the hall cannot
+        // reach the faces that look back toward the back wall, such as the inside of a shut stall door.
+        this._restroomBackLight = this._createScopedAccent('restroomBackLight', new BABYLON.Vector3(-15.55, 2.5, midZ),
+            { intensity: 0.85, range: 4.4, diffuse: [1, 0.72, 0.92], group: 'restroom' }, scoped);
         this._restroomFloor = built.Floor || null;
         this._restroomMeshes = scoped;
 
         this.modelLoadPromise.then(() => { if (!this._disposed) this._furnishRestroom(); });
         log.info('✅ Club restroom created');
+    },
+
+    /** Flat vertex data for a list of wall quads: {centre, right, normal, w, h, uv}. Pure: no scene needed. */
+    _artGeometry(quads) {
+        const positions = [], normals = [], uvs = [], indices = [];
+        for (const quad of quads) {
+            const { centre: c, right: r, normal: n, w, h, uv } = quad;
+            const base = positions.length / 3;
+            for (const [sx, sy, u, v] of [
+                [-1, -1, uv.u0, uv.vBottom], [1, -1, uv.u1, uv.vBottom], [1, 1, uv.u1, uv.vTop], [-1, 1, uv.u0, uv.vTop]
+            ]) {
+                positions.push(c[0] + r[0] * w / 2 * sx, c[1] + sy * h / 2, c[2] + r[2] * w / 2 * sx);
+                normals.push(n[0], n[1], n[2]);
+                uvs.push(u, v);
+            }
+            indices.push(base, base + 1, base + 2, base, base + 2, base + 3);
+        }
+        return { positions, normals, uvs, indices };
+    },
+
+    _artMesh(name, quads, material, parent) {
+        const mesh = new BABYLON.Mesh(name, this.scene);
+        const data = new BABYLON.VertexData();
+        Object.assign(data, this._artGeometry(quads));
+        data.applyToMesh(mesh);
+        mesh.material = material;
+        mesh.isPickable = false;
+        if (parent) mesh.parent = parent;
+        else { mesh.freezeWorldMatrix(); mesh.doNotSyncBoundingInfo = true; }
+        return mesh;
+    },
+
+    /**
+     * Posters, decals and the backlit NOCTURNE box on the restroom walls and stall doors (js/restroomArt.js paints one
+     * atlas). The lit quads (posters, stickers, marker tags) are ONE alpha-tested mesh; the light box is its own
+     * emissive one, so the whole wall treatment costs two draws plus one per door. A failure to paint only leaves the
+     * walls bare.
+     */
+    _createRestroomArt(scoped) {
+        const Art = window.RestroomArt;
+        if (!Art) return;
+        let atlas;
+        try {
+            atlas = new BABYLON.DynamicTexture('restroomArtAtlas', { width: Art.ATLAS.width, height: Art.ATLAS.height }, this.scene, true);
+            Art.paint(atlas.getContext());
+        } catch (err) {
+            log.warn('Restroom art could not be painted:', err);
+            if (atlas) atlas.dispose();
+            return;
+        }
+        atlas.hasAlpha = true;
+        atlas.anisotropicFilteringLevel = this.tierSettings ? this.tierSettings.anisotropy : 4;
+        atlas.update();
+        const factory = this.materialFactory;
+        const posterMat = factory.createStandardMaterial('restroomPosterMat', {
+            diffuseTexture: atlas, specularColor: [0.04, 0.04, 0.04], emissiveColor: [0.03, 0.03, 0.03], mutable: true
+        });
+        posterMat.useAlphaFromDiffuseTexture = true;
+        posterMat.transparencyMode = BABYLON.Material.MATERIAL_ALPHATEST;
+        posterMat.alphaCutOff = 0.5;
+        posterMat.backFaceCulling = false;
+        posterMat.freeze();
+        const boxMat = factory.createStandardMaterial('restroomLightboxMat', {
+            emissiveTexture: atlas, diffuseColor: [0, 0, 0], disableLighting: true, mutable: true
+        });
+        boxMat.backFaceCulling = false;
+        boxMat.freeze();
+
+        const lit = [], box = [];
+        for (const placement of Art.PLAN) {
+            const quad = { ...Art.frame(placement), w: placement.w, h: placement.h, uv: Art.uv(placement.cell) };
+            (placement.kind === 'lightbox' ? box : lit).push(quad);
+        }
+        const made = [this._artMesh('restroomPosters', lit, posterMat), this._artMesh('restroomLightbox', box, boxMat)];
+
+        // The art on each stall door moves with its hinge: the face toward the hall (+x) and the face toward the toilet (-x).
+        const T = 0.035;
+        for (const door of this._restroomDoors || []) {
+            const quads = Art.DOORS.map(item => {
+                const out = item.side === 'out';
+                return {
+                    centre: [(out ? 1 : -1) * (T / 2 + 0.003), item.y, door.leafSign * item.along],
+                    right: [0, 0, out ? 1 : -1], normal: [out ? 1 : -1, 0, 0], w: item.w, h: item.h, uv: Art.uv(item.cell)
+                };
+            });
+            made.push(this._artMesh(`restroomDoorArt${door.index}`, quads, posterMat, door.hinge));
+        }
+        made.forEach(mesh => scoped.push(mesh));
+        this._restroomArtAtlas = atlas;
+    },
+
+    /**
+     * The two cubicle doors: hinged leaves in the front plane of the stalls. Each hangs from the end of its opening that
+     * is next to a side wall and stands ajar on the hall side (folded toward that wall, clear of the opening and of the
+     * washbasins), then swings shut while the guest sits on its toilet. They are never collidable, so nothing can catch
+     * on one or be shut in by it. A small free/occupied lamp on the outer face follows the door.
+     */
+    _createStallDoors(material, scoped) {
+        const R = VENUE_RESTROOM;
+        const T = 0.035, gap = 0.02, bottom = 0.16, top = 2.11;
+        const frontX = R.stallFrontX + 0.025 + T / 2 + 0.004;
+        const chrome = this.materialFactory.getPreset('stanchionPost');
+        const free = this._emissive('restroomDoorFreeMat', [0.1, 0.9, 0.3]);
+        const busy = this._emissive('restroomDoorBusyMat', [1.0, 0.12, 0.1]);
+        const makeBox = (name, parent, w, h, d, x, y, z, mat) => {
+            const mesh = BABYLON.MeshBuilder.CreateBox(name, { width: w, height: h, depth: d }, this.scene);
+            mesh.parent = parent;
+            mesh.position.set(x, y, z);
+            mesh.material = mat;
+            mesh.isPickable = false;
+            scoped.push(mesh);
+            return mesh;
+        };
+        this._restroomDoors = R.stallOpenings.map(([from, to], index) => {
+            const leafSign = index === 0 ? 1 : -1;               // leaf runs +z from the hinge in stall 0, -z in stall 1
+            const width = to - from - 2 * gap;
+            const hinge = new BABYLON.TransformNode(`restroomStallHinge${index}`, this.scene);
+            hinge.position.set(frontX, 0, leafSign > 0 ? from + gap : to - gap);
+            makeBox(`restroomStallDoor${index}`, hinge, T, top - bottom, width, 0, (top + bottom) / 2, leafSign * width / 2, material);
+            makeBox(`restroomStallHandle${index}`, hinge, 0.02, 0.12, 0.035, T / 2 + 0.01, 1.0, leafSign * (width - 0.1), chrome);
+            const lamp = makeBox(`restroomStallLamp${index}`, hinge, 0.008, 0.05, 0.05, T / 2 + 0.004, 1.12, leafSign * (width - 0.1), free);
+            const door = { index, seatId: `toilet-${index}`, hinge, lamp, free, busy, leafSign, t: 1, open: 1, remote: false };
+            this._poseStallDoor(door);
+            return door;
+        });
+    },
+
+    _poseStallDoor(door) {
+        const t = door.t;
+        door.open = t * t * (3 - 2 * t);
+        door.hinge.rotation.y = door.leafSign * VENUE_RESTROOM.doorAjar * door.open;
+        const material = door.open < 0.5 ? door.busy : door.free;
+        if (door.lamp.material !== material) door.lamp.material = material;
+    },
+
+    /**
+     * A door is shut while anybody sits on its toilet: this guest (their seat) or any guest in the room. Remote guests need no
+     * new message: their ordinary state frames already carry `seated` and their position, which is the toilet's seat, so every
+     * guest derives the same door from the same people and can talk about what they all see. A guest the relay hides from you
+     * (a block) sends you no state, so their door stays open for you as they stay invisible.
+     */
+    _scanRemoteToilets() {
+        const doors = this._restroomDoors;
+        for (let i = 0; i < doors.length; i++) doors[i].remote = false;
+        const manager = this.avatarManager;
+        if (!manager || !manager.remotes || manager.remotes.size === 0) return;
+        const R = VENUE_RESTROOM;
+        for (const peer of manager.remotes.values()) {
+            const target = peer.target;
+            if (!target || target.seated !== true) continue;
+            for (let i = 0; i < doors.length; i++) {
+                if (Math.hypot(target.x - R.toiletSeatX, target.z - R.toiletZ[doors[i].index]) < 0.5) doors[i].remote = true;
+            }
+        }
+    },
+
+    /** Shut the door of an occupied toilet and reopen it when its guest stands. Nothing changes without a seat change. */
+    _updateRestroomDoors(dt) {
+        const doors = this._restroomDoors;
+        if (!doors || !(dt > 0)) return;
+        this._doorScanTimer = (this._doorScanTimer || 0) - dt;
+        if (this._doorScanTimer <= 0) {
+            this._doorScanTimer = 0.2;
+            this._scanRemoteToilets();
+        }
+        const seatId = this._activeSeat ? this._activeSeat.id : null;
+        for (let i = 0; i < doors.length; i++) {
+            const door = doors[i];
+            const target = seatId === door.seatId || door.remote ? 0 : 1;
+            if (door.t === target) continue;
+            const step = dt / VENUE_RESTROOM.doorSeconds;
+            door.t = target > door.t ? Math.min(1, door.t + step) : Math.max(0, door.t - step);
+            this._poseStallDoor(door);
+        }
     },
 
     /** Place the second toilet and second washbasin, tag the toilets as seats, and add collision blocks. */
@@ -977,7 +1174,18 @@ const VenueDressing = {
             });
         }
 
+        // Poly Haven props: the waste bin under the hand dryer, a wet floor sign in the aisle, a plunger in the first stall.
+        for (const key of ['restroom_bin', 'restroom_wetsign', 'restroom_plunger']) {
+            const record = models[key];
+            if (!record || !record.container) continue;
+            record.container.meshes
+                .filter(mesh => mesh.getTotalVertices && mesh.getTotalVertices() > 0)
+                .forEach(mesh => { mesh.isPickable = false; placed.push(mesh); });
+        }
+        if (models.restroom_bin) this._collisionBlock('restroomBinBlock', 0.4, 0.62, 0.4, R.props.bin.x, 0.31, R.props.bin.z);
+
         this._extendAccentLight(this._restroomLight, placed);
+        this._extendAccentLight(this._restroomBackLight, placed);
         this._restroomFixtures = placed;
         this._syncRestroomMirrorRenderList();
     },
@@ -1142,7 +1350,8 @@ const VenueDressing = {
             avatarId, entry, root, node, meshes, groups, arms, current: null, speed: 0,
             skeletons: Array.from(new Set(meshes.map(mesh => mesh.skeleton).filter(Boolean))),
             hands: { left: null, right: null }, handBuffers: { left: {}, right: {} },
-            prevX: NaN, prevZ: NaN, observer: null
+            prevX: NaN, prevZ: NaN, observer: null,
+            x: 0, z: 0, yaw: 0, placed: false, gait: 'idle', seatKey: null
         };
         // Live controller arms go in after the clips have been evaluated, or the clip would erase them.
         double.observer = this.scene.onAfterAnimationsObservable.add(() => {
@@ -1151,6 +1360,7 @@ const VenueDressing = {
         });
         this._mirrorDouble = double;
         this._extendAccentLight(this._restroomLight, meshes);
+        this._extendAccentLight(this._restroomBackLight, meshes);
         this._playMirrorDouble(double, 'Idle', 1);
         this._mirrorSignature = -1;
     },
@@ -1186,16 +1396,52 @@ const VenueDressing = {
         const seat = this._activeSeat;
         const dir = this._mirrorDir || (this._mirrorDir = new BABYLON.Vector3());
         cam.getDirectionToRef(BABYLON.Axis.Z, dir);
-        double.root.position.set(seat ? seat.x : pos.x, seat ? seat.floorY : (this._walkLevel || 0), seat ? seat.z : pos.z);
-        double.root.rotation.y = seat ? seat.facing : Math.atan2(dir.x, dir.z);
-        if (Number.isFinite(double.prevX)) {
-            const instant = Math.hypot(pos.x - double.prevX, pos.z - double.prevZ) / dt;
-            double.speed += (Math.min(instant, 8) - double.speed) * (1 - Math.pow(0.8, dt * 60));
+        // Looking straight up or down makes the heading meaningless: keep the last one rather than spin the body.
+        const hasHeading = Math.hypot(dir.x, dir.z) > 0.2;
+        const targetX = seat ? seat.x : pos.x, targetZ = seat ? seat.z : pos.z;
+        const targetYaw = seat ? seat.facing : (hasHeading ? Math.atan2(dir.x, dir.z) : double.yaw);
+        // A headset's tracking carries a few millimetres and a fraction of a degree of tremor at 10 Hz and up; a rigid copy
+        // of that made the whole reflection buzz. Low-pass the body (the head, in the clip, is part of it): about 50 ms for
+        // position and 100 ms for heading, frame-rate independent, and snapping on a teleport or a change of seat.
+        const seatKey = seat ? seat.id : null;
+        if (!double.placed || double.seatKey !== seatKey || Math.hypot(targetX - double.x, targetZ - double.z) > 1.5) {
+            double.x = targetX; double.z = targetZ; double.yaw = targetYaw;
+            double.prevX = NaN; double.speed = 0; double.gait = 'idle';
+            double.placed = true; double.seatKey = seatKey;
+        } else {
+            const kp = 1 - Math.exp(-dt / 0.05);
+            const ky = 1 - Math.exp(-dt / 0.10);
+            double.x += (targetX - double.x) * kp;
+            double.z += (targetZ - double.z) * kp;
+            let delta = targetYaw - double.yaw;
+            delta -= Math.PI * 2 * Math.round(delta / (Math.PI * 2));
+            double.yaw += delta * ky;
         }
-        double.prevX = pos.x; double.prevZ = pos.z;
-        if (seat && double.groups.Seated_Loop) this._playMirrorDouble(double, 'Seated_Loop', 1);
-        else if (double.speed > 2.6 && double.groups.Run) this._playMirrorDouble(double, 'Run', Math.min(1.5, double.speed / 4));
-        else if (double.speed > 0.25 && double.groups.Walk) this._playMirrorDouble(double, 'Walk', Math.min(1.7, Math.max(0.6, double.speed / 1.4)));
+        double.root.position.set(double.x, seat ? seat.floorY : (this._walkLevel || 0), double.z);
+        double.root.rotation.y = double.yaw;
+        if (Number.isFinite(double.prevX)) {
+            const instant = Math.hypot(double.x - double.prevX, double.z - double.prevZ) / dt;
+            double.speed += (Math.min(instant, 8) - double.speed) * (1 - Math.exp(-dt / 0.2));
+        }
+        double.prevX = double.x; double.prevZ = double.z;
+        // Hysteresis: a swaying head must not flip the clip between idle and walk.
+        const speed = double.speed;
+        let gait = double.gait;
+        if (seat && double.groups.Seated_Loop) gait = 'seated';
+        else {
+            if (gait === 'seated') gait = 'idle';
+            if (gait === 'run') {
+                if (speed < 2.2) gait = speed > 0.2 ? 'walk' : 'idle';
+            } else if (gait === 'walk') {
+                if (speed > 2.8) gait = 'run';
+                else if (speed < 0.2) gait = 'idle';
+            } else if (speed > 2.8) gait = 'run';
+            else if (speed > 0.45) gait = 'walk';
+        }
+        double.gait = gait;
+        if (gait === 'seated') this._playMirrorDouble(double, 'Seated_Loop', 1);
+        else if (gait === 'run' && double.groups.Run) this._playMirrorDouble(double, 'Run', Math.min(1.5, speed / 4));
+        else if (gait !== 'idle' && double.groups.Walk) this._playMirrorDouble(double, 'Walk', Math.min(1.7, Math.max(0.6, speed / 1.4)));
         else this._playMirrorDouble(double, 'Idle', 1);
         // In a headset the controllers move the double's arms, as they do for everyone else's view of this guest.
         for (const side of ['left', 'right']) {
@@ -1209,8 +1455,26 @@ const VenueDressing = {
         }
     },
 
-    /** Enable planar mirror rendering only when the guest is inside or right at the doorway of the restroom. */
+    /**
+     * How sharp the mirror is: its size and MSAA samples per graphics tier, on the desktop or in a headset. A 512 px
+     * texture without MSAA drew a 0.7 m pane with crawling edges whenever the guest moved.
+     */
+    _restroomMirrorQuality() {
+        const table = this.isInVRMode
+            ? { ultra: [512, 2], high: [512, 2], balanced: [384, 1] }
+            : { ultra: [1024, 4], high: [1024, 2], balanced: [512, 1] };
+        const [size, samples] = table[this.graphicsTier] || table.high;
+        return { size, samples };
+    },
+
+    /**
+     * Draw the planar mirror only while a guest is in or at the doorway of the restroom. It renders through the mirror
+     * material's own render-target hook, once per eye and only while the mirror is in view: also listing it as a custom
+     * render target drew it a second time every frame, and a headset's every-other-frame rate showed the reflection of
+     * one eye to both and lagged it behind the head.
+     */
     updateRestroomMirror(ctx) {
+        this._updateRestroomDoors(ctx && ctx.dt);
         const tex = this.restroomMirrorTexture;
         if (!tex || !this.scene) return;
         const cam = (this.isInVRMode && this.vrHelper?.baseExperience?.camera) || this.camera;
@@ -1221,16 +1485,9 @@ const VenueDressing = {
         if (double) double.active = nearRestroom;
         if (!nearRestroom) {
             if (tex.refreshRate !== 0) tex.refreshRate = 0;
-            if (this.scene.customRenderTargets) {
-                const idx = this.scene.customRenderTargets.indexOf(tex);
-                if (idx !== -1) this.scene.customRenderTargets.splice(idx, 1);
-            }
             // Nothing is built for a guest who never goes near the restroom; the double is dropped again online-to-offline.
             if (double && !(this.multiplayer && this.multiplayer.connected)) this._disposeMirrorDouble();
             return;
-        }
-        if (this.scene.customRenderTargets && this.scene.customRenderTargets.indexOf(tex) === -1) {
-            this.scene.customRenderTargets.push(tex);
         }
         this._syncMirrorDouble();
         this._updateMirrorDouble(ctx && ctx.dt);
@@ -1243,8 +1500,17 @@ const VenueDressing = {
             this._mirrorSignature = signature;
             this._syncRestroomMirrorRenderList();
         }
-        const targetRate = this.isInVRMode ? 2 : 1;
-        if (tex.refreshRate !== targetRate) tex.refreshRate = targetRate;
+        const quality = this._restroomMirrorQuality();
+        if (this._mirrorQualityKey !== `${quality.size}/${quality.samples}`) {
+            this._mirrorQualityKey = `${quality.size}/${quality.samples}`;
+            try {
+                if (tex.getSize().width !== quality.size) tex.resize(quality.size);
+                tex.samples = quality.samples;
+            } catch (err) {
+                log.warn('Could not resize the restroom mirror:', err);
+            }
+        }
+        if (tex.refreshRate !== 1) tex.refreshRate = 1;
     }
 };
 

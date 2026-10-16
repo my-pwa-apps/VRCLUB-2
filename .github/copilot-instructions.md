@@ -25,7 +25,7 @@ emits one minified, content-hashed production bundle with esbuild.
 5. `js/audioUtils.js`, then `js/musicLibrary.js` (`window.MusicLibrary`: user-provided direct audio, relay-resolved Miss Melera Colourizon links and official-player fallback for other SoundCloud saved sets)
 6. loaders/factories (`textureLoader`, `modelLoader`, `materialFactory`, `lightFactory`)
 7. `js/vjDirector.js`, then `js/showDirector.js`
-8. `js/ledPatterns.js`, then `js/barProps.js` (bottle geometry and label atlas; no club dependency), then `js/venueDressing.js` (entrance stair hall, bar and lounge couch), `js/mezzanine.js` (steel balcony and stair, and the walking-surface follow) and `js/cityDistrict.js` (the street outside, at street level) and `js/vjDesk.js` (the VJ desk's show, lights and set-player touch panels at the DJ table), all mixed into `VRClub.prototype`
+8. `js/ledPatterns.js`, then `js/barProps.js` (bottle geometry and label atlas; no club dependency), then `js/restroomArt.js` (the restroom's painted poster atlas and placement plan; needs `js/nocturneLogo.js` only at paint time), then `js/venueDressing.js` (entrance stair hall, bar, lounge couch and restroom), `js/mezzanine.js` (steel balcony and stair, and the walking-surface follow) and `js/cityDistrict.js` (the street outside, at street level) and `js/vjDesk.js` (the VJ desk's show, lights and set-player touch panels at the DJ table), all mixed into `VRClub.prototype`
 9. `js/avatarRig.js` (the local player's procedural body), `js/djPerformer.js` (the DJ's live set, posed through the rig), `js/crowdDance.js` (the crowd's choreographer), `js/minglerClock.js` (the shared room-time round), then `js/networkClient.js`, `js/avatarManager.js` and `js/multiplayer.js` (`ClubMultiplayer`) — optional multiplayer (no instance until a guest connects)
 10. `js/club/01-core.js` through `js/club/11-audio-crowd.js`, in numeric order
 11. `js/club_hyperrealistic.js` — final public `VRClub` bridge and LED mixin
@@ -1154,6 +1154,38 @@ One Sketchfab *Bass Bin 3* (CC BY 4.0, darksoundlab) hangs under each flown spea
   are per-model config options: the generic 0.12 emissive floor turned the black carpet grey.
 - **Cost**: the optimiser joins the bin's 12 meshes to 6 (one per material), so 2 bins are 12 draws, ~41k triangles, 1.6 MB shipped.
   Two invisible blocks (`_blockBassBins`) fence them. Headset cost is unmeasured.
+
+### The restroom (`createRestroom()` in `js/venueDressing.js`, `js/restroomArt.js`)
+`VenueLayout.restroom` is the single source of truth for its coordinates: a tiled room off the front-left corner of the hall
+(x -12.75..-16.4, z -6.2..-1.2), two stalls along the back wall, two basins and vanity mirrors on the hall wall, entered through a
+1.8 m doorway in the left wall. Everything solid is merged per material by `_dressingBuilder()`; the toilets and basins are Quaternius
+GLBs instanced once more, and `restroomLight` plus `restroomBackLight` are scoped accents (first slots, no budget change).
+- **Stall doors** are two separate hinged leaves (`_createStallDoors`, `this._restroomDoors`), never collidable or pickable. Each is
+  hinged at the end of its cubicle opening that is next to a side wall and stands ajar (`doorAjar`) on the hall side, clear of the
+  opening and the basins; `_updateRestroomDoors(dt)` (from `updateRestroomMirror`) swings the door of the toilet the guest sits on
+  shut over `doorSeconds` and opens it on standing (`_activeSeat.id` `toilet-N`). A lamp on the leaf reads free/occupied. **Doors are
+  networked without a new message**: `_scanRemoteToilets()` (every 0.2 s) also shuts a door while any remote guest is seated within
+  0.5 m of that toilet, read from the `seated` state frames guests already send (`peer.target`), so everyone derives the same door
+  from the same people. Rule for new work: any visible change to the environment must be shared this way (derived from existing
+  synced state, or host-owned like the lights and music), never local-only.
+- **Art** is `js/restroomArt.js`: ONE 2048 x 1024 atlas painted at run time (flyers, a safety poster, a hygiene sign, die-cut stickers,
+  marker tags and a backlit NOCTURNE poster built from `NocturneLogo`), with `PLAN`/`DOORS` placements on named `SURFACES`. Lit quads
+  are one alpha-tested mesh (`restroomPosters`), the light box one emissive mesh (`restroomLightbox`), plus one art mesh per door,
+  parented to its hinge. `test/unit.test.mjs` checks the cells, that every placement sits on a real surface at the right aspect and
+  without overlap, that nothing reads mirrored, and that no brand or artist name appears. Keep the words generic.
+- **Props** are three Poly Haven CC0 GLBs built by `scripts/build-restroom-props.mjs` (bin, wet floor sign, plunger; 1 draw each, opaque:
+  the loader forces every import opaque, so alpha-masked foliage cannot be used). Their spots are `VenueLayout.restroom.props`, kept in
+  step with `modelConfigs` by a unit test.
+- **The mirror** is a real planar `MirrorTexture` on the mirror material (plane normal +x). It renders ONLY through that material, once
+  per eye and only while the mirror is in view: also listing it in `scene.customRenderTargets` drew it twice a frame, and a headset
+  refresh of every other frame showed one eye's reflection to both and lagged the head. Do not reintroduce either. `refreshRate` is 0
+  away from the restroom and 1 inside; `_restroomMirrorQuality()` sets size/MSAA per tier (desktop 1024/4 ultra, 1024/2 high, 512/1
+  balanced; VR 512/2, 512/2, 384/1). Online, the reflected body is `_mirrorDouble`, a hidden copy of the relay-assigned character that
+  only the mirror draws; `_updateMirrorDouble` low-passes its position (50 ms) and heading (100 ms) so headset tremor does not make
+  the reflection buzz, snaps on a teleport or seat change, and picks idle/walk/run with hysteresis. The cost of two mirror passes
+  per frame in a headset is unmeasured.
+- Tests: `test/unit.test.mjs` (doors, double smoothing, art, props), `test/e2e/bar.spec.mjs` (mirror renders once per frame, art,
+  doors shut and reopen) and `test/e2e/restroom-vr.spec.mjs` (VR mirror refresh and size).
 
 ### Mezzanine (`js/mezzanine.js`)
 A steel balcony (deck at y 3.0, x -12.2..-9.5, z -19..-10.4) on the left wall with a 16-step stair climbing along that wall

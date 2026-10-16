@@ -7147,9 +7147,12 @@ test('the DJ booth Yamaha HS8 monitor speakers and restroom fixtures are one-dra
             `stall doorway ray at z=${tz} must reach far wall (${restroom.farX}), not a door across the toilet`);
     }
     // Each cubicle doorway is wide enough for the desktop collision body (1 m across) with room to spare.
-    for (const [z0, z1] of [[-6.2, -4.6], [-2.8, -1.2]]) {
+    for (const [index, [z0, z1]] of [[-6.2, -4.6], [-2.8, -1.2]].entries()) {
         const gap = z1 - z0 - 2 * restroom.stallPier;
         assert.ok(gap >= 1.2, `a cubicle doorway is ${gap.toFixed(2)} m wide; the desktop body is 1 m`);
+        assert.ok(Math.abs(restroom.stallOpenings[index][0] - (z0 + restroom.stallPier)) < 1e-9
+            && Math.abs(restroom.stallOpenings[index][1] - (z1 - restroom.stallPier)) < 1e-9,
+            'stallOpenings must be the gap between the piers');
         const across = new BABYLON.Ray(new BABYLON.Vector3(restroom.stallFrontX, 1.0, z0 + restroom.stallPier + 0.02),
             new BABYLON.Vector3(0, 0, 1), gap - 0.04);
         const blocked = scene.pickWithRay(across, mesh => mesh.checkCollisions && mesh.isEnabled());
@@ -7166,20 +7169,92 @@ test('the DJ booth Yamaha HS8 monitor speakers and restroom fixtures are one-dra
             assert.ok(onDivider, `partition vertex (${vx.toFixed(2)}, ${vy.toFixed(2)}, ${vz.toFixed(2)}) intrudes into toilet stall`);
         }
     }
-    // The open stall doors are visual only and keep clear of the toilet (it spans 0.4 m either side of its centre
-    // along x and 0.34 m along z) and of the doorway.
-    const stallDoors = scene.getMeshByName('restroomStallDoors');
-    assert.ok(stallDoors, 'the stall doors must be built');
-    assert.equal(stallDoors.checkCollisions, false, 'an open door must not catch the player');
-    const doorPos = stallDoors.getVerticesData('position');
-    for (let i = 0; i < doorPos.length; i += 3) {
-        const [vx, vz] = [doorPos[i], doorPos[i + 2]];
-        for (const tz of restroom.toiletZ) {
-            const inToilet = Math.abs(vx - restroom.toiletX) < 0.4 && Math.abs(vz - tz) < 0.34;
-            assert.ok(!inToilet, `a stall door vertex (${vx.toFixed(2)}, ${vz.toFixed(2)}) is inside the toilet at z ${tz}`);
+    // The stall doors are hinged leaves, never collidable or pickable, so nothing can catch on one. Ajar they fold toward
+    // the side wall clear of the toilet, the cubicle opening and the washbasins; seated, they shut across the opening.
+    const worldVertices = (door, meshName) => {
+        door.hinge.computeWorldMatrix(true);
+        const mesh = scene.getMeshByName(meshName);
+        mesh.computeWorldMatrix(true);
+        const matrix = mesh.getWorldMatrix(), positions = mesh.getVerticesData('position');
+        const out = [];
+        for (let i = 0; i < positions.length; i += 3) out.push(BABYLON.Vector3.TransformCoordinates(new BABYLON.Vector3(positions[i], positions[i + 1], positions[i + 2]), matrix));
+        return out;
+    };
+    assert.equal(club._restroomDoors.length, 2, 'one door per cubicle');
+    assert.equal(scene.getMeshByName('restroomStallDoors'), null, 'the doors are separate meshes now, not one merged slab');
+    for (const door of club._restroomDoors) {
+        const leaf = scene.getMeshByName(`restroomStallDoor${door.index}`);
+        assert.ok(leaf, 'the stall door must be built');
+        assert.equal(leaf.checkCollisions, false, 'a door must not catch the player');
+        assert.equal(leaf.isPickable, false, 'a closed door must not swallow the ray that stands the guest up');
+        assert.equal(door.open, 1, 'doors start ajar');
+        const [opening0, opening1] = restroom.stallOpenings[door.index];
+        for (const v of worldVertices(door, `restroomStallDoor${door.index}`)) {
+            assert.ok(v.x > restroom.stallFrontX, `an ajar door vertex at x ${v.x.toFixed(2)} is inside the stall`);
+            for (const tz of restroom.toiletZ) {
+                assert.ok(!(Math.abs(v.x - restroom.toiletX) < 0.4 && Math.abs(v.z - tz) < 0.34), 'an ajar door reaches the toilet');
+            }
+            for (const sz of restroom.sinkZ) {
+                const inBasin = Math.abs(v.x - restroom.sinkX) < 0.24 + 0.02 && Math.abs(v.z - sz) < 0.31 && v.y < 1.0;
+                assert.ok(!inBasin, `an ajar door at (${v.x.toFixed(2)}, ${v.y.toFixed(2)}, ${v.z.toFixed(2)}) runs into a basin`);
+            }
+            assert.ok(v.z > restroom.z0 && v.z < restroom.z1, 'an ajar door passes through a side wall');
         }
-        assert.ok(vx < restroom.stallFrontX, `a stall door vertex at x ${vx.toFixed(2)} is out in the aisle`);
+        // Seated on that toilet the door closes across the whole opening; the other stall's door stays ajar.
+        club._activeSeat = { id: door.seatId };
+        club._updateRestroomDoors(1);
+        assert.equal(door.open, 0, 'the door shuts when the guest sits on its toilet');
+        assert.ok(door.lamp.material === door.busy, 'the lamp reads occupied while the door is shut');
+        const shut = worldVertices(door, `restroomStallDoor${door.index}`);
+        const zs = shut.map(v => v.z), xs = shut.map(v => v.x);
+        assert.ok(Math.min(...zs) >= opening0 && Math.max(...zs) <= opening1, 'a shut door stays inside its cubicle opening');
+        assert.ok(Math.max(...zs) - Math.min(...zs) > (opening1 - opening0) - 0.08, 'a shut door closes the opening');
+        assert.ok(Math.min(...xs) > restroom.stallFrontX && Math.max(...xs) < restroom.stallFrontX + 0.1, 'a shut door lies in the front plane');
+        const other = club._restroomDoors.find(d => d !== door);
+        assert.equal(other.open, 1, 'the other cubicle keeps its door ajar');
+        // Standing up opens it again, over about doorSeconds, never snapping.
+        club._activeSeat = null;
+        club._updateRestroomDoors(restroom.doorSeconds / 4);
+        assert.ok(door.open > 0 && door.open < 0.5, 'the door swings rather than snaps');
+        club._updateRestroomDoors(2);
+        assert.equal(door.open, 1);
+        assert.ok(door.lamp.material === door.free);
     }
+
+    // Doors are networked through the state frames guests already send: a remote guest seated on a toilet shuts that door
+    // for everyone, wherever they are, and it opens again when they stand, leave or disconnect.
+    const peers = new Map();
+    club.avatarManager = { remotes: peers };
+    const seatedAt = (x, z, seated = true) => ({ target: { x, z, seated } });
+    peers.set('a', seatedAt(restroom.toiletSeatX, restroom.toiletZ[1]));
+    club._updateRestroomDoors(1);
+    assert.equal(club._restroomDoors[1].open, 0, 'a remote guest on the second toilet shuts its door');
+    assert.equal(club._restroomDoors[0].open, 1, 'and only that door');
+    assert.ok(club._restroomDoors[1].lamp.material === club._restroomDoors[1].busy, 'the lamp reads occupied for everyone');
+    peers.set('b', seatedAt(restroom.toiletSeatX, restroom.toiletZ[0], false));
+    peers.set('c', seatedAt(-5, -8));
+    club._updateRestroomDoors(1);
+    assert.equal(club._restroomDoors[0].open, 1, 'a guest merely standing there, or seated elsewhere, shuts nothing');
+    peers.set('a', seatedAt(restroom.toiletSeatX, restroom.toiletZ[1], false));
+    club._updateRestroomDoors(1);
+    assert.equal(club._restroomDoors[1].open, 1, 'it opens when they stand');
+    peers.set('a', seatedAt(restroom.toiletSeatX, restroom.toiletZ[1]));
+    club._updateRestroomDoors(1);
+    assert.equal(club._restroomDoors[1].open, 0);
+    peers.delete('a');
+    club._updateRestroomDoors(1);
+    assert.equal(club._restroomDoors[1].open, 1, 'it opens when they disconnect');
+    // The local guest and a remote guest on the same toilet keep it shut until both are gone.
+    club._activeSeat = { id: 'toilet-0' };
+    peers.set('d', seatedAt(restroom.toiletSeatX, restroom.toiletZ[0]));
+    club._updateRestroomDoors(1);
+    club._activeSeat = null;
+    club._updateRestroomDoors(1);
+    assert.equal(club._restroomDoors[0].open, 0, 'still occupied by the remote guest');
+    peers.delete('d');
+    club._updateRestroomDoors(1);
+    assert.equal(club._restroomDoors[0].open, 1);
+    club.avatarManager = null;
 
     // Nothing covers a vanity mirror: the doorway frame posts are on the same wall, so each pane must stand clear.
     const mirrorBox = mirrors.getBoundingInfo().boundingBox;
@@ -7232,6 +7307,200 @@ test('the street layout in the bake script, the vestibule and the runtime agree'
     // The street is walled in at both ends inside its bollards, and the fence spans the pavement.
     assert.ok(L.fenceX < L.halfLength - 2);
     assert.ok(L.fenceZ[0] >= L.forecourtFrom && L.fenceZ[1] <= L.farFront);
+});
+
+test('the mirror reflection does not buzz with headset tremor, keeps its walk clip steady and follows real movement', () => {
+    const BABYLON = require('../js/vendor/babylon.js');
+    const { window: venueWindow } = loadClassic('js/venueDressing.js', { BABYLON, log: { info() {}, warn() {}, error() {} } });
+    const started = [];
+    const makeGroup = name => ({ start() { started.push(name); }, stop() {}, speedRatio: 1 });
+    const camera = {
+        globalPosition: { x: -13.8, y: 1.7, z: -3.6 }, yaw: Math.PI / 2,
+        getDirectionToRef(axis, ref) { ref.set(Math.sin(this.yaw), 0, Math.cos(this.yaw)); return ref; }
+    };
+    const club = Object.assign({
+        isInVRMode: false, _walkLevel: 0, _activeSeat: null, camera, _playerCamera: () => camera
+    }, venueWindow.VenueDressing);
+    const double = {
+        root: { position: new BABYLON.Vector3(), rotation: new BABYLON.Vector3() },
+        groups: { Idle: makeGroup('Idle'), Walk: makeGroup('Walk'), Run: makeGroup('Run'), Seated_Loop: makeGroup('Seated_Loop') },
+        hands: { left: null, right: null }, handBuffers: { left: {}, right: {} }, current: null, speed: 0,
+        prevX: NaN, prevZ: NaN, x: 0, z: 0, yaw: 0, placed: false, gait: 'idle', seatKey: null
+    };
+    club._mirrorDouble = double;
+    let seed = 7;
+    const noise = () => { seed = (seed * 1664525 + 1013904223) >>> 0; return seed / 4294967296 * 2 - 1; };
+    const dt = 1 / 72;
+    // A guest standing still in a headset: 5 mm and 0.6 degrees of tremor, every frame.
+    let inputYaw = 0, outputYaw = 0, inputPos = 0, outputPos = 0, n = 0;
+    for (let i = 0; i < 720; i++) {
+        camera.globalPosition.x = -13.8 + noise() * 0.005;
+        camera.globalPosition.z = -3.6 + noise() * 0.005;
+        camera.yaw = Math.PI / 2 + noise() * 0.0105;
+        club._updateMirrorDouble(dt);
+        if (i < 72) continue;
+        n++;
+        inputYaw += (camera.yaw - Math.PI / 2) ** 2; outputYaw += (double.root.rotation.y - Math.PI / 2) ** 2;
+        inputPos += (camera.globalPosition.x + 13.8) ** 2; outputPos += (double.root.position.x + 13.8) ** 2;
+    }
+    assert.ok(Math.sqrt(outputYaw / n) < 0.45 * Math.sqrt(inputYaw / n), 'the reflected body must not copy the heading tremor');
+    assert.ok(Math.sqrt(outputPos / n) < 0.5 * Math.sqrt(inputPos / n), 'the reflected body must not copy the positional tremor');
+    assert.equal(double.gait, 'idle');
+    assert.ok(!started.includes('Walk'), 'tremor must never start the walk clip');
+
+    // Walking 1.4 m/s: the walk clip starts, and the reflection trails the real head by well under 15 cm.
+    let x = -13.8;
+    for (let i = 0; i < 144; i++) {
+        x -= 1.4 * dt; camera.globalPosition.x = x;
+        club._updateMirrorDouble(dt);
+    }
+    assert.equal(double.gait, 'walk');
+    assert.ok(Math.abs(double.root.position.x - x) < 0.15, `the reflection lags the guest by ${(double.root.position.x - x).toFixed(3)} m`);
+    // A stop ends the walk (with hysteresis), and a 90 degree turn is followed within a third of a second.
+    for (let i = 0; i < 144; i++) club._updateMirrorDouble(dt);
+    assert.equal(double.gait, 'idle');
+    camera.yaw += Math.PI / 2;
+    for (let i = 0; i < 24; i++) club._updateMirrorDouble(dt);
+    assert.ok(Math.abs(double.root.rotation.y - camera.yaw) < 0.12, 'the body turns with the guest within a third of a second');
+    // The heading wraps the short way round and survives looking straight up.
+    camera.yaw = -Math.PI + 0.1;
+    double.yaw = Math.PI - 0.1;
+    club._updateMirrorDouble(dt);
+    assert.ok(Math.abs(double.yaw) > 2.9, 'the heading must wrap across +-pi, not spin the long way round');
+    const before = double.yaw;
+    camera.getDirectionToRef = (axis, ref) => ref.set(0, 1, 0.01);
+    for (let i = 0; i < 20; i++) club._updateMirrorDouble(dt);
+    assert.ok(Math.abs(double.yaw - before) < 0.5, 'looking straight up must not spin the body');
+    // A teleport snaps instead of gliding through the walls.
+    camera.globalPosition.x = -3; camera.globalPosition.z = -10;
+    club._updateMirrorDouble(dt);
+    assert.equal(double.root.position.x, -3);
+});
+
+test('the mirror gets a sharper, antialiased texture on desktop and a headset-sized one in VR, per tier', () => {
+    const BABYLON = require('../js/vendor/babylon.js');
+    const { window: venueWindow } = loadClassic('js/venueDressing.js', { BABYLON, log: { info() {}, warn() {}, error() {} } });
+    const quality = (tier, vr) => venueWindow.VenueDressing._restroomMirrorQuality.call({ graphicsTier: tier, isInVRMode: vr });
+    for (const tier of ['ultra', 'high', 'balanced']) {
+        const desktop = quality(tier, false), vr = quality(tier, true);
+        assert.ok(vr.size <= desktop.size && vr.size <= 512, `${tier}: the headset draws the mirror twice per frame, so it stays small`);
+        assert.ok(vr.samples <= 2, `${tier}: headset MSAA stays modest`);
+    }
+    assert.ok(quality('ultra', false).size >= 1024 && quality('ultra', false).samples >= 4);
+    assert.equal(quality('balanced', false).samples, 1);
+    // One render per eye through the material, never also as a custom render target.
+    const source = readFileSync(join(ROOT, 'js/venueDressing.js'), 'utf8');
+    assert.ok(!/customRenderTargets\.push/.test(source), 'the mirror must not also be a custom render target (it drew twice a frame)');
+    assert.ok(!/targetRate\s*=\s*this\.isInVRMode\s*\?\s*2/.test(source), 'the mirror must refresh every frame in a headset');
+});
+
+test('the restroom art atlas: cells fit, every placement sits on a real surface and faces into the room', () => {
+    const BABYLON = require('../js/vendor/babylon.js');
+    const { window: venueWindow } = loadClassic('js/venueDressing.js', { BABYLON, log: { info() {}, warn() {}, error() {} } });
+    const { window: artWindow } = loadClassic('js/restroomArt.js');
+    const Art = artWindow.RestroomArt;
+    const { restroom } = venueWindow.VenueLayout;
+
+    // Cells are inside the atlas, apart, and give texture coordinates inside 0..1.
+    const cells = Object.entries(Art.CELLS);
+    for (const [name, [x, y, w, h]] of cells) {
+        assert.ok(x >= 0 && y >= 0 && x + w <= Art.ATLAS.width && y + h <= Art.ATLAS.height, `cell ${name} leaves the atlas`);
+        const uv = Art.uv(name);
+        assert.ok(uv.u0 > 0 && uv.u1 < 1 && uv.vBottom > 0 && uv.vTop < 1 && uv.u0 < uv.u1 && uv.vBottom < uv.vTop, `${name} uv`);
+    }
+    for (let i = 0; i < cells.length; i++) {
+        for (let j = i + 1; j < cells.length; j++) {
+            const [, [ax, ay, aw, ah]] = cells[i], [, [bx, by, bw, bh]] = cells[j];
+            assert.ok(ax + aw <= bx || bx + bw <= ax || ay + ah <= by || by + bh <= ay, `cells ${cells[i][0]} and ${cells[j][0]} overlap`);
+        }
+    }
+    assert.ok(Art.ATLAS.width * Art.ATLAS.height <= 2048 * 1024, 'the atlas stays a 2048 x 1024 texture (headset memory)');
+
+    // The surfaces are the restroom's real planes.
+    assert.equal(Art.SURFACES.back.at, restroom.farX);
+    assert.equal(Art.SURFACES.wallStage.at, restroom.z0);
+    assert.equal(Art.SURFACES.wallEntrance.at, restroom.z1);
+    assert.ok(Math.abs(Art.SURFACES.pillar.at - (restroom.wallX - 0.05)) < 1e-9, 'the pillar face stands 5 cm proud of the wall');
+    assert.equal(JSON.stringify(Art.SURFACES.pillar.lateral), JSON.stringify(restroom.pillarZ));
+    for (const key of ['dividerA', 'dividerAIn']) assert.ok(Math.abs(Math.abs(Art.SURFACES[key].at - (-4.6)) - 0.025) < 1e-9, key);
+    for (const key of ['dividerB', 'dividerBIn']) assert.ok(Math.abs(Math.abs(Art.SURFACES[key].at - (-2.8)) - 0.025) < 1e-9, key);
+
+    const rects = new Map();
+    const cross = (a, b) => [a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2], a[0] * b[1] - a[1] * b[0]];
+    for (const placement of Art.PLAN) {
+        const surface = Art.SURFACES[placement.surface];
+        assert.ok(surface, `${placement.cell}: unknown surface ${placement.surface}`);
+        const [, , cw, ch] = Art.CELLS[placement.cell];
+        assert.ok(Math.abs(placement.w / placement.h - cw / ch) < 0.04 * cw / ch, `${placement.cell} is stretched`);
+        assert.ok(placement.along - placement.w / 2 >= surface.lateral[0] - 1e-9 && placement.along + placement.w / 2 <= surface.lateral[1] + 1e-9,
+            `${placement.cell} on ${placement.surface} runs off the wall`);
+        assert.ok(placement.y - placement.h / 2 >= surface.y[0] && placement.y + placement.h / 2 <= surface.y[1], `${placement.cell} on ${placement.surface} is out of height`);
+        const rect = [placement.along - placement.w / 2, placement.y - placement.h / 2, placement.along + placement.w / 2, placement.y + placement.h / 2];
+        for (const other of rects.get(placement.surface) || []) {
+            assert.ok(rect[2] <= other[0] || other[2] <= rect[0] || rect[3] <= other[1] || other[3] <= rect[1], `two pieces overlap on ${placement.surface}`);
+        }
+        rects.set(placement.surface, [...(rects.get(placement.surface) || []), rect]);
+        // Right is the viewer's right: up x (-normal) in Babylon's left-handed frame.
+        const f = Art.frame(placement);
+        const expectRight = cross([0, 1, 0], f.normal.map(v => -v));
+        assert.equal(JSON.stringify(f.right.map(v => v + 0)), JSON.stringify(expectRight.map(v => v + 0)), `${placement.cell} on ${placement.surface} would read mirrored`);
+        // And the piece sits just in front of its wall, toward the room.
+        const along = Math.abs(f.normal[0]) ? 0 : 2;
+        const depth = f.centre[Math.abs(f.normal[0]) ? 0 : 2];
+        assert.ok(Math.sign(depth - surface.at) === Math.sign(f.normal[along === 0 ? 0 : 2]) && Math.abs(depth - surface.at) < 0.07, 'a piece floats away from its wall');
+    }
+    assert.equal(Art.PLAN.filter(p => p.kind === 'lightbox').length, 1);
+    assert.ok(Art.PLAN.length >= 12, 'the restroom must not be bare');
+
+    // The geometry builder makes four vertices and two triangles a quad, with the stated normal.
+    const geometry = venueWindow.VenueDressing._artGeometry.call({}, Art.PLAN.map(p => ({ ...Art.frame(p), w: p.w, h: p.h, uv: Art.uv(p.cell) })));
+    assert.equal(geometry.positions.length, Art.PLAN.length * 12);
+    assert.equal(geometry.indices.length, Art.PLAN.length * 6);
+    assert.ok(Math.max(...geometry.indices) < geometry.positions.length / 3);
+    assert.ok(geometry.uvs.every(v => v > 0 && v < 1));
+
+    // Painting every cell runs without a font, an image or a DOM, and never draws outside the atlas.
+    const calls = new Map();
+    const gradient = { addColorStop() {} };
+    const ctx = new Proxy({}, {
+        get(target, key) {
+            if (key === 'measureText') return text => ({ width: String(text).length * 12 });
+            if (key === 'createLinearGradient' || key === 'createRadialGradient') return () => gradient;
+            if (key in target) return target[key];
+            return (...args) => { calls.set(key, (calls.get(key) || 0) + 1); };
+        },
+        set(target, key, value) { target[key] = value; return true; },
+        has(target, key) { return key in target; }
+    });
+    const { window: paintWindow } = loadClassic('js/restroomArt.js');
+    paintWindow.NocturneLogo = { WIDTH: 100, HEIGHT: 100, STROKE: 8, path: () => 'M0 0 L10 10' };
+    paintWindow.Path2D = class {};
+    paintWindow.RestroomArt.paint(ctx);
+    assert.equal(calls.get('save'), calls.get('restore'), 'every painter restores the context it saved');
+    assert.ok(calls.get('fillText') > 20, 'the posters carry real words');
+    const source = readFileSync(join(ROOT, 'js/restroomArt.js'), 'utf8');
+    for (const brand of ['Heineken', 'Red Bull', 'Coca', 'Pioneer', 'Absolut', 'Jack Daniel', 'Bacardi', 'Guinness', 'Smirnoff', 'Ask for Angela']) {
+        assert.ok(!source.includes(brand), `the restroom art must not use ${brand}`);
+    }
+
+    // The three Poly Haven props are placed where VenueLayout.restroom.props says, inside the restroom.
+    const { window: loaderWindow } = loadClassic('js/modelLoader.js', {
+        BABYLON, CLUB_POSITIONS: { paSpeakers: { left: { x: -6, y: 7.1, z: -16 }, right: { x: 6, y: 7.1, z: -16 } } },
+        navigator: { userAgent: '' }, AbortController, IndexedDBAssetCache: class {}, InFlightRegistry: class {}
+    });
+    const configs = loaderWindow.ModelLoader.prototype.getModelConfigs.call({});
+    for (const [key, prop] of [['restroom_bin', restroom.props.bin], ['restroom_wetsign', restroom.props.wetSign], ['restroom_plunger', restroom.props.plunger]]) {
+        assert.equal(configs[key].placement.centerX, prop.x, `${key} x`);
+        assert.equal(configs[key].placement.centerZ, prop.z, `${key} z`);
+        assert.equal(configs[key].placement.bottomY, 0);
+        assert.ok(prop.x > restroom.farX && prop.x < restroom.wallX && prop.z > restroom.z0 && prop.z < restroom.z1, `${key} stands outside the restroom`);
+        const json = readGlbJson(configs[key].url.replace('./', ''));
+        const draws = json.meshes.reduce((sum, mesh) => sum + mesh.primitives.length, 0);
+        assert.ok(draws <= 2, `${key} costs ${draws} draws`);
+        assert.ok(!(json.materials || []).some(material => material.alphaMode && material.alphaMode !== 'OPAQUE'), `${key} must be opaque: imported surfaces render opaque in the club`);
+    }
+    // The bin stands clear of the pillar's face and the hand dryer's wall.
+    assert.ok(restroom.props.bin.x + 0.2 <= restroom.wallX - 0.05 + 0.01);
 });
 
 test('the vestibule\'s enclosure curve runs from the room\'s mouth to the top of the stair', () => {
