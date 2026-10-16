@@ -52,7 +52,7 @@ test('the lounge couch faces the DJ from the entrance wall and two people can si
     expect(state.active).toBe('lounge-1');
     expect(state.blocker).toBe(true);
     expect(state.ready).toBe(true);
-    expect(state.lights).not.toContain('loungeLight');
+    expect(state.lights[0], 'the couch is lit by its own accent light, first').toBe('loungeLight');
     expect(state.emissive).toEqual([0, 0, 0]);
     await page.evaluate(() => {
         const club = window.vrClub, cam = club.camera;
@@ -61,5 +61,22 @@ test('the lounge couch faces the DJ from the entrance wall and two people can si
         cam.setTarget(new BABYLON.Vector3(7.1, 0.7, -0.7));
     });
     await page.waitForTimeout(1500);
+    // Lit, not a dark shape and not a glowing one: the couch's own pixels sit in a sane band (a dark couch measured ~8 of 255,
+    // the walls around it ~8; a lit one ~28 with highlights near 110).
+    const shot = await page.screenshot();
+    const { default: sharp } = await import('sharp');
+    const meta = await sharp(shot).metadata();
+    const raw = await sharp(shot).extract({
+        left: Math.round(meta.width * 0.39), top: Math.round(meta.height * 0.53), width: Math.round(meta.width * 0.22), height: Math.round(meta.height * 0.083)
+    }).raw().toBuffer({ resolveWithObject: true });
+    let sum = 0, max = 0, count = 0;
+    for (let i = 0; i < raw.data.length; i += raw.info.channels) {
+        const l = (raw.data[i] + raw.data[i + 1] + raw.data[i + 2]) / 3;
+        sum += l; count++; if (l > max) max = l;
+    }
+    const luminance = sum / count;
+    console.log('COUCH_LUMINANCE', luminance.toFixed(1), 'max', max.toFixed(0));
+    expect(luminance, 'the couch must be visible, not a dark shape').toBeGreaterThan(18);
+    expect(max, 'and nothing on it blooms: highlights stay well below white').toBeLessThan(190);
     await expectHealthyRuntime(page);
 });

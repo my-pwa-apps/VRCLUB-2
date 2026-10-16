@@ -943,6 +943,36 @@ test('the light-show frame is shaped, clamped and bounded; hostile fields never 
     assert.equal(Object.keys(sanitizeShow({ m: 'off', fx: many }).fx).length, relay.MAX_SHOW_FIXTURES);
 });
 
+test('stall doors are shared room state: any guest may push one, late joiners see it, hostile input is dropped, an empty room resets', () => {
+    const room = new ClubRoom({});
+    const a = join(room), b = join(room);
+    assert.deepEqual(a.ws.last('welcome').doors, [false, false], 'a fresh room has every door ajar');
+    b.ws.message({ type: 'door', door: 1, shut: true });
+    assert.deepEqual(a.ws.last('door'), { type: 'door', id: b.session.id, door: 1, shut: true }, 'a guest, not only the host, can push a door');
+    assert.equal(b.ws.last('door'), undefined, 'the sender is not echoed');
+    const late = join(room);
+    assert.deepEqual(late.ws.last('welcome').doors, [false, true], 'a late joiner is handed the doors as they are');
+    // Only a real index and a real boolean count.
+    for (const bad of [{ door: 2, shut: true }, { door: -1, shut: true }, { door: 0.5, shut: true }, { door: '0', shut: true }, { door: null, shut: true }, { shut: true }]) {
+        const before = a.ws.sent.length;
+        b.ws.message({ type: 'door', ...bad });
+        assert.equal(a.ws.sent.length, before, `ignored: ${JSON.stringify(bad)}`);
+    }
+    b.session.buckets.door = new TokenBucket(relay.RATE_LIMITS.door);
+    b.ws.message({ type: 'door', door: 1, shut: 'yes' });
+    assert.equal(room.doors[1], false, 'anything but true means ajar');
+    b.ws.message({ type: 'door', door: 0, shut: true });
+    assert.deepEqual(room.doors, [true, false]);
+    // A blocked guest's door is not relayed to the guest who blocked them.
+    a.session.blocked.add(b.session.pid);
+    const seen = a.ws.sent.length;
+    b.ws.message({ type: 'door', door: 0, shut: false });
+    assert.equal(a.ws.sent.length, seen);
+    assert.ok(relay.RATE_LIMITS.door && relay.RATE_LIMITS.door.rate <= 2, 'doors are rate limited like every other frame');
+    for (const guest of [late, b, a]) room._onClose(guest.ws, guest.session);
+    assert.deepEqual(room.doors, [false, false], 'an empty room starts over');
+});
+
 test('the lights and the music are forgotten once the room is empty, and survive a host handover', () => {
     const room = new ClubRoom({});
     const a = join(room);

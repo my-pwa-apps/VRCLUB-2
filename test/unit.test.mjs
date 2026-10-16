@@ -6624,6 +6624,32 @@ test('in VR the headset stands on the balcony, climbs its stair, steps off its e
     camera.realWorldHeight = eye;
     // The DJ Booth destination stands the headset on the 0.5 m riser; it stays there.
     assert.equal(at(0, -19.4, 0.5), 0.5);
+    // Walking up to the stage from the floor steps onto it, from the front and from either flank, in a quick eased climb:
+    // it used to count only for a walker already near its top, so a headset walked into the stage at floor level.
+    for (const [x, z] of [[0, -16.1], [-2.9, -17], [2.9, -17], [0, -19.9]]) {
+        club.jumpState.active = false;
+        at(x < 0 ? -8 : 8, -12, 0);
+        camera.position.x = x; camera.position.z = z;
+        let feetNow = 0, frames = 0;
+        camera.position.y = eye;
+        camera._deferredPositionUpdate.y = camera.position.y;
+        let last = 0;
+        while (feetNow < 0.5 && frames < 60) {
+            feetNow = at(x, z);
+            assert.ok(feetNow - last <= 3 * 0.017 + 1e-3, `the climb at (${x}, ${z}) jumped ${feetNow - last}`);
+            last = feetNow; frames++;
+        }
+        assert.equal(feetNow, 0.5, `(${x}, ${z}) did not reach the stage`);
+        assert.ok(frames > 4, `the climb took ${frames} frames`);
+        assert.equal(club._walkLevel, 0.5);
+    }
+    // Walking off the front edge falls to the floor under gravity, not through it and not by teleport.
+    at(0, -16.1, 0.5);
+    const off = at(0, -15.8);
+    assert.ok(off < 0.5 && off >= 0, `stepping off the stage snapped to ${off}`);
+    let down = 1;
+    while (at(0, -15.8) > 0 && down < 100) down++;
+    assert.equal(at(0, -15.8), 0);
     // In flight, the jump owns the height.
     club.jumpState.active = true;
     camera.position.y = 2.6;
@@ -7185,8 +7211,8 @@ test('the DJ booth Yamaha HS8 monitor speakers and restroom fixtures are one-dra
     for (const door of club._restroomDoors) {
         const leaf = scene.getMeshByName(`restroomStallDoor${door.index}`);
         assert.ok(leaf, 'the stall door must be built');
-        assert.equal(leaf.checkCollisions, false, 'a door must not catch the player');
-        assert.equal(leaf.isPickable, false, 'a closed door must not swallow the ray that stands the guest up');
+        assert.equal(leaf.checkCollisions, false, 'a door ajar is not solid, so nothing catches on it');
+        assert.equal(leaf.isPickable, true, 'a door can be pushed by hand; its click stands a seated guest up');
         assert.equal(door.open, 1, 'doors start ajar');
         const [opening0, opening1] = restroom.stallOpenings[door.index];
         for (const v of worldVertices(door, `restroomStallDoor${door.index}`)) {
@@ -7255,6 +7281,64 @@ test('the DJ booth Yamaha HS8 monitor speakers and restroom fixtures are one-dra
     club._updateRestroomDoors(1);
     assert.equal(club._restroomDoors[0].open, 1);
     club.avatarManager = null;
+
+    // By hand: a click on a door pushes it shut or ajar for the whole room; a shut door is solid unless somebody stands in its
+    // doorway; an occupied door does not give; the guest sitting behind a shut door stands up instead of pushing it.
+    const sent = [], messages = [];
+    club.multiplayer = { connected: true, client: { sendDoor: (index, shut) => sent.push([index, shut]) } };
+    club.showErrorMessage = text => messages.push(text);
+    club.camera = { position: new BABYLON.Vector3(-10, 1.7, -3) };
+    const leaf0 = scene.getMeshByName('restroomStallDoor0');
+    assert.equal(leaf0.isPickable, true, 'a door can be pushed by a click or a ray');
+    assert.equal(leaf0.checkCollisions, false, 'ajar, it is not solid');
+    assert.equal(club._pressStallDoor({ pickedMesh: leaf0 }), true);
+    club._updateRestroomDoors(1);
+    assert.equal(club._restroomDoors[0].open, 0, 'pushed shut by hand');
+    assert.equal(JSON.stringify(sent), JSON.stringify([[0, true]]), 'and shared with the room');
+    assert.equal(leaf0.checkCollisions, true, 'a shut door is solid');
+    club.camera.position.set(-14.4, 1.7, -5.4);
+    club._updateRestroomDoors(0.1);
+    assert.equal(leaf0.checkCollisions, false, 'but not around somebody standing in its doorway');
+    club.camera.position.set(-10, 1.7, -3);
+    club._updateRestroomDoors(0.1);
+    assert.equal(leaf0.checkCollisions, true);
+    assert.equal(club._pressStallDoor({ pickedMesh: scene.getMeshByName('restroomStallHandle0') }), true, 'the handle is part of the door');
+    club._updateRestroomDoors(1);
+    assert.equal(club._restroomDoors[0].open, 1, 'pushed ajar again');
+    assert.equal(leaf0.checkCollisions, false);
+    assert.equal(JSON.stringify(sent), JSON.stringify([[0, true], [0, false]]));
+    assert.equal(club._pressStallDoor({ pickedMesh: { metadata: {} } }), false, 'anything else is not a door');
+    // A door the room's relay says is shut is shut here, and back to ajar when the room says so.
+    club.setSharedDoors([false, true]);
+    club._updateRestroomDoors(1);
+    assert.equal(club._restroomDoors[1].open, 0);
+    club.setSharedDoor(1, false);
+    club._updateRestroomDoors(1);
+    assert.equal(club._restroomDoors[1].open, 1);
+    club.setSharedDoor(9, true);
+    club.setSharedDoors(null);
+    // Occupied by somebody else: it does not give.
+    peers.set('e', seatedAt(restroom.toiletSeatX, restroom.toiletZ[0]));
+    club.avatarManager = { remotes: peers };
+    club._updateRestroomDoors(1);
+    sent.length = 0;
+    assert.equal(club.pushStallDoor(0), false);
+    assert.deepEqual(messages, [], 'it refuses silently: the red lamp already says it is occupied');
+    assert.equal(sent.length, 0);
+    peers.delete('e');
+    club.avatarManager = null;
+    club._updateRestroomDoors(1);
+    // Sitting behind it, a click on it stands the guest up (which opens it).
+    let stood = 0;
+    club.standFromSeat = () => { stood++; club._activeSeat = null; };
+    club._activeSeat = { id: 'toilet-0' };
+    club._updateRestroomDoors(1);
+    assert.equal(club._restroomDoors[0].open, 0);
+    club._pressStallDoor({ pickedMesh: leaf0 });
+    assert.equal(stood, 1);
+    club._updateRestroomDoors(1);
+    assert.equal(club._restroomDoors[0].open, 1);
+    club.multiplayer = null;
 
     // Nothing covers a vanity mirror: the doorway frame posts are on the same wall, so each pane must stand clear.
     const mirrorBox = mirrors.getBoundingInfo().boundingBox;
@@ -7418,12 +7502,9 @@ test('the restroom art atlas: cells fit, every placement sits on a real surface 
 
     // The surfaces are the restroom's real planes.
     assert.equal(Art.SURFACES.back.at, restroom.farX);
-    assert.equal(Art.SURFACES.wallStage.at, restroom.z0);
     assert.equal(Art.SURFACES.wallEntrance.at, restroom.z1);
-    assert.ok(Math.abs(Art.SURFACES.pillar.at - (restroom.wallX - 0.05)) < 1e-9, 'the pillar face stands 5 cm proud of the wall');
-    assert.equal(JSON.stringify(Art.SURFACES.pillar.lateral), JSON.stringify(restroom.pillarZ));
     for (const key of ['dividerA', 'dividerAIn']) assert.ok(Math.abs(Math.abs(Art.SURFACES[key].at - (-4.6)) - 0.025) < 1e-9, key);
-    for (const key of ['dividerB', 'dividerBIn']) assert.ok(Math.abs(Math.abs(Art.SURFACES[key].at - (-2.8)) - 0.025) < 1e-9, key);
+    assert.ok(Math.abs(Math.abs(Art.SURFACES.dividerB.at - (-2.8)) - 0.025) < 1e-9, 'dividerB');
 
     const rects = new Map();
     const cross = (a, b) => [a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2], a[0] * b[1] - a[1] * b[0]];
@@ -7450,7 +7531,8 @@ test('the restroom art atlas: cells fit, every placement sits on a real surface 
         assert.ok(Math.sign(depth - surface.at) === Math.sign(f.normal[along === 0 ? 0 : 2]) && Math.abs(depth - surface.at) < 0.07, 'a piece floats away from its wall');
     }
     assert.equal(Art.PLAN.filter(p => p.kind === 'lightbox').length, 1);
-    assert.ok(Art.PLAN.length >= 12, 'the restroom must not be bare');
+    assert.ok(Art.PLAN.length >= 4 && Art.PLAN.length <= 6, 'the restroom is dressed, not cluttered: a handful of pieces');
+    assert.ok(Art.DOORS.length <= 1, 'a shut door carries at most one thing');
 
     // The geometry builder makes four vertices and two triangles a quad, with the stated normal.
     const geometry = venueWindow.VenueDressing._artGeometry.call({}, Art.PLAN.map(p => ({ ...Art.frame(p), w: p.w, h: p.h, uv: Art.uv(p.cell) })));
@@ -7477,7 +7559,7 @@ test('the restroom art atlas: cells fit, every placement sits on a real surface 
     paintWindow.Path2D = class {};
     paintWindow.RestroomArt.paint(ctx);
     assert.equal(calls.get('save'), calls.get('restore'), 'every painter restores the context it saved');
-    assert.ok(calls.get('fillText') > 20, 'the posters carry real words');
+    assert.ok(calls.get('fillText') > 8, 'the posters carry real words');
     const source = readFileSync(join(ROOT, 'js/restroomArt.js'), 'utf8');
     for (const brand of ['Heineken', 'Red Bull', 'Coca', 'Pioneer', 'Absolut', 'Jack Daniel', 'Bacardi', 'Guinness', 'Smirnoff', 'Ask for Angela']) {
         assert.ok(!source.includes(brand), `the restroom art must not use ${brand}`);

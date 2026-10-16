@@ -204,7 +204,7 @@ test('the entrance vestibule and the bar are built, lit by their own accents and
     const dressed = await page.evaluate(async () => {
         const club = window.vrClub, scene = club.scene;
         const frames = async n => { for (let i = 0; i < n; i++) await new Promise(r => scene.onAfterRenderObservable.addOnce(r)); };
-        const until = async (test, ms = 30000) => { const end = performance.now() + ms; while (!test() && performance.now() < end) await frames(1); return test(); };
+        const until = async (test, ms = 90000) => { const end = performance.now() + ms; while (!test() && performance.now() < end) await frames(1); return test(); };
         club.camera.position.set(-14.4, 1.7, -1.72);
         club.camera.setTarget(new BABYLON.Vector3(-12.77, 1.45, -1.72));
         await frames(6);
@@ -238,6 +238,21 @@ test('the entrance vestibule and the bar are built, lit by their own accents and
         result.remoteReopened = await until(() => doors[1].open === 1);
         manager.dispose();
         club.avatarManager = null;
+        // By hand, through the real pointer path: a ray at the door's leaf from the hall reaches it, a press pushes it shut
+        // (solid), and a second press opens it again.
+        club.camera.position.set(-12.9, 1.4, -5.6);
+        const leaf = scene.getMeshByName('restroomStallDoor0');
+        leaf.computeWorldMatrix(true);
+        const target = leaf.getBoundingInfo().boundingBox.centerWorld.clone();
+        const origin = club.camera.position.clone();
+        const pick = scene.pickWithRay(new BABYLON.Ray(origin, target.subtract(origin).normalize(), 6));
+        result.pickedDoor = !!pick.hit && pick.pickedMesh && pick.pickedMesh.metadata && pick.pickedMesh.metadata.vrclubDoor;
+        scene.onPointerDown({}, pick);
+        result.pushedShut = await until(() => doors[0].open === 0);
+        result.solidWhenShut = leaf.checkCollisions;
+        scene.onPointerDown({}, pick);
+        result.pushedAjar = await until(() => doors[0].open === 1);
+        result.softWhenAjar = !leaf.checkCollisions;
         return result;
     });
     expect(dressed.mirrorRendersPerFrame, 'the mirror renders once per frame').toBeLessThanOrEqual(1.05);
@@ -254,5 +269,10 @@ test('the entrance vestibule and the bar are built, lit by their own accents and
     expect(dressed.remoteShut, 'a remote guest on the other toilet shuts that door for everyone').toBe(true);
     expect(dressed.firstUntouched).toBe(true);
     expect(dressed.remoteReopened, 'and it opens when they stand').toBe(true);
+    expect(dressed.pickedDoor, 'a ray at a door hits it').toBe(0);
+    expect(dressed.pushedShut, 'a press pushes it shut').toBe(true);
+    expect(dressed.solidWhenShut, 'a shut door is solid').toBe(true);
+    expect(dressed.pushedAjar, 'and a second press opens it').toBe(true);
+    expect(dressed.softWhenAjar).toBe(true);
     await expectHealthyRuntime(page);
 });

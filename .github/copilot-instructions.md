@@ -1138,7 +1138,10 @@ coordinates from documentation. The bar and vestibule numbers live in `window.Ve
   shaders (`useHighPrecisionFloats: false`) and this import is scaled 0.0089 and mirrored with mesh tangents, so its
   tangent-space normal map is the one precision-sensitive path in the club; it showed as a white-hot outlined couch on a
   Quest while desktop and the SwiftShader emulator (full precision) render it normally. Do not re-enable the normal map
-  without a headset capture.
+  without a headset capture. Because it has no emission, it is lit by its own scoped accent, `loungeLight` (first slot, warm,
+  above and in front of it, `_furnishLoungeCouch`), a modest `environmentIntensity` and `albedoTint: 2`: the club's grade crushes a dim
+  scene, and with a darkened albedo and only the room's lights it measured ~8 of 255 (a dark shape). Lit it reads ~28 with highlights
+  near 110 (`test/e2e/lounge.spec.mjs` measures the couch's pixels). Do not "fix" a glow by darkening it again.
 - `node scripts/build-bar-assets.mjs` regenerates `textures/barWood/` and the stool GLB from Poly Haven.
 - Everything is measured on desktop SwiftShader only; the extra triangles (about 48k bottles, 33k stools, 33k bartender) are
   unmeasured on a headset.
@@ -1160,16 +1163,24 @@ One Sketchfab *Bass Bin 3* (CC BY 4.0, darksoundlab) hangs under each flown spea
 (x -12.75..-16.4, z -6.2..-1.2), two stalls along the back wall, two basins and vanity mirrors on the hall wall, entered through a
 1.8 m doorway in the left wall. Everything solid is merged per material by `_dressingBuilder()`; the toilets and basins are Quaternius
 GLBs instanced once more, and `restroomLight` plus `restroomBackLight` are scoped accents (first slots, no budget change).
-- **Stall doors** are two separate hinged leaves (`_createStallDoors`, `this._restroomDoors`), never collidable or pickable. Each is
-  hinged at the end of its cubicle opening that is next to a side wall and stands ajar (`doorAjar`) on the hall side, clear of the
-  opening and the basins; `_updateRestroomDoors(dt)` (from `updateRestroomMirror`) swings the door of the toilet the guest sits on
-  shut over `doorSeconds` and opens it on standing (`_activeSeat.id` `toilet-N`). A lamp on the leaf reads free/occupied. **Doors are
-  networked without a new message**: `_scanRemoteToilets()` (every 0.2 s) also shuts a door while any remote guest is seated within
-  0.5 m of that toilet, read from the `seated` state frames guests already send (`peer.target`), so everyone derives the same door
-  from the same people. Rule for new work: any visible change to the environment must be shared this way (derived from existing
-  synced state, or host-owned like the lights and music), never local-only.
-- **Art** is `js/restroomArt.js`: ONE 2048 x 1024 atlas painted at run time (flyers, a safety poster, a hygiene sign, die-cut stickers,
-  marker tags and a backlit NOCTURNE poster built from `NocturneLogo`), with `PLAN`/`DOORS` placements on named `SURFACES`. Lit quads
+- **Stall doors** are two separate hinged leaves (`_createStallDoors`, `this._restroomDoors`). Each is hinged at the end of its cubicle
+  opening that is next to a side wall and stands ajar (`doorAjar`) on the hall side, clear of the opening and the basins. A door is
+  shut (over `doorSeconds`) while ANY of three things holds, evaluated by `_updateRestroomDoors(dt)` (from `updateRestroomMirror`):
+  this guest sits on its toilet (`_activeSeat.id` `toilet-N`); a remote guest is seated within 0.5 m of that toilet
+  (`_scanRemoteToilets()` every 0.2 s, from the `seated` state frames guests already send, so no message is needed for that); or it
+  was pushed shut by hand (`_doorsByHand`). **By hand**: the leaf, handle and lamp are pickable (`metadata.vrclubDoor`), and
+  `_pressStallDoor()` (called from the pointer path before `_pressSeat`) toggles it, or stands up a guest sitting behind it; an
+  occupied door does not give (silently: its red lamp already says so). A hand push is **shared room state**: `NetworkClient.sendDoor()` sends
+  `{type:'door', door, shut}`; the relay (`worker/src/relay.js`, `MAX_DOORS`) lets any guest set it, relays it block-aware, keeps it
+  for late joiners (`welcome.doors`) and clears it when the room empties; the client applies it with `setSharedDoor(s)` and resets
+  it on leaving the room. A shut door is solid (`checkCollisions`) except while somebody stands in its doorway, so it cannot trap
+  anyone; an ajar door is never solid. A lamp on the leaf reads shut or ajar. **The relay must be deployed for hand pushes to be
+  seen by others** (an older relay drops the frame; the seat-driven doors need no relay change). Rule for new work: any visible
+  change to the environment must be shared (derived from existing synced state, a relay-held room state like this, or host-owned
+  like the lights and music), never local-only.
+- **Art** is `js/restroomArt.js`: ONE 2048 x 1024 atlas painted at run time (a flyer, a safety poster, a hygiene sign, die-cut stickers,
+  marker tags and a backlit NOCTURNE poster built from `NocturneLogo`), with `PLAN`/`DOORS` placements on named `SURFACES`. It is
+  deliberately sparse (a unit test caps `PLAN` at six pieces and a door at one): a fuller treatment read as clutter. Lit quads
   are one alpha-tested mesh (`restroomPosters`), the light box one emissive mesh (`restroomLightbox`), plus one art mesh per door,
   parented to its hinge. `test/unit.test.mjs` checks the cells, that every placement sits on a real surface at the right aspect and
   without overlap, that nothing reads mirrored, and that no brand or artist name appears. Keep the words generic.
@@ -1563,6 +1574,15 @@ horizontal speed while removing pitch-driven vertical travel. Q/E fly bindings a
 the text-field-aware global shortcut maps one E press to `jumpDesktop()` (no repeat).
 `_updateWalkSurface()` holds the eye 1.7 m above the authoritative surface, including the
 DJ riser, and integrates a 0.45 m jump arc under 9.81 m/s² gravity instead of free flight.
+**The DJ stage (a 0.5 m riser, x -3..3, z -20..-16) is stepped onto on foot from any side, desktop and VR**:
+`_walkSurfaceLevel()` returns its top for any walker inside the footprint whose feet are below top + 0.35, and
+`_easeRiserLevel()` turns the 0.5 m change into a 3 m/s climb or descent (`RISER_STEP_SPEED`) only inside the riser's own band
+(stair ramps are continuous and a teleport or preset travel lands at once). Two things used to go wrong: invisible 2 m
+`collisionWall` blocks stood either side of the stage (left over from floor-standing speaker stacks; the PA is flown) and forced
+guests round it by set routes, and in VR the surface only counted for a walker already within 0.3 m of its top, so a headset
+walked straight into the stage at floor level, inside it, until a jump landed on top. Do not put blockers beside the stage, and
+do not gate the riser on the walker's height again. `test/e2e/dj-stage.spec.mjs` walks onto it from the front and both flanks and,
+in the emulated headset, from the floor.
 The desktop collision ellipsoid spans 0.3–1.3 m above the feet (radius y 0.5,
 offset y -0.4); foot clearance prevents solid stair risers blocking the surface follower.
 Babylon defers XR movement: both the guard and surface follower must also write

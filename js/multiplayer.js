@@ -530,6 +530,8 @@ class ClubMultiplayer {
                 this.pendingMusic = null;
                 this.dancing = false;
                 this.locked = false;
+                // The doors belong to the room: out of it they are ajar again.
+                if (typeof club.setSharedDoors === 'function') club.setSharedDoors([]);
             }
             if (status === 'error' || status === 'disconnected') this._stopPing();
             // Nobody left to talk to: the music comes back up.
@@ -590,6 +592,8 @@ class ClubMultiplayer {
             }
         };
         client.onShow = (frame) => this._applyShow(frame);
+        client.onDoors = (doors) => { if (typeof club.setSharedDoors === 'function') club.setSharedDoors(doors); };
+        client.onDoor = (door, shut) => { if (typeof club.setSharedDoor === 'function') club.setSharedDoor(door, shut); };
         client.musicDecorator = (music) => this._decorateMusic(music);
         client.onRemoteStream = (id, stream) => manager.attachVoice(id, stream);
         client.onError = (err) => {

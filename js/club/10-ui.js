@@ -2194,6 +2194,7 @@ class VRClubUI extends VRClubAnimationFinish {
                 this._activateVRQuickMenuButton(vrMenuButton);
                 return;
             }
+            if (typeof this._pressStallDoor === 'function' && this._pressStallDoor(pickResult)) return;
             if (this._pressSeat(pickResult)) return;
             if (typeof this.pressVJDesk === 'function') this.pressVJDesk(pickResult);
         });

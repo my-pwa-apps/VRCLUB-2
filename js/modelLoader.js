@@ -186,9 +186,12 @@ class ModelLoader {
                 metallicFactor: 0,
                 roughnessFactor: 0.92,
                 matte: true,
-                environmentIntensity: 0.12,
+                environmentIntensity: 0.3,
                 specularIntensity: 0,
-                albedoTint: 0.72,
+                // Lit by the lounge's own accent light (VenueDressing._furnishLoungeCouch), not by emission. The club's grade
+                // (ACES, contrast, vignette) crushes a dim scene, so the dark leather needs both that light and a brighter albedo
+                // to read as a rust-brown sofa; measured in the real pipeline, highlights stay well under the bloom threshold.
+                albedoTint: 2.0,
                 // The headset runs medium-precision shaders and this import is scaled 0.0089 (mirrored) with mesh tangents,
                 // which puts its tangent-space normal map on a precision-sensitive path (white-hot edges under bloom).
                 disableNormalMap: true,

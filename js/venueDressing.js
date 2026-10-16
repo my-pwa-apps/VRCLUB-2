@@ -707,6 +707,10 @@ const VenueDressing = {
         this._collisionBlock('loungeCouchBlock', max.x - min.x, max.y - min.y, max.z - min.z,
             center.x, center.y, center.z);
         this._loungeCouch = meshes;
+        // The couch has no emission (that read as a glowing sofa in a headset), so it needs real light of its own or it is
+        // a dark shape against the wall: a warm accent from above and in front that reaches only the couch.
+        this._loungeLight = this._createScopedAccent('loungeLight', new BABYLON.Vector3(L.x, 2.3, L.z - 1.8),
+            { intensity: 22, range: 7, diffuse: [1, 0.84, 0.7], group: 'lounge' }, meshes);
     },
 
     // ------------------------------------------------------------------------------------------
@@ -1031,8 +1035,9 @@ const VenueDressing = {
     /**
      * The two cubicle doors: hinged leaves in the front plane of the stalls. Each hangs from the end of its opening that
      * is next to a side wall and stands ajar on the hall side (folded toward that wall, clear of the opening and of the
-     * washbasins), then swings shut while the guest sits on its toilet. They are never collidable, so nothing can catch
-     * on one or be shut in by it. A small free/occupied lamp on the outer face follows the door.
+     * washbasins), swings shut while somebody sits on its toilet, and can be pushed shut or ajar by hand (a click or a
+     * controller ray on it), a state the whole room shares (see setSharedDoor). A shut door is solid unless somebody is
+     * standing in its doorway, so it can never trap anyone. A small lamp on the outer face reads shut or ajar.
      */
     _createStallDoors(material, scoped) {
         const R = VENUE_RESTROOM;
@@ -1041,24 +1046,26 @@ const VenueDressing = {
         const chrome = this.materialFactory.getPreset('stanchionPost');
         const free = this._emissive('restroomDoorFreeMat', [0.1, 0.9, 0.3]);
         const busy = this._emissive('restroomDoorBusyMat', [1.0, 0.12, 0.1]);
-        const makeBox = (name, parent, w, h, d, x, y, z, mat) => {
+        const makeBox = (name, parent, w, h, d, x, y, z, mat, index) => {
             const mesh = BABYLON.MeshBuilder.CreateBox(name, { width: w, height: h, depth: d }, this.scene);
             mesh.parent = parent;
             mesh.position.set(x, y, z);
             mesh.material = mat;
-            mesh.isPickable = false;
+            mesh.isPickable = true;
+            mesh.metadata = { vrclubDoor: index };
             scoped.push(mesh);
             return mesh;
         };
+        this._doorsByHand = this._doorsByHand || R.stallOpenings.map(() => false);
         this._restroomDoors = R.stallOpenings.map(([from, to], index) => {
             const leafSign = index === 0 ? 1 : -1;               // leaf runs +z from the hinge in stall 0, -z in stall 1
             const width = to - from - 2 * gap;
             const hinge = new BABYLON.TransformNode(`restroomStallHinge${index}`, this.scene);
             hinge.position.set(frontX, 0, leafSign > 0 ? from + gap : to - gap);
-            makeBox(`restroomStallDoor${index}`, hinge, T, top - bottom, width, 0, (top + bottom) / 2, leafSign * width / 2, material);
-            makeBox(`restroomStallHandle${index}`, hinge, 0.02, 0.12, 0.035, T / 2 + 0.01, 1.0, leafSign * (width - 0.1), chrome);
-            const lamp = makeBox(`restroomStallLamp${index}`, hinge, 0.008, 0.05, 0.05, T / 2 + 0.004, 1.12, leafSign * (width - 0.1), free);
-            const door = { index, seatId: `toilet-${index}`, hinge, lamp, free, busy, leafSign, t: 1, open: 1, remote: false };
+            const leaf = makeBox(`restroomStallDoor${index}`, hinge, T, top - bottom, width, 0, (top + bottom) / 2, leafSign * width / 2, material, index);
+            makeBox(`restroomStallHandle${index}`, hinge, 0.02, 0.12, 0.035, T / 2 + 0.01, 1.0, leafSign * (width - 0.1), chrome, index);
+            const lamp = makeBox(`restroomStallLamp${index}`, hinge, 0.008, 0.05, 0.05, T / 2 + 0.004, 1.12, leafSign * (width - 0.1), free, index);
+            const door = { index, seatId: `toilet-${index}`, hinge, leaf, lamp, free, busy, leafSign, frontX, opening: [from, to], t: 1, open: 1, remote: false };
             this._poseStallDoor(door);
             return door;
         });
@@ -1070,6 +1077,45 @@ const VenueDressing = {
         door.hinge.rotation.y = door.leafSign * VENUE_RESTROOM.doorAjar * door.open;
         const material = door.open < 0.5 ? door.busy : door.free;
         if (door.lamp.material !== material) door.lamp.material = material;
+    },
+
+    /** The room's doors as set by hand: one change (or the whole list, on joining) from the relay. Pure state, no animation. */
+    setSharedDoor(index, shut) {
+        const byHand = this._doorsByHand || (this._doorsByHand = VENUE_RESTROOM.stallOpenings.map(() => false));
+        if (Number.isInteger(index) && index >= 0 && index < byHand.length) byHand[index] = shut === true;
+    },
+
+    setSharedDoors(list) {
+        const count = VENUE_RESTROOM.stallOpenings.length;
+        for (let i = 0; i < count; i++) this.setSharedDoor(i, Array.isArray(list) && list[i] === true);
+    },
+
+    /** Push a door shut or ajar by hand, for everybody in the room. An occupied door does not give (its red lamp says so). */
+    pushStallDoor(index) {
+        const door = this._restroomDoors && this._restroomDoors[index];
+        if (!door) return false;
+        if (door.remote && !(this._activeSeat && this._activeSeat.id === door.seatId)) return false;
+        const shut = !this._doorsByHand[index];
+        this.setSharedDoor(index, shut);
+        const mp = this.multiplayer;
+        if (mp && mp.connected && mp.client && typeof mp.client.sendDoor === 'function') mp.client.sendDoor(index, shut);
+        return true;
+    },
+
+    /**
+     * A click or controller ray on a door: the guest sitting behind it stands up (which opens it), anyone else pushes it. It
+     * takes the press before the seat does, because a shut door is in front of the toilet it hides.
+     */
+    _pressStallDoor(pickResult) {
+        const index = pickResult && pickResult.pickedMesh && pickResult.pickedMesh.metadata && pickResult.pickedMesh.metadata.vrclubDoor;
+        if (!Number.isInteger(index) || !this._restroomDoors || !this._restroomDoors[index]) return false;
+        const door = this._restroomDoors[index];
+        if (this._activeSeat && this._activeSeat.id === door.seatId) {
+            this.standFromSeat(true);
+            return true;
+        }
+        this.pushStallDoor(index);
+        return true;
     },
 
     /**
@@ -1093,7 +1139,7 @@ const VenueDressing = {
         }
     },
 
-    /** Shut the door of an occupied toilet and reopen it when its guest stands. Nothing changes without a seat change. */
+    /** Shut the door of an occupied toilet (or one pushed shut by hand) and reopen it when released. Nothing changes without a cause. */
     _updateRestroomDoors(dt) {
         const doors = this._restroomDoors;
         if (!doors || !(dt > 0)) return;
@@ -1103,13 +1149,27 @@ const VenueDressing = {
             this._scanRemoteToilets();
         }
         const seatId = this._activeSeat ? this._activeSeat.id : null;
+        const byHand = this._doorsByHand;
+        let pos = null;
         for (let i = 0; i < doors.length; i++) {
             const door = doors[i];
-            const target = seatId === door.seatId || door.remote ? 0 : 1;
-            if (door.t === target) continue;
-            const step = dt / VENUE_RESTROOM.doorSeconds;
-            door.t = target > door.t ? Math.min(1, door.t + step) : Math.max(0, door.t - step);
-            this._poseStallDoor(door);
+            const target = seatId === door.seatId || door.remote || (byHand && byHand[i]) ? 0 : 1;
+            if (door.t !== target) {
+                const step = dt / VENUE_RESTROOM.doorSeconds;
+                door.t = target > door.t ? Math.min(1, door.t + step) : Math.max(0, door.t - step);
+                this._poseStallDoor(door);
+            }
+            // A shut door is solid, unless somebody stands in its doorway: then it stays soft until they step clear.
+            let solid = false;
+            if (door.t === 0) {
+                if (!pos) {
+                    const cam = this._playerCamera ? this._playerCamera() : this.camera;
+                    pos = cam && (cam.globalPosition || cam.position) || null;
+                }
+                const inDoorway = !!pos && Math.abs(pos.x - door.frontX) < 0.6 && pos.z > door.opening[0] - 0.3 && pos.z < door.opening[1] + 0.3;
+                solid = !inDoorway;
+            }
+            if (door.leaf.checkCollisions !== solid) door.leaf.checkCollisions = solid;
         }
     },
 

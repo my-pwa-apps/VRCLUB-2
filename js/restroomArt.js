@@ -14,7 +14,6 @@ const RestroomArt = (() => {
     const CELLS = {
         lightbox: [0, 0, 640, 896],
         flyerSun: [640, 0, 448, 640],
-        flyerType: [1088, 0, 448, 640],
         stickers: [1536, 0, 512, 512],
         tags: [640, 640, 512, 384],
         help: [1152, 640, 448, 384],
@@ -30,43 +29,25 @@ const RestroomArt = (() => {
         dividerA: { normal: '+z', at: -4.575, lateral: [-16.4, -14.45], y: [0.2, 2.1] },
         dividerAIn: { normal: '-z', at: -4.625, lateral: [-16.4, -14.45], y: [0.2, 2.1] },
         dividerB: { normal: '-z', at: -2.825, lateral: [-16.4, -14.45], y: [0.2, 2.1] },
-        dividerBIn: { normal: '+z', at: -2.775, lateral: [-16.4, -14.45], y: [0.2, 2.1] },
-        wallStage: { normal: '+z', at: -6.2, lateral: [-16.4, -14.45], y: [0.2, 2.1] },
-        wallEntrance: { normal: '-z', at: -1.2, lateral: [-16.4, -14.45], y: [0.2, 2.1] },
-        pillar: { normal: '-x', at: -12.8, lateral: [-5.3, -4.7], y: [0.2, 3.0] }
+        wallEntrance: { normal: '-z', at: -1.2, lateral: [-16.4, -14.45], y: [0.2, 2.1] }
     };
 
     // The placements. `along` is x for a wall facing +-z and z for one facing +-x; w and h are the quad's size in metres.
+    // Deliberately sparse: a backlit poster, one flyer and one sign in the aisle, and one thing to read inside each stall.
     const PLAN = [
         // The end of the aisle: a backlit NOCTURNE poster in a dark steel box.
         { cell: 'lightbox', kind: 'lightbox', surface: 'back', along: -3.7, y: 1.6, w: 0.9, h: 1.26 },
-        // Aisle side of the first divider.
-        { cell: 'flyerType', kind: 'poster', surface: 'dividerA', along: -15.95, y: 1.52, w: 0.42, h: 0.6 },
-        { cell: 'flyerSun', kind: 'poster', surface: 'dividerA', along: -15.15, y: 1.5, w: 0.42, h: 0.6 },
-        { cell: 'stickers', kind: 'decal', surface: 'dividerA', along: -15.45, y: 0.72, w: 0.6, h: 0.6 },
-        { cell: 'tags', kind: 'decal', surface: 'dividerA', along: -14.82, y: 0.82, w: 0.56, h: 0.42 },
-        // Aisle side of the second divider.
-        { cell: 'help', kind: 'poster', surface: 'dividerB', along: -15.0, y: 1.5, w: 0.56, h: 0.48 },
-        { cell: 'hygiene', kind: 'poster', surface: 'dividerB', along: -15.9, y: 1.5, w: 0.56, h: 0.48 },
-        { cell: 'tags', kind: 'decal', surface: 'dividerB', along: -15.5, y: 0.82, w: 0.56, h: 0.42 },
-        { cell: 'stickers', kind: 'decal', surface: 'dividerB', along: -14.82, y: 0.78, w: 0.5, h: 0.5 },
+        { cell: 'flyerSun', kind: 'poster', surface: 'dividerA', along: -15.4, y: 1.5, w: 0.42, h: 0.6 },
+        { cell: 'hygiene', kind: 'poster', surface: 'dividerB', along: -15.4, y: 1.5, w: 0.56, h: 0.48 },
         // Inside the stalls, where somebody sits long enough to read it.
-        { cell: 'hygiene', kind: 'poster', surface: 'dividerAIn', along: -15.0, y: 1.55, w: 0.42, h: 0.36 },
-        { cell: 'tags', kind: 'decal', surface: 'dividerAIn', along: -15.9, y: 1.0, w: 0.5, h: 0.375 },
-        { cell: 'tags', kind: 'decal', surface: 'wallStage', along: -15.2, y: 1.3, w: 0.6, h: 0.45 },
-        { cell: 'hygiene', kind: 'poster', surface: 'dividerBIn', along: -15.0, y: 1.55, w: 0.42, h: 0.36 },
-        { cell: 'stickers', kind: 'decal', surface: 'dividerBIn', along: -15.7, y: 1.1, w: 0.45, h: 0.45 },
-        { cell: 'tags', kind: 'decal', surface: 'wallEntrance', along: -15.2, y: 1.3, w: 0.6, h: 0.45 },
-        // The club's concrete pillar that pokes into the restroom by the hand dryer.
-        { cell: 'flyerSun', kind: 'poster', surface: 'pillar', along: -5.0, y: 1.5, w: 0.42, h: 0.6 }
+        { cell: 'help', kind: 'poster', surface: 'dividerAIn', along: -15.2, y: 1.5, w: 0.42, h: 0.36 },
+        { cell: 'tags', kind: 'decal', surface: 'wallEntrance', along: -15.2, y: 1.3, w: 0.5, h: 0.375 }
     ];
 
     // Art on the two stall doors, in the leaf's own frame: `along` runs from the hinge toward the free edge.
-    // `side` 'out' is the hall face, 'in' the face the person on the toilet sees.
+    // `side` 'out' is the hall face, 'in' the face the person on the toilet sees. Just a few stickers on the inside.
     const DOORS = [
-        { cell: 'help', side: 'out', along: 0.5, y: 1.35, w: 0.5, h: 0.43 },
-        { cell: 'stickers', side: 'in', along: 0.62, y: 1.25, w: 0.55, h: 0.55 },
-        { cell: 'tags', side: 'in', along: 0.62, y: 0.7, w: 0.52, h: 0.39 }
+        { cell: 'stickers', side: 'in', along: 0.62, y: 1.2, w: 0.42, h: 0.42 }
     ];
 
     /** A small deterministic generator, so the atlas is the same on every device and every load. */
@@ -238,42 +219,6 @@ const RestroomArt = (() => {
         spaced(ctx, '3px');
         ctx.fillText('VOL. 07  -  SATURDAY  -  23:00 TILL LATE', cx, H - 26);
         spaced(ctx, '0px');
-    }
-
-    // --- a black and acid-green typographic flyer ----------------------------------------------------------------------
-    function paintFlyerType(ctx, W, H) {
-        ctx.fillStyle = '#0c0c0c';
-        ctx.fillRect(0, 0, W, H);
-        ctx.fillStyle = '#c6ff00';
-        ctx.fillRect(0, 0, W, 54);
-        ctx.fillStyle = '#0c0c0c';
-        ctx.textAlign = 'left';
-        ctx.textBaseline = 'middle';
-        ctx.font = `800 24px ${BOLD}`;
-        spaced(ctx, '4px');
-        ctx.fillText('SUB LEVEL  /  NO PHOTOS', 18, 28);
-        spaced(ctx, '0px');
-        ctx.textAlign = 'left';
-        ctx.textBaseline = 'alphabetic';
-        const words = [['WARE', 150, true], ['HOUSE', 118, false], ['124', 168, true], ['BPM', 150, false]];
-        let y = 190;
-        for (const [word, size, filled] of words) {
-            ctx.font = `900 ${size}px ${BOLD}`;
-            ctx.lineJoin = 'round';
-            if (filled) { ctx.fillStyle = '#c6ff00'; ctx.fillText(word, 14, y); } else {
-                ctx.lineWidth = 4; ctx.strokeStyle = '#ffffff'; ctx.strokeText(word, 14, y);
-            }
-            y += size * 0.78;
-        }
-        const random = rng(5);
-        ctx.fillStyle = '#c6ff00';
-        for (let x = 18; x < W - 18; x += 6) {
-            const bar = 14 + random() * 56;
-            ctx.fillRect(x, H - 22 - bar, 3 + (random() < 0.3 ? 2 : 0), bar);
-        }
-        ctx.fillStyle = '#ffffff';
-        ctx.font = `600 16px ${BOLD}`;
-        ctx.fillText('SOUND SYSTEM  /  ALL NIGHT', 18, H - 6);
     }
 
     // --- a die-cut sticker sheet ---------------------------------------------------------------------------------------
@@ -482,7 +427,7 @@ const RestroomArt = (() => {
     }
 
     const PAINTERS = {
-        lightbox: paintLightbox, flyerSun: paintFlyerSun, flyerType: paintFlyerType,
+        lightbox: paintLightbox, flyerSun: paintFlyerSun,
         stickers: paintStickers, tags: paintTags, help: paintHelp, hygiene: paintHygiene
     };
 

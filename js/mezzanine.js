@@ -74,6 +74,8 @@ window.MezzanineLayout = MEZZANINE;
 
 // The DJ riser's walkable top (djPlatform in createDJBooth: 6 x 4 m centred on z -18, 0.5 m high).
 const DJ_RISER = { x0: -3, x1: 3, z0: -20, z1: -16, top: 0.5 };
+// How fast a guest steps up onto, or down off, the riser (m/s): 0.5 m in about a sixth of a second.
+const RISER_STEP_SPEED = 3;
 
 const Mezzanine = {
     _steelMaterial(name, textures, fallback) {
@@ -249,16 +251,31 @@ const Mezzanine = {
 
     /**
      * The surface under (x, z) anywhere a guest can walk: the entrance stair, its galleries and the street (outward of
-     * the club's front wall, VenueLayout.vestibule.walkLevel), otherwise the balcony, its stair or the floor.
+     * the club's front wall, VenueLayout.vestibule.walkLevel), otherwise the DJ riser, the balcony, its stair or the floor.
+     * The riser is stepped onto from any side, on foot, from the floor (`level` is the walker's feet): it is 0.5 m, one
+     * stage step. It used to count only for a walker already within 0.3 m of its top, which in a headset meant walking
+     * straight into the stage at floor level and being inside it until a jump landed on top.
      */
     _walkSurfaceLevel(x, z, level) {
         const layout = typeof window !== 'undefined' && window.VenueLayout && window.VenueLayout.vestibule;
         const entrance = layout && layout.walkLevel ? layout.walkLevel(x, z) : null;
         if (entrance !== null) return entrance;
         const R = DJ_RISER;
-        if (x >= R.x0 && x <= R.x1 && z >= R.z0 && z <= R.z1 &&
-            (!this.isInVRMode || Math.abs(level - R.top) < 0.3)) return R.top;
+        if (x >= R.x0 && x <= R.x1 && z >= R.z0 && z <= R.z1 && level < R.top + 0.35) return R.top;
         return MEZZANINE.walkLevel(x, z, level);
+    },
+
+    /**
+     * Ease a change between the floor and the riser instead of snapping 0.5 m in one frame (a step, not a teleport). Only
+     * the riser's own band is eased: stair ramps are already continuous, and a teleport or preset travel to the deck must
+     * land at once. `current` and `target` are feet levels.
+     */
+    _easeRiserLevel(x, z, current, target, dt) {
+        const R = DJ_RISER;
+        const near = x > R.x0 - 0.8 && x < R.x1 + 0.8 && z > R.z0 - 0.8 && z < R.z1 + 0.8;
+        if (!near || current < -1e-6 || current > R.top + 1e-6 || target < -1e-6 || target > R.top + 1e-6) return target;
+        const step = RISER_STEP_SPEED * Math.min(0.1, Math.max(0.001, dt));
+        return current + Math.max(-step, Math.min(step, target - current));
     },
 
     _guardDesktopCameraSteps(camera) {
@@ -296,7 +313,9 @@ const Mezzanine = {
             return;
         }
         const level = this._walkLevel || 0;
-        const next = this._walkSurfaceLevel(camera.position.x, camera.position.z, level);
+        const frameDt = this.engine && this.engine.getDeltaTime ? this.engine.getDeltaTime() / 1000 : 1 / 60;
+        let next = this._walkSurfaceLevel(camera.position.x, camera.position.z, level);
+        next = this._easeRiserLevel(camera.position.x, camera.position.z, level, next, frameDt);
         this._walkLevel = next;
         const jump = this._desktopJump;
         if (jump?.active) {
@@ -326,12 +345,13 @@ const Mezzanine = {
         const feet = camera.position.y - eye;
         const x = camera.position.x, z = camera.position.z;
         let next = this._walkSurfaceLevel(x, z, feet);
-        // The DJ riser (djPlatform: 6 x 4 m, top 0.5) is the other raised floor a headset can stand on: the DJ Booth
-        // destination puts it there.
-        const R = DJ_RISER;
-        if (next === 0 && x > R.x0 && x < R.x1 && z > R.z0 && z < R.z1 && Math.abs(feet - R.top) < 0.3) next = R.top;
-        // Up a stair or a riser: step straight onto it. Down more than a stair's step in one frame (off an edge, not a
-        // slow frame on the stair, which walkLevel allows up to 0.5 m): fall, under gravity.
+        // Up a stair or a riser: step onto it. Down more than a stair's step in one frame (off an edge, not a
+        // slow frame on the stair, which walkLevel allows up to 0.5 m): fall, under gravity. The riser's own 0.5 m step
+        // up is eased (a quick climb rather than a 0.5 m jump of the viewpoint, which a headset feels as a lurch).
+        if (next > feet && next <= DJ_RISER.top + 1e-6 && feet >= -1e-6) {
+            const frameMs = this.engine && this.engine.getDeltaTime ? this.engine.getDeltaTime() : 16.667;
+            next = this._easeRiserLevel(x, z, feet, next, frameMs / 1000);
+        }
         let target = next;
         if (next < feet - 0.45) {
             const frameMs = this.engine && this.engine.getDeltaTime ? this.engine.getDeltaTime() : 16.667;

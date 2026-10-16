@@ -102,8 +102,8 @@ each with 512 px WebP maps and a few hundred KiB (`node scripts/build-restroom-p
 left out deliberately: its alpha-masked cards cannot be drawn in the club, where every imported surface is forced opaque.
 
 The walls are dressed from ONE painted atlas, `js/restroomArt.js` (2048 x 1024, painted at run time with Canvas 2D, no image files and
-no web fonts): a backlit NOCTURNE poster in a steel box at the end of the aisle, two event flyers, a safety poster, a hygiene and
-no-smoking sign, die-cut stickers and marker tags on the dividers, inside the stalls and on the stall doors. It is original artwork
+no web fonts): a backlit NOCTURNE poster in a steel box at the end of the aisle, an event flyer and a hygiene and no-smoking sign on the
+dividers, and a safety poster, marker tags and a few stickers inside the stalls and on the stall doors. It is original artwork
 with generic wording (no brands, no artists), costing two draws plus one per door. A toilet roll, paper holder, soap dispenser pumps
 and hand-dryer nozzle are procedural.
 

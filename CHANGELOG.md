@@ -20,11 +20,19 @@ kept in lockstep with `index.html`, `sw.js` and `serviceworker.js` by
 
 ### Added
 
-- **A livelier restroom.** The walls now carry event flyers, a safety poster, hygiene and no-smoking signs, die-cut stickers, marker tags and a
-  backlit NOCTURNE poster at the end of the aisle (one painted atlas, `js/restroomArt.js`), with a waste bin, a wet floor sign and a
-  plunger from Poly Haven (CC0). Fixtures lost their brass look: chrome, plastic dispensers, paper rolls beside each toilet.
-- **Stall doors close.** Sitting on a toilet swings its door shut (with a free/occupied lamp); standing opens it. Doors stand ajar otherwise.
-  Doors are shared: a guest seated on a toilet shuts that door for everyone in the room (derived from the seated state frames, no relay change).
+- **The DJ stage can be walked onto from any side.** Two invisible blocks left over from the old floor-standing speaker stacks stood either side
+  of it and forced guests round by set routes; they are gone. In a headset the stage only counted for a walker already near its top, so you walked
+  into it at floor level and stayed inside it until a jump landed on top: it is now stepped onto (a quick climb) from the floor, and off again,
+  on desktop and in VR.
+- **A livelier restroom.** The end of the aisle carries a backlit NOCTURNE poster, the dividers an event flyer and a hygiene sign, and the stalls a
+  safety poster, marker tags and a few stickers (one painted atlas, `js/restroomArt.js`; kept deliberately sparse), with a waste bin, a wet floor
+  sign and a plunger from Poly Haven (CC0). Fixtures lost their brass look: chrome, plastic dispensers, paper rolls beside each toilet.
+- **Stall doors close, and move by hand.** Sitting on a toilet swings its door shut (with a lamp); standing opens it. Doors stand ajar otherwise
+  and can be pushed shut or ajar with a click or a controller ray (a shut door is solid, except around someone in its doorway), which also lets
+  you clear a door off a mirror. Doors are shared: a seated guest shuts that door for everyone (from the seated state frames), and a hand push is
+  relay-held room state (`{type:'door'}`, late joiners get `welcome.doors`) - **the relay must be deployed** for pushes to be seen by others.
+- **The couch is lit again.** It has its own warm accent light and a brighter albedo (it measured a dark ~8 of 255 against the wall), but still no
+  emission, so it reads as rust-brown leather rather than a glow.
 - **The mirror no longer shakes.** It was drawn twice a frame on desktop and every other frame in a headset (one eye's view for both,
   trailing the head); it now renders once per eye, every frame, at a sharper antialiased size per tier, and the reflected character
   is smoothed against headset tremor with hysteresis on walk/idle.

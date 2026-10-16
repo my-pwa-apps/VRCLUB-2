@@ -48,6 +48,8 @@ class NetworkClient {
     }
 
     static MAX_CHAT_LENGTH = 200;
+    /** Restroom stall doors the room shares (the relay's MAX_DOORS). */
+    static MAX_DOORS = 2;
     static AVATAR_POOLS = Object.freeze(['any', 'women', 'men']);
     /** What the relay will keep of a message (it applies the same rule): no control characters, at most 200 code points. */
     static cleanChat(value) {
@@ -125,6 +127,9 @@ class NetworkClient {
         this.onHostChange = () => {};
         this.onRoom = () => {};
         this.onShow = () => {};
+        /** The room's hand-operated doors: the whole list on joining, then one change at a time (index, shut). */
+        this.onDoors = () => {};
+        this.onDoor = () => {};
         this.onChat = () => {};
         this.onRemoteStream = () => {};
         this.onMusicBroadcast = () => {};
@@ -289,6 +294,7 @@ class NetworkClient {
                 for (const peer of msg.peers || []) this._addPeer(peer);
                 if (msg.music) this.onMusic(msg.music);
                 if (msg.show) this.onShow(msg.show);
+                if (Array.isArray(msg.doors)) this.onDoors(msg.doors.slice(0, NetworkClient.MAX_DOORS).map(shut => shut === true));
                 this.onHostChange(this.hostId);
                 this.onRoom(this.locked);
                 break;
@@ -355,6 +361,12 @@ class NetworkClient {
 
             case 'show':
                 this.onShow(msg);
+                break;
+
+            case 'door':
+                if (this.peers.has(msg.id) && Number.isInteger(msg.door) && msg.door >= 0 && msg.door < NetworkClient.MAX_DOORS) {
+                    this.onDoor(msg.door, msg.shut === true);
+                }
                 break;
 
             case 'host':
@@ -591,6 +603,13 @@ class NetworkClient {
 
     /** The relay's clock now, in ms. */
     serverNow() { return Date.now() + this.serverOffset; }
+
+    /** Push a restroom stall door shut (true) or ajar (false). Any guest may; the relay keeps it for late joiners. */
+    sendDoor(door, shut) {
+        if (this.status !== 'connected' || !Number.isInteger(door) || door < 0 || door >= NetworkClient.MAX_DOORS) return false;
+        this._send({ type: 'door', door, shut: shut === true });
+        return true;
+    }
 
     /** Host-only: the light show's current frame. The relay ignores it from anyone else. */
     sendShow(show) {

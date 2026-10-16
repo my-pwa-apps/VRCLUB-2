@@ -16,6 +16,7 @@
  *     { type: 'avatar', pool? }                       - ask for a different random avatar, optionally from 'women', 'men' or 'any'
  *     { type: 'music', url, playing, position, podcast?, title? } - host only; shared track state (http(s) only)
  *     { type: 'show', m, mv, cue, ... }               - host only; the light show (see sanitizeShow)
+ *     { type: 'door', door: 0|1, shut: bool }         - any guest; push a restroom stall door shut or ajar by hand (shared room state)
  *     { type: 'rtc-signal', target, signal }          - relayed 1:1 to `target`
  *     { type: 'blocklist', pids: [...] }              - replace this guest's block list (on connect; at most 64)
  *     { type: 'block', pid } / { type: 'unblock', pid } - two-way invisibility: neither sees, hears or signals the other
@@ -24,7 +25,7 @@
  *     { type: 'host-transfer', target }              - host only; give another visible guest control without disconnecting
  *     { type: 'ping', time? }                         - heartbeat every 10 s; optional monotonic timestamp for clock compensation; silence for 30 s closes a pinger (4013)
  *   server -> client
- *     { type: 'welcome', id, pid, avatar, hostId, locked, serverTime, world:{v:1,startedAt,seed}, targetedChat:true, hostTransfer:true, peers:[{id,pid,name,avatar,state}], music, show }
+ *     { type: 'welcome', id, pid, avatar, hostId, locked, serverTime, world:{v:1,startedAt,seed}, targetedChat:true, hostTransfer:true, peers:[{id,pid,name,avatar,state}], music, show, doors:[bool,bool] }
  *     { type: 'pong', time, serverTime }              - a timestamped ping reply to its sender only
  *     { type: 'join', id, pid, name, avatar }
  *     { type: 'leave', id }
@@ -35,6 +36,7 @@
  *     { type: 'avatar', id, avatar }
  *     { type: 'music', url, playing, position, updatedAt, podcast, title }
  *     { type: 'show', ... }
+ *     { type: 'door', id, door, shut }
  *     { type: 'host', id }
  *     { type: 'room', locked }
  *     { type: 'rtc-signal', from, signal }
@@ -79,6 +81,8 @@ import { handleRoomDirectory, publishRoom, privateRoomName, ROOM_DIRECTORY_REFRE
 export const MAX_NAME_LENGTH = 32;
 export const MAX_ROOM_NAME_LENGTH = 64;
 export const MAX_ROOM_SIZE = 8;
+/** The restroom's two stall doors: the only shared, hand-operated pieces of the room so far. */
+export const MAX_DOORS = 2;
 export const MAX_FRAME_BYTES = 16 * 1024;
 export const MAX_URL_LENGTH = 2048;
 export const MAX_COORDINATE = 500;
@@ -136,6 +140,7 @@ export const RATE_LIMITS = Object.freeze({
     avatar: { rate: 0.5, burst: 2 },
     music: { rate: 2, burst: 4 },
     show: { rate: 5, burst: 10 },
+    door: { rate: 2, burst: 6 },
     'rtc-signal': { rate: 50, burst: 120 },
     blocklist: { rate: 0.5, burst: 3 },
     block: { rate: 2, burst: 8 },
@@ -316,6 +321,7 @@ export class ClubRoom {
         this.hostId = null;
         this.musicState = null; // { url, playing, position, updatedAt, podcast, title }
         this.showState = null;  // the host's latest light-show frame (sanitizeShow)
+        this.doors = new Array(MAX_DOORS).fill(false); // stall doors pushed shut by hand (any guest may)
         this.world = null;
         this.locked = false;
         this.banned = new Set();
@@ -423,7 +429,8 @@ export class ClubRoom {
             hostTransfer: true,
             peers,
             music: this.musicState,
-            show: this.showState
+            show: this.showState,
+            doors: this.doors
         });
         this._relay(session, { type: 'join', id, pid, name, avatar: session.avatar }, ws);
         this._publishDirectory();
@@ -533,6 +540,17 @@ export class ClubRoom {
                 if (!show) return;
                 this.showState = show;
                 this._relay(session, { type: 'show', ...show }, ws);
+                break;
+            }
+
+            case 'door': {
+                // A door is part of the room, not of a person: any guest may push it, the relay keeps the latest state for
+                // late joiners, and only the index and one boolean survive. (Block is about people: a blocked guest's
+                // frames are simply not relayed to the guest who blocked them.)
+                if (!Number.isInteger(msg.door) || msg.door < 0 || msg.door >= MAX_DOORS) return;
+                const shut = msg.shut === true;
+                this.doors[msg.door] = shut;
+                this._relay(session, { type: 'door', id: session.id, door: msg.door, shut }, ws);
                 break;
             }
 
@@ -674,6 +692,7 @@ export class ClubRoom {
             this.hostId = null;
             this.musicState = null;
             this.showState = null;
+            this.doors.fill(false);
             this.world = null;
             this.locked = false;
             this.banned.clear();

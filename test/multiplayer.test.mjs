@@ -700,6 +700,35 @@ test('a guest follows the host: its director and colour engine are handed over, 
     assert.equal(club.vjDirector.remoteDriven, false);
 });
 
+test('stall doors are shared: the welcome hands over the room\'s doors, a peer\'s push moves one, mine goes out, and leaving resets them', () => {
+    const env = makeController();
+    const doors = [false, false], log = [];
+    env.club.setSharedDoors = list => { log.push(['all', JSON.stringify(list)]); list.forEach((v, i) => { doors[i] = v; }); if (!list.length) doors.fill(false); };
+    env.club.setSharedDoor = (index, shut) => { log.push(['one', index, shut]); doors[index] = shut; };
+    env.mp.connect({ serverUrl: 'wss://relay.example', room: 'r' });
+    const socket = FakeSocket.instances.at(-1);
+    socket.receive({ type: 'welcome', id: 'me', pid: PID_A, avatar: 'f3', hostId: 'p1', locked: false,
+        peers: [{ id: 'p1', pid: PID_B, name: 'Bo', avatar: 'm1' }], doors: [false, true, 'junk', true] });
+    assert.deepEqual(doors, [false, true], 'the welcome carries the room\'s doors, at most the two there are, only true counts');
+    socket.receive({ type: 'door', id: 'p1', door: 0, shut: true });
+    assert.deepEqual(doors, [true, true]);
+    socket.receive({ type: 'door', id: 'stranger', door: 1, shut: false });
+    assert.deepEqual(doors, [true, true], 'a frame from nobody in the room is ignored');
+    for (const bad of [{ door: 2 }, { door: -1 }, { door: 0.5 }, { door: '1' }]) socket.receive({ type: 'door', id: 'p1', shut: true, ...bad });
+    assert.deepEqual(doors, [true, true], 'out-of-range or non-integer doors are ignored');
+    socket.receive({ type: 'door', id: 'p1', door: 0, shut: 'yes' });
+    assert.equal(doors[0], false, 'only true shuts a door');
+    // Pushing one myself is sent to the relay.
+    assert.equal(env.mp.client.sendDoor(1, true), true);
+    assert.deepEqual(plain(socket.sent.at(-1)), { type: 'door', door: 1, shut: true });
+    assert.equal(env.mp.client.sendDoor(2, true), false);
+    assert.equal(env.mp.client.sendDoor(0, 'x'), true);
+    assert.equal(socket.sent.at(-1).shut, false);
+    // Out of the room the doors are ajar again.
+    env.mp.disconnect();
+    assert.deepEqual(doors, [false, false]);
+});
+
 test('a guest applies the host\'s show frames: the first one forces the look, the colour is always adopted', () => {
     const { mp, socket, club } = connectedController(undefined, { hostId: 'p1' });
     const calls = fakeRig(club);

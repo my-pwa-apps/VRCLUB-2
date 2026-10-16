@@ -339,21 +339,18 @@ class VRClubEnvironment extends VRClubRendering {
             alpha: 0 // Completely invisible
         });
         
-        // The visible shell and DJ table already collide. The old perimeter band put an invisible
-        // partition across open floor at z=-5; only isolated equipment clearance belongs here.
+        // The visible shell, the DJ table and the LED wall's backing already collide. Two invisible 2 m blocks used to
+        // stand either side of the stage (x +-4.5, z -18..-16) to fence the floor-standing speaker stacks, which are flown
+        // now: they were left behind as walls on open floor that forced guests round the stage by set routes.
+        // Only the flown PA cabinets' clearance belongs here.
         const boundaries = [
-            { width: 0.5, height: 2, depth: 2, 
-              pos: new BABYLON.Vector3(-4.5, 1, -17) }, // Left side
-            { width: 0.5, height: 2, depth: 2, 
-              pos: new BABYLON.Vector3(4.5, 1, -17) }, // Right side
-            
-                        // Flown PA cabinets under the rear truss
-                        { width: 2, height: 1.8, depth: 2,
-                            pos: new BABYLON.Vector3(CLUB_POSITIONS.paSpeakers.left.x,
-                                    CLUB_POSITIONS.paSpeakers.left.y - 0.725, CLUB_POSITIONS.paSpeakers.left.z) },
-                        { width: 2, height: 1.8, depth: 2,
-                            pos: new BABYLON.Vector3(CLUB_POSITIONS.paSpeakers.right.x,
-                                    CLUB_POSITIONS.paSpeakers.right.y - 0.725, CLUB_POSITIONS.paSpeakers.right.z) }
+            // Flown PA cabinets under the rear truss
+            { width: 2, height: 1.8, depth: 2,
+                pos: new BABYLON.Vector3(CLUB_POSITIONS.paSpeakers.left.x,
+                        CLUB_POSITIONS.paSpeakers.left.y - 0.725, CLUB_POSITIONS.paSpeakers.left.z) },
+            { width: 2, height: 1.8, depth: 2,
+                pos: new BABYLON.Vector3(CLUB_POSITIONS.paSpeakers.right.x,
+                        CLUB_POSITIONS.paSpeakers.right.y - 0.725, CLUB_POSITIONS.paSpeakers.right.z) }
         ];
         
         boundaries.forEach((b, i) => {
