@@ -62,7 +62,7 @@ test('the lounge couch faces the DJ from the entrance wall and two people can si
     });
     await page.waitForTimeout(1500);
     // Lit, not a dark shape and not a glowing one: the couch's own pixels sit in a sane band (a dark couch measured ~8 of 255,
-    // the walls around it ~8; a lit one ~28 with highlights near 110).
+    // too bright ~28 with highlights near 110; the shipped middle is ~17 with highlights near 70).
     const shot = await page.screenshot();
     const { default: sharp } = await import('sharp');
     const meta = await sharp(shot).metadata();
@@ -76,7 +76,8 @@ test('the lounge couch faces the DJ from the entrance wall and two people can si
     }
     const luminance = sum / count;
     console.log('COUCH_LUMINANCE', luminance.toFixed(1), 'max', max.toFixed(0));
-    expect(luminance, 'the couch must be visible, not a dark shape').toBeGreaterThan(18);
+    expect(luminance, 'the couch must be visible, not a dark shape').toBeGreaterThan(12);
+    expect(luminance, 'and not as bright as the first fix, which was too much').toBeLessThan(23);
     expect(max, 'and nothing on it blooms: highlights stay well below white').toBeLessThan(190);
     await expectHealthyRuntime(page);
 });

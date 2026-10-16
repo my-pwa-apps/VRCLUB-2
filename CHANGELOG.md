@@ -18,6 +18,12 @@ kept in lockstep with `index.html`, `sw.js` and `serviceworker.js` by
   allow-list, sanitised names and http(s)-only shared music URLs (requires a relay redeploy).
 - First-party code no longer builds DOM from HTML strings; a contract test forbids it.
 
+### Removed
+
+- **The NOCTURNE logo and the set DJ's name on the LED wall.** The marquee pattern was unreadable on the 21x10 grid and is gone, along with its
+  three show looks (which are back on the aurora, ripple and breathing patterns they used before). The booth DJ still follows the set's gender when
+  the name makes that certain.
+
 ### Added
 
 - **The DJ stage can be walked onto from any side.** Two invisible blocks left over from the old floor-standing speaker stacks stood either side

@@ -24,62 +24,6 @@ const WAREHOUSE_PROGRAMS = {
 // three per second; the governor refuses any closer than this, whatever the music does.
 const WAREHOUSE_MIN_FLASH_GAP = 0.40;
 
-// 5x7 LED tile font for marquee banners on the 21x10 wall. O, R and E carry the club's own
-// NOCTURNE letterforms (a ring cut at 9 and 3 o'clock, a stemless R, and three detached bars).
-const LED_FONT_5X7 = Object.freeze({
-    A: [0b01110, 0b10001, 0b10001, 0b11111, 0b10001, 0b10001, 0b10001],
-    B: [0b11110, 0b10001, 0b10001, 0b11110, 0b10001, 0b10001, 0b11110],
-    C: [0b01111, 0b10000, 0b10000, 0b10000, 0b10000, 0b10000, 0b01111],
-    D: [0b11110, 0b10001, 0b10001, 0b10001, 0b10001, 0b10001, 0b11110],
-    E: [0b11111, 0b00000, 0b00000, 0b11110, 0b00000, 0b00000, 0b11111],
-    F: [0b11111, 0b10000, 0b10000, 0b11110, 0b10000, 0b10000, 0b10000],
-    G: [0b01111, 0b10000, 0b10000, 0b10111, 0b10001, 0b10001, 0b01111],
-    H: [0b10001, 0b10001, 0b10001, 0b11111, 0b10001, 0b10001, 0b10001],
-    I: [0b01110, 0b00100, 0b00100, 0b00100, 0b00100, 0b00100, 0b01110],
-    J: [0b00111, 0b00010, 0b00010, 0b00010, 0b10010, 0b10010, 0b01100],
-    K: [0b10001, 0b10010, 0b10100, 0b11000, 0b10100, 0b10010, 0b10001],
-    L: [0b10000, 0b10000, 0b10000, 0b10000, 0b10000, 0b10000, 0b11111],
-    M: [0b10001, 0b11011, 0b10101, 0b10101, 0b10001, 0b10001, 0b10001],
-    N: [0b10001, 0b11001, 0b10101, 0b10101, 0b10011, 0b10001, 0b10001],
-    O: [0b01110, 0b10001, 0b10001, 0b00000, 0b10001, 0b10001, 0b01110],
-    P: [0b11110, 0b10001, 0b10001, 0b11110, 0b10000, 0b10000, 0b10000],
-    Q: [0b01110, 0b10001, 0b10001, 0b10001, 0b10101, 0b10010, 0b01101],
-    R: [0b11110, 0b00001, 0b00001, 0b01110, 0b00100, 0b00010, 0b00001],
-    S: [0b01111, 0b10000, 0b10000, 0b01110, 0b00001, 0b00001, 0b11110],
-    T: [0b11111, 0b00100, 0b00100, 0b00100, 0b00100, 0b00100, 0b00100],
-    U: [0b10001, 0b10001, 0b10001, 0b10001, 0b10001, 0b10001, 0b01110],
-    V: [0b10001, 0b10001, 0b10001, 0b10001, 0b10001, 0b01010, 0b00100],
-    W: [0b10001, 0b10001, 0b10001, 0b10101, 0b10101, 0b11011, 0b10001],
-    X: [0b10001, 0b10001, 0b01010, 0b00100, 0b01010, 0b10001, 0b10001],
-    Y: [0b10001, 0b10001, 0b01010, 0b00100, 0b00100, 0b00100, 0b00100],
-    Z: [0b11111, 0b00001, 0b00010, 0b00100, 0b01000, 0b10000, 0b11111],
-    '0': [0b01110, 0b10001, 0b10011, 0b10101, 0b11001, 0b10001, 0b01110],
-    '1': [0b00100, 0b01100, 0b00100, 0b00100, 0b00100, 0b00100, 0b01110],
-    '2': [0b01110, 0b10001, 0b00001, 0b00110, 0b01000, 0b10000, 0b11111],
-    '3': [0b11110, 0b00001, 0b00001, 0b01110, 0b00001, 0b00001, 0b11110],
-    '4': [0b00010, 0b00110, 0b01010, 0b10010, 0b11111, 0b00010, 0b00010],
-    '5': [0b11111, 0b10000, 0b11110, 0b00001, 0b00001, 0b10001, 0b01110],
-    '6': [0b00110, 0b01000, 0b10000, 0b11110, 0b10001, 0b10001, 0b01110],
-    '7': [0b11111, 0b00001, 0b00010, 0b00100, 0b01000, 0b01000, 0b01000],
-    '8': [0b01110, 0b10001, 0b10001, 0b01110, 0b10001, 0b10001, 0b01110],
-    '9': [0b01110, 0b10001, 0b10001, 0b01111, 0b00001, 0b00010, 0b01100],
-    '-': [0b00000, 0b00000, 0b00000, 0b11111, 0b00000, 0b00000, 0b00000],
-    '.': [0b00000, 0b00000, 0b00000, 0b00000, 0b00000, 0b00110, 0b00110],
-    "'": [0b00100, 0b00100, 0b00000, 0b00000, 0b00000, 0b00000, 0b00000],
-    '&': [0b01100, 0b10010, 0b10100, 0b01000, 0b10101, 0b10010, 0b01101]
-});
-
-// Compact 3x5 LED tile font so the whole 8-letter NOCTURNE wordmark fits side-by-side across 21 columns.
-const LED_FONT_3X5 = Object.freeze({
-    C: [0b011, 0b100, 0b100, 0b100, 0b011],
-    E: [0b111, 0b000, 0b110, 0b000, 0b111],
-    N: [0b101, 0b111, 0b111, 0b101, 0b101],
-    O: [0b111, 0b101, 0b000, 0b101, 0b111],
-    R: [0b110, 0b001, 0b010, 0b010, 0b001],
-    T: [0b111, 0b010, 0b010, 0b010, 0b010],
-    U: [0b101, 0b101, 0b101, 0b101, 0b111]
-});
-
 const NON_DJ_NAME_WORDS = new Set([
     'set', 'mix', 'podcast', 'episode', 'ep', 'vol', 'volume', 'part', 'pt',
     'live', 'stream', 'radio', 'show', 'session', 'sessions', 'recording',
@@ -1615,12 +1559,11 @@ class LEDPatternMethods {
     }
 
     // ──────────────────────────────────────────────────────────────────────
-    // NOCTURNE & SET DJ MARQUEE (pattern 20)
+    // SET DJ NAME EXTRACTION (used to match the booth DJ's look to the set)
     //
-    // Animates the club's own NOCTURNE wordmark (cut O, stemless R, 3-bar E) across the 21x10
-    // LED wall and, when the currently playing set unambiguously identifies a DJ name, weaves
-    // that DJ's name into the sequence. Never prepends "DJ" unless "DJ" is part of the artist's
-    // real name in the set metadata, and returns null when uncertain so no guessed text is shown.
+    // Reads the currently playing set's metadata and returns a DJ name only when it is unambiguous,
+    // and a gender only when that is certain. Never prepends "DJ" unless "DJ" is part of the artist's
+    // real name in the set metadata, and returns null when uncertain so nothing is ever guessed.
     // ──────────────────────────────────────────────────────────────────────
 
     static _cleanSetTitle(raw) {
@@ -1723,209 +1666,12 @@ class LEDPatternMethods {
         if (MALE_FIRST_NAMES.has(first)) return 'male';
         return null;
     }
-
-    _activeSetDjName(audioData) {
-        const hasAudio = !!(audioData && audioData.hasAudio) ||
-            !!(this.audioElement && !this.audioElement.paused && this.audioElement.src) ||
-            !!this._soundCloudPlaying ||
-            !!(this._networkMusic && this.multiplayer?._broadcastState?.playing);
-        if (!hasAudio) return null;
-        const current = this.musicLibrary && typeof this.musicLibrary.current === 'function'
-            ? this.musicLibrary.current()
-            : null;
-        const label = this.nowPlayingLabel || '';
-        const savedName = (current && current.name) || '';
-        const url = this._audioStreamUrl || this._soundCloudUrl || (current && current.url) || '';
-        const key = `${label}\n${savedName}\n${url}`;
-        if (this._djBannerCacheKey === key) return this._djBannerCacheName;
-        this._djBannerCacheKey = key;
-        this._djBannerCacheName = LEDPatternMethods.extractSetDjName({ label, savedName, url });
-        return this._djBannerCacheName;
-    }
-
-    static _sampleLed5x7(text, uCol, row) {
-        const rFloat = 7.5 - row;
-        if (rFloat < -0.6 || rFloat > 6.6) return 0;
-        const bit = (col, rIdx) => {
-            if (rIdx < 0 || rIdx > 6) return 0;
-            const ci = Math.floor(col / 6);
-            if (ci < 0 || ci >= text.length) return 0;
-            const lc = col - ci * 6;
-            if (lc < 0 || lc > 4) return 0;
-            const g = LED_FONT_5X7[text[ci]];
-            return g ? ((g[rIdx] >> (4 - lc)) & 1) : 0;
-        };
-        const c0 = Math.floor(uCol), c1 = c0 + 1;
-        const cf = uCol - c0;
-        const r0 = Math.round(rFloat);
-        const rf = Math.max(0, 1 - Math.abs(rFloat - r0) * 0.85);
-        return ((1 - cf) * bit(c0, r0) + cf * bit(c1, r0)) * rf;
-    }
-
-    static _sampleNocturne3x5(col, row, activeChars = 8) {
-        const lr = 7 - row;
-        if (lr < 0 || lr > 4) return 0;
-        const ci = Math.floor((col - 0.5) / 2.5);
-        if (ci < 0 || ci >= activeChars || ci >= 8) return 0;
-        const lc = Math.round(((col - 0.5) - ci * 2.5) * 1.35);
-        if (lc < 0 || lc > 2) return 0;
-        const g = LED_FONT_3X5['NOCTURNE'[ci]];
-        return g && ((g[lr] >> (2 - lc)) & 1) ? 1 : 0;
-    }
-
-    patternNocturneMarquee(color, time, audioData) {
-        const panels = this.ledPanels;
-        if (!panels || panels.length === 0) return;
-        const cols = this.ledCols || 21;
-        const rows = this.ledRows || 10;
-        const cells = cols * rows;
-        const hasAudio = !!(audioData && audioData.hasAudio);
-        const bass = hasAudio ? (audioData.bass || 0) : 0;
-
-        let mq = this._mq;
-        if (!mq || mq.cells !== cells) {
-            mq = this._mq = {
-                cells,
-                level: new Float32Array(cells),
-                warm: new Float32Array(cells),
-                fresh: new Float32Array(cells),
-                freshWarm: new Float32Array(cells),
-                lastFrame: -1e9,
-                lastT: -1e9,
-                accent: new BABYLON.Color3(),
-                scratch: new BABYLON.Color3()
-            };
-        }
-
-        const bpm = this.bpm || 128;
-        const beatLen = 60 / bpm;
-        const vj = this.vjDirector;
-        const beats = (vj && Number.isFinite(vj.beatNumber))
-            ? vj.beatNumber + ((this.barPhase || 0) * 4 - Math.floor((this.barPhase || 0) * 4))
-            : time / beatLen;
-
-        const frameId = (this.scene && typeof this.scene.getFrameId === 'function') ? this.scene.getFrameId() : null;
-        const away = frameId !== null ? (frameId - mq.lastFrame > 3) : (time - mq.lastT > 0.5);
-        if (away) {
-            mq.level.fill(0);
-            mq.warm.fill(0);
-        }
-        if (frameId !== null) mq.lastFrame = frameId;
-        const dt = away ? 1 / 60 : Math.min(0.1, Math.max(0, time - mq.lastT));
-        mq.lastT = time;
-
-        const djName = this._activeSetDjName(audioData);
-        const totalBars = 32;
-        const bar = ((beats / 4) % totalBars + totalBars) % totalBars;
-        const scene = Math.floor(bar / 8); // Four 8-bar acts: 0 IGNITE, 1 NOCTURNE SCROLL, 2 PULSE, 3 DJ / NOCTURNE
-        const local = bar - scene * 8;
-        const env = this._ugSmooth(local / 0.45) * this._ugSmooth((8 - local) / 0.45);
-
-        const fresh = mq.fresh, fw = mq.freshWarm;
-        fresh.fill(0);
-        fw.fill(0);
-        const cx = (cols - 1) / 2, cy = (rows - 1) / 2;
-        const breath = 0.78 + 0.22 * (hasAudio ? bass : (0.5 + 0.5 * Math.sin(time * 2.2)));
-
-        if (scene === 0) {
-            // ACT I — NEON IGNITION: the 8 NOCTURNE glyphs ignite left-to-right across the wall.
-            const activeChars = Math.min(8, Math.floor(local * 1.5) + 1);
-            const newestChar = activeChars - 1;
-            for (let p = 0; p < panels.length; p++) {
-                const panel = panels[p];
-                const idx = panel.row * cols + panel.col;
-                const ink = LEDPatternMethods._sampleNocturne3x5(panel.col, panel.row, activeChars);
-                const ci = Math.floor((panel.col - 0.5) / 2.5);
-                let v = ink * 0.92 * breath;
-                let w = ink > 0 && ci === newestChar ? 0.85 : 0.25 * ink;
-                if (panel.row === 1 || panel.row === 8) {
-                    const rail = 0.20 + 0.12 * Math.sin(panel.col * 0.4 - time * 2.0);
-                    if (rail > v) { v = rail; w = 0; }
-                }
-                fresh[idx] = v;
-                fw[idx] = w;
-            }
-        } else if (scene === 1 || (scene === 3 && djName)) {
-            // ACT II / IV — 5x7 MARQUEE SCROLL: NOCTURNE in Act II, or the verified DJ name in Act IV.
-            const bannerText = scene === 3 && djName ? djName : 'NOCTURNE';
-            const totalCols = bannerText.length * 6 - 1;
-            const spanCols = totalCols + cols * 1.1;
-            // Capped real-time scroll speed (~3.1 columns/s) so no panel ever crosses half-brightness above 2 Hz.
-            const scrollX = -cols * 0.55 + ((local * 3.8) % spanCols);
-            for (let p = 0; p < panels.length; p++) {
-                const panel = panels[p];
-                const idx = panel.row * cols + panel.col;
-                const glyph = LEDPatternMethods._sampleLed5x7(bannerText, panel.col + scrollX, panel.row);
-                let v = glyph * 0.94 * breath;
-                let w = glyph > 0.5 ? (scene === 3 ? 0.75 : 0.45) : 0;
-                if (panel.row === 0 || panel.row === rows - 1) {
-                    const dir = panel.row === 0 ? 1 : -1;
-                    const chaser = (0.18 + 0.14 * (0.5 + 0.5 * Math.sin(panel.col * 0.5 - time * 2.2 * dir)));
-                    if (chaser > v) { v = chaser; w = 0; }
-                }
-                fresh[idx] = v;
-                fw[idx] = w;
-            }
-        } else {
-            // ACT III (and Act IV when no DJ name is known) — WORDMARK HALO: full NOCTURNE logo over expanding rings.
-            for (let p = 0; p < panels.length; p++) {
-                const panel = panels[p];
-                const idx = panel.row * cols + panel.col;
-                const ink = LEDPatternMethods._sampleNocturne3x5(panel.col, panel.row, 8);
-                const dist = Math.hypot((panel.col - cx) * 0.62, panel.row - cy);
-                const wave = Math.max(0, Math.sin(dist * 1.25 - time * 2.6)) * (0.22 + 0.14 * bass);
-                const sweep = Math.exp(-Math.pow((panel.col - ((local / 8) * cols * 1.3 - cols * 0.15)) * 0.45, 2));
-                if (ink > 0) {
-                    fresh[idx] = Math.min(1, (0.78 + 0.22 * sweep) * breath);
-                    fw[idx] = 0.35 + 0.65 * sweep;
-                } else {
-                    fresh[idx] = wave;
-                    fw[idx] = 0;
-                }
-            }
-        }
-
-        const decay = Math.exp(-dt / 0.26);
-        const level = mq.level, warm = mq.warm;
-        for (let i = 0; i < cells; i++) {
-            const f = fresh[i] * env;
-            const held = level[i] * decay;
-            if (f >= held) { level[i] = f; warm[i] = fw[i]; } else { level[i] = held; }
-        }
-
-        const accent = mq.accent;
-        const partner = this.ledAccentColor;
-        if (!this.ledMonochrome && partner) {
-            accent.set(
-                partner.r + (1 - partner.r) * 0.45,
-                partner.g + (1 - partner.g) * 0.45,
-                partner.b + (1 - partner.b) * 0.45
-            );
-        } else {
-            accent.set(color.r + (1 - color.r) * 0.65, color.g + (1 - color.g) * 0.65, color.b + (1 - color.b) * 0.65);
-        }
-
-        const out = mq.scratch;
-        for (let p = 0; p < panels.length; p++) {
-            const panel = panels[p];
-            const idx = panel.row * cols + panel.col;
-            const v = level[idx];
-            if (v < 0.02) { this.updateLEDPanel(panel, color, 0); continue; }
-            const w = warm[idx];
-            out.set(
-                color.r + (accent.r - color.r) * w,
-                color.g + (accent.g - color.g) * w,
-                color.b + (accent.b - color.b) * w
-            );
-            this.updateLEDPanel(panel, out, Math.min(1, v));
-        }
-    }
 }
 
 window.LEDPatterns = {};
 for (const name of Object.getOwnPropertyNames(LEDPatternMethods.prototype)) {
     if (name !== 'constructor') window.LEDPatterns[name] = LEDPatternMethods.prototype[name];
 }
-for (const name of ['extractSetDjName', 'inferSetDjGender', '_cleanSetTitle', '_normalizeAsciiBanner', '_validateSetDjCandidate', '_sampleLed5x7', '_sampleNocturne3x5']) {
+for (const name of ['extractSetDjName', 'inferSetDjGender', '_cleanSetTitle', '_normalizeAsciiBanner', '_validateSetDjCandidate']) {
     window.LEDPatterns[name] = LEDPatternMethods[name];
 }

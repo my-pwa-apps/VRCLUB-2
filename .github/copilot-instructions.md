@@ -108,20 +108,20 @@ Key lifecycle members:
   `doNotHandleContextLost: true`).
 
 ### `js/ledPatterns.js`
-The LED wall's 21 `pattern*` implementations (exactly the playlist in `updateLEDWall()`;
+The LED wall's 20 `pattern*` implementations (exactly the playlist in `updateLEDWall()`;
 unreachable patterns were deleted, including a 15 Hz full-field strobe) plus `updateLEDPanel()`,
 `extractSetDjName()` and the stateful
 palette/shape helpers. It publishes `window.LEDPatterns`; `club_hyperrealistic.js` mixes
 that map into `VRClub.prototype` after defining the class, preserving the club instance
 as `this` without wrappers or call-site changes.
 
-`patternNocturneMarquee` (index 20, used in `chromaticRoom`, `driftAway` and `bdAurora`) is a 32-bar,
-four-act marquee on the 21x10 tile grid (NEON IGNITION, 5x7 NOCTURNE SCROLL, WORDMARK HALO, and SET DJ /
-NOCTURNE SCROLL). O, R and E use the club's own NOCTURNE letterforms (a cut O, a stemless R, and three
-detached bars). `LEDPatterns.extractSetDjName()` conservatively extracts a high-confidence DJ name from
-the active set's metadata (`nowPlayingLabel`, saved set name, or known artist feed/stream URL), never
-prepending `DJ` unless `DJ` is explicitly part of that artist's real name, and returning `null` whenever
-uncertain so Act IV stays on `NOCTURNE` rather than guessing.
+The wall deliberately does NOT show the NOCTURNE logo or the DJ's name any more. A marquee pattern (index 20) did, and was removed at
+the owner's request after it proved unreadable on a 21x10 grid (a 3x5 wordmark does not fit eight letters in 21 columns, and a scroll
+that covered only part of the word per act never showed it whole). Do not bring it back without a legible design (white on black, whole
+words, centred above the booth). `LEDPatterns.extractSetDjName()` and `inferSetDjGender()` stay: they conservatively extract a
+high-confidence DJ name from the active set's metadata (`nowPlayingLabel`, saved set name, or known artist feed/stream URL), never
+prepending `DJ` unless `DJ` is explicitly part of that artist's real name, and return `null` whenever uncertain; the booth DJ's
+male/female look follows the set through `syncDJFromSet()` only when that is certain.
 
 `patternUndergroundSequence` (index 18, the `theWave` look) is a 38-bar, six-scene film
 (DESCENT, SIGNAL, CONCRETE, HAZARD, DATAFALL, SUB) clocked from `vjDirector.beatNumber` /
@@ -1140,8 +1140,9 @@ coordinates from documentation. The bar and vestibule numbers live in `window.Ve
   Quest while desktop and the SwiftShader emulator (full precision) render it normally. Do not re-enable the normal map
   without a headset capture. Because it has no emission, it is lit by its own scoped accent, `loungeLight` (first slot, warm,
   above and in front of it, `_furnishLoungeCouch`), a modest `environmentIntensity` and `albedoTint: 2`: the club's grade crushes a dim
-  scene, and with a darkened albedo and only the room's lights it measured ~8 of 255 (a dark shape). Lit it reads ~28 with highlights
-  near 110 (`test/e2e/lounge.spec.mjs` measures the couch's pixels). Do not "fix" a glow by darkening it again.
+  scene, and with a darkened albedo and only the room's lights it measured ~8 of 255 (a dark shape); the first fix (light 22) was too bright at
+  ~28. Shipped is the middle: light 12, ~18 with highlights near 77 (`test/e2e/lounge.spec.mjs` measures the couch's pixels and fails outside
+  12-23). Do not "fix" a glow by darkening it again.
 - `node scripts/build-bar-assets.mjs` regenerates `textures/barWood/` and the stool GLB from Poly Haven.
 - Everything is measured on desktop SwiftShader only; the extra triangles (about 48k bottles, 33k stools, 33k bartender) are
   unmeasured on a headset.
@@ -1174,7 +1175,7 @@ GLBs instanced once more, and `restroomLight` plus `restroomBackLight` are scope
   `{type:'door', door, shut}`; the relay (`worker/src/relay.js`, `MAX_DOORS`) lets any guest set it, relays it block-aware, keeps it
   for late joiners (`welcome.doors`) and clears it when the room empties; the client applies it with `setSharedDoor(s)` and resets
   it on leaving the room. A shut door is solid (`checkCollisions`) except while somebody stands in its doorway, so it cannot trap
-  anyone; an ajar door is never solid. A lamp on the leaf reads shut or ajar. **The relay must be deployed for hand pushes to be
+  anyone; an ajar door is never solid. The lamp on the leaf is the lock: red only while somebody is sitting inside (this guest or a remote one), green otherwise, so a door closed by hand over a vacant toilet is not "locked". **The relay must be deployed for hand pushes to be
   seen by others** (an older relay drops the frame; the seat-driven doors need no relay change). Rule for new work: any visible
   change to the environment must be shared (derived from existing synced state, a relay-held room state like this, or host-owned
   like the lights and music), never local-only.

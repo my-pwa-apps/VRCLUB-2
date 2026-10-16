@@ -3868,7 +3868,7 @@ test('every LED wall pattern runs without throwing', () => {
     assert.equal(bad.length, 0, 'a pattern wrote a non-finite colour');
 });
 
-test('the NOCTURNE & set-DJ LED marquee extracts only high-confidence DJ names, keeps "DJ" only when part of the name, and stays under the photosensitivity limit', () => {
+test('set-DJ name extraction returns only high-confidence names, keeps "DJ" only when part of the name, and drives the booth DJ\'s look', () => {
     const BABYLON = makeBabylonStub();
     const { window } = loadClassic('js/ledPatterns.js', { BABYLON });
     const { extractSetDjName, inferSetDjGender } = window.LEDPatterns;
@@ -3926,64 +3926,12 @@ test('the NOCTURNE & set-DJ LED marquee extracts only high-confidence DJ names, 
         assert.equal(extractSetDjName(uncertain), null, `should not guess a DJ name from ${JSON.stringify(uncertain)}`);
     }
 
-    // Simulate the full 32-bar marquee loop at 128 and 174 BPM with and without a verified DJ name.
-    const cols = 21, rows = 10;
-    const panels = [];
-    for (let row = 0; row < rows; row++) {
-        for (let col = 0; col < cols; col++) {
-            panels.push({ col, row, colorBuffer: new BABYLON.Color3(), material: { emissiveColor: new BABYLON.Color3() } });
-        }
-    }
-    const club = {
-        ledPanels: panels, ledCols: cols, ledRows: rows, ledMonochrome: false,
-        bpm: 128, vjDirector: { beatNumber: 0 }, barPhase: 0,
-        nowPlayingLabel: 'Miss Melera - Colourizon 168',
-        ledAccentColor: new BABYLON.Color3(1, 0.2, 0.6)
-    };
-    Object.assign(club, window.LEDPatterns);
-    const colour = new BABYLON.Color3(0.1, 0.85, 1.0);
-    const audio = { hasAudio: true, bass: 0.7, mid: 0.5, treble: 0.3 };
-    const lum = p => (p.material.emissiveColor.r + p.material.emissiveColor.g + p.material.emissiveColor.b) / 3;
-
-    const prev = new Float32Array(panels.length), rising = new Int32Array(panels.length);
-    let worstPanel = 0, lastMean = 0, maxStep = 0, act2Diff = 0;
-    for (let f = 0; f < 64 * 60; f++) {
-        const beats = (f / 60) * 128 / 60;
-        club.vjDirector.beatNumber = Math.floor(beats);
-        club.barPhase = ((Math.floor(beats) % 4) + (beats - Math.floor(beats))) / 4;
-        club.patternNocturneMarquee(colour, 100 + f / 60, audio);
-        let mean = 0;
-        for (let i = 0; i < panels.length; i++) {
-            const v = lum(panels[i]);
-            assert.ok(Number.isFinite(v), 'non-finite marquee panel luminance');
-            mean += v;
-            if (prev[i] < 0.5 && v >= 0.5) rising[i]++;
-            prev[i] = v;
-        }
-        mean /= panels.length;
-        if (f > 60) maxStep = Math.max(maxStep, Math.abs(mean - lastMean));
-        lastMean = mean;
-        if (f % 60 === 59) {
-            for (let i = 0; i < panels.length; i++) { worstPanel = Math.max(worstPanel, rising[i]); rising[i] = 0; }
-        }
-    }
-    assert.ok(worstPanel <= 3, `a panel crossed half brightness ${worstPanel}x in one second`);
-    assert.ok(maxStep < 0.12, `the marquee stepped the whole wall by ${maxStep.toFixed(3)} in one frame`);
-
-    // Act IV (bar 26) paints the verified DJ name when present, and falls back to NOCTURNE when uncertain.
-    club.vjDirector.beatNumber = 26 * 4;
-    club.barPhase = 0.25;
-    club.nowPlayingLabel = 'Miss Melera - Colourizon 168';
-    club._mq = null;
-    club.patternNocturneMarquee(colour, 500, audio);
-    const withDj = panels.map(lum);
-
-    club.nowPlayingLabel = 'track01.mp3';
-    club._mq = null;
-    club.patternNocturneMarquee(colour, 500, audio);
-    const withoutDj = panels.map(lum);
-    for (let i = 0; i < withDj.length; i++) act2Diff += Math.abs(withDj[i] - withoutDj[i]);
-    assert.ok(act2Diff > 5, 'Act IV should switch between the verified DJ marquee and the NOCTURNE wordmark');
+    // The LED wall no longer shows the logo or the DJ's name: no marquee pattern, and no look points at pattern 20.
+    assert.equal(window.LEDPatterns.patternNocturneMarquee, undefined, 'the marquee pattern is gone');
+    const finishSource = readFileSync(join(ROOT, 'js/club/09-animation-finish.js'), 'utf8');
+    assert.ok(!/patternNocturneMarquee/.test(finishSource), 'the playlist no longer lists the marquee');
+    const directorSource = readFileSync(join(ROOT, 'js/showDirector.js'), 'utf8');
+    assert.ok(!/ledPattern:\s*2\d\b/.test(directorSource), 'no look may point at a pattern past the 20 in the playlist');
 });
 
 test('per-frame exposure never dirties every material, and a strobe spike survives eye adaptation', () => {
@@ -7294,6 +7242,9 @@ test('the DJ booth Yamaha HS8 monitor speakers and restroom fixtures are one-dra
     assert.equal(club._pressStallDoor({ pickedMesh: leaf0 }), true);
     club._updateRestroomDoors(1);
     assert.equal(club._restroomDoors[0].open, 0, 'pushed shut by hand');
+    assert.ok(club._restroomDoors[0].lamp.material === club._restroomDoors[0].free,
+        'a door closed by hand over a vacant toilet is not locked: its lamp stays green');
+    assert.equal(club._restroomDoors[0].occupied, false);
     assert.equal(JSON.stringify(sent), JSON.stringify([[0, true]]), 'and shared with the room');
     assert.equal(leaf0.checkCollisions, true, 'a shut door is solid');
     club.camera.position.set(-14.4, 1.7, -5.4);

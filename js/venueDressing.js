@@ -710,7 +710,7 @@ const VenueDressing = {
         // The couch has no emission (that read as a glowing sofa in a headset), so it needs real light of its own or it is
         // a dark shape against the wall: a warm accent from above and in front that reaches only the couch.
         this._loungeLight = this._createScopedAccent('loungeLight', new BABYLON.Vector3(L.x, 2.3, L.z - 1.8),
-            { intensity: 22, range: 7, diffuse: [1, 0.84, 0.7], group: 'lounge' }, meshes);
+            { intensity: 12, range: 7, diffuse: [1, 0.84, 0.7], group: 'lounge' }, meshes);
     },
 
     // ------------------------------------------------------------------------------------------
@@ -1037,7 +1037,8 @@ const VenueDressing = {
      * is next to a side wall and stands ajar on the hall side (folded toward that wall, clear of the opening and of the
      * washbasins), swings shut while somebody sits on its toilet, and can be pushed shut or ajar by hand (a click or a
      * controller ray on it), a state the whole room shares (see setSharedDoor). A shut door is solid unless somebody is
-     * standing in its doorway, so it can never trap anyone. A small lamp on the outer face reads shut or ajar.
+     * standing in its doorway, so it can never trap anyone. A small lamp on the outer face is the lock: red only while
+     * somebody is sitting inside, green otherwise, even when the door has been pushed shut by hand over a vacant toilet.
      */
     _createStallDoors(material, scoped) {
         const R = VENUE_RESTROOM;
@@ -1065,8 +1066,9 @@ const VenueDressing = {
             const leaf = makeBox(`restroomStallDoor${index}`, hinge, T, top - bottom, width, 0, (top + bottom) / 2, leafSign * width / 2, material, index);
             makeBox(`restroomStallHandle${index}`, hinge, 0.02, 0.12, 0.035, T / 2 + 0.01, 1.0, leafSign * (width - 0.1), chrome, index);
             const lamp = makeBox(`restroomStallLamp${index}`, hinge, 0.008, 0.05, 0.05, T / 2 + 0.004, 1.12, leafSign * (width - 0.1), free, index);
-            const door = { index, seatId: `toilet-${index}`, hinge, leaf, lamp, free, busy, leafSign, frontX, opening: [from, to], t: 1, open: 1, remote: false };
+            const door = { index, seatId: `toilet-${index}`, hinge, leaf, lamp, free, busy, leafSign, frontX, opening: [from, to], t: 1, open: 1, remote: false, occupied: false };
             this._poseStallDoor(door);
+            this._paintDoorLamp(door);
             return door;
         });
     },
@@ -1075,7 +1077,11 @@ const VenueDressing = {
         const t = door.t;
         door.open = t * t * (3 - 2 * t);
         door.hinge.rotation.y = door.leafSign * VENUE_RESTROOM.doorAjar * door.open;
-        const material = door.open < 0.5 ? door.busy : door.free;
+    },
+
+    /** The lamp is a lock indicator, not a door-position one: red only while somebody is inside, green when it is vacant (shut or not). */
+    _paintDoorLamp(door) {
+        const material = door.occupied ? door.busy : door.free;
         if (door.lamp.material !== material) door.lamp.material = material;
     },
 
@@ -1153,7 +1159,11 @@ const VenueDressing = {
         let pos = null;
         for (let i = 0; i < doors.length; i++) {
             const door = doors[i];
-            const target = seatId === door.seatId || door.remote || (byHand && byHand[i]) ? 0 : 1;
+            // Locked means occupied: somebody (this guest, or one the room shows) is sitting on its toilet. A door pushed shut by
+            // hand over a vacant toilet is merely closed: its lamp stays green and anyone may push it open.
+            door.occupied = seatId === door.seatId || door.remote;
+            this._paintDoorLamp(door);
+            const target = door.occupied || (byHand && byHand[i]) ? 0 : 1;
             if (door.t !== target) {
                 const step = dt / VENUE_RESTROOM.doorSeconds;
                 door.t = target > door.t ? Math.min(1, door.t + step) : Math.max(0, door.t - step);

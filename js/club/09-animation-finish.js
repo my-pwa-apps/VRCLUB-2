@@ -450,8 +450,7 @@ class VRClubAnimationFinish extends VRClubAnimationFixtures {
             this.patternAurora,             // Northern lights effect
             this.patternRainbowRave,        // Full spectrum rave
             this.patternUndergroundSequence, // [18] Basement film: tunnel, scope, tiles, hazard, data, sub
-            this.patternWarehouse,           // [19] Beat-cut bars, tiles, rings, slats, diamonds, scan, checker, radar
-            this.patternNocturneMarquee      // [20] NOCTURNE wordmark & verified set DJ name marquee
+            this.patternWarehouse            // [19] Beat-cut bars, tiles, rings, slats, diamonds, scan, checker, radar
         ]);
         
         // Palette. In monochrome looks the patterns are handed neutral whites so
