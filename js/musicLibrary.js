@@ -375,6 +375,9 @@ class MusicLibrary {
             });
         }
         this.club.nowPlayingLabel = label;
+        if (typeof this.club.syncDJFromSet === 'function') {
+            this.club.syncDJFromSet({ label, savedName: item.name, url: item.url });
+        }
         if (this.onChange) this.onChange(item);
         return true;
     }
@@ -387,6 +390,9 @@ class MusicLibrary {
         await this.club.startSoundCloud(item.url, item.name);
         this.lastMode = 'player';
         this.club.nowPlayingLabel = item.name;
+        if (typeof this.club.syncDJFromSet === 'function') {
+            this.club.syncDJFromSet({ label: item.name, savedName: item.name, url: item.url });
+        }
         if (this.onChange) this.onChange(item);
         return true;
     }

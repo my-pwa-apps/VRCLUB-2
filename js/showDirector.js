@@ -1108,14 +1108,14 @@ class ShowDirector {
                 strobeSpeed: 1.6, fogIntensity: 1.4
             },
 
-            // Brief color lock between the heads and wall; other systems stay dark.
+            // Brief color lock between the heads and wall; the wall displays the NOCTURNE & set DJ marquee.
             chromaticRoom: {
                 intensity: 0.94, punch: 0.28, palette: 'analogous', colorLock: true,
                 lightsActive: true, lasersActive: false, laserSheetActive: false,
                 strobesActive: true, strobePattern: 'chase', strobeSync: 'bar', strobeSpeed: 1.0,
                 mirrorBallActive: false,
                 smokeActive: true, ledWallActive: true, ledMonochrome: false,
-                ledPattern: 5, ledWallSpeed: 0.65,
+                ledPattern: 20, ledWallSpeed: 0.65,
                 spotlightPattern: 1, spotlightMode: 3, spotlightSpeed: 0.35,
                 goboEnabled: false, laserSpeed: 0.55, mirrorBallSpeed: 0.3,
                 fogIntensity: 1.5
@@ -1135,13 +1135,13 @@ class ShowDirector {
                 mirrorBallSpeed: 0.25, fogIntensity: 1.6, goboEnabled: false
             },
 
-            // Slow reassembly — heads fade back in on a drifting wave, flower
-            // gobo turning slowly. Sets up ARRIVAL to begin the cycle again.
+            // Slow reassembly — heads fade back in on a drifting wave while the LED wall
+            // plays the NOCTURNE & verified-DJ marquee (pattern 20). Sets up ARRIVAL to begin the cycle again.
             driftAway: {
                 intensity: [0.35, 0.62], punch: 0.15, palette: 'analogous', ledHarmony: 'analogous',
                 lightsActive: true, lasersActive: false, strobesActive: false,
                 mirrorBallActive: false, smokeActive: true,
-                ledWallActive: true, ledMonochrome: false, ledPattern: 4, ledWallSpeed: [0.4, 0.7], ledLevel: 0.85,
+                ledWallActive: true, ledMonochrome: false, ledPattern: 20, ledWallSpeed: [0.4, 0.7], ledLevel: 0.85,
                 spotlightPattern: 0, spotlightMode: 1, spotlightSpeed: [0.25, 0.5],
                 goboEnabled: false,
                 mirrorBallSpeed: 0.35, fogIntensity: 1.4
@@ -1174,12 +1174,12 @@ class ShowDirector {
                 laserSpeed: [0.25, 0.45], fogIntensity: 1.9, goboEnabled: false
             },
 
-            // The wall opens: slow aurora in teal, alone in the haze.
+            // The wall opens: the NOCTURNE wordmark and verified set DJ marquee (pattern 20) in teal, alone in the haze.
             bdAurora: {
                 intensity: [0.55, 0.75], punch: 0.12, palette: 'analogous', colorLock: true, hue: 0.48,
                 lightsActive: false, lasersActive: false, strobesActive: false,
                 mirrorBallActive: false, smokeActive: true,
-                ledWallActive: true, ledMonochrome: false, ledPattern: 16, ledWallSpeed: [0.3, 0.55],
+                ledWallActive: true, ledMonochrome: false, ledPattern: 20, ledWallSpeed: [0.3, 0.55],
                 fogIntensity: 1.7, goboEnabled: false
             },
 
