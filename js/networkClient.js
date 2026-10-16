@@ -468,7 +468,7 @@ class NetworkClient {
         for (const [id, peer] of this.peers) {
             this._sendMusicSignal(id, { kind: 'state', ...this.musicState });
             if (!stream) this._closeMusic(id);
-            else if (peer.musicListening && !peer.musicPc) this._createMusicConnection(id);
+            else if (peer.musicListening !== false && !peer.musicPc) this._createMusicConnection(id);
         }
     }
 
@@ -532,7 +532,7 @@ class NetworkClient {
                 this.onError(new Error('The music broadcast connection failed. Direct WebRTC may be blocked by your network.'));
             }
         });
-        if (this.isHost() && this.musicStream && peer.musicListening) {
+        if (this.isHost() && this.musicStream && peer.musicListening !== false) {
             for (const track of this.musicStream.getAudioTracks()) pc.addTrack(track, this.musicStream);
             pc.addEventListener('negotiationneeded', async () => {
                 try {
@@ -565,7 +565,7 @@ class NetworkClient {
             else if (this.musicStream) this._createMusicConnection(id);
             return;
         }
-        if (!(this.isHost() ? peer.musicListening && this.musicStream : id === this.hostId && this.musicListening)) return;
+        if (!(this.isHost() ? peer.musicListening !== false && this.musicStream : id === this.hostId && this.musicListening)) return;
         try {
             if (signal.kind === 'offer' || signal.kind === 'answer') {
                 if ((signal.kind === 'offer') === this.isHost() || signal.sdp?.type !== signal.kind) return;

@@ -431,14 +431,11 @@ test('a head nod in VR becomes the nod gesture, once, and never when looking up 
     assert.equal(quiet.socket.sent.filter(m => m.gesture === 'nod').length, 0);
 });
 
-test('shared music needs consent: nothing loads until Listen along, and the host is exempt', () => {
+test('shared music plays automatically for guests, and the host is exempt', () => {
     const { mp, club } = connectedController(undefined, { hostId: 'p1' });
     const started = [];
     club.startAudioStream = url => { started.push(url); return Promise.resolve(); };
     mp._applyMusic({ url: 'https://stream.example/a.mp3', playing: true, position: 0, updatedAt: Date.now() });
-    assert.deepEqual(plain(started), []);
-    assert.deepEqual(plain(mp.pendingMusicInfo()), { origin: 'stream.example', playing: true });
-    mp.acceptListenAlong();
     assert.deepEqual(plain(started), ['https://stream.example/a.mp3']);
     assert.equal(mp.pendingMusicInfo(), null);
     mp._applyMusic({ url: 'javascript:alert(1)', playing: true });
@@ -462,7 +459,7 @@ class MusicConnection {
     async addIceCandidate(candidate) { (this.ice ||= []).push(candidate); }
 }
 
-test('local music is host-only, consent-gated and independent of microphone muting', async () => {
+test('local music is host-only, automatic for room guests and independent of microphone muting', async () => {
     const { client, context, socket } = (() => {
         const env = load();
         const client = new env.NetworkClient({ serverUrl: 'wss://relay.example' });
@@ -473,7 +470,6 @@ test('local music is host-only, consent-gated and independent of microphone muti
     const track = { id: 'music' };
     const stream = { getAudioTracks: () => [track] };
     client.setLocalMusic(stream, { playing: true, title: 'Local file' });
-    assert.equal(client.peers.get('p1').musicPc, undefined);
     assert.equal(socket.last('rtc-signal').signal.channel, 'music');
     await client._onSignal('p1', { channel: 'music', kind: 'listen', enabled: true });
     const pc = client.peers.get('p1').musicPc;
@@ -490,7 +486,7 @@ test('local music is host-only, consent-gated and independent of microphone muti
     assert.equal(client.musicStream, null);
 });
 
-test('broadcast offers and ICE require consent and the current visible host; ICE before SDP is queued', async () => {
+test('broadcast offers and ICE require the current visible host; ICE before SDP is queued', async () => {
     const env = load();
     env.context.RTCPeerConnection = MusicConnection;
     const client = new env.NetworkClient({ serverUrl: 'wss://relay.example' });
@@ -516,7 +512,7 @@ test('broadcast offers and ICE require consent and the current visible host; ICE
     assert.equal(client.peers.get('host').musicPc, null);
 });
 
-test('broadcast metadata uses the existing Listen along surfaces, stops on block and does not enter voice audio', async () => {
+test('broadcast metadata automatically starts listening, stops on block and does not enter voice audio', async () => {
     const { mp, club, socket } = connectedController(undefined, { hostId: 'p1' });
     club._ensureAudioContext = () => {};
     club._stopSoundCloudPlayer = () => {};
@@ -525,10 +521,7 @@ test('broadcast metadata uses the existing Listen along surfaces, stops on block
     club.stopNetworkMusic = remote => { remote.stopped = true; };
     mp.client.onRemoteStream = () => assert.fail('music must not be attached as voice');
     await mp.client._onSignal('p1', { channel: 'music', kind: 'state', available: true, playing: true, title: 'A.wav' });
-    assert.match(mp.pendingMusicInfo().origin, /WebRTC.*IP/);
-    mp.client.onRemoteMusic('p1', {});
-    assert.equal(played.length, 0);
-    mp.acceptListenAlong();
+    assert.equal(mp.pendingMusicInfo(), null);
     assert.equal(socket.last('rtc-signal').signal.kind, 'listen');
     mp.client.onRemoteMusic('p1', {});
     assert.equal(played.length, 1);
@@ -561,7 +554,7 @@ test('host audio capture reuses one raw-source destination, keeps pauses availab
     assert.equal(mp.client.musicState.available, false);
 });
 
-test('host handover clears the old broadcast and requires new consent even when the guest still follows a host', async () => {
+test('host handover clears the old broadcast and automatically follows the new host', async () => {
     const { mp, club, socket } = connectedController([
         { id: 'p1', pid: PID_B }, { id: 'p2', pid: 'c'.repeat(16) }
     ], { hostId: 'p1' });
@@ -570,22 +563,21 @@ test('host handover clears the old broadcast and requires new consent even when 
     club.startNetworkMusic = () => ({ gain: { gain: { value: 1 } } });
     club.stopNetworkMusic = remote => { remote.stopped = true; };
     await mp.client._onSignal('p1', { channel: 'music', kind: 'state', available: true, playing: true });
-    mp.acceptListenAlong();
     mp.client.onRemoteMusic('p1', {});
     const remote = mp._remoteMusic;
     socket.receive({ type: 'host', id: 'p2' });
     assert.equal(mp.following, true);
     assert.equal(remote.stopped, true);
-    assert.equal(mp.listenAlong, false);
+    assert.equal(mp.listenAlong, true);
     assert.equal(mp._broadcastState, null);
     await mp.client._onSignal('p1', { channel: 'music', kind: 'state', available: true, playing: true });
-    assert.equal(mp.pendingMusic, null, 'old host cannot announce a broadcast');
+    assert.equal(mp._broadcastState, null, 'old host cannot announce a broadcast');
     await mp.client._onSignal('p2', { channel: 'music', kind: 'state', available: true, playing: true });
-    assert.equal(mp.pendingMusic.broadcast, true);
+    assert.equal(mp._broadcastState.available, true);
 });
 
-test('a late joiner is offered the paused local file immediately, without starting a music connection', () => {
-    const { mp, club, socket } = connectedController([]);
+test('a late joiner is offered and connected to the host local file immediately', () => {
+    const { club, socket } = connectedController([]);
     const stream = { getAudioTracks: () => [], getTracks: () => [] };
     club.audioContext = { createMediaStreamDestination: () => ({ stream, disconnect() {} }) };
     club.audioSource = { connect() {}, disconnect() {} };
@@ -598,7 +590,6 @@ test('a late joiner is offered the paused local file immediately, without starti
     assert.equal(message.signal.available, true);
     assert.equal(message.signal.playing, false);
     assert.equal(message.signal.title, 'Paused local file');
-    assert.equal(mp.client.peers.get('p1').musicPc, undefined);
 });
 
 test('dispose releases the session and detaches from the club', () => {
@@ -776,7 +767,7 @@ test('a guest\'s mode is re-asserted every frame, so a stray local change cannot
     assert.equal(club.vjManualMode, false);
 });
 
-test('every host music source requires consent and the host clock uses the measured offset', async () => {
+test('every host music source plays automatically for guests and the host clock uses the measured offset', async () => {
     const { mp, club, socket, window } = connectedController(undefined, { hostId: 'p1' });
     const started = [];
     const el = { src: '', paused: true, duration: 3000, currentTime: 0, play() { this.paused = false; return Promise.resolve(); }, pause() { this.paused = true; } };
@@ -788,24 +779,16 @@ test('every host music source requires consent and the host clock uses the measu
     mp.client.serverOffset = 5000;
     const updatedAt = Date.now() + 5000 - 10000; // stamped 10 s ago, on the relay's clock
     socket.receive({ type: 'music', url: 'https://mcdn.podbean.com/ep.mp3', playing: true, position: 100, updatedAt, podcast: 'colourizon', title: 'Colourizon 168' });
-    assert.equal(started.length, 0, 'even a historical podcast source needs consent');
-    mp.listenAlong = true;
-    mp._applyMusic(mp.pendingMusic);
     await Promise.resolve(); await Promise.resolve();
     assert.deepEqual(plain(started), [['https://mcdn.podbean.com/ep.mp3', true]]);
     assert.ok(Math.abs(el.currentTime - 110) < 1, `the guest joined at ${el.currentTime}s instead of 110s`);
     assert.equal(club.nowPlayingLabel, 'Colourizon 168');
     assert.equal(club.dj, undefined, 'music does not change the local generic DJ');
     assert.equal(mp.pendingMusicInfo(), null);
-    mp.listenAlong = false;
 
     socket.receive({ type: 'music', url: 'https://unknown.example/live.mp3', playing: true, position: 0, updatedAt: Date.now() + 5000 });
-    assert.equal(plain(started).length, 1);
-    assert.equal(mp.pendingMusicInfo().origin, 'unknown.example');
-
-    // A look-alike path on someone else's host is not the club's relay.
-    socket.receive({ type: 'music', url: 'https://evil.example/podcast/colourizon/stream/a.mp3', playing: true, position: 0, updatedAt: Date.now() + 5000 });
-    assert.equal(plain(started).length, 1);
+    await Promise.resolve(); await Promise.resolve();
+    assert.equal(plain(started).length, 2);
 });
 
 test('the track position follows the host: a drift of a second is corrected, a small one is left alone, a live stream is never sought', async () => {
@@ -856,6 +839,9 @@ test('rooms: six digits open a private room, any other text is a room name, invi
     assert.equal(mp.joinRoom('482913'), true);
     assert.match(FakeSocket.instances.at(-1).url, /room=private-482913/);
     assert.equal(mp.inviteUrl(), 'https://my-pwa-apps.github.io/VRCLUB-2/?room=private-482913');
+    assert.equal(ClubMultiplayer.inviteRoomFromLocation('?room=482913'), 'private-482913');
+    assert.equal(ClubMultiplayer.inviteRoomFromLocation('?room=afterhours'), 'afterhours');
+    assert.equal(ClubMultiplayer.inviteRoomFromLocation(''), null);
 });
 
 test('the host is named in the status, and a guest is told whose room it is', () => {

@@ -121,6 +121,16 @@ class ClubMultiplayer {
         return text.slice(0, 64);
     }
 
+    /** Return the normalized room name when the URL carries an explicit `?room=` invite link, else null. */
+    static inviteRoomFromLocation(search = typeof window !== 'undefined' && window.location ? window.location.search : '') {
+        try {
+            const raw = new URLSearchParams(search || '').get('room');
+            return raw ? ClubMultiplayer.roomFromCode(raw) : null;
+        } catch (_) {
+            return null;
+        }
+    }
+
     /** @param {object} club the VRClub @param {{storage?: Storage, rng?: () => number}} [options] */
     constructor(club, { storage = (typeof localStorage !== 'undefined' ? localStorage : null), rng = null } = {}) {
         this.club = club;
@@ -149,8 +159,8 @@ class ClubMultiplayer {
         this.chatAudience = null;
         this.voiceAudience = null;
         this._duckHoldUntil = 0;
-        // Shared music: a guest's browser fetches the host's stream only after an explicit "Listen along".
-        this.listenAlong = false;
+        // Shared music: guests in a room automatically hear the host's music.
+        this.listenAlong = true;
         this._localMusicDestination = null;
         this._localMusicSource = null;
         this._remoteMusic = null;
@@ -181,9 +191,9 @@ class ClubMultiplayer {
     get serverUrl() { return ClubMultiplayer.defaultServerUrl(this.storage); }
 
     get room() {
-        let params = null;
-        try { params = new URLSearchParams(window.location.search); } catch (_) { /* ignore */ }
-        return (params && params.get('room')) || this._read(ClubMultiplayer.PREFS.room) || 'lobby';
+        const invited = ClubMultiplayer.inviteRoomFromLocation();
+        if (invited) return invited;
+        return this._read(ClubMultiplayer.PREFS.room) || 'lobby';
     }
 
     /** The saved display name; one is made up and kept the first time, so a guest is never nameless. */
@@ -312,7 +322,7 @@ class ClubMultiplayer {
         this._write(ClubMultiplayer.PREFS.name, name);
 
         if (this.client) this.client.dispose();
-        this.listenAlong = false;
+        this.listenAlong = true;
         this.pendingMusic = null;
         this.lastError = '';
         this.notice = '';
@@ -569,15 +579,13 @@ class ClubMultiplayer {
         client.onMusicBroadcast = state => this._applyMusicBroadcast(state);
         client.onRemoteMusic = (id, stream) => {
             if (!stream) { this._stopRemoteMusic(); return; }
-            if (id !== client.hostId || !this.listenAlong || !this.following) return;
+            if (id !== client.hostId || !this.following) return;
             try {
                 this._stopRemoteMusic();
                 this._remoteMusic = this.club.startNetworkMusic(stream, this._broadcastState);
                 if (typeof window.announceNowPlaying === 'function') window.announceNowPlaying(this.club.nowPlayingLabel);
             } catch (error) {
-                this.listenAlong = false;
                 client.setMusicListening(false);
-                if (this._broadcastState) this.pendingMusic = { broadcast: true, ...this._broadcastState };
                 club.showErrorMessage(`The host's broadcast could not play: ${error.message}`);
             }
         };
@@ -863,7 +871,7 @@ class ClubMultiplayer {
     }
 
     /**
-     * Follow the host's track only after Listen along consents to contacting the audio server.
+     * Follow the host's track automatically whenever in a room.
      */
     _applyMusic(music) {
         const client = this.client, club = this.club;
@@ -872,11 +880,6 @@ class ClubMultiplayer {
         this._broadcastState = null;
         this._stopRemoteMusic();
         client.setMusicListening(false);
-        if (!this.listenAlong) {
-            this.pendingMusic = music;
-            this._emit();
-            return;
-        }
         this.pendingMusic = null;
         // The relay stamps the track with its own clock; read it through the offset measured at the welcome.
         const targetTime = () => {
@@ -909,55 +912,54 @@ class ClubMultiplayer {
         const club = this.club;
         if (showTitle && music.title && club.nowPlayingLabel !== music.title) {
             club.nowPlayingLabel = music.title;
+            if (typeof club.syncDJFromSet === 'function') {
+                club.syncDJFromSet({ label: music.title, url: music.url });
+            }
             if (typeof window.announceNowPlaying === 'function') window.announceNowPlaying(music.title);
         }
     }
 
-    /** Host and state of the stream waiting for the guest's consent, or null. */
+    /** Backwards-compatible no-op: guests always hear the host's music automatically. */
     pendingMusicInfo() {
-        const music = this.pendingMusic;
-        if (!music) return null;
-        if (music.broadcast) return { origin: 'the host via WebRTC (your IP is shared with the host)', playing: !!music.playing };
-        let origin = music.url;
-        try { origin = new URL(music.url).host; } catch (_) { /* keep the raw URL */ }
-        return { origin, playing: !!music.playing };
+        return null;
     }
 
     acceptListenAlong() {
-        const music = this.pendingMusic;
         this.listenAlong = true;
         this.pendingMusic = null;
-        // The click that calls this is also the user gesture autoplay policies require.
-        if (music && music.broadcast) {
+        if (this._broadcastState?.available) {
             try {
-                this.club._ensureAudioContext();
+                if (typeof this.club._ensureAudioContext === 'function') this.club._ensureAudioContext();
                 if (this.club.audioElement) this.club.audioElement.pause();
-                this.club._stopSoundCloudPlayer();
-                this.client.setMusicListening(true);
-            } catch (error) {
-                this.listenAlong = false;
-                this.pendingMusic = music;
-                this.club.showErrorMessage(`Could not listen to the broadcast: ${error.message}`);
-            }
-        } else if (music) this._applyMusic(music);
+                if (typeof this.club._stopSoundCloudPlayer === 'function') this.club._stopSoundCloudPlayer();
+                if (this.client) this.client.setMusicListening(true);
+            } catch (_) { /* ignore */ }
+        }
         this._emit();
     }
 
     _applyMusicBroadcast(state) {
         if (!this.following) return;
         this._broadcastState = state.available ? state : null;
+        this.pendingMusic = null;
         if (!state.available) {
-            if (this.pendingMusic?.broadcast) this.pendingMusic = null;
             this._stopRemoteMusic();
-        } else if (!this.listenAlong) {
-            this.pendingMusic = { broadcast: true, ...state };
+            if (this.client && this.client.musicListening) this.client.setMusicListening(false);
         } else {
-            if (!this.client.musicListening) this.client.setMusicListening(true);
-            if (this.club.audioElement) this.club.audioElement.pause();
-            this.club._stopSoundCloudPlayer();
+            try {
+                if (typeof this.club._ensureAudioContext === 'function') this.club._ensureAudioContext();
+                if (this.club.audioElement) this.club.audioElement.pause();
+                if (typeof this.club._stopSoundCloudPlayer === 'function') this.club._stopSoundCloudPlayer();
+                if (this.client && !this.client.musicListening) this.client.setMusicListening(true);
+            } catch (error) {
+                this.club.showErrorMessage(`Could not listen to the broadcast: ${error.message}`);
+            }
             if (this._remoteMusic) {
                 this._remoteMusic.gain.gain.value = state.playing ? (this.club._audioVolume ?? 1) : 0;
                 this.club.nowPlayingLabel = state.title;
+                if (typeof this.club.syncDJFromSet === 'function') {
+                    this.club.syncDJFromSet({ label: state.title });
+                }
             }
         }
         this._emit();
@@ -1017,11 +1019,14 @@ class ClubMultiplayer {
             this._stopMusicBroadcast();
             this._broadcastState = null;
             this.pendingMusic = null;
-            this.listenAlong = false;
+            this.listenAlong = true;
             if (this.client) this.client.resetMusic();
         }
         if (!this.following) this._stopRemoteMusic();
         const following = this.following;
+        if (following && this.client && !this.client.musicListening) {
+            this.client.setMusicListening(true);
+        }
         if (following === this._roleApplied) return;
         const was = this._roleApplied;
         this._roleApplied = following;

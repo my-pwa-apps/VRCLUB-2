@@ -279,6 +279,35 @@ const mainExperience = document.getElementById('mainExperience');
     });
 })();
 
+const splashRoomInvite = document.getElementById('splashRoomInvite');
+const splashRoomLabel = document.getElementById('splashRoomLabel');
+const splashGuestName = document.getElementById('splashGuestName');
+const invitedRoom = (typeof ClubMultiplayer !== 'undefined' && typeof ClubMultiplayer.inviteRoomFromLocation === 'function')
+    ? ClubMultiplayer.inviteRoomFromLocation()
+    : null;
+
+(function initSplashRoomInvite() {
+    if (!invitedRoom || !splashRoomInvite) return;
+    splashRoomInvite.hidden = false;
+    const privateMatch = /^private-(\d{6})$/i.exec(invitedRoom);
+    const labelText = privateMatch
+        ? `Private room ${privateMatch[1].slice(0, 3)} ${privateMatch[1].slice(3)}`
+        : `Room "${invitedRoom}"`;
+    if (splashRoomLabel) splashRoomLabel.textContent = `Invited to ${labelText}`;
+    if (enterClubBtn) enterClubBtn.textContent = `JOIN ${privateMatch ? 'PRIVATE ROOM' : 'ROOM'}`;
+    if (splashGuestName) {
+        let savedName = '';
+        try { savedName = localStorage.getItem('vrclub.networkName') || ''; } catch (_) {}
+        splashGuestName.value = savedName;
+        splashGuestName.addEventListener('keydown', (e) => {
+            if (e.key === 'Enter' && enterClubBtn) {
+                e.preventDefault();
+                enterClubBtn.click();
+            }
+        });
+    }
+})();
+
 function announceNowPlaying(label) {
     entryNowPlaying = `\u25B6 ${label}`;
     const nowPlaying = document.getElementById('audioNowPlaying');
@@ -362,10 +391,20 @@ if (enterClubBtn) {
             }
         };
 
-        // Only explicitly saved user music may resume. Keep this in the click for autoplay permission.
-        startEntryMusic(window.vrClub, pointAtAudioMenu);
+        // Only explicitly saved user music may resume. When entering via a room invite link,
+        // only unlock the AudioContext and join the room directly so the guest hears the room's music.
+        if (invitedRoom) {
+            try { window.vrClub._ensureAudioContext(); } catch (err) { uiLog.warn(`Audio context unavailable: ${err.message}`); }
+            const typedName = splashGuestName ? splashGuestName.value.trim() : '';
+            if (typedName) {
+                try { localStorage.setItem('vrclub.networkName', typedName); } catch (_) {}
+            }
+        } else {
+            startEntryMusic(window.vrClub, pointAtAudioMenu);
+        }
         
         // Show loading state
+        if (splashRoomInvite) splashRoomInvite.hidden = true;
         enterClubBtn.style.display = 'none';
         splashLoading.classList.add('visible');
         const progressBar = document.getElementById('splashProgressBar');
@@ -378,6 +417,14 @@ if (enterClubBtn) {
         // Initialize UI menus now that VRClub exists (it is constructed synchronously
         // above, so there is nothing to wait for).
         initMenus();
+
+        if (invitedRoom && window.vrClub.multiplayer) {
+            const typedName = splashGuestName ? splashGuestName.value.trim() : '';
+            window.vrClub.multiplayer.connect({
+                room: invitedRoom,
+                name: typedName || window.vrClub.multiplayer.name
+            });
+        }
 
         // Hide the splash only when init() has actually RESOLVED.
         //
@@ -2033,9 +2080,6 @@ function initNetworkMenu() {
     const peerCountEl = document.getElementById('networkPeerCount');
     const emojiButtons = [...document.querySelectorAll('#networkEmojiGrid [data-emoji]')];
     const gestureButtons = [...document.querySelectorAll('#networkGestureGrid [data-gesture]')];
-    const listenAlongSection = document.getElementById('networkListenAlong');
-    const listenAlongBtn = document.getElementById('networkListenAlongBtn');
-    const musicInfoEl = document.getElementById('networkMusicInfo');
     const avatarSection = document.getElementById('networkAvatarSection');
     const poolButtons = [...document.querySelectorAll('#networkAvatarPool [data-avatar-pool]')];
     const avatarEl = document.getElementById('networkAvatar');
@@ -2251,15 +2295,6 @@ function initNetworkMenu() {
             lockBtn.textContent = `Lock room: ${mp.locked ? 'ON (nobody new can join)' : 'OFF'}`;
             setPressed(lockBtn, mp.locked);
         }
-        const pending = mp.pendingMusicInfo();
-        if (listenAlongSection) listenAlongSection.hidden = !pending;
-        if (pending && musicInfoEl) {
-            musicInfoEl.textContent = mp.pendingMusic.broadcast
-                ? `The host ${pending.playing ? 'is broadcasting' : 'paused'} a local audio file. Press Listen along to receive it over WebRTC (your IP address is shared with the host).`
-                : pending.playing
-                ? `The host is playing music from ${pending.origin}. Press Listen along to hear it too (that site will see your IP address).`
-                : `The host paused music from ${pending.origin}.`;
-        }
         renderPeople();
         renderBlocked();
         const directory = mp.roomDirectory;
@@ -2314,7 +2349,6 @@ function initNetworkMenu() {
             void mp.refreshRooms({ serverUrl });
         }
     });
-    if (listenAlongBtn) listenAlongBtn.addEventListener('click', () => mp.acceptListenAlong());
 
     if (connectBtn) {
         connectBtn.addEventListener('click', () => {

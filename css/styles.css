@@ -1970,6 +1970,40 @@ body:has(.panel:not(.hidden)) .payment-toggle,
     border-color: #00ffff;
 }
 
+.splash-room-invite {
+    max-width: 420px;
+    margin: 0 auto clamp(10px, 2.4vmin, 20px);
+    padding: 12px 16px;
+    border-radius: 10px;
+    border: 1px solid rgba(0, 255, 255, 0.45);
+    background: rgba(0, 255, 255, 0.08);
+    text-align: left;
+}
+
+.splash-room-invite[hidden] {
+    display: none;
+}
+
+.splash-room-title {
+    font-size: 13px;
+    font-weight: 700;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    color: #00ffff;
+    margin-bottom: 6px;
+}
+
+.splash-room-field {
+    display: block;
+    font-size: 12px;
+    color: rgba(255, 255, 255, 0.85);
+    margin-bottom: 4px;
+}
+
+.splash-room-input {
+    width: 100%;
+}
+
 /* A hint belongs to the control above it: keep them together, and space the pair from what follows. */
 .splash-toggle:has(+ .splash-hint) {
     margin-bottom: 0;
