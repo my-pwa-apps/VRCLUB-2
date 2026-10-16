@@ -703,7 +703,7 @@ class VRClubUI extends VRClubAnimationFinish {
     _isHostOwnedVRButton(button) {
         if (['seek', 'playPause', 'play', 'pause', 'stop', 'sourceStep', 'folderMode', 'savedSet', 'setStep',
             'musicSetup', 'autoShow', 'reset', 'cycle', 'nextSection', 'showDrop', 'showSection'].includes(button.action)) return true;
-        return !!button.control && !button.action && !['vrComfortMode', 'photosensitiveSafeMode'].includes(button.control);
+        return !!button.control && !button.action && !['vrComfortMode', 'vrSeatedMode', 'photosensitiveSafeMode'].includes(button.control);
     }
 
     _vrQuickMenuButtonValue(button, active) {
@@ -732,6 +732,16 @@ class VRClubUI extends VRClubAnimationFinish {
         }
         // These two leave the immersive session for an on-screen page (a headset has no keyboard): say so before the press.
         if (button.action === 'musicSetup' || button.action === 'credits') return 'LEAVES VR';
+        if (button.action === 'measureHeight') {
+            return this._heightMeasure ? 'MEASURING...'
+                : this.playerEyeHeight ? `EYES ${this.playerEyeHeight.toFixed(2)} M` : 'STAND TALL, TAP';
+        }
+        if (button.action === 'character') {
+            const id = this.getLocalCharacter();
+            const labels = (window.ClubMultiplayer && window.ClubMultiplayer.AVATAR_LABELS) || {};
+            return id ? String(labels[id] || id).toUpperCase().slice(0, 28) : (this.getLocalAvatarStyle() === 'male' ? 'DEFAULT MAN' : 'DEFAULT WOMAN');
+        }
+        if (button.control === 'vrSeatedMode') return this.vrSeatedMode ? 'ON \u2022 AVATAR STANDS' : 'OFF';
         if (button.action === 'quality') return this.graphicsTier.toUpperCase();
         if (button.action === 'cycle' && button.control === 'cycleLedPattern') {
             return `PATTERN ${(this.ledPattern || 0) + 1}`;
@@ -854,6 +864,10 @@ class VRClubUI extends VRClubAnimationFinish {
             ],
             comfort: [
                 { label: 'LOCOMOTION', control: 'vrComfortMode' },
+                { label: 'SEATED MODE', control: 'vrSeatedMode' },
+                { label: 'MY CHARACTER', action: 'character', step: 1 },
+                { label: 'PREVIOUS CHARACTER', action: 'character', step: -1 },
+                { label: 'MEASURE HEIGHT', action: 'measureHeight' },
                 { label: 'SAFE MODE', control: 'photosensitiveSafeMode' },
                 { label: 'QUALITY', action: 'quality' },
                 { label: 'CREDITS / LICENCES', action: 'credits' },
@@ -1719,6 +1733,22 @@ class VRClubUI extends VRClubAnimationFinish {
             this.setVRComfortMode(!this.vrComfortMode);
             return;
         }
+        if (button.control === 'vrSeatedMode') {
+            this.setSeatedMode(!this.vrSeatedMode);
+            return;
+        }
+        if (button.action === 'character') {
+            // Personal and saved: who you are offline, i.e. your reflection in the restroom mirror (and the body's man/woman).
+            const id = this.stepLocalCharacter(button.step);
+            const labels = (window.ClubMultiplayer && window.ClubMultiplayer.AVATAR_LABELS) || {};
+            this.showErrorMessage(`Your character: ${labels[id] || id}`);
+            return;
+        }
+        if (button.action === 'measureHeight') {
+            this.startHeightMeasure();
+            this._refreshVRQuickMenu();
+            return;
+        }
         if (button.control === 'photosensitiveSafeMode') {
             this.setPhotosensitiveSafeMode(!this.photosensitiveSafeMode);
             this._refreshVRQuickMenu();
@@ -2136,6 +2166,9 @@ class VRClubUI extends VRClubAnimationFinish {
     sitAtSeat(seat) {
         if (!seat || !Number.isFinite(seat.x) || !Number.isFinite(seat.z)) return false;
         this._activeSeat = seat;
+        // A seat in the room has its own seated pose: Seated mode's lift would double the height.
+        if (this._seatLift) this._seatLift.update(0, 0, false, 0, true);
+        this._seatLiftMoving = false;
         const camera = this._playerCamera();
         if (camera) {
             camera.position.x = seat.viewX;
@@ -2721,6 +2754,23 @@ class VRClubUI extends VRClubAnimationFinish {
         this._toastHost.appendChild(errorDiv);
 
         setTimeout(() => errorDiv.remove(), 4000);
+    }
+
+    /**
+     * Seated mode: the player sits, the avatar stands. The view is lifted to the body's standing eye height (see
+     * `PlayerHeight.SeatedLift`, applied through `_xrHeadHeight()`), so others see a standing person at their height.
+     * Personal and local, never host-gated.
+     */
+    setSeatedMode(enabled) {
+        this.vrSeatedMode = !!enabled;
+        try { localStorage.setItem('vrclub.seatedMode', this.vrSeatedMode ? '1' : '0'); } catch (_) { /* private mode */ }
+        // A sitter's low head must not feed the standing-height estimate, and it re-learns once they stand.
+        if (this._heightEstimator) this._heightEstimator.reset();
+        this.showErrorMessage(this.vrSeatedMode
+            ? 'Seated mode on: you sit, your avatar stands'
+            : 'Seated mode off: your avatar follows your real height');
+        this._refreshVRQuickMenu();
+        return this.vrSeatedMode;
     }
 
     setVRComfortMode(enabled) {

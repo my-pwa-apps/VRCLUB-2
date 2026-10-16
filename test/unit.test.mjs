@@ -563,6 +563,164 @@ function loadAvatarManager() {
     return { manager, AvatarManager: window.AvatarManager, created, observers, advance: ms => { now += ms; } };
 }
 
+test('a remote guest\'s own eye height sizes their person, and the root stays on their floor', () => {
+    const { manager, AvatarManager } = loadAvatarManager();
+    manager.updatePeerState('p', 'Pat', { x: 0, y: 1.92, z: 0, rotY: 0, eh: 1.92 });
+    const peer = manager.remotes.get('p');
+    assert.equal(peer.eyeHeight, 1.92);
+    assert.ok(Math.abs(peer.root.position.y) < 1e-9, 'a tall guest stands on the floor, not below it');
+
+    // A short guest: the root follows the eye minus THEIR eye height.
+    manager.updatePeerState('p', null, { x: 0, y: 2.65 - 0.3, z: -18, rotY: 0, eh: 1.4 });
+    assert.ok(Math.abs(peer.target.y - 0.95) < 1e-9);
+
+    // Older clients and relays send no eh; anything out of range is ignored. Both mean the standard 1.7 m.
+    for (const eh of [undefined, 0.5, 9, NaN, '1.8']) {
+        manager.updatePeerState('p', null, { x: 0, y: 1.7, z: 0, rotY: 0, eh });
+        assert.equal(peer.eyeHeight, AvatarManager.EYE_HEIGHT, `eh ${eh} must fall back to the standard height`);
+    }
+
+    // The person is rescaled in place, with the feet kept on the floor and tiny changes ignored.
+    let rescaled = 0;
+    peer.person = {
+        node: { scaling: { scaleInPlace(k) { rescaled = k; } }, position: { y: 0.5 } },
+        arms: { invalidateLimbs() { rescaled += 100; } }
+    };
+    manager.updatePeerState('p', null, { x: 0, y: 1.71, z: 0, rotY: 0, eh: 1.71 });
+    assert.equal(rescaled, 0, 'a 1 cm change must not refit a skeleton');
+    manager.updatePeerState('p', null, { x: 0, y: 1.87, z: 0, rotY: 0, eh: 1.87 });
+    assert.ok(Math.abs(rescaled - 100 - 1.87 / 1.7) < 1e-9);
+    assert.ok(Math.abs(peer.person.node.position.y - 0.5 * 1.87 / 1.7) < 1e-9);
+});
+
+test('player height: the estimator finds the standing eye height and ignores crouching, sitting and a jump', () => {
+    const { window } = loadClassic('js/playerHeight.js');
+    const H = window.PlayerHeight;
+    const est = new H.HeightEstimator();
+    assert.equal(est.estimate(), null, 'nothing is claimed without samples');
+    let t = 0;
+    const feed = (height, seconds) => { for (const end = t + seconds; t < end; t += 0.05) est.add(height, t); };
+    feed(1.78, 4);
+    assert.ok(Math.abs(est.estimate() - 1.78) < 1e-9);
+    // 30% of the time crouched or sitting, a short jump: the standing height still wins.
+    feed(1.2, 10); feed(1.78, 20); feed(1.0 + 0.0, 0); feed(1.95, 0.4); feed(1.78, 15); feed(0.9, 8);
+    assert.ok(Math.abs(est.estimate() - 1.78) < 0.03, `estimate ${est.estimate()}`);
+    // Garbage is dropped, and the result is always in range.
+    est.reset();
+    for (const bad of [NaN, Infinity, -1, 0.2, 5, '1.7']) est.add(bad, t += 1);
+    assert.equal(est.samples.length, 0);
+    assert.equal(H.clampEye(3), H.MAX_EYE);
+    assert.equal(H.clampEye(0.2), H.MIN_EYE);
+    // The window forgets: after the player is replaced by a shorter one the estimate follows within the window.
+    est.reset(); t = 1000;
+    feed(1.9, 30); feed(1.55, 100);
+    assert.ok(Math.abs(est.estimate() - 1.55) < 0.03);
+    assert.equal(H.median([1.5, NaN, 1.7, 1.6]), 1.6);
+    assert.equal(H.median([]), null);
+});
+
+test('player height: the seated lift raises a sitter to standing height, eases, and falls away when they stand', () => {
+    const { window } = loadClassic('js/playerHeight.js');
+    const H = window.PlayerHeight;
+    assert.ok(Math.abs(H.seatedLift(1.15, 1.7) - 0.55) < 1e-9);
+    assert.equal(H.seatedLift(1.9, 1.7), 0, 'somebody already tall enough is left alone');
+    assert.equal(H.seatedLift(0.1, 1.7), 1, 'never more than a metre');
+    assert.equal(H.seatedLift(NaN, 1.7), 0);
+
+    const lift = new H.SeatedLift();
+    const dt = 1 / 72;
+    let maxStep = 0, last = 0;
+    for (let i = 0; i < 72 * 6; i++) {
+        const value = lift.update(1.15, dt, true, 1.7);
+        maxStep = Math.max(maxStep, Math.abs(value - last)); last = value;
+    }
+    assert.ok(Math.abs(last - 0.55) < 1e-6, `settled at ${last}`);
+    assert.ok(maxStep <= 0.5 * dt + 1e-9, 'the view never lurches faster than 0.5 m/s');
+
+    // Sitting still with a little head movement keeps the view steady.
+    let min = Infinity, max = -Infinity;
+    for (let i = 0; i < 72 * 10; i++) {
+        const value = lift.update(1.15 + 0.02 * Math.sin(i / 9), dt, true, 1.7);
+        min = Math.min(min, value); max = Math.max(max, value);
+    }
+    assert.ok(max - min < 0.03, `lift wandered ${max - min} m`);
+
+    // Standing up: the lift falls to zero by itself; switching the mode off does the same; furniture snaps it to zero.
+    for (let i = 0; i < 72 * 8; i++) lift.update(1.7, dt, true, 1.7);
+    assert.equal(lift.lift, 0);
+    for (let i = 0; i < 72 * 4; i++) lift.update(1.15, dt, true, 1.7);
+    assert.ok(lift.lift > 0.4);
+    for (let i = 0; i < 72 * 4; i++) lift.update(1.15, dt, false, 1.7);
+    assert.equal(lift.lift, 0);
+    for (let i = 0; i < 72 * 4; i++) lift.update(1.15, dt, true, 1.7);
+    assert.equal(lift.update(1.15, dt, true, 1.7, true), 0, 'a seat in the room has its own pose');
+});
+
+test('player height: Seated mode lifts the tracked head height every consumer reads, and only then', () => {
+    const PlayerHeight = loadClassic('js/playerHeight.js').window.PlayerHeight;
+    let now = 0;
+    const { window } = loadClassic('js/mezzanine.js', { log: { warn() {} }, performance: { now: () => now * 1000 } });
+    window.PlayerHeight = PlayerHeight;
+    const club = Object.assign(Object.create(window.Mezzanine), {
+        vrSeatedMode: false, playerEyeHeight: null, _activeSeat: null,
+        _bodyEyeHeight() { return this.playerEyeHeight || 1.7; },
+        _refreshVRQuickMenu() {}, showErrorMessage() {}
+    });
+    const frame = height => { now += 1 / 72; club._xrEyeHeight = height; club._trackPlayerHeight(height); };
+
+    for (let i = 0; i < 72 * 5; i++) frame(1.15);
+    assert.ok(Math.abs(club._xrHeadHeight() - 1.15) < 1e-9, 'standing mode never lifts');
+
+    club.vrSeatedMode = true;
+    for (let i = 0; i < 72 * 5; i++) frame(1.15);
+    assert.ok(Math.abs(club._xrHeadHeight() - 1.7) < 1e-6, 'a seated player\'s view is at the standing eye height');
+    club.playerEyeHeight = 1.84;
+    for (let i = 0; i < 72 * 5; i++) frame(1.15);
+    assert.ok(Math.abs(club._xrHeadHeight() - 1.84) < 1e-6, 'the target is the player\'s own height when it is known');
+
+    // Sitting on the club's furniture snaps it off (the seat has its own pose).
+    club._activeSeat = { id: 'bar-0' };
+    frame(1.15);
+    assert.equal(club._xrHeadHeight(), 1.15);
+
+    // The estimator is fed only in standing mode and without a seat; a sitter's low height is never adopted.
+    club._activeSeat = null; club.vrSeatedMode = false; club.playerEyeHeight = null;
+    club._seatLift.reset();
+    for (let i = 0; i < 72 * 30; i++) frame(1.15);
+    assert.equal(club.playerEyeHeight, null, 'under 1.35 m is taken for sitting');
+    for (let i = 0; i < 72 * 30; i++) frame(1.74);
+    assert.ok(Math.abs(club.playerEyeHeight - 1.74) < 0.03, `adopted ${club.playerEyeHeight}`);
+    club.vrSeatedMode = true;
+    club.playerEyeHeight = 1.74;
+    for (let i = 0; i < 72 * 120; i++) frame(1.1);
+    assert.equal(club.playerEyeHeight, 1.74, 'Seated mode never re-learns the height from a sitter');
+});
+
+test('player height: MEASURE HEIGHT keeps the median of the last second and rejects nonsense', () => {
+    const { window } = loadClassic('js/playerHeight.js');
+    let now = 0;
+    const { window: w2 } = loadClassic('js/mezzanine.js', { log: { warn() {} }, performance: { now: () => now * 1000 } });
+    w2.PlayerHeight = window.PlayerHeight;
+    const messages = [];
+    const club = Object.assign(Object.create(w2.Mezzanine), {
+        isInVRMode: true, vrSeatedMode: true, playerEyeHeight: null, _activeSeat: null, _xrEyeHeight: 1.5,
+        _bodyEyeHeight() { return this.playerEyeHeight || 1.7; },
+        _refreshVRQuickMenu() {}, showErrorMessage: text => messages.push(text)
+    });
+    assert.equal(club.startHeightMeasure(), true);
+    // Stooping at the start, standing tall for the final second: only the last second counts.
+    for (let i = 0; i < 72 * 3 + 2; i++) {
+        now += 1 / 72;
+        const height = now < 2 ? 1.3 : 1.81;
+        club._xrEyeHeight = height;
+        club._trackPlayerHeight(height);
+    }
+    assert.equal(club.playerEyeHeight, 1.81);
+    assert.match(messages.at(-1), /1\.81 m/);
+    club.isInVRMode = false;
+    assert.equal(club.startHeightMeasure(), false, 'height is measured in the headset');
+});
+
 test('remote avatars stand on the floor under the sender eye and snap on their first sample', () => {
     const { manager, AvatarManager } = loadAvatarManager();
     manager.updatePeerState('p', 'Pat', { x: 3, y: 1.7, z: -12, rotY: 0.5 });
@@ -604,6 +762,7 @@ test('remote avatar turns follow the shortest arc', () => {
 test('network presence sends both eye-relative controllers only in VR and retains desktop cadence', () => {
     const { window } = loadClassic('js/club/07-animation-core.js', { VRClubEffects: class {} });
     const club = Object.create(window.VRClubAnimationCore.prototype);
+    club._bodyEyeHeight = () => 1.7;
     const samples = [];
     club.networkManager = { connected: true, sendState: state => samples.push(JSON.parse(JSON.stringify(state))) };
     club.camera = { position: { x: 1, y: 1.7, z: 2 }, rotation: { y: 0.2 } };
@@ -629,7 +788,7 @@ test('network presence sends both eye-relative controllers only in VR and retain
     club.updateNetworkPresence({ time: 1.12, dt: 1 / 60 });
     assert.equal(samples.length, 2, 'desktop cadence is slower');
     club.updateNetworkPresence({ time: 1.17, dt: 1 / 60 });
-    assert.deepEqual(samples[2], { x: 1, y: 1.7, z: 2, rotY: 0.2, hands: null, seated: false, floorY: 0 });
+    assert.deepEqual(samples[2], { x: 1, y: 1.7, z: 2, rotY: 0.2, hands: null, seated: false, floorY: 0, eh: 1.7 });
 
     club._activeSeat = { x: -11.3, z: -17.55, facing: 0, floorY: 3 };
     club.updateNetworkPresence({ time: 1.28, dt: 1 / 60 });
@@ -5136,6 +5295,76 @@ test('clear-air test suppresses fog and particles despite smoke cues in both mod
     }
 });
 
+test('MY LOOK: the player\'s man/woman choice is saved, rebuilds the body and refreshes the restroom mirror', () => {
+    const store = new Map();
+    const localStorage = { getItem: k => (store.has(k) ? store.get(k) : null), setItem: (k, v) => store.set(k, String(v)) };
+    const BABYLON = { Axis: { Z: 'Z', Y: 'Y' }, Vector3: class {} };
+    const { window } = loadClassic('js/club/11-audio-crowd.js', { VRClubUI: class {}, BABYLON, localStorage });
+    const proto = window.VRClubAudioCrowd.prototype;
+    const spawned = [];
+    let refreshed = 0, disposed = 0;
+    const club = {
+        _localRig: { dispose() { disposed++; } }, _mirrorSignature: 7,
+        _spawnLocalPlayerBody() { spawned.push(proto.getLocalAvatarStyle.call(club)); },
+        _refreshVRQuickMenu() { refreshed++; },
+        getLocalAvatarStyle: proto.getLocalAvatarStyle
+    };
+    assert.equal(proto.getLocalAvatarStyle.call(club), 'female', 'new visitors start as a woman, as before');
+    assert.equal(proto.setLocalAvatarStyle.call(club, 'male'), 'male');
+    assert.equal(store.get('vrclub.avatarStyle'), 'male', 'saved for this player');
+    assert.equal(proto.getLocalAvatarStyle.call(club), 'male');
+    assert.deepEqual(spawned, ['male']);
+    assert.equal(disposed, 1);
+    assert.equal(club._mirrorSignature, -1, 'the mirror re-lists the new body');
+    assert.equal(refreshed, 1);
+    assert.equal(proto.setLocalAvatarStyle.call(club, 'anything else'), 'female');
+});
+
+test('MY CHARACTER: the player picks one of the 17 people offline, it is saved, and the mirror shows it', () => {
+    const store = new Map();
+    const localStorage = {
+        getItem: k => (store.has(k) ? store.get(k) : null), setItem: (k, v) => store.set(k, String(v)), removeItem: k => store.delete(k)
+    };
+    const BABYLON = { Axis: { Z: 'Z', Y: 'Y' }, Vector3: class {}, Color3: class { constructor(r, g, b) { Object.assign(this, { r, g, b }); } } };
+    const { window } = loadClassic('js/club/11-audio-crowd.js', { VRClubUI: class {}, BABYLON, localStorage });
+    const Crowd = window.VRClubAudioCrowd, proto = Crowd.prototype;
+    for (const id of Crowd.MY_CHARACTERS) assert.ok(Crowd.sourceIndex(id) >= 0, `${id} is a real source`);
+    assert.equal(Crowd.MY_CHARACTERS.length, 17);
+    const styles = [];
+    const club = {
+        _mirrorSignature: 3, refreshed: 0,
+        getLocalAvatarStyle: proto.getLocalAvatarStyle, getLocalCharacter: proto.getLocalCharacter,
+        setLocalCharacter: proto.setLocalCharacter, setLocalAvatarStyle(style) { styles.push(style); store.set('vrclub.avatarStyle', style); },
+        _refreshVRQuickMenu() { this.refreshed++; }
+    };
+    assert.equal(club.getLocalCharacter(), null, 'nothing chosen: the default body');
+    assert.equal(proto.stepLocalCharacter.call(club, 1), 'f1', 'from the default woman it starts at the first woman');
+    assert.equal(store.get('vrclub.myCharacter'), 'f1', 'saved');
+    assert.equal(club._mirrorSignature, -1, 'the mirror re-lists');
+    assert.equal(proto.stepLocalCharacter.call(club, -1), 'm9', 'wraps backwards');
+    assert.equal(styles.at(-1), 'male', 'the first-person body follows the gender');
+    assert.equal(proto.stepLocalCharacter.call(club, 1), 'f1');
+    assert.equal(club.setLocalCharacter('nobody'), null, 'unknown ids are refused');
+    assert.equal(store.has('vrclub.myCharacter'), false);
+    store.set('vrclub.avatarStyle', 'male');
+    assert.equal(proto.stepLocalCharacter.call(club, 1), 'm1', 'a default man starts at the first man');
+    store.set('vrclub.myCharacter', 'zz');
+    assert.equal(club.getLocalCharacter(), null, 'a corrupt saved value is ignored');
+
+    // The mirror: the relay's assignment in a room, the player's own choice offline.
+    const venue = loadClassic('js/venueDressing.js', { BABYLON: {}, log: { info() {}, warn() {}, error() {} } }).window.VenueDressing;
+    const mirror = { multiplayer: null, getLocalCharacter: () => 'm3', _mirrorAvatarId: venue._mirrorAvatarId };
+    assert.equal(mirror._mirrorAvatarId(), 'm3');
+    mirror.multiplayer = { connected: true, selfAvatar: 'f2' };
+    assert.equal(mirror._mirrorAvatarId(), 'f2');
+    mirror.multiplayer = { connected: true, selfAvatar: null };
+    assert.equal(mirror._mirrorAvatarId(), null);
+
+    const html = readFileSync(join(ROOT, 'index.html'), 'utf8');
+    assert.match(html, /<select[^>]*id="myCharacter"/);
+    assert.match(readFileSync(join(ROOT, 'js/club/10-ui.js'), 'utf8'), /label: 'MY CHARACTER', action: 'character'/);
+});
+
 test('the local body stays full standing height until a room seat is intentionally selected', () => {
     const BABYLON = {
         Axis: { Z: 'Z', Y: 'Y' },
@@ -5154,7 +5383,7 @@ test('the local body stays full standing height until a room seat is intentional
     const club = {
         isInVRMode: false, camera, _xrControllers: [],
         _localRig: { ok: true, standEye: 1.7, setEyeHeight(h) { calls.push(['eye', h]); }, update(dt, pose) { calls.push(['update', dt, { ...pose }]); } },
-        _playerCamera: proto._playerCamera, _handPose: proto._handPose,
+        _playerCamera: proto._playerCamera, _handPose: proto._handPose, _bodyEyeHeight: proto._bodyEyeHeight,
         standFromSeat: () => { club._activeSeat = null; }
     };
     proto._updateLocalPlayerBody.call(club, 1 / 60);
@@ -5182,13 +5411,26 @@ test('the local body stays full standing height until a room seat is intentional
     club._xrControllers = [tracked('left', -0.3, 0.8, -11.7), tracked('right', 0, 0, 0)];
     proto._updateLocalPlayerBody.call(club, 1 / 60);
     proto._updateLocalPlayerBody.call(club, 1 / 60);
-    assert.equal(calls.filter(c => c[0] === 'eye').length, 0, 'physical headset height must never rescale the body');
+    assert.ok(calls.filter(c => c[0] === 'eye').every(c => c[1] === 1.7), 'with no measured height the body stays the standard 1.7 m, whatever the headset reads');
     pose = calls.at(-1)[2];
     assert.equal(pose.eyeY, 1.7);
     assert.equal(pose.seated, false);
     assert.equal(pose.left.x, -0.3);
     assert.equal(pose.left.fz, 1);
     assert.equal(pose.right, null, 'an untracked controller must not drag the arm to the origin');
+
+    // A measured height sizes the body in the headset only: desktop's camera is 1.7 m, so its body is too.
+    club.playerEyeHeight = 1.86;
+    calls.length = 0;
+    proto._updateLocalPlayerBody.call(club, 1 / 60);
+    assert.equal(calls[0][0], 'eye');
+    assert.equal(calls[0][1], 1.86);
+    club.isInVRMode = false;
+    calls.length = 0;
+    proto._updateLocalPlayerBody.call(club, 1 / 60);
+    assert.equal(calls[0][1], 1.7);
+    club.isInVRMode = true;
+    club.playerEyeHeight = null;
 
     const seat = { id: 'balcony-0', x: -11.3, z: -17.55, viewX: -11.3, viewZ: -18,
         floorY: 3, seatY: 3.76, facing: 0 };
@@ -7354,7 +7596,7 @@ test('the mirror reflection does not buzz with headset tremor, keeps its walk cl
         getDirectionToRef(axis, ref) { ref.set(Math.sin(this.yaw), 0, Math.cos(this.yaw)); return ref; }
     };
     const club = Object.assign({
-        isInVRMode: false, _walkLevel: 0, _activeSeat: null, camera, _playerCamera: () => camera
+        isInVRMode: false, _walkLevel: 0, _activeSeat: null, camera, _playerCamera: () => camera, _bodyEyeHeight: () => 1.7
     }, venueWindow.VenueDressing);
     const double = {
         root: { position: new BABYLON.Vector3(), rotation: new BABYLON.Vector3() },

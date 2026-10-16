@@ -331,7 +331,10 @@ class VRClubCore {
             count: 0
         };
         this.vrComfortMode = VRClubCore.resolveVRComfortMode();
-
+        // Seated mode keeps the avatar standing while the player sits; playerEyeHeight (null = unmeasured, a 1.7 m
+        // body) sizes that body to the player. Both are personal and local, like comfort and Safe Mode.
+        this.vrSeatedMode = VRClubCore.resolveSeatedMode();
+        this.playerEyeHeight = VRClubCore.resolvePlayerEyeHeight();
         // === WHO IS IN THE CLUB ===
         // Each group of characters can be sent home: the dancers on the floor, the bystanders (the guests at the
         // sides, the mingler, the bartender, and the bouncer and queue outside) and the DJ. Local and personal,
@@ -1265,6 +1268,21 @@ class VRClubCore {
 
     static resolveVRComfortMode() {
         try { return localStorage.getItem('vrclub.vrComfort') === '1'; } catch (_) { return false; }
+    }
+
+    /** Seated mode is off for new visitors; only a stored '1' enables it. */
+    static resolveSeatedMode(storage) {
+        try { return (storage || localStorage).getItem('vrclub.seatedMode') === '1'; } catch (_) { return false; }
+    }
+
+    /** The player's remembered standing eye height in metres, or null when none has been measured. */
+    static resolvePlayerEyeHeight(storage) {
+        try {
+            const raw = (storage || localStorage).getItem('vrclub.playerEyeHeight');
+            const value = raw == null ? NaN : Number(raw);
+            const range = window.PlayerHeight;
+            return Number.isFinite(value) && range && value >= range.MIN_EYE && value <= range.MAX_EYE ? value : null;
+        } catch (_) { return null; }
     }
 
     /** The groups of characters a visitor can send home, in the order the two control surfaces list them. */

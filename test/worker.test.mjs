@@ -215,6 +215,20 @@ test('intentional seated state is bounded and old position frames remain standin
     assert.equal(sanitizeState({ x: 0, y: 1.7, z: 0, seated: 'true' }).seated, undefined);
 });
 
+test('a guest\'s standing eye height is relayed only when it is a plausible human height', () => {
+    assert.equal(sanitizeState({ x: 0, y: 1.8, z: 0, eh: 1.834 }).eh, 1.83);
+    assert.equal(sanitizeState({ x: 0, y: 1.8, z: 0 }).eh, undefined, 'older clients send none');
+    for (const bad of [0.5, 3, NaN, Infinity, '1.8x', {}, null]) {
+        assert.equal(sanitizeState({ x: 0, y: 1.8, z: 0, eh: bad }).eh, undefined, `eh ${String(bad)}`);
+    }
+    const room = new ClubRoom({});
+    const a = join(room), b = join(room);
+    a.ws.message({ type: 'state', state: { x: 1, y: 1.9, z: 2, rotY: 0, eh: 1.9, extra: 'drop' } });
+    assert.equal(b.ws.last('state').state.eh, 1.9);
+    assert.equal(b.ws.last('state').state.extra, undefined);
+    assert.equal(join(room).ws.last('welcome').peers.find(p => p.id === a.session.id).state.eh, 1.9, 'late joiners get it too');
+});
+
 test('rtc-signal is relayed only to a different, existing peer', () => {
     const room = new ClubRoom({});
     const a = join(room);

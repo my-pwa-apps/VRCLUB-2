@@ -688,6 +688,12 @@ class AvatarRig {
         if (this.root) this.root.setEnabled(!!visible);
     }
 
+    /** Forget the cached limb lengths: the character was rescaled, so they are measured again on the next pose. */
+    invalidateLimbs() {
+        if (this._limbL1) this._limbL1.fill(0);
+        if (this._limbL2) this._limbL2.fill(0);
+    }
+
     /** Re-fit the body when the active mode's eye-height calibration changes. */
     setEyeHeight(eyeHeight) {
         if (!this.ok || !(eyeHeight > 0.8) || Math.abs(eyeHeight - this.standEye) < 0.04) return;

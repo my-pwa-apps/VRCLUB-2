@@ -26,6 +26,14 @@ kept in lockstep with `index.html`, `sw.js` and `serviceworker.js` by
 
 ### Added
 
+- **Seated mode and height matching.** VR menu, comfort page: **SEATED MODE** lets you sit while your avatar stays standing (your view is lifted to
+  standing eye height, easing in over a few seconds and falling away when you stand), and in standing mode your avatar now takes your real height,
+  estimated as you play or set with **MEASURE HEIGHT** (stand tall for three seconds). Other guests see a person your size (a new optional `eh` field
+  in the relay's state frames: deploy the relay, or they keep seeing the standard 1.7 m), and the restroom mirror shows it too. A short estimate (a
+  sitter without Seated mode) is ignored. The splash is unchanged.
+- **Choose your character offline.** VR menu comfort page **MY CHARACTER** / **PREVIOUS CHARACTER** and Show & Lights, Club tab, **Your character** pick
+  one of the 17 people (the same ones the relay hands out), saved on the device (`vrclub.myCharacter`). Offline, that person is your reflection in the
+  restroom mirror, and the first-person body follows its man/woman (`vrclub.avatarStyle`); in a room the mirror still shows the character the room gave you.
 - **The DJ stage can be walked onto from any side.** Two invisible blocks left over from the old floor-standing speaker stacks stood either side
   of it and forced guests round by set routes; they are gone. In a headset the stage only counted for a walker already near its top, so you walked
   into it at floor level and stayed inside it until a jump landed on top: it is now stepped onto (a quick climb) from the floor, and off again,

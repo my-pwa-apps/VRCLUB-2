@@ -1655,6 +1655,20 @@ function initAudioMenu() {
         try { library.remove(); }
         catch (error) { showStatus(error.message, 'error'); }
     });
+    const myCharacter = document.getElementById('myCharacter');
+    if (myCharacter) {
+        const labels = (window.ClubMultiplayer && window.ClubMultiplayer.AVATAR_LABELS) || {};
+        for (const id of window.VRClubAudioCrowd.MY_CHARACTERS) {
+            const option = document.createElement('option');
+            option.value = id;
+            option.textContent = labels[id] || id;
+            myCharacter.appendChild(option);
+        }
+        myCharacter.value = vrClubInstance.getLocalCharacter() || '';
+        myCharacter.addEventListener('change', () => {
+            myCharacter.value = vrClubInstance.setLocalCharacter(myCharacter.value || null) || '';
+        });
+    }
     const djStyle = document.getElementById('djStyle');
     djStyle.value = vrClubInstance._initialDJId();
     djStyle.addEventListener('change', () => {
@@ -1884,7 +1898,7 @@ function initAudioMenu() {
 function initRoomGuestLock(mp) {
     const club = vrClubInstance;
     const panels = [
-        { id: 'vjMenu', what: 'show controls', keep: '#vjSafeModeBtn, #vjVRComfortBtn, #vjMinimize, #vjClose, [data-open-panel], [data-vj-tab-target], [data-control="cycleGraphicsQuality"], [data-people], [data-hold], #vjHoldTiming, #djStyle' },
+        { id: 'vjMenu', what: 'show controls', keep: '#vjSafeModeBtn, #vjVRComfortBtn, #vjMinimize, #vjClose, [data-open-panel], [data-vj-tab-target], [data-control="cycleGraphicsQuality"], [data-people], [data-hold], #vjHoldTiming, #djStyle, #myCharacter' },
         { id: 'audioMenu', what: 'music', keep: '#audioMinimize, #audioClose, #audioVolume, #crowdAmbience, [data-open-panel]' }
     ];
     const renders = [];

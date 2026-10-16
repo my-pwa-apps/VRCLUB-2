@@ -1356,10 +1356,16 @@ const VenueDressing = {
         }
     },
 
-    /** Follow the relay's assignment: the double exists while this guest is in a room with an assigned character. */
-    _syncMirrorDouble() {
+    /** Who the mirror shows: the relay's assignment in a room, otherwise the character the player chose (null = their own body). */
+    _mirrorAvatarId() {
         const mp = this.multiplayer;
-        const avatarId = mp && mp.connected ? mp.selfAvatar : null;
+        if (mp && mp.connected) return mp.selfAvatar || null;
+        return typeof this.getLocalCharacter === 'function' ? this.getLocalCharacter() : null;
+    },
+
+    /** Follow the relay's assignment in a room, or the player's own choice offline. */
+    _syncMirrorDouble() {
+        const avatarId = this._mirrorAvatarId();
         const double = this._mirrorDouble;
         if (double && double.avatarId === avatarId) return;
         if (double) this._disposeMirrorDouble();
@@ -1375,8 +1381,7 @@ const VenueDressing = {
         const index = Crowd ? Crowd.sourceIndex(avatarId) : -1;
         if (index < 0 || typeof this._loadCrowdSource !== 'function' || !this._crowdSourceContainers) return;
         const container = await this._loadCrowdSource(index);
-        const mp = this.multiplayer;
-        if (!container || this._disposed || !this.scene || this._mirrorDouble || !mp || !mp.connected || mp.selfAvatar !== avatarId) return;
+        if (!container || this._disposed || !this.scene || this._mirrorDouble || this._mirrorAvatarId() !== avatarId) return;
 
         const prefix = 'mirrorSelf_';
         const entry = container.instantiateModelsToScene(name => `${prefix}${name}`, false, { doNotInstantiate: true });
@@ -1426,7 +1431,7 @@ const VenueDressing = {
         // Live controller arms go in after the clips have been evaluated, or the clip would erase them.
         double.observer = this.scene.onAfterAnimationsObservable.add(() => {
             if (!double.active || !double.arms || !(double.hands.left || double.hands.right)) return;
-            double.arms.updateTrackedArms(double.hands, double.root.rotation.y, this._activeSeat ? 1.2 : 1.7);
+            double.arms.updateTrackedArms(double.hands, double.root.rotation.y, this._activeSeat ? 1.2 : this._bodyEyeHeight());
         });
         this._mirrorDouble = double;
         this._extendAccentLight(this._restroomLight, meshes);
@@ -1463,6 +1468,15 @@ const VenueDressing = {
         const cam = this._playerCamera ? this._playerCamera() : this.camera;
         const pos = cam && (cam.globalPosition || cam.position);
         if (!pos) return;
+        // The reflection is the player's own height, like everyone else's view of them.
+        const eyeScale = this._bodyEyeHeight() / 1.7;
+        const applied = double.eyeScale || 1;
+        if (Math.abs(eyeScale - applied) >= 0.01) {
+            double.node.scaling.scaleInPlace(eyeScale / applied);
+            double.node.position.y *= eyeScale / applied;
+            if (double.arms) double.arms.invalidateLimbs();
+            double.eyeScale = eyeScale;
+        }
         const seat = this._activeSeat;
         const dir = this._mirrorDir || (this._mirrorDir = new BABYLON.Vector3());
         cam.getDirectionToRef(BABYLON.Axis.Z, dir);

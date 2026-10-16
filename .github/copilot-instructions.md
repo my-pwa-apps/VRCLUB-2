@@ -26,7 +26,7 @@ emits one minified, content-hashed production bundle with esbuild.
 6. loaders/factories (`textureLoader`, `modelLoader`, `materialFactory`, `lightFactory`)
 7. `js/vjDirector.js`, then `js/showDirector.js`
 8. `js/ledPatterns.js`, then `js/barProps.js` (bottle geometry and label atlas; no club dependency), then `js/restroomArt.js` (the restroom's painted poster atlas and placement plan; needs `js/nocturneLogo.js` only at paint time), then `js/venueDressing.js` (entrance stair hall, bar, lounge couch and restroom), `js/mezzanine.js` (steel balcony and stair, and the walking-surface follow) and `js/cityDistrict.js` (the street outside, at street level) and `js/vjDesk.js` (the VJ desk's show, lights and set-player touch panels at the DJ table), all mixed into `VRClub.prototype`
-9. `js/avatarRig.js` (the local player's procedural body), `js/djPerformer.js` (the DJ's live set, posed through the rig), `js/crowdDance.js` (the crowd's choreographer), `js/minglerClock.js` (the shared room-time round), then `js/networkClient.js`, `js/avatarManager.js` and `js/multiplayer.js` (`ClubMultiplayer`) — optional multiplayer (no instance until a guest connects)
+9. `js/playerHeight.js` (pure player-height maths), `js/avatarRig.js` (the local player's procedural body), `js/djPerformer.js` (the DJ's live set, posed through the rig), `js/crowdDance.js` (the crowd's choreographer), `js/minglerClock.js` (the shared room-time round), then `js/networkClient.js`, `js/avatarManager.js` and `js/multiplayer.js` (`ClubMultiplayer`) — optional multiplayer (no instance until a guest connects)
 10. `js/club/01-core.js` through `js/club/11-audio-crowd.js`, in numeric order
 11. `js/club_hyperrealistic.js` — final public `VRClub` bridge and LED mixin
 12. `js/paymentGate.js` — public `window.VRPayment`, verified access/device management and prepared VR leases
@@ -161,10 +161,22 @@ lift and step, two-bone IK to the ankles), hips that follow the eyes with a dead
 turn-in-place, head/neck/spine sharing the remaining twist and pitch, arm swing against the
 legs, VR arms IK'd to the controllers with the hand taking the controller's orientation,
 crouch and flight from the same root-height maths, and the torso backing off as you look
-down (the body mesh is open at the neck). Physical headset height never rescales the body:
-a seated, short or wheelchair-using guest still has the same 1.7 m standing avatar as everyone
-else. Only selecting tagged room furniture sets `pose.seated`; that separately lowers the pelvis
+down (the body mesh is open at the neck). The body's height is the player's own eye height in a headset
+(`club._bodyEyeHeight()`: `playerEyeHeight` when known, else 1.7 m; desktop is always 1.7 m because its camera is).
+`_updateLocalPlayerBody` calls `rig.setEyeHeight()` every frame, which refits only past a 4 cm difference. The height
+comes from `js/playerHeight.js` (pure maths, `window.PlayerHeight`): while standing (not Seated mode, not on room
+furniture) `Mezzanine._trackPlayerHeight()` feeds each XR frame's head height to a `HeightEstimator` (80th percentile of
+a 90 s window), and an estimate under 1.35 m is taken for sitting and ignored, so somebody who sits without Seated mode
+keeps the standard body. VR menu MEASURE HEIGHT takes the median of the final second of a three-second stand. Both save
+`vrclub.playerEyeHeight`. Sitting on tagged room furniture sets `pose.seated`; that separately lowers the pelvis
 onto `seatY`, fixes the body to the furniture's facing and plants both feet on its floor.
+
+**Seated mode** (`vrclub.seatedMode`, VR menu comfort page, personal and never host-gated, not on the sparse splash): the
+player sits, the avatar stands. `PlayerHeight.SeatedLift` follows a 2 s average of the real head height and eases a lift
+(at most 0.5 m/s, 4 cm dead-band, never more than 1 m) up to the body's standing eye height; `_xrHeadHeight()` returns the
+tracked height plus that lift, so the walking-surface follower, the collision body, seat entry and preset travel all raise
+the VIEW (not the virtual floor) without another code path. The lift snaps to zero on room furniture (it has its own pose)
+and falls away when the player stands. Never apply it anywhere but `_xrHeadHeight()`.
 
 Rules when editing it:
 - **World-space rotations only.** Every pose step is "rotate this world vector onto that
@@ -1544,7 +1556,7 @@ the relay URL. Private rooms successfully joined on this device are also remembe
 |-------|-----|
 | IndexedDB `VRClubTextureCache` / `textures` | asset URL |
 | IndexedDB `VRClubModelCache` / `models` | asset URL |
-| `localStorage` | `vrclub.safeMode`, `vrclub.graphicsTier`, `vrclub.avatarStyle` (`female`/`male`), `vrclub.crowdAmbience`, `vrclub.questMusic` (saved links/names/selection), `vrclub.questMusicPlayback` (selected finite source and last playback position), `vrclub.questDJ` (`male`/`female`), `vrclub.lightHold` (JSON hold policy), `vrclub.networkServerUrl`, `vrclub.networkRoom`, `vrclub.networkName`, `vrclub.networkUid` (secret; never shown), `vrclub.blockedPeers`, `vrclub.personalSpace`, `vrclub.autoNod`, `vrclub.avatarPool`, `vrclub.nameTags` (`'0'` = hidden), `vrclub.duckForVoice` (`'0'` = off), `vrclub.hiddenPeople` (a comma-separated list of the groups sent home: `dancers`, `bystanders`, `dj`), `vrclub.welcomeDismissed` (`'1'` after dismissing the one-time in-club controls hint) |
+| `localStorage` | `vrclub.safeMode`, `vrclub.graphicsTier`, `vrclub.avatarStyle` (`female`/`male`), `vrclub.crowdAmbience`, `vrclub.questMusic` (saved links/names/selection), `vrclub.questMusicPlayback` (selected finite source and last playback position), `vrclub.questDJ` (`male`/`female`), `vrclub.lightHold` (JSON hold policy), `vrclub.networkServerUrl`, `vrclub.networkRoom`, `vrclub.networkName`, `vrclub.networkUid` (secret; never shown), `vrclub.blockedPeers`, `vrclub.personalSpace`, `vrclub.autoNod`, `vrclub.avatarPool`, `vrclub.nameTags` (`'0'` = hidden), `vrclub.duckForVoice` (`'0'` = off), `vrclub.hiddenPeople` (a comma-separated list of the groups sent home: `dancers`, `bystanders`, `dj`), `vrclub.welcomeDismissed` (`'1'` after dismissing the one-time in-club controls hint), `vrclub.seatedMode` (`'1'` = on), `vrclub.playerEyeHeight` (the player's standing eye height in metres) |
 
 VR comfort is persisted separately as `vrclub.vrComfort` (off for new visitors; only stored `1` enables it).
 The splash and constructor use `resolveVRComfortMode()` so existing saved choices are preserved.
@@ -1601,7 +1613,7 @@ and refreshed on every comfort reapplication. XR entry preserves tracked eye hei
 `moveCameraToPreset()` routes to the XR camera when active,
 preserving head orientation and measured seated height with a booth floor offset.
 The paged quick menu separates LIGHTS (fixtures, colours and movement), EFFECTS (LED wall, strobes, smoke, mirror
-beams and gobos), SHOW (automatic-show actions plus a five-movement section page), a CROWD page (who is in the club), comfort (locomotion,
+beams and gobos), SHOW (automatic-show actions plus a five-movement section page), a CROWD page (who is in the club), comfort (locomotion, seated mode, measure height, my character (`setLocalCharacter`/`stepLocalCharacter`: one of the 17 relay people, saved as `vrclub.myCharacter`; the offline mirror's double via `_mirrorAvatarId()`, and its gender sets `vrclub.avatarStyle`),
 safe mode, quality), five destinations (entrance, dance floor, DJ booth, balcony, street) and a **Music** page: a seek
 strip (`vrQuickMenuSeek`, click or drag a ray on it; `_beginVRSeek/_moveVRSeek/_endVRSeek` ride the
 scene pointer observables, the seek happens on release), ±1 min, play/pause, saved-set Previous/Next,
@@ -1873,7 +1885,9 @@ protocol only grew, so older clients keep working.
   crowd uses; one draw each). A clip state machine plays Idle/Walk/Run from the interpolated speed, plus Wave, Yes
   (nod) and a Dance_Loop toggle. `MAX_PEOPLE` (8) are people; the rest, and any guest still loading, are a capsule +
   head (the capsule always remains as the invisible collision body). `state.y` on the wire is the sender's **eye**
-  height; the avatar root is placed `EYE_HEIGHT` below it. An intentional seat adds `state.seated: true` and a bounded
+  height and `state.eh` (optional, 1.1-2.1 m, clamped by the relay's `sanitizeState`) their standing eye height; the avatar
+  root is placed `eh` below the eye (1.7 for older clients) and the person is scaled by `eh / 1.7`, so the default is exactly
+  the old size (`_setEyeHeight`, ignoring changes under 2 cm; the relay must be deployed or the field is stripped). An intentional seat adds `state.seated: true` and a bounded
   `floorY`; the receiver puts the root on that surface and plays the shared `Seated_Loop` carried by all 17 assignable
   crowd looks (the capsule fallback lowers too). Physical seated play sends no flag and therefore remains standing.
   Name tag (a 0.6 x 0.15 m pill sized to the name, mipmapped,

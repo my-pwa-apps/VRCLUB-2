@@ -8,7 +8,8 @@
  *
  * Message protocol (all JSON, one object per frame):
  *   client -> server
- *     { type: 'state', state: {x,y,z,rotY,seated?,floorY?,hands?} } - eye position/facing and intentional seat state;
+ *     { type: 'state', state: {x,y,z,rotY,seated?,floorY?,eh?,hands?} } - eye position/facing, intentional seat state
+ *       and the sender's standing eye height (1.1-2.1 m);
  *       hands are eye-relative positions and world forward/up vectors
  *     { type: 'emoji', emoji: '🎉' }                  - one-shot reaction (allow-listed)
  *     { type: 'gesture', gesture: 'wave'|'nod'|'dance'|'stop' } - body language (allow-listed; 'dance' runs until 'stop')
@@ -215,6 +216,9 @@ export function sanitizeState(state) {
         result.seated = true;
         result.floorY = coord(state.floorY);
     }
+    // The sender's standing eye height, so others see a person of that height. Out of range means "not sent".
+    const eh = Number(state.eh);
+    if (state.eh != null && Number.isFinite(eh) && eh >= 1.1 && eh <= 2.1) result.eh = Math.round(eh * 100) / 100;
     if (state.hands && typeof state.hands === 'object') {
         result.hands = { left: sanitizeHand(state.hands.left), right: sanitizeHand(state.hands.right) };
     }

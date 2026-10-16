@@ -361,7 +361,7 @@ const Mezzanine = {
         } else {
             this._vrFallSpeed = 0;
         }
-        if (this._vrFallSpeed > 0 || Math.abs(feet - target) > 0.02) camera.position.y = target + eye;
+        if (this._vrFallSpeed > 0 || this._seatLiftMoving || Math.abs(feet - target) > 0.02) camera.position.y = target + eye;
         // Babylon queues XR locomotion until the next XR frame. Its queued transform
         // must carry this correction too, otherwise it overwrites the floor height.
         if (camera._deferOnly && camera._deferredUpdated) camera._deferredPositionUpdate.y = camera.position.y;
@@ -444,6 +444,7 @@ const Mezzanine = {
             this._xrHeightResetObserver = sessionManager.onXRSessionInit.add(() => {
                 this._xrEyeHeight = null;
                 this._vrFallSpeed = 0;
+                this._resetPlayerHeightTracking();
             });
             // Sample before the camera/locomotion observers, so crouching and recentering
             // use this frame's physical height rather than the previous frame's.
@@ -455,13 +456,97 @@ const Mezzanine = {
                     if (!Number.isFinite(height)) throw new Error('Non-finite XR head height');
                     this._xrEyeHeight = height;
                     this._xrHeightError = false;
+                    this._trackPlayerHeight(height);
                 } catch (error) {
                     if (!this._xrHeightError) log.warn('Could not sample XR head height:', error);
                     this._xrHeightError = true;
                 }
             }, -1, true);
         }
-        return Number.isFinite(this._xrEyeHeight) ? this._xrEyeHeight : null;
+        // The tracked height plus Seated mode's lift (zero otherwise): every caller treats it as "head above the feet".
+        return Number.isFinite(this._xrEyeHeight) ? this._xrEyeHeight + (this._seatLift ? this._seatLift.lift : 0) : null;
+    },
+
+    _resetPlayerHeightTracking() {
+        if (this._seatLift) this._seatLift.reset();
+        if (this._heightEstimator) this._heightEstimator.reset();
+        this._heightAt = null;
+        this._seatLiftMoving = false;
+        this._heightMeasure = null;
+    },
+
+    /**
+     * Per XR frame: feed the player's real head height to the seated-mode lift, the standing-height estimator and the
+     * MEASURE HEIGHT countdown. Allocation-free except when a measurement finishes.
+     */
+    _trackPlayerHeight(real) {
+        const H = window.PlayerHeight;
+        if (!H) return;
+        const now = performance.now() / 1000;
+        const dt = this._heightAt == null ? 0 : now - this._heightAt;
+        this._heightAt = now;
+        const lift = this._seatLift || (this._seatLift = new H.SeatedLift());
+        const before = lift.lift;
+        lift.update(real, dt, !!this.vrSeatedMode, this._bodyEyeHeight(), !!this._activeSeat);
+        this._seatLiftMoving = Math.abs(lift.lift - before) > 1e-6;
+
+        const measure = this._heightMeasure;
+        if (measure) {
+            measure.samples.push(real, now);
+            if (now >= measure.until) {
+                this._heightMeasure = null;
+                this._finishHeightMeasure(measure, now);
+            }
+            return;
+        }
+        // Standing mode: the body follows the player's height. Seated mode, and a seat in the room, never sample.
+        if (this.vrSeatedMode || this._activeSeat) return;
+        const estimator = this._heightEstimator || (this._heightEstimator = new H.HeightEstimator());
+        estimator.add(real, now);
+        if (now - (this._heightAppliedAt || 0) < 2) return;
+        this._heightAppliedAt = now;
+        const estimate = estimator.estimate();
+        if (estimate !== null && estimate >= H.AUTO_MIN_EYE && Math.abs(estimate - (this.playerEyeHeight || H.DEFAULT_EYE)) >= 0.03) {
+            this.setPlayerEyeHeight(estimate);
+        }
+    },
+
+    /** Remember the player's standing eye height; the local body and every other guest's view of it follow. */
+    setPlayerEyeHeight(height) {
+        const H = window.PlayerHeight;
+        if (!H || !Number.isFinite(height)) return null;
+        this.playerEyeHeight = Math.round(H.clampEye(height) * 100) / 100;
+        try { localStorage.setItem('vrclub.playerEyeHeight', String(this.playerEyeHeight)); } catch (_) { /* private mode */ }
+        this._refreshVRQuickMenu();
+        return this.playerEyeHeight;
+    },
+
+    /** Start the three-second MEASURE HEIGHT: stand tall; the median of the final second is kept. */
+    startHeightMeasure() {
+        if (!this.isInVRMode || !Number.isFinite(this._xrEyeHeight)) {
+            this.showErrorMessage('Height can be measured in the headset.');
+            return false;
+        }
+        const now = performance.now() / 1000;
+        this._heightMeasure = { until: now + 3, samples: [] };
+        this.showErrorMessage('Stand up straight and look ahead: measuring for 3 seconds');
+        return true;
+    },
+
+    _finishHeightMeasure(measure, now) {
+        const H = window.PlayerHeight;
+        const recent = [];
+        for (let i = 0; i < measure.samples.length; i += 2) {
+            if (measure.samples[i + 1] >= now - 1) recent.push(measure.samples[i]);
+        }
+        const value = H.median(recent);
+        if (value === null || value < H.MIN_EYE || value > H.MAX_EYE) {
+            this.showErrorMessage('Could not measure your height. Try again, standing up straight.');
+            return;
+        }
+        this.setPlayerEyeHeight(value);
+        if (this._heightEstimator) this._heightEstimator.reset();
+        this.showErrorMessage(`Your eye height is ${value.toFixed(2)} m. The avatar now matches it.`);
     }
 };
 window.Mezzanine = Mezzanine;

@@ -66,7 +66,7 @@ class AvatarManager {
             for (const peer of this.remotes.values()) {
                 if (peer.person?.arms && peer.root.isEnabled() && this._hasTrackedHands(peer)) {
                     peer.person.arms.updateTrackedArms(peer.hands, peer.root.rotation.y,
-                        peer.seated ? 1.2 : AvatarManager.EYE_HEIGHT);
+                        peer.seated ? 1.2 : peer.eyeHeight);
                 }
             }
         });
@@ -111,6 +111,7 @@ class AvatarManager {
             id, name: name || 'Guest', pid: info.pid || null, avatarId: null,
             root, body, head, nameplate: null, person: null,
             muted: false, speaking: false, isHost: false, hidden: false, seated: false,
+            eyeHeight: AvatarManager.EYE_HEIGHT,
             pose: null,
             emojiPlane: null, emojiTimer: 0, lastEmojiAt: -Infinity,
             chatPlane: null, chatTimer: 0,
@@ -170,7 +171,7 @@ class AvatarManager {
         node.scaling.setAll(1);
         node.computeWorldMatrix(true);
         // Normalise on real-world height, as the crowd does, and stand the feet on the guest's floor.
-        const height = AvatarManager.PERSON_HEIGHT[avatarId[0]] || 1.72;
+        const height = (AvatarManager.PERSON_HEIGHT[avatarId[0]] || 1.72) * (peer.eyeHeight / AvatarManager.EYE_HEIGHT);
         let bounds = node.getHierarchyBoundingVectors(true);
         const rawHeight = bounds.max.y - bounds.min.y;
         if (rawHeight > 1e-6) node.scaling.setAll(height / rawHeight);
@@ -355,7 +356,25 @@ class AvatarManager {
 
     // ───────────────────────── state, emoji ─────────────────────────
 
-    /** @param {{x:number,y:number,z:number,rotY:number,seated?:boolean,floorY?:number}} state */
+    /**
+     * A guest's standing eye height (`state.eh`, 1.1-2.1 m; absent from older clients and relays = the standard
+     * 1.7 m). The person is scaled by its ratio to 1.7, so the default is exactly the old size, and the root sits that
+     * far below the sender's eye. Changes under 2 cm are ignored so estimator noise never re-fits a skeleton.
+     */
+    _setEyeHeight(peer, eh) {
+        const wanted = Number.isFinite(eh) && eh >= 1.1 && eh <= 2.1 ? eh : AvatarManager.EYE_HEIGHT;
+        if (Math.abs(wanted - peer.eyeHeight) < 0.02) return;
+        const ratio = wanted / peer.eyeHeight;
+        peer.eyeHeight = wanted;
+        const node = peer.person && peer.person.node;
+        if (!node) return;
+        // The feet offset is proportional to the scale, so one multiply keeps them on the floor.
+        node.scaling.scaleInPlace(ratio);
+        node.position.y *= ratio;
+        if (peer.person.arms) peer.person.arms.invalidateLimbs();
+    }
+
+    /** @param {{x:number,y:number,z:number,rotY:number,seated?:boolean,floorY?:number,eh?:number}} state */
     updatePeerState(id, name, state, info) {
         if (!state) return;
         const peer = this.ensurePeer(id, name, info || {});
@@ -364,7 +383,8 @@ class AvatarManager {
         // Place the root on the sender's floor so the head (root + EYE_HEIGHT) lands at
         // their eye. Using the eye height as the root floated every guest ~1.7 m up.
         peer.target.seated = state.seated === true;
-        peer.target.y = peer.target.seated ? finite(state.floorY) : finite(state.y) - AvatarManager.EYE_HEIGHT;
+        this._setEyeHeight(peer, state.eh);
+        peer.target.y = peer.target.seated ? finite(state.floorY) : finite(state.y) - peer.eyeHeight;
         peer.target.z = finite(state.z);
         peer.target.rotY = finite(state.rotY);
         for (const side of ['left', 'right']) {
@@ -524,7 +544,7 @@ class AvatarManager {
         if (!eye) return;
         const dx = eye.x - peer.root.position.x, dz = eye.z - peer.root.position.z;
         const near = Math.hypot(dx, dz);
-        const level = Math.abs(eye.y - (peer.root.position.y + AvatarManager.EYE_HEIGHT)) < 1.6;
+        const level = Math.abs(eye.y - (peer.root.position.y + peer.eyeHeight)) < 1.6;
         const hidden = peer.hidden ? !(near > AvatarManager.BUBBLE_SHOW || !level) : (near < AvatarManager.BUBBLE_HIDE && level);
         if (hidden !== peer.hidden) { peer.hidden = hidden; this._applyHidden(peer); }
     }
@@ -602,7 +622,7 @@ class AvatarManager {
 
             if (peer.audio && peer.audio.panner) {
                 AudioUtils.setPannerPosition(peer.audio.panner,
-                    root.position.x, root.position.y + (peer.seated ? 1.2 : AvatarManager.EYE_HEIGHT), root.position.z);
+                    root.position.x, root.position.y + (peer.seated ? 1.2 : peer.eyeHeight), root.position.z);
                 if (this._frame % 6 === 0) this._updateSpeaking(peer);
             }
 

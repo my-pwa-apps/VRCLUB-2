@@ -1343,7 +1343,45 @@ class VRClubAudioCrowd extends VRClubUI {
         try { localStorage.setItem('vrclub.avatarStyle', next); } catch (_) { /* private browsing */ }
         if (this._localRig) { this._localRig.dispose(); this._localRig = null; }
         this._spawnLocalPlayerBody();
+        // The restroom mirror draws this body when no character is chosen: make it list the new meshes.
+        this._mirrorSignature = -1;
+        if (typeof this._refreshVRQuickMenu === 'function') this._refreshVRQuickMenu();
         return next;
+    }
+
+    /** The people a player can be: the same 17 characters the relay hands out (`f1`-`f8`, `m1`-`m9`). */
+    static get MY_CHARACTERS() {
+        return Object.freeze(['f1', 'f2', 'f3', 'f4', 'f5', 'f6', 'f7', 'f8', 'm1', 'm2', 'm3', 'm4', 'm5', 'm6', 'm7', 'm8', 'm9']);
+    }
+
+    /** The character this player chose for themselves (saved), or null for the default body. Offline, it is the mirror's reflection. */
+    getLocalCharacter() {
+        try {
+            const id = localStorage.getItem('vrclub.myCharacter');
+            return VRClubAudioCrowd.MY_CHARACTERS.includes(id) ? id : null;
+        } catch (_) { return null; }
+    }
+
+    /** Choose a character (or null for the default) and save it; the first-person body follows its gender. */
+    setLocalCharacter(id) {
+        const next = VRClubAudioCrowd.MY_CHARACTERS.includes(id) ? id : null;
+        try {
+            if (next) localStorage.setItem('vrclub.myCharacter', next);
+            else localStorage.removeItem('vrclub.myCharacter');
+        } catch (_) { /* private browsing */ }
+        if (next) this.setLocalAvatarStyle(next[0] === 'm' ? 'male' : 'female');
+        this._mirrorSignature = -1;
+        if (typeof this._refreshVRQuickMenu === 'function') this._refreshVRQuickMenu();
+        return next;
+    }
+
+    /** Next (+1) or previous (-1) character; from the default it starts at the player's current man/woman style. */
+    stepLocalCharacter(step = 1) {
+        const list = VRClubAudioCrowd.MY_CHARACTERS;
+        const current = this.getLocalCharacter();
+        const start = current ? list.indexOf(current) : (this.getLocalAvatarStyle() === 'male' ? list.indexOf('m1') : 0);
+        const index = current ? (start + (step < 0 ? -1 : 1) + list.length) % list.length : start;
+        return this.setLocalCharacter(list[index]);
     }
 
     /** Two fictional CC0 DJs, derived from the guest files, with rigged CC0 headphones. */
@@ -1691,12 +1729,19 @@ class VRClubAudioCrowd extends VRClubUI {
         if (this._localRig || typeof AvatarRig === 'undefined') return;
         const container = this._avatarContainerFor(this.getLocalAvatarStyle());
         if (!container) return;
-        // Physical headset height is deliberately not body scale. A seated, short or
-        // wheelchair-using guest gets the same standing silhouette as everybody else
-        // until they intentionally choose a seat in the room.
-        const rig = new AvatarRig(this, container, { eyeHeight: 1.7, hideHead: true });
+        // The body is the player's own height in the headset once it is known (measured, or estimated while standing),
+        // otherwise the standard 1.7 m one; desktop is always 1.7 m because its camera is. Sitting on the club's
+        // furniture or in Seated mode never shrinks it: a seated guest keeps a standing person, and Seated mode lifts
+        // the view to it (`_xrHeadHeight`).
+        const rig = new AvatarRig(this, container, { eyeHeight: this._bodyEyeHeight(), hideHead: true });
         this._localRig = rig.ok ? rig : null;
-        this._localBodyStandEye = 1.7;
+    }
+
+    /** Eye height of the local body, and of the person others see: the player's own in VR, 1.7 m on desktop. */
+    _bodyEyeHeight() {
+        const H = window.PlayerHeight;
+        const standard = H ? H.DEFAULT_EYE : 1.7;
+        return this.isInVRMode && this.playerEyeHeight ? this.playerEyeHeight : standard;
     }
 
     /** One controller's hand pose into a reusable object, or null when untracked. */
@@ -1745,8 +1790,8 @@ class VRClubAudioCrowd extends VRClubUI {
         pose.x = seat ? seat.x : pos.x;
         pose.z = seat ? seat.z : pos.z;
         pose.groundY = seat ? seat.floorY : ((pos.x > -3 && pos.x < 3 && pos.z < -16 && pos.z > -20.5) ? 0.5 : (this._walkLevel || 0));
-        const bodyStandEye = this._localBodyStandEye || (rig.standEye || 1.7);
-        pose.eyeY = pose.groundY + bodyStandEye;
+        rig.setEyeHeight(this._bodyEyeHeight());   // refits only when it differs by 4 cm or more
+        pose.eyeY = pose.groundY + (rig.standEye || 1.7);
         pose.seated = !!seat;
         pose.seatY = seat ? seat.seatY : 0;
         pose.bodyYaw = seat ? seat.facing : pose.headYaw;

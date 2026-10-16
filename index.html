@@ -255,6 +255,11 @@
                     <button class="vj-button active" id="vjPeopleDJ" type="button" aria-pressed="true" data-people="dj">DJ</button>
                 </div>
                 <button class="vj-button vj-button-wide active" id="vjPeopleAll" type="button" aria-pressed="true" data-people="all">EVERYONE</button>
+                <label class="vj-field-label" for="myCharacter">Your character</label>
+                <p class="vj-help">Who you are when you are not in a room: the person you see in the restroom mirror. Saved on this device. In a room, others see the character the room gives you (choose women or men under Online).</p>
+                <select class="audio-input" id="myCharacter">
+                    <option value="">Default (man or woman)</option>
+                </select>
                 <label class="vj-field-label" for="djStyle">Resident DJ</label>
                 <select class="audio-input" id="djStyle">
                     <option value="male">Male DJ</option>
@@ -1006,6 +1011,7 @@
 
     <!-- Procedural player body: the shared dancer skeleton posed from where a guest is,
          looks and (in VR) holds their hands. Used for the local guest and remote guests. -->
+    <script src="js/playerHeight.js?v=20261009-1"></script>
     <script src="js/avatarRig.js?v=20261009-1"></script>
     <script src="js/djPerformer.js?v=20261009-1"></script>
     <script src="js/crowdDance.js?v=20261009-1"></script>
