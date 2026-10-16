@@ -5,7 +5,7 @@ import { dirname, extname, join, relative } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
-const ASSET_ROOTS = ['js/models', 'textures'];
+const ASSET_ROOTS = ['js/models', 'textures', 'audio'];
 const LARGE_ASSET_BYTES = 5 * 1024 * 1024;
 
 function collectFiles(directory) {
@@ -44,8 +44,8 @@ for (const [type, bytes] of [...byType].sort((left, right) => right[1] - left[1]
     console.log(`${toMiB(bytes).padStart(8)} MiB  .${type}`);
 }
 
-const budgetMiB = Number(process.env.ASSET_BUDGET_MB);
+const budgetMiB = Number(process.env.ASSET_BUDGET_MB || 75);
 if (Number.isFinite(budgetMiB) && budgetMiB > 0 && totalBytes > budgetMiB * 1024 * 1024) {
-    console.error(`\nAsset payload exceeds ASSET_BUDGET_MB=${budgetMiB}.`);
+    console.error(`\nAsset payload (${toMiB(totalBytes)} MiB) exceeds ASSET_BUDGET_MB=${budgetMiB}.`);
     process.exitCode = 1;
 }

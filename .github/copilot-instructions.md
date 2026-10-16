@@ -30,7 +30,8 @@ emits one minified, content-hashed production bundle with esbuild.
 10. `js/club/01-core.js` through `js/club/11-audio-crowd.js`, in numeric order
 11. `js/club_hyperrealistic.js` — final public `VRClub` bridge and LED mixin
 12. `js/paymentGate.js` — public `window.VRPayment`, verified access/device management and prepared VR leases
-13. `js/ui-init.js` — instantiates `new VRClub()`
+13. `js/immersiveLaunch.js` — `window.ImmersiveLaunch`, the opt-in (`?immersive=1`) in-headset launch
+14. `js/ui-init.js` — instantiates `new VRClub()`
 
 `npm test` enforces this ordering, plus "every referenced script exists" and "every class
 is exported onto `window`". Run it after touching `index.html` or adding a file.
@@ -196,10 +197,10 @@ Rules when editing it:
 `barPhase`), `bar` (`vjDirector.beatNumber / 4`), the kick band's `energy`, `bpm`, a `drop` edge (the show's `release`
 set-piece starting or the movement entering `ignition`) and the visitors (this guest and every remote guest).
 - Activities: `mix` (a deliberate jog-wheel nudge plus a turn-hold-release mixer gesture), `cue` (a headphone cup held
-  to the ear), `tweak` (alternating hands on knobs rather than mirrored wrist loops),
+  to the ear, PALM on the cup: the thumb side points back, so the back of the hand faces outward; a unit test fails if
+  it reverts), `tweak` (alternating hands on knobs rather than mirrored wrist loops),
   `crowd` (looking out, with an occasional every-other-beat fist accent at high energy), `handsUp` (a one-bar,
-  alternating-arm drop accent) and `wave` (a slower finite gesture at a visitor who walks into
-  the zone in front of the booth, once per `WAVE_COOLDOWN` = 45 s each). Activities change ONLY on bar lines, except the
+  alternating-arm drop accent, palms facing the crowd) and `wave` (a slower finite gesture, palm toward the visitor, at a visitor who walks into  the zone in front of the booth, once per `WAVE_COOLDOWN` = 45 s each). Activities change ONLY on bar lines, except the
   drop and the wave, which cut in. Simultaneous arrivals are ranked by distance with a small centre-line salience
   tie-break, not array order; a wave locks attention to that visitor and tracks them until the gesture ends. With no
   music it keeps its own 118 BPM and never throws its hands up.
@@ -214,15 +215,25 @@ set-piece starting or the movement entering `ignition`) and the visitors (this g
   Headset cost is unmeasured (~0.05-0.3 ms a frame on desktop SwiftShader).
 
 ### `js/crowdDance.js` — the crowd dances on the beat
-The Quaternius dancer files (not the three Mixamo files, not the guests) carry nine authored moves: the retargeted
-`Dance_Loop` and eight procedural grooves (`Groove_Bounce`, `_SideTap`, `_Clap`, `_Pump`, `_Twist`, `_HandsUp`, `_Sway`,
-`_Still`) authored by `synthesize()` in `scripts/build-crowd-glbs.mjs` straight onto the modular rig: hips, spine and
+The Quaternius dancer files (not the three Mixamo files, not the guests) carry twelve authored moves: the retargeted
+`Dance_Loop` and eleven procedural grooves (`Groove_Bounce`, `_SideTap`, `_Clap`, `_ClapUp`, `_Pump`, `_Twist`, `_HandsUp`,
+`_Sway`, `_ArmsWide`, `_ArmsUp`, `_Still`) authored by `synthesize()` in `scripts/build-crowd-glbs.mjs` straight onto the modular rig: hips, spine and
 head angles plus wrist and ankle targets solved with two-bone IK, at `GROOVE_BPM` 120 and `GROOVE_FPS` 20, every loop a
 whole number of beats with a beat on its first key. A groove drives EXACTLY the bones `Dance_Loop` drives (Body, spine,
 neck, head, shoulders, arms, wrists, legs, the free feet), so switching between them never leaves a joint in the last
 clip's pose. `Groove_Still` remains in the files for compatibility but is deliberately excluded from the live
 repertoire: an enabled floor dancer must always move, even while kick detection is absent. `mirror` in `CAST` mirrors
-the grooves too.
+the grooves too. **Hands are oriented, not just placed**: a groove hand may carry `thumb` (which way the index side
+faces), which rolls the palm about the fingers. Both claps keep the PALMS facing each other and touching (thumbs up,
+fingers forward and a little up in front of the chest; fingers up and thumbs back above the head), never the edges or
+backs of the hands; `Groove_ArmsWide` shows open palms up and `Groove_ArmsUp` palms forward. `test/rig.test.mjs` measures
+the palm normal on every dancer and fails if a clap's palms stop facing each other. `node scripts/build-crowd-glbs.mjs
+--refresh-static --optimize` re-authors `REFRESHED_GROOVES` on the shipped dancers without the asset packs.
+- **No beat at all** (`step()`'s `false` pulse): most dancers sway (`Groove_Sway`, `FREE_SWAY_WEIGHT` 3), and a stable few
+  open their arms wide or reach up high (`Groove_ArmsWide` / `Groove_ArmsUp`, `freeWeight`, `freeSpeed` 0.45), chosen
+  by each dancer's `taste` by `_pickFree()`. A choice is held for `FREE_HOLD` (18-40 s of `music.time`) before it may
+  change, and the free moves are never picked while the kick or the rhythm band has a pulse. A dancer whose file lacks
+  the new moves still sways.
 - `CrowdDance` is pure (no Babylon). `MOVES` gives each move its `beats`, `anchor` (where a beat lands: `Dance_Loop`
   dips half a beat in), pick `weight`, the `energy` it suits, and `build` / `drop` multipliers; the free `Groove_Sway`
   is what every dancer does without a beat. `step(dancer, music, frac)` returns the move and a speed: `bpm / 120`
@@ -534,18 +545,22 @@ Change the config and call `applyVRSettings(xrCamera)` / `applyDesktopSettings()
 set pipeline values inline. Grain and chromatic aberration are disabled on both targets
 (they read as haze); bloom is kept minimal.
 
-The selective Babylon `GlowLayer` object remains available for fixture registration and diagnostics but is deliberately
-`isEnabled = false` in EVERY mode: `applyVRSettings()` and `applyDesktopSettings()` only change its intensity (a unit
-test fails if any club layer sets it `true`). It renders selected emitters into a private target without the opaque venue or characters in its
+The selective `glowLayer` descriptor remains available for fixture registration (`addIncludedOnlyMesh`, `addExcludedMesh`,
+`hasMesh`) and diagnostics (`intensity`), but is deliberately `isEnabled = false` in EVERY mode and allocates no
+`BABYLON.GlowLayer` render targets: `applyVRSettings()` and `applyDesktopSettings()` only change its intensity (a unit
+test fails if any club layer sets it `true`). A selective `GlowLayer` renders emitters into a private target without the opaque venue or characters in its
 depth buffer, which made lights and halos visible through walls and Quaternius people. Visible glow comes only from the
-default rendering pipeline's bloom, after the main scene has resolved depth. Never re-enable the selective layer unless
+default rendering pipeline's bloom, after the main scene has resolved depth. Never re-enable a selective glow pass unless
 its pass includes every relevant occluder and the added full-scene draw cost has been measured.
 
 **`pipeline.sharpen.colorAmount` is a brightness GAIN, not a sharpness.** Babylon's sharpen shader is
 `colour * colorAmount - edge * edgeAmount` and runs after tone mapping, so a value below 1 darkens the
 whole image and caps peak white at that value. VR shipped at 0.1 (a headset frame at 10% brightness,
-which no amount of fixture boosting could fix); keep it at 1.0 and set brightness with `exposure`.
-Sharpening strength is `edgeAmount` only. `test/e2e/vr-parity.spec.mjs` fails if the VR gain drifts or
+which no amount of fixture boosting could fix); keep it at 1.0 on both desktop and VR and set brightness
+with `exposure`. Desktop exposure is 0.6 so the dark-room mean matches the old 1.2 × 0.5 path. SSAO and
+SSR detach the XR camera only when it is actually attached (`VRClubCore.detachPipelineCamera`): Babylon
+splices `indexOf`, and -1 used to delete the desktop camera. `applyDesktopSettings()` reattaches SSAO
+only if that camera is missing. Sharpening strength is `edgeAmount` only. `test/e2e/vr-parity.spec.mjs` fails if the VR gain drifts or
 the VR frame is darker than the desktop one. The strobe's whole-room impulse is
 `vrSettings.*.strobeImpulse`, tuned against measured flash luminance, not by eye. A strobe burst is
 about 40 ms in REAL seconds (`STROBE_FLASH_S` in `09-animation-finish.js`, not scaled by
@@ -615,6 +630,14 @@ Quest browsers auto-detect `ultra` (the owner's Quest 3 runs it; the Quest 3S is
 selection always wins, and the VR menu steps down to `high` or `balanced`. Because the flat (pre-XR) page on a Quest also runs the
 desktop tier path, ultra's SSR, SSAO and motion blur render there until the headset session starts, and are detached on entry.
 High and Ultra remain unmeasured on a Quest 3S.
+
+The XR layer renders at native scale (`framebufferScaleFactor: 1.0`). The old 1.2 scale multiplied every stereo
+post-process target by 1.44 on top of pipeline MSAA and FXAA. Ultra and High retain 2x pipeline MSAA plus FXAA;
+Balanced uses FXAA without multisampling. `vrclub.vrMsaa` can still override the tier with 1, 2 or 4 for diagnostics.
+Do not enable Babylon's WebXR Layers multiview projection. On the physical Quest 3S it created the projection
+layer and continued submitting frames, but the headset stayed black and WebGL reported `GL_INVALID_OPERATION`.
+The apparent frame-time improvement was black-frame throughput, not a rendered-club improvement. The standard
+WebXR stereo layer is required while the current post-process pipeline is active.
 
 The fixed XR effect cadences are CPU/upload budgets, not animation clocks: LED patterns, mirror rotation and laser motion still
 derive from elapsed time, so skipped uploads never slow the show or make it refresh-rate dependent. When three or more transparent
@@ -755,6 +778,17 @@ immediately and finish the cache write through `event.waitUntil()`. This preserv
 offline starts without putting the vendor payload on the install-critical path or blocking
 script execution on Cache Storage.
 
+**PWA contract.** `manifest.json` (served as `application/manifest+json`, `no-cache`, because its name is not hashed; the
+same goes for `icons/` and `screenshots/`) declares id, scope, `standalone` with `display_override`, a `launch_handler`
+that reuses the open window, 192/512 `any` icons, a 512 maskable icon and real screenshots in the `wide` and `narrow`
+form factors (captured from the club; their `sizes` are tested against the files). `index.html` adds a 180 px
+`apple-touch-icon` and an iOS title. The browser's install offer is deferred (`beforeinstallprompt`) and shown as an
+**Install app** button in the About panel (`#installApp`, hidden until the event fires and in an installed window); it
+is spent after one use and removed on `appinstalled`. `test/e2e/pwa.spec.mjs` asks Chrome itself (`Page.getInstallabilityErrors`,
+`Page.getAppManifest`), checks the served media type and every image, drives the install button and reloads the shell
+offline. Regenerate icons with `npm run icons` (the 180 px one included), which resizes `design/icon-source.png`; the maskable icon draws the same artwork at 80% so launcher masks never clip it. Screenshots are not generated by a script:
+recapture them from the running club when the look changes and keep each form factor's size identical.
+
 `npm run version:bump` rewrites `index.html`, `package.json`, `sw.js` and `serviceworker.js`
 together. A contract test fails if any of the four disagree.
 
@@ -770,8 +804,9 @@ The relay Worker is deployed separately with `npm run deploy:worker`. GitHub Pag
 Search engines and link previews use `https://nocturne.mitwee.nl/` as the only canonical URL.
 `index.html` owns the title, description, Open Graph/Twitter metadata and the visible
 `WebApplication` microdata in `#modelCredits`; `robots.txt` points at the one-URL `sitemap.xml`.
-The 1200x630 preview is `icons/social-preview.png`, generated from the editable
-`icons/social-preview.svg`. `scripts/build.mjs` copies all four crawl/preview assets into `dist/`.
+The 1200x630 preview is `icons/social-preview.png`, cropped by `npm run social-preview` from the editable artwork
+`design/social-preview-source.png` (kept outside `icons/` because the build copies that whole folder into `dist/`).
+`npm run quest:art` reuses the same artwork for the SideQuest banner. `scripts/build.mjs` copies all four crawl/preview assets into `dist/`.
 Keep development and `pages.dev` hostnames out of canonical metadata and the sitemap so they do
 not compete with production in search results.
 
@@ -832,6 +867,16 @@ and fail `npm test`.
   `test/rig.test.mjs` measures the real skeletons dancing (limbs rigid, feet on the floor, hands moving) and is
   what catches a wrong axis or flipped side; `test/unit.test.mjs` pins one skin, one draw, one material and the
   clip sets. Do not hand-edit the GLBs: change `CAST` and rebuild.
+- **Nobody appears twice.** The 17 people above plus 13 recoloured **variants** (`club-crowd-vf1..vf7`, `vm1..vm7`; `VARIANTS` in
+  the same script, `node scripts/build-crowd-glbs.mjs --variants`, no packs needed; `--refresh-static` and a full build
+  regenerate them) give the club 31 different people: 14 dancers, 8 side guests, the 8 in the street queue and the bouncer.
+  A variant swaps skin, hair and garment colours of its base (clusters told apart by where they sit on the body) and
+  copies body, rig and clips, so the base's silhouette and clips carry over (a `vf6` from `f7` also has the railing
+  pose). Every slot in `crowdSlots`, `_guestSlots()` and `_streetSlots()` uses a source ONCE, and no two source ids may
+  load one file; a unit test fails on either. Add a person by adding a `VARIANTS` entry (give it the same clip set the
+  slot needs: queue talkers and phone users need a guest-clip base) and a source and slot. Variants are never player
+  avatars: the relay's pool stays `f1..m9`, so a remote guest can look like an NPC (and the relay would need a deploy
+  to change that). Their GPU/download cost on a Quest (about 1 MB each, only the tier's people are fetched) is unmeasured.
 - **Sources load per tier.** `VRClub.AVATAR_SOURCES` (`js/club/11-audio-crowd.js`) lists every character file by
   id (`sourceIndex('f1')`); the crowd and guest slots point at them. Only the files the active tier shows are fetched
   (`_requiredCrowdSources`: the player's body, the bartender, the first N dancers and the first N guests), so a
@@ -922,7 +967,16 @@ and fail `npm test`.
     only after the relevant hand reaches the same measured point. The bartender is driven by an `AvatarRig` so both
     hands physically place, clear and resume washing the glass. M6's one-shot clip is explicitly phase-synchronised
     in `_syncMinglerDrinkPose()` rather than trusting render-loop animation time. The real-club test holds every
-    hand/counter and glass/mouth contact under 12 cm. The mesh and pose vectors are reused without per-frame allocation.
+    hand/counter contact under 12 cm and the glass rim within 10 cm of his lips. The mesh and pose vectors are reused without per-frame allocation.
+    **The cup rides in his palm and tips.** `_updateMinglerGrip()` places it at the palm centre (wrist and `Middle1.R`
+    midpoint) plus 4.5 cm toward the palm's face and 1 cm along the thumb side, from the m6 skeleton's wrist-local axes
+    (fingers +Y, thumb side -X, palm -Z; if the rig is rebuilt, re-measure them). `_tiltMinglerCup()` turns the cup
+    along the thumb axis, less 0.28 rad of the relaxed grip's natural cant, so it is upright on the counter and tips
+    only for the sip. `Drink_Loop` (`DRINK` / `DRINK_POSE` in `build-crowd-glbs.mjs`) leans him to the counter, rests
+    his free hand on it, wraps the fingers, lifts with the elbow low, tips with his head back, swallows, and sets it
+    down; `test/rig.test.mjs` places him as the club does and holds the cup within 3 cm of the counter glass at phases
+    0.2 and 0.86, the rim within 7 cm of his lips, the tilt, and planted feet. Retune with that test, not by eye.
+    Headset feel is unverified.
   - **Intentional solo stops.** At home he uses `Idle_Loop` while facing the dance floor.
   - **The balcony** is a solo stop next to somebody: the node carries `activity: 'balcony'` AND `guest: 3` (f7). He
     stands at x -9.93, a metre along the rail from her, both hands on the rail (`Idle_Railing_Loop`, measured: wrists
@@ -955,12 +1009,20 @@ and fail `npm test`.
     characters, street z 7.1 and balcony y 3.0). After changing his clips: `node scripts/build-crowd-glbs.mjs
     --refresh-static --only m6 --optimize` (no asset packs needed).
 - **The seated bar regular.** Guest slot 1 (`f6`) sits on the stool at z -11.6 with authored
-  `Seated_Bar_Idle_Loop` / `Seated_Bar_Drink_Loop` clips: her pelvis stays on the measured seat, both feet remain
-  planted, and her hands rest at the counter. `_updateBarPatron()` alternates long idle periods, bartender conversation
-  and an occasional drink from one persistent counter bottle; the prop is either fixed on the counter or fixed to her
-  hand, never interpolated through open space. The bartender gives the mingler's physical service priority and otherwise
-  turns naturally toward the regular while they talk. Refresh these clips with
-  `node scripts/build-crowd-glbs.mjs --refresh-static --only f6 --optimize`.
+  `Seated_Bar_Idle_Loop` / `Seated_Bar_Drink_Loop` clips: her pelvis stays on the measured seat and both feet remain
+  planted. She LEANS ON THE BAR (torso tipped forward, head level, both elbows bent ~135 degrees, forearms on the
+  counter) with her right hand resting beside her bottle; the idle adds breathing, glances, a weight shift and a left-hand
+  drum. The drink (8 beats, runtime ranges pickup 0-0.2 / drink 0.2-0.72 / return 0.72-0.94) rolls the hand round the
+  bottle, lifts it with the elbow DOWN (an elbow behind her back was the old, unnatural drink), tips her head back for the
+  sip and a swallow, lowers it and sets it down. The runtime bottle rides in her palm, 6 cm up its axis and 3 cm
+  toward her midline, and tips toward her lips with `VRClubAudioCrowd.barBottleTilt(phase)`, the same curve
+  `scripts/build-crowd-glbs.mjs` uses to wrap her fingers; its resting point is her measured resting palm
+  (`test/rig.test.mjs` fails if they drift). The generic `Seated_Loop` (couch, stools, balcony) stays the upright pose
+  and is NOT the bar idle. `_updateBarPatron()` alternates long idle periods, bartender conversation and an occasional
+  drink; the prop is either fixed on the counter or fixed to her hand, never interpolated through open space. The
+  bartender gives the mingler's physical service priority and otherwise turns naturally toward the regular while
+  they talk. Tune a clip against a headless harness rather than a headset (the rig test measures the real GLB), then
+  refresh with `node scripts/build-crowd-glbs.mjs --refresh-static --only f6 --optimize` (3 s, deterministic).
 - **Generic DJs are local choices.** `VRClub.DJ_LOOKS` (`js/club/11-audio-crowd.js`) maps `male` (1.78 m)
   and `female` (1.68 m) to `club-dj-male.glb` / `club-dj-female.glb`, built from CC0 Quaternius
   guests. `chooseDJ()` persists `vrclub.questDJ`; neither music nor remote podcast metadata selects
@@ -982,8 +1044,11 @@ and fail `npm test`.
   `panel.material.emissiveColor` (a plain holder, not a Babylon material), and `_flushLedWall()`
   copies those colours into the wall's 21x10 emissive texture at the end of `updateLEDWallPass`.
   Do not split it back into per-panel meshes, and do not add a code path that writes a panel colour
-  after that flush. `ledWallCollider` is a continuous invisible movement/teleport barrier that
-  overlaps the side-wall collision volumes; keep it explicit in `_teleportBlockerMeshes()`.
+  after that flush. The tiled wall collides, with one continuous invisible `ledWallCollider` immediately behind it
+  (it overlaps the side-wall collision volumes, and stays explicit in `_teleportBlockerMeshes()`) so the tile seams
+  cannot let somebody at the DJ spot fall behind the wall. The physical `djTable`, not an oversized
+  invisible barrier across the booth front, blocks the decks; the one-metre platform margins remain open side paths
+  into the operator position.
 - **PBR environment**: local `./js/vendor/environmentSpecular.env`. It used to be fetched
   from `assets.babylonjs.com`; a contract test now forbids any third-party origin in the
   critical path, because one CDN outage silently stripped every reflection in the scene.
@@ -1048,7 +1113,11 @@ coordinates from documentation. The bar and vestibule numbers live in `window.Ve
 - **Bartender**: the Quaternius female guest in her own container (black outfit), named `bartender` (not `guest*` or
   `dancer*`, so no tier removes her). `AvatarRig` poses both hands for rotating wash, counter-wipe, room-survey and
   bottle-arranging activities, plus measured counter reaches during conversations and service;
-  the source file's idle clip is only the fallback when the rig refuses the skeleton. The guest slots keep out of the
+  the source file's idle clip is only the fallback when the rig refuses the skeleton. Between services she is alive: she
+  breathes and shifts her weight, polishes a glass at chest height (the left hand circling inside it), keeps her head
+  down over her work with a glance up every ~11 s, and looks at the regular for as long as the regular is drinking.
+  Her body faces her work while the head turns separately (`pose.bodyYaw` vs `pose.headYaw`). Serving still takes over
+  the whole body, and the measured hand/counter/glass contacts are unchanged. The guest slots keep out of the
   bar footprint (tested).
 - **Stools**: Poly Haven *Metal Stool 03* (`ModelLoader` key `bar_stool`) placed once by the loader and instanced four more
   times by `_furnishBarStools()`; its emissive floor is lowered there because the loader's generic 0.12 reads as pale paint.
@@ -1064,9 +1133,12 @@ coordinates from documentation. The bar and vestibule numbers live in `window.Ve
   upholstery is lit only by the room.
   `_furnishLoungeCouch()` tags the two cushions and derives one collider from the placed bounds; the camera stands just
   in front of that collider (as for the stools) so desktop collisions cannot trap a sitter. The linked Meshy model was not
-  shipped: its ~454k faces were inappropriate for Quest. The shipped couch forces zero emission/ambient floor and
-  `metallicFactor: 0`; its packed source ORM has a near-white metallic channel that otherwise reflects the warehouse
-  environment like a lamp in VR.
+  shipped: its ~454k faces were inappropriate for Quest. The shipped couch forces zero emission/ambient floor,
+  `metallicFactor: 0` (its ORM is already near-dielectric) and `disableNormalMap`. The engine runs medium-precision
+  shaders (`useHighPrecisionFloats: false`) and this import is scaled 0.0089 and mirrored with mesh tangents, so its
+  tangent-space normal map is the one precision-sensitive path in the club; it showed as a white-hot outlined couch on a
+  Quest while desktop and the SwiftShader emulator (full precision) render it normally. Do not re-enable the normal map
+  without a headset capture.
 - `node scripts/build-bar-assets.mjs` regenerates `textures/barWood/` and the stool GLB from Poly Haven.
 - Everything is measured on desktop SwiftShader only; the extra triangles (about 48k bottles, 33k stools, 33k bartender) are
   unmeasured on a headset.
@@ -1233,6 +1305,59 @@ which only transfers an existing unlinked grant to an already email-verified use
 the signed admin. Recovery history is available only behind Access. See `docs/QUEST.md`.
 Real SQLite migration/redemption/concurrency tests run under Node 24; Node 20 runs the remaining unit tests.
 
+### Quest packaging scripts
+
+The Quest packaging scripts (`scripts/quest-keystore.mjs`, `prepare-quest.mjs`, `quest-build.mjs`, `quest-doctor.mjs`,
+`build-store-art.mjs`; runbook in `docs/QUEST.md`) share three facts that are easy to get wrong. The `bubblewrap`
+command on a developer machine may be Google's `@bubblewrap/cli`, which ignores `horizonOSAppMode`: builds always run
+Meta's `@meta-quest/bubblewrap-cli` through `npx`, pinned. Node 20.12+ cannot start `gradlew.bat` (`spawn EINVAL`), so
+the build runs Bubblewrap on Node 20.11.1 through `npx -p`. `update` bumps the version unless given
+`--skipVersionUpgrade`. The generated `twa-manifest.json` must set every field the Bubblewrap template prints bare
+(`enableNotifications`, `splashScreenFadeOutDuration`), or the Gradle file does not compile; a test pins them.
+`quest-build.mjs` fails unless `apksigner` reports the APK's certificate equals the fingerprint in `assetlinks.json`.
+Keystores and passwords never enter the repo: passwords travel only in `BUBBLEWRAP_*` environment variables.
+The SideQuest build is hosted separately (`nocturne-sidequest` Pages project, `npm run deploy:sidequest`, host
+`sidequest-nocturne.mitwee.nl`). The shared Worker serves several app origins: `resolveAppOrigin()` in
+`worker/src/payments.js` accepts `APP_ORIGIN` or an exact https entry of `EXTRA_APP_ORIGINS`, and `handlePayments`
+rewrites `env.APP_ORIGIN` to it so CORS, Stripe returns and email text follow the caller. A new host must be added to
+`EXTRA_APP_ORIGINS` and `ALLOWED_ORIGINS` and the Worker redeployed.
+
+### Headset pairing and immersive launch
+
+A headset has no keyboard, so it is linked to an account from a phone with an OAuth-style device code.
+`worker/src/deviceLink.js` (routed from `payments.js`; migration `0007_device_links.sql`, hashes only) serves
+`POST /payments/link/start` (headset, anonymous: pairing id, secret, eight-digit code, ten-minute expiry),
+`/link/approve` (phone, verified server session: registers the headset as one of the two device slots, or replaces a
+chosen one) and `/link/poll` (headset, with its secret: collects its own device session cookie). The phone page is
+`link/` (plain unhashed files, copied by `build.mjs`, `no-cache` in `_headers`); it holds the code only in
+`sessionStorage` so it survives the Stripe round trip. The client side is `VRPayment.linkStart/linkPoll`,
+`autoPrepare` (check access and take the lease in one call), `setPreview` and `upgradeToMember`.
+
+`js/immersiveLaunch.js` (`ImmersiveLaunch`, enabled only by `?immersive=1`; `ui-init.js` clicks ENTER itself, as the
+LAST statement of the file because the click handler uses menu state declared above it) runs the splash and Access
+dialog inside the headset. It is a small state machine: `booting` → `member` | `preview` → `locked` → `member`, or
+`manual` when anything fails (the normal 2D flow takes over; desktop is free, so it never traps a guest). Until a
+guest has a saved photosensitivity choice Safe Mode is held with `setPhotosensitiveSafeMode(true, {persist:false})`
+and a locked WELCOME menu page asks. A headset without access gets `PREVIEW_MS` (2 min) of the club, then the
+**veil**: the XR camera's `layerMask` drops to `VEIL_LAYER_MASK` so only the quick menu (on `MENU_LAYER_MASK`, both
+layers) is drawn, the music is muted, and a locked ACCESS page shows the code until the poll is approved and the
+session is upgraded. `VRClub` knows it only through `this._immersive` (`needsAccess`, `menuLocked`, `pageText`,
+`handleMenuAction`, `dispose`) and `this._vrEntryReady` (a promise: VR can be entered now). Keep the world on the
+default layers: anything that sets a camera `layerMask` elsewhere would break the veil. Tests:
+`test/immersive-launch.test.mjs` (stubs, including the layer-mask contract), `test/e2e/immersive-launch.spec.mjs`
+(Quest emulator: automatic entry, welcome, preview, veil under 40 active meshes, approval, music sync), `test/e2e/link-page.spec.mjs`.
+After the welcome or pairing page finishes, the launch puts the quick menu back on HOME (`_closeMenu`): the menu reopens
+on whatever page it last showed, so leaving `welcome` selected made Y/B reopen it forever.
+**Music has no keyboard in an immersive-only app**, so the list is kept on the account and edited from a phone:
+`link/?music=1` (the pairing page's second mode), `worker/src/musicSync.js` (`GET /payments/music`, `POST
+/payments/music/save`; one `account_music` row per account, at most eight HTTPS links, its own 8 KB body reader because the
+shared one caps at 1 KB), `VRPayment.fetchMusic()` and `MusicLibrary.replaceAll()` (the saved sets become exactly the phone's
+list; the cap counts usable links, not raw entries). `ImmersiveLaunch.syncMusic()` runs when VR starts, after linking and from
+the SYNC NOW button on the `musicPhone` page. In immersive mode `_openQuestPanel()` shows a message and never exits XR: there
+is no 2D page to come back to. Local files and folders are not possible there.
+Unproven on a headset: whether Meta's immersive app mode starts a session without a click and whether a controller
+press counts as audio user activation (fallbacks: the Enter VR button and the first-press audio retry).
+
 ## Audio
 
 `<audio crossOrigin="anonymous">` → `MediaElementSource` → `AnalyserNode(fftSize=256)` →
@@ -1291,6 +1416,11 @@ Real SQLite migration/redemption/concurrency tests run under Node 24; Node 20 ru
   taps the source BEFORE all of this, so the light show stays full-band outside. `test/e2e/street.spec.mjs` measures the real
   spectrum: more than 90% of the energy below 250 Hz on the street, under 40% in the room. A unit test walks the stair
   in 10 cm steps and fails if the cutoff ever falls back or jumps more than a third of an octave in one step.
+  Height is a second term, not a change to that floor formula or the sub channel. `MezzanineLayout.paZones()`
+  writes `cover` (1 under the deck or stair soffit, ramped over more than two metres) and `onDeck` (1 on the open
+  balcony). Cover pulls the indoor low-pass toward 780 Hz and adds a little reverb; the balcony is drier and
+  slightly more present. `VenueLayout.bar.listenerShelf()` is a partial shelf (at most 0.55) toward 2.4 kHz.
+  Both are zero when the layout is absent, and the scratch object is reused. The stair walk at x = 0 is unchanged.
   The same already-computed distance/enclosure/exterior model writes `_localPaPresence`
   without allocating. It scales only crowd and DJ reaction energy (including the legacy bass
   animation boost): beat presence, BPM, the analyser and the Show/VJ Directors remain on the
@@ -1309,7 +1439,10 @@ Real SQLite migration/redemption/concurrency tests run under Node 24; Node 20 ru
   number), then asks the relay's `/soundcloud/resolve?url=` (`worker/src/podcast.js`), which takes the track id
   from SoundCloud's public oEmbed and offers a `/soundcloud/stream/<id>-<user>-<slug>.mp3` stream only if
   SoundCloud's podcast-stream endpoint serves that track (it 404s for tracks whose creator has not published
-  them to podcast players). Nothing scrapes or unlocks audio SoundCloud does not give podcast apps: such a
+  them to podcast players). The app's Share button copies an `on.soundcloud.com/<id>` link: a browser cannot follow its
+  cross-origin redirect, so the relay expands it itself (`parseSoundCloudShortUrl`, one hop with `redirect: 'manual'` from
+  that one fixed host, and the Location must be an ordinary `soundcloud.com/<user>/<track>` page) and the client sends the short
+  link unchanged. Nothing scrapes or unlocks audio SoundCloud does not give podcast apps: such a
   track fails with a persistent explanation (`error.code` `soundcloud-not-published`, `-not-a-track`,
   `-relay`) and the saved set is kept. The embedded player (lazily loaded Widget API; the exact
   `https://w.soundcloud.com/player/api.js` is the only remote script CSP exception, `frame-src` its player) is
@@ -1332,9 +1465,15 @@ Real SQLite migration/redemption/concurrency tests run under Node 24; Node 20 ru
   are a live dependency of SoundCloud playback: a Worker change is not live until `wrangler deploy`
   is run from `worker/`.
   Direct audio and WebRTC remain on real analysis; silent audio never automatically triggers the fallback.
-- **Entry music.** ENTER creates the AudioContext in the user click and resumes only an explicitly
-  saved set. Fresh profiles show guidance to open Music, with no third-party music request.
-  Historical `vrclub.lastStreamUrl` / `vrclub.podcast` are ignored. Sets use `{ onDemand: true }`
+- **Entry music.** ENTER creates the AudioContext in the user click and resumes an explicitly saved set. With nothing saved
+  the club plays its own original set instead (`MusicLibrary.playDefault()`, `audio/nocturne-house.mp3`, generated by
+  `scripts/build-default-set.mjs`; see ASSETS.md): first-party and same-origin, so no third-party music request and the
+  analyser can read it. It LOOPS (`startAudioStream` without `onDemand`), is never saved to `vrclub.questMusic`, never plays when the
+  guest has saved sets, something else is loaded or playing, or the guest is following a host (the host owns the music),
+  and a blocked autoplay retries on the next click/key (and, in the immersive app, on the first controller press via
+  `ImmersiveLaunch.onFirstGesture`). The set is 124 BPM with 16-bar phrases, builds, a kick-less breakdown and drops
+  so the beat tracker, Show Director and crowd have real structure; keep it under Pages' 25 MiB file limit.
+  Historical `vrclub.lastStreamUrl` / `vrclub.podcast` are ignored. A guest's own sets use `{ onDemand: true }`
   (no loop or automatic next track). Blocked playback retries on the next click/key.
 - **Music transport and local folders.** `getPlaybackInfo()`, `seekAudioTo/Fraction/By()`,
   `setAudioPlayback()` / `toggleAudioPlayback()`, `stopAudioPlayback()` and `stepAudioSource()` in
@@ -1413,8 +1552,8 @@ beams and gobos), SHOW (automatic-show actions plus a five-movement section page
 safe mode, quality), five destinations (entrance, dance floor, DJ booth, balcony, street) and a **Music** page: a seek
 strip (`vrQuickMenuSeek`, click or drag a ray on it; `_beginVRSeek/_moveVRSeek/_endVRSeek` ride the
 scene pointer observables, the seek happens on release), ±1 min, play/pause, saved-set Previous/Next,
-Play saved set and ADD LINKS / FILE. `_openQuestPanel()` exits XR for music entry or licences;
-the guest then presses Enter VR to return. CROWD → CHOOSE DJ offers male/female.
+Play saved set and ADD LINKS / FILE (in the immersive app: ADD FROM PHONE, see below). `_openQuestPanel()` exits XR for music entry or licences;
+the guest then presses Enter VR to return (not in the immersive app, where it only shows a message). CROWD → CHOOSE DJ offers male/female.
 Its clock redraws from a 500 ms ticker that runs only while that page is open;
 Y/B or the runtime menu component opens it, world-locked where the player is looking
 (`_placeVRQuickMenu()`); never parent it to the XR camera. **Its backing is a rounded, translucent glass sheet** drawn
@@ -1476,7 +1615,20 @@ controller ray therefore use the same path (`pressVJDesk` / `dragVJDesk` / `rele
   delegate to `stepAudioSource`; the other buttons delegate to `setAudioPlayback` and `stopAudioPlayback`. Dragging the slider previews the time and calls
   `seekAudioToFraction()` once on release, never repeatedly while the controller moves. Unavailable/live states are
   written on the controls, and room guests see HOST ONLY. Its header shows playing/paused, position and set title. FX has
-  low-pass, high-pass, echo, flanger and reverb amounts plus a fast channel fader. The analyser taps remain before these
+  five real knobs (low-pass, high-pass, echo, flanger, reverb), a MUTE MUSIC button and a CLEAR FX button. A knob
+  sweeps 270 degrees (7:30 to 4:30) and is TURNED, not slid, and is relative to where it was grabbed so it never jumps:
+  - **From a controller (VR)** the trigger grabs the knob the controller's ray is on (`_vjDeskControllerAt`), and the
+    knob then follows the WRIST: every frame `updateVJDesk()` reads the controller pointer's roll about its pointing
+    axis (`vjDeskWristTwist`, pure; clockwise seen from behind = up) and turns the dial `VJ_KNOB.wristGain` (1.5)
+    degrees per wrist degree, so about a 180 degree twist sweeps the whole dial. Holding the GRIP as well is half-speed
+    fine control (`VJ_KNOB.fine`), matching Tribe XR's documented "low sensitivity grab" (trigger and grab together).
+    It runs per frame, not on pointer-move events, because a pure wrist roll barely moves the ray.
+  - **From a mouse or touch** it follows the pointer circling the dial's centre.
+  - Both clamp at the end stops, with a soft detent at zero. There is NO hidden double-tap reset: Tribe XR's public
+    documentation describes no knob reset gesture (checked docs.tribexr.com), and an unexplained one was found unclear.
+    Reset is the visible CLEAR FX button (every knob off, music unmuted, smoothly through `resetDJEffects()`).
+  - MUTE MUSIC is one big toggle on the `channel` effect (0 or 1, a ~25 ms fade): there is no channel fader.
+  The analyser taps remain before these
   effects, while PA, sub and local-file listener broadcast receive the processed signal. Returning the DJ smoothly opens
   both filters, clears the wet effects, restores full channel gain, returns the page to PLAYER and hides the panel. The
   explicit SoundCloud embedded-player fallback cannot enter Web Audio, so those controls say PLAYER AUDIO ONLY and do
@@ -1485,7 +1637,11 @@ controller ray therefore use the same path (`pressVJDesk` / `dragVJDesk` / `rele
   (`VJ_DESK.booth`), `updateVJDesk()` keeps `lastVJInteraction` fresh, so the lights stay theirs. Once they walk away,
   the guest's hold policy (`vrclub.lightHold`; default resume after 60 s, `VJ_TIMEOUT` is the legacy fallback, counted down
   in the header) hands them back; AUTO SHOW does it at once.
-- Tests: the layout (inside the panel, no overlaps, every control known), the hand-over and hand-back, the booth hold,
+- **A pointer can never freeze the headset.** `setupVJControlInteraction()` runs every press, drag and release inside a
+  try/catch: an exception escaping a handler inside the XR frame callback stops the frame loop (picture frozen, audio
+  playing on). `test/unit.test.mjs` also scans `js/vjDesk.js` for any `this.method(` nothing defines, because the desk
+  harness stubs methods by name and once hid a call to a method that did not exist (`seekAudioToFraction`).
+- **Tests**: the layout (inside the panel, no overlaps, every control known), the hand-over and hand-back, the booth hold,
   host and Safe Mode gating (`test/unit.test.mjs`, `test/multiplayer.test.mjs`); in the real club a ray at the middle
   of every button lands on that button from the booth viewpoint, and presses redraw the panels
   (`test/e2e/vj-desk.spec.mjs`, which also saves a screenshot of each panel).
@@ -1508,7 +1664,12 @@ Online panel across the screen). Multi-line explanations use `.network-help` (an
 title); `.audio-file-name` is single-line with an ellipsis and is only for short status lines.
 The Quest Music panel is height-bounded at every viewport width, with a fixed header and a scrollable
 `.audio-content`; focusing the URL must never move the close/Enter VR path offscreen. It leads with the link field and
-its Paste / Save & play actions; the long "what can I paste" explanation is a `<details class="audio-help">`, so the
+its Paste action, then two side-by-side buttons that follow the link and what is playing (`MusicLibrary.linkAction`):
+**Play now** (saves and plays; "Play this set" if already saved, "Playing now" disabled if it is the live source,
+"Resume" if paused) and **Save to my sets** (saves only, so another set keeps playing; disabled once saved or at eight),
+with a note that spells out the difference while another set plays. Pause and resume belong to Transport: the link
+button never turns into Pause (it used to, which made a newly pasted link look like a pause control). The long "what
+can I paste" explanation is a `<details class="audio-help">`, so the
 controls are never pushed below the fold. Link, File and Folder are exclusive source tabs, and transport stays disabled
 until a source is active. **The Show & Lights, Music and Online panels are mutually exclusive:** each
 `open*Menu()` calls `closeOtherSidePanels(id)` first (they used to open on top of each other, the wide VJ panel hiding

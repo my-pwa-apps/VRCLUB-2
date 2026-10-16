@@ -1,19 +1,24 @@
 'use strict';
 
+/** Log-frequency blend. `amount` 0 returns `open`; 1 returns `closed`. No allocation. */
 function _logMix(open, closed, amount) {
-    const t = amount > 0 ? Math.min(amount, 1) : 0;
+    const t = amount > 0 ? (amount < 1 ? amount : 1) : 0;
     if (t === 0 || !(open > 0) || !(closed > 0)) return open;
     return Math.exp(Math.log(open) + (Math.log(closed) - Math.log(open)) * t);
 }
 
 const _paZoneScratch = { cover: 0, onDeck: 0, shelf: 0 };
 
+/**
+ * Height acoustics for one ear. Missing layouts (unit stubs, an old page) leave every term at 0,
+ * which is exactly the old x/z listener. The scratch object is reused every frame.
+ */
 function _paListenerZones(x, y, z) {
     _paZoneScratch.cover = 0;
     _paZoneScratch.onDeck = 0;
     _paZoneScratch.shelf = 0;
-    const mezzanine = typeof window !== 'undefined' ? window.MezzanineLayout : null;
-    if (mezzanine && mezzanine.paZones) mezzanine.paZones(x, y, z, _paZoneScratch);
+    const mezz = typeof window !== 'undefined' ? window.MezzanineLayout : null;
+    if (mezz && mezz.paZones) mezz.paZones(x, y, z, _paZoneScratch);
     const bar = typeof window !== 'undefined' && window.VenueLayout && window.VenueLayout.bar;
     if (bar && bar.listenerShelf) _paZoneScratch.shelf = bar.listenerShelf(x, y, z);
     const restroom = typeof window !== 'undefined' && window.VenueLayout && window.VenueLayout.restroom;
@@ -22,6 +27,7 @@ function _paListenerZones(x, y, z) {
     }
     return _paZoneScratch;
 }
+
 class VRClubAudioCrowd extends VRClubUI {
     static _vector3Interpolation(start, end, gradient) {
         BABYLON.Vector3.LerpToRef(start, end, gradient, this._vrclubInterpolationValue);
@@ -679,6 +685,8 @@ class VRClubAudioCrowd extends VRClubUI {
         // Real-world acoustic zone attenuation:
         // Dance floor center is at (0, 0, -12); PA speakers flown at z = -16; entrance is at z = 0.
         const distToStage = Math.sqrt(pos.x * pos.x + Math.pow(pos.z - (-14), 2));
+        // Height is a second acoustic, not a change to the floor's 2D distance (the stair sweep and the
+        // sub channel depend on that). The balcony ear is near the flown boxes; the deck soffit is not.
         const zones = _paListenerZones(pos.x, pos.y, pos.z);
 
         // How far outdoors the listener is (0 in the club and vestibule, 1 on the street) and how far from the door.
@@ -746,6 +754,8 @@ class VRClubAudioCrowd extends VRClubUI {
             const STAIR_HZ = 520;
             const OPEN_HZ = 20000;
             const corridorCutoff = Math.exp(Math.log(STAIR_HZ) + (Math.log(OPEN_HZ) - Math.log(STAIR_HZ)) * enclosure);
+            // Under the deck or in the bar alcove the top end closes toward a warm shelf. The stair
+            // walk (x = 0) has no cover, so its 10 cm sweep is unchanged.
             const coveredCutoff = _logMix(_logMix(corridorCutoff, 780, zones.cover), 2400, zones.shelf);
             const leak = Math.max(0, 1 - doorDistance / 14);
             const streetCutoff = 90 + 90 * leak * leak;
@@ -756,8 +766,7 @@ class VRClubAudioCrowd extends VRClubUI {
                 this.occlusionFilter2.frequency.setTargetAtTime(lerpLog(22050, streetCutoff), now, 0.08);
             }
             if (this.audioMasterGain && this.audioMasterGain.gain) {
-                const indoorGain = (0.72 + (1.15 - 0.72) * enclosure)
-                    * (1 + 0.08 * zones.onDeck) * (1 - 0.12 * zones.cover);
+                const indoorGain = (0.72 + (1.15 - 0.72) * enclosure) * (1 + 0.08 * zones.onDeck) * (1 - 0.12 * zones.cover);
                 // Outdoors the make-up gain keeps the thump present at the door, and the level then falls with distance
                 // from it (the sound comes up the entrance stair and out of the door): -6 dB 8 m out, -10 dB on the far
                 // pavement, -18 dB at the end of the block.
@@ -996,12 +1005,15 @@ class VRClubAudioCrowd extends VRClubUI {
      * for users with photosensitive epilepsy or migraine sensitivity.
      * Persists across sessions.
      */
-    setPhotosensitiveSafeMode(enabled) {
+    setPhotosensitiveSafeMode(enabled, { persist = true } = {}) {
         this.photosensitiveSafeMode = !!enabled;
         if (this.flashGovernor && this.photosensitiveSafeMode) {
             this.flashGovernor.lastSource = null;
         }
-        try { localStorage.setItem('vrclub.safeMode', this.photosensitiveSafeMode ? '1' : '0'); } catch (_) {}
+        // `persist: false` is a temporary hold (immersive launch, until the guest has chosen): it must not become their saved choice.
+        if (persist) {
+            try { localStorage.setItem('vrclub.safeMode', this.photosensitiveSafeMode ? '1' : '0'); } catch (_) {}
+        }
         // Immediately quiet any in-flight strobe state
         if (this.photosensitiveSafeMode && this.strobes) {
             this.strobes.forEach((strobe) => {
@@ -1355,10 +1367,11 @@ class VRClubAudioCrowd extends VRClubUI {
      * Every character file the room can show, by index; the crowd and guest slots point at these through
      * `sourceIndex(id)`. Files load on demand per quality tier (see `_requiredCrowdSources`).
      *  - dancerF/dancerM: the UE-rig peasant dancers. Only the player's own body wears them now (AvatarRig).
-     *  - hipHop/house/rumba: legacy slot ids, now CC0 Modular Men/Women replacements; no Mixamo files ship.
      *  - bartender: the Quaternius female guest, in a black work outfit through a tint.
      *  - f1..f8, m1..m9: the Modular Women / Modular Men cast built by scripts/build-crowd-glbs.mjs (club-crowd-*.glb):
      *    one draw each, vertex-coloured, the club's own dance and idle clips retargeted onto them.
+     *  - vf1..vf7, vm1..vm7: recoloured copies of that cast (other skin, hair and clothes; see VARIANTS in the build script)
+     *    so that every person in the club is different. A person appears ONCE: at most one slot per source.
      *  - bouncer: the same build, a man in a black suit, at the street door (see _streetSlots).
      */
     static get AVATAR_SOURCES() {
@@ -1368,9 +1381,6 @@ class VRClubAudioCrowd extends VRClubUI {
             this._avatarSources = Object.freeze([
                 { id: 'dancerF', url: './js/models/avatars/club-dancer-female.glb', garmentColor: new BABYLON.Color3(0.45, 0.82, 1.0) },
                 { id: 'dancerM', url: './js/models/avatars/club-dancer-male.glb', garmentColor: new BABYLON.Color3(1.0, 0.42, 0.68) },
-                { id: 'hipHop', url: './js/models/avatars/club-crowd-m1.glb' },
-                { id: 'house', url: './js/models/avatars/club-crowd-m9.glb' },
-                { id: 'rumba', url: './js/models/avatars/club-crowd-f4.glb' },
                 // The bartender: the female guest file as its own container, so it can carry a black work outfit
                 // without recolouring anyone else.
                 { id: 'bartender', url: './js/models/avatars/club-guest-female.glb', garmentColor: new BABYLON.Color3(0.16, 0.16, 0.19) },
@@ -1392,7 +1402,22 @@ class VRClubAudioCrowd extends VRClubUI {
                 { id: 'm8', url: './js/models/avatars/club-crowd-m8.glb' },
                 { id: 'm9', url: './js/models/avatars/club-crowd-m9.glb' },
                 // The bouncer at the street door (black suit; carries the guest idle clips). Never a player avatar.
-                { id: 'bouncer', url: './js/models/avatars/club-crowd-bouncer.glb' }
+                { id: 'bouncer', url: './js/models/avatars/club-crowd-bouncer.glb' },
+                // Recoloured copies of the cast above (scripts/build-crowd-glbs.mjs VARIANTS): other skin, hair and clothes,
+                // so no two people in the club are alike. Never player avatars (the relay's pool is f1..m9 only).
+                { id: 'vf1', url: './js/models/avatars/club-crowd-vf1.glb' },
+                { id: 'vf2', url: './js/models/avatars/club-crowd-vf2.glb' },
+                { id: 'vf3', url: './js/models/avatars/club-crowd-vf3.glb' },
+                { id: 'vf5', url: './js/models/avatars/club-crowd-vf5.glb' },
+                { id: 'vf6', url: './js/models/avatars/club-crowd-vf6.glb' },
+                { id: 'vf7', url: './js/models/avatars/club-crowd-vf7.glb' },
+                { id: 'vm1', url: './js/models/avatars/club-crowd-vm1.glb' },
+                { id: 'vm2', url: './js/models/avatars/club-crowd-vm2.glb' },
+                { id: 'vm3', url: './js/models/avatars/club-crowd-vm3.glb' },
+                { id: 'vm4', url: './js/models/avatars/club-crowd-vm4.glb' },
+                { id: 'vm5', url: './js/models/avatars/club-crowd-vm5.glb' },
+                { id: 'vm6', url: './js/models/avatars/club-crowd-vm6.glb' },
+                { id: 'vm7', url: './js/models/avatars/club-crowd-vm7.glb' }
             ].map(source => Object.freeze(source)));
         }
         return this._avatarSources;
@@ -1750,16 +1775,16 @@ class VRClubAudioCrowd extends VRClubUI {
         const crowdSlots = [
             { x: -3.4, z: -13.4, src: at('f1'), height: 1.70, facing:  0.10 },
             { x:  3.2, z: -13.0, src: at('m2'), height: 1.80, facing: -0.12 },
-            { x:  0.4, z: -10.8, src: at('hipHop'), height: 1.74, facing:  0.04 },
+            { x:  0.4, z: -10.8, src: at('vm1'), height: 1.74, facing:  0.04 },
             { x: -6.0, z: -11.6, src: at('m1'), height: 1.86, facing:  0.28 },
             { x:  5.6, z: -11.0, src: at('f3'), height: 1.66, facing: -0.26 },
             { x: -1.4, z:  -8.6, src: at('f2'), height: 1.64, facing:  0.08 },
             { x:  2.6, z: -15.0, src: at('m3'), height: 1.78, facing: -0.06 },
             { x: -4.6, z: -15.2, src: at('f4'), height: 1.72, facing:  0.16 },
-            { x:  6.6, z:  -8.4, src: at('rumba'), height: 1.77, facing: -0.34 },
+            { x:  6.6, z:  -8.4, src: at('vf1'), height: 1.77, facing: -0.34 },
             { x: -6.8, z:  -8.0, src: at('m7'), height: 1.84, facing:  0.36 },
             { x:  1.6, z:  -7.4, src: at('f5'), height: 1.68, facing: -0.10 },
-            { x: -7.4, z: -13.8, src: at('house'), height: 1.73, facing:  0.42 },
+            { x: -7.4, z: -13.8, src: at('vm2'), height: 1.73, facing:  0.42 },
             { x:  7.2, z: -13.6, src: at('m5'), height: 1.82, facing: -0.40 },
             { x: -0.6, z:  -6.4, src: at('m9'), height: 1.76, facing:  0.02 }
         ];
@@ -1856,12 +1881,15 @@ class VRClubAudioCrowd extends VRClubUI {
         const pose = this._bartenderPose;
         if (!rig || !pose || !rig.root.isEnabled()) return;
         this._bartenderWashTime += dt;
+        const t = this._bartenderWashTime;
         const bar = window.VenueLayout.bar;
         const counter = this._barGlass ? this._barGlass.counter : null;
         const washX = bar.bartender.x - 0.42;
-        const wave = Math.sin(this._bartenderWashTime * 4.2);
-        let rightX = washX, rightY = 1.23 + wave * 0.025, rightZ = bar.bartender.z - 0.04;
-        let leftX = washX + 0.02, leftY = 1.20 - wave * 0.02, leftZ = bar.bartender.z + 0.08;
+        // Polishing a glass: the right hand holds it up at chest height and turns it, the left hand circles inside it.
+        const polish = t * 2.6;
+        let rightX = washX, rightY = 1.27 + 0.012 * Math.sin(polish + 2), rightZ = bar.bartender.z - 0.07;
+        let leftX = washX + 0.02 + 0.03 * Math.cos(polish), leftY = 1.25 + 0.03 * Math.sin(polish),
+            leftZ = bar.bartender.z + 0.04 + 0.02 * Math.sin(polish + 1);
         let activity = service && service.activity === 'talk' ? 'survey' : 'service';
         if (!service) {
             this._bartenderActivityTime -= dt;
@@ -1909,8 +1937,11 @@ class VRClubAudioCrowd extends VRClubUI {
             rightZ += (counter.z - rightZ) * reach;
         }
         pose.lean = (activity === 'survey' ? 0.06 : activity === 'arrange' ? 0.02 : 0.12) + reach * 0.42;
+        // She breathes and shifts her weight from foot to foot while she works; serving takes over the body.
+        const idleLife = 1 - reach;
+        pose.eyeY = 1.58 + 0.005 * Math.sin(t * 1.9);
         pose.x = bar.bartender.x - reach * 0.48;
-        pose.z = bar.bartender.z + reach * 0.45;
+        pose.z = bar.bartender.z + reach * 0.45 + idleLife * 0.03 * Math.sin(t * 0.37);
         pose.right.x = rightX;
         pose.right.y = rightY;
         pose.right.z = rightZ;
@@ -1922,15 +1953,38 @@ class VRClubAudioCrowd extends VRClubUI {
         pose.left.x = leftX;
         pose.left.y = leftY;
         pose.left.z = leftZ;
+        const patronNpc = this._barPatron;
+        const patronState = patronNpc && patronNpc.barPatron;
+        const patronDrinking = !!patronState && ['pickup', 'drink', 'return'].includes(patronState.activity);
+        const workYaw = Math.atan2(rightX - bar.bartender.x, rightZ - bar.bartender.z);
+        let bodyYaw = workYaw, headYaw = workYaw, headPitch = -0.28;
         if (service && service.barPatron && service.barPatron.root) {
             const patron = service.barPatron.root.position;
-            pose.headYaw = Math.atan2(patron.x - pose.x, patron.z - pose.z);
+            bodyYaw = headYaw = Math.atan2(patron.x - pose.x, patron.z - pose.z);
+            headPitch = 0.02;
         } else if (activity === 'survey') {
-            pose.headYaw = -Math.PI / 2 + 0.42 * Math.sin(this._bartenderWashTime * 0.32);
-        } else {
-            pose.headYaw = Math.atan2(rightX - bar.bartender.x, rightZ - bar.bartender.z);
+            bodyYaw = headYaw = -Math.PI / 2 + 0.42 * Math.sin(t * 0.32);
+            headPitch = 0.03;
+        } else if (!service) {
+            // Heads down over the work, with a glance up every ~11 s: at the regular while she drinks, otherwise
+            // across the room.
+            const cycle = (t % 11) / 11;
+            const glance = cycle > 0.7 && cycle < 0.95 ? Math.sin(Math.PI * (cycle - 0.7) / 0.25) : 0;
+            const eased = glance * glance * (3 - 2 * glance);
+            let lookYaw = -Math.PI / 2 + 0.35 * Math.sin(t * 0.5);
+            if (patronDrinking && patronNpc.root) {
+                lookYaw = Math.atan2(patronNpc.root.position.x - pose.x, patronNpc.root.position.z - pose.z);
+            }
+            const lookOff = Math.atan2(Math.sin(lookYaw - workYaw), Math.cos(lookYaw - workYaw));
+            // Watching the regular drink holds the glance until the bottle is down.
+            const hold = patronDrinking ? 1 : eased;
+            headYaw = workYaw + lookOff * 0.8 * hold;
+            headPitch = -0.28 + 0.3 * hold;
         }
-        rig.bodyYaw = pose.headYaw;
+        pose.headYaw = headYaw;
+        pose.headPitch = headPitch;
+        pose.bodyYaw = bodyYaw;
+        rig.bodyYaw = bodyYaw;
         rig.turning = false;
         rig.update(dt, pose);
         const collider = this._bartenderNpc && this._bartenderNpc.collider;
@@ -1977,9 +2031,9 @@ class VRClubAudioCrowd extends VRClubUI {
             // `Yes` is a short gesture, not an idle; looping it made him point and nod continuously.
             { src: at('m8'), clip: 'Idle_Loop', x: 7.7, z: -12.6, yaw: towardDJ(7.7, -12.6), height: 1.77,
                 ambient: { yawRange: 0.1, speedVariation: 0.03, period: 25, phase: 4.1 } },
-            { src: at('m8'), clip: 'Idle_Loop', x: -8.4, z: -14.4, yaw: towardDJ(-8.4, -14.4), height: 1.77,
+            { src: at('vm5'), clip: 'Idle_Loop', x: -8.4, z: -14.4, yaw: towardDJ(-8.4, -14.4), height: 1.77,
                 clips: talks('Idle_Loop'), ambient: { yawRange: 0.14, speedVariation: 0.05, period: 18, phase: 5.3 } },
-            { src: at('f8'), clip: 'Idle_Loop', x: 9.4, z: -15.8, yaw: towardDJ(9.4, -15.8) + 0.4, height: 1.68,
+            { src: at('vf5'), clip: 'Idle_Loop', x: 9.4, z: -15.8, yaw: towardDJ(9.4, -15.8) + 0.4, height: 1.68,
                 ambient: { yawRange: 0.12, speedVariation: 0.04, period: 24, phase: 0.9 } }
         ];
     }
@@ -2280,21 +2334,21 @@ class VRClubAudioCrowd extends VRClubUI {
         const door = -Math.PI / 2;
         const face = (x, z, tx, tz) => Math.atan2(tx - x, tz - z);
         const queue = [
-            { src: at('m8'), clip: 'Idle_Talking_Loop', x: 3.15, z: 7.1, yaw: face(3.15, 7.1, 3.9, 6.9), height: 1.78,
+            { src: at('vm6'), clip: 'Idle_Talking_Loop', x: 3.15, z: 7.1, yaw: face(3.15, 7.1, 3.9, 6.9), height: 1.78,
                 ambient: { speedVariation: 0.04, period: 19, phase: 0.3 } },
-            { src: at('f8'), clip: 'Idle_Talking_Loop', x: 3.9, z: 6.9, yaw: face(3.9, 6.9, 3.15, 7.1), height: 1.67,
+            { src: at('vf6'), clip: 'Idle_Talking_Loop', x: 3.9, z: 6.9, yaw: face(3.9, 6.9, 3.15, 7.1), height: 1.67,
                 ambient: { speedVariation: 0.035, period: 23, phase: 2.2 } },
-            { src: at('m5'), clip: 'Idle', x: 4.85, z: 7.0, yaw: door + 0.12, height: 1.82,
+            { src: at('vm7'), clip: 'Idle', x: 4.85, z: 7.0, yaw: door + 0.12, height: 1.82,
                 ambient: { yawRange: 0.18, speedVariation: 0.045, period: 21, phase: 1.1 } },
-            { src: at('f5'), clip: 'Idle', x: 5.7, z: 6.95, yaw: door - 0.18, height: 1.66,
+            { src: at('vf2'), clip: 'Idle', x: 5.7, z: 6.95, yaw: door - 0.18, height: 1.66,
                 ambient: { yawRange: 0.13, speedVariation: 0.05, period: 26, phase: 3.7 } },
-            { src: at('m9'), clip: 'Idle', x: 6.6, z: 7.05, yaw: door + 0.25, height: 1.76,
+            { src: at('vm3'), clip: 'Idle', x: 6.6, z: 7.05, yaw: door + 0.25, height: 1.76,
                 ambient: { yawRange: 0.2, speedVariation: 0.04, period: 18, phase: 5.1 } },
-            { src: at('f7'), clip: 'Idle_TalkingPhone_Loop', x: 7.45, z: 6.9, yaw: door + 0.7, height: 1.70,
+            { src: at('vf7'), clip: 'Idle_TalkingPhone_Loop', x: 7.45, z: 6.9, yaw: door + 0.7, height: 1.70,
                 ambient: { yawRange: 0.07, speedVariation: 0.035, period: 24, phase: 4.2 } },
-            { src: at('m3'), clip: 'Idle', x: 8.35, z: 7.05, yaw: door - 0.1, height: 1.80,
+            { src: at('vm4'), clip: 'Idle', x: 8.35, z: 7.05, yaw: door - 0.1, height: 1.80,
                 ambient: { yawRange: 0.15, speedVariation: 0.045, period: 22, phase: 2.6 } },
-            { src: at('f4'), clip: 'Idle', x: 9.15, z: 6.95, yaw: door + 0.3, height: 1.69,
+            { src: at('vf3'), clip: 'Idle', x: 9.15, z: 6.95, yaw: door + 0.3, height: 1.69,
                 ambient: { yawRange: 0.17, speedVariation: 0.04, period: 27, phase: 0.8 } }
         ].map(slot => ({ ...slot, y: ground }));
         return {
@@ -2521,6 +2575,7 @@ class VRClubAudioCrowd extends VRClubUI {
             baseColor: [0.15, 0.18, 0.2], metallic: 0.65, roughness: 0.25
         }, true);
         cup.isPickable = false;
+        cup.rotationQuaternion = new BABYLON.Quaternion();
         cup.renderingGroupId = 0;
         cup.setEnabled(false);
         const bar = window.VenueLayout && window.VenueLayout.bar;
@@ -2530,6 +2585,12 @@ class VRClubAudioCrowd extends VRClubUI {
             bartender,
             serverWrist: wrist,
             minglerWrist: null,
+            minglerHand: null,
+            handAxis: new BABYLON.Vector3(0, 1, 0),
+            _f: new BABYLON.Vector3(),
+            _n: new BABYLON.Vector3(),
+            _p: new BABYLON.Vector3(),
+            _q: new BABYLON.Quaternion(),
             counter: new BABYLON.Vector3(bar.counter.xFront + 0.29, bar.counter.top + 0.06, bar.bartender.z + 0.515),
             handPosition: new BABYLON.Vector3(),
             serverPosition: new BABYLON.Vector3(),
@@ -2543,6 +2604,7 @@ class VRClubAudioCrowd extends VRClubUI {
         const glass = this._barGlass;
         if (!npc || !glass || npc.drinkCup) return;
         glass.minglerWrist = npc.root.getChildTransformNodes(false).find(node => /Middle1\.R$/.test(node.name)) || null;
+        glass.minglerHand = npc.root.getChildTransformNodes(false).find(node => /(^|[^A-Za-z])Wrist\.R$/.test(node.name)) || null;
         npc.drinkCup = glass.mesh;
         npc.drinkCounter = glass.counter;
         npc.drinkMode = glass.mode;
@@ -2573,11 +2635,27 @@ class VRClubAudioCrowd extends VRClubUI {
         npc.barBottle = {
             mesh: bottle,
             wrist,
-            counter: new BABYLON.Vector3(bar.counter.xFront - 0.035, bar.counter.top + 0.105, npc.root.position.z),
+            // Where her right palm rests (measured on the shipped Seated_Bar clips): the bottle stands in that hand,
+            // 6 cm up the bottle from the palm and 3 cm toward her midline (her fingers wrap round it), so the grasp,
+            // the lift and the put-down meet exactly here.
+            counter: new BABYLON.Vector3(
+                bar.counter.xFront - 0.002 + 0.03 * Math.cos(npc.root.rotation.y),
+                bar.counter.top + 0.092,
+                npc.root.position.z + 0.169 - 0.03 * Math.sin(npc.root.rotation.y)),
             hand: new BABYLON.Vector3(),
+            axis: new BABYLON.Vector3(0, 1, 0),
+            up: new BABYLON.Vector3(0, 1, 0),
             mode: 'counter'
         };
+        bottle.rotationQuaternion = new BABYLON.Quaternion();
         bottle.position.copyFrom(npc.barBottle.counter);
+    }
+
+    /** How far the bottle is tipped toward her lips (0..1) at a point in the Seated_Bar_Drink_Loop (its 0..1 phase). */
+    static barBottleTilt(phase) {
+        const ease = t => { const c = Math.min(1, Math.max(0, t)); return c * c * (3 - 2 * c); };
+        if (phase < 0.58) return ease((phase - 0.30) / 0.10);
+        return 1 - ease((phase - 0.58) / 0.08);
     }
 
     _setBarPatronActivity(npc, activity, duration) {
@@ -2621,27 +2699,39 @@ class VRClubAudioCrowd extends VRClubUI {
             }
         }
 
+        let phase = 0;
+        if (['pickup', 'drink', 'return'].includes(state.activity)) {
+            const range = state.activity === 'pickup' ? [0, 0.2]
+                : state.activity === 'drink' ? [0.2, 0.72] : [0.72, 0.94];
+            const p = state.duration > 0 ? Math.min(1, Math.max(0, 1 - state.timer / state.duration)) : 1;
+            phase = range[0] + (range[1] - range[0]) * p;
+        }
+        const group = npc.poses && npc.poses.groups.get('Seated_Bar_Drink_Loop');
+        if (group && ['pickup', 'drink', 'return'].includes(state.activity)) {
+            group.goToFrame(group.from + phase * (group.to - group.from));
+        }
+
         const bottle = npc.barBottle;
         if (bottle) {
             bottle.mesh.setEnabled(true);
             const inHand = state.activity === 'drink' || state.activity === 'return';
             if (inHand) {
+                // The bottle rides in her palm and tips toward her lips for the sip: its neck leans back at her face.
+                const tilt = VRClubAudioCrowd.barBottleTilt(phase) * 1.15;
+                const yaw = npc.root.rotation.y;
+                bottle.axis.set(-Math.sin(yaw) * Math.sin(tilt), Math.cos(tilt), -Math.cos(yaw) * Math.sin(tilt));
                 bottle.wrist.computeWorldMatrix(true).getTranslationToRef(bottle.hand);
-                bottle.hand.y += 0.07;
                 bottle.mesh.position.copyFrom(bottle.hand);
+                bottle.mesh.position.x += bottle.axis.x * 0.06 + 0.03 * Math.cos(yaw);
+                bottle.mesh.position.y += bottle.axis.y * 0.06;
+                bottle.mesh.position.z += bottle.axis.z * 0.06 - 0.03 * Math.sin(yaw);
+                BABYLON.Quaternion.FromUnitVectorsToRef(bottle.up, bottle.axis, bottle.mesh.rotationQuaternion);
                 bottle.mode = 'hand';
             } else {
                 bottle.mesh.position.copyFrom(bottle.counter);
+                bottle.mesh.rotationQuaternion.set(0, 0, 0, 1);
                 bottle.mode = 'counter';
             }
-        }
-
-        const group = npc.poses && npc.poses.groups.get('Seated_Bar_Drink_Loop');
-        if (group && ['pickup', 'drink', 'return'].includes(state.activity)) {
-            const range = state.activity === 'pickup' ? [0, 0.2]
-                : state.activity === 'drink' ? [0.2, 0.72] : [0.72, 0.94];
-            const p = state.duration > 0 ? Math.min(1, Math.max(0, 1 - state.timer / state.duration)) : 1;
-            group.goToFrame(group.from + (range[0] + (range[1] - range[0]) * p) * (group.to - group.from));
         }
 
         const facingBartender = state.activity === 'talk';
@@ -2884,24 +2974,56 @@ class VRClubAudioCrowd extends VRClubUI {
         glass.serverWrist.computeWorldMatrix(true).getTranslationToRef(glass.serverPosition);
         glass.serverPosition.y += 0.055;
         if (mode === 'wash' || mode === 'serve') {
+            cup.rotationQuaternion.set(0, 0, 0, 1);
             cup.position.copyFrom(glass.serverPosition);
             return;
         }
-        if (glass.minglerWrist) {
-            glass.minglerWrist.computeWorldMatrix(true).getTranslationToRef(glass.handPosition);
-            glass.handPosition.y += 0.055;
-        }
-        if (mode === 'hand') {
+        if (glass.minglerWrist && glass.minglerHand) this._updateMinglerGrip(glass);
+        const held = mode === 'hand' || mode === 'return';
+        if (held) {
             cup.position.copyFrom(glass.handPosition);
+            this._tiltMinglerCup(glass);
             return;
         }
+        cup.rotationQuaternion.set(0, 0, 0, 1);
         if (mode === 'counter' || mode === 'pickup' || (mode === 'clear' && progress < 0.5)) {
             cup.position.copyFrom(glass.counter);
         } else if (mode === 'clear') {
             cup.position.copyFrom(glass.serverPosition);
-        } else if (mode === 'return') {
-            cup.position.copyFrom(glass.handPosition);
         }
+    }
+
+    // His grip, read from the hand itself: the cup sits in the palm, 4.5 cm toward its face, its axis along the thumb side.
+    // The wrist-local directions are the m6 skeleton's own (fingers along +Y, thumb side along -X, palm toward -Z).
+    _updateMinglerGrip(glass) {
+        const wrist = glass.minglerHand.computeWorldMatrix(true);
+        const knuckle = glass.minglerWrist.computeWorldMatrix(true);
+        const f = glass._f, n = glass._n, t = glass.handAxis, p = glass._p;
+        BABYLON.Vector3.TransformNormalFromFloatsToRef(0, 1, 0, wrist, f);
+        BABYLON.Vector3.TransformNormalFromFloatsToRef(-0.9994, 0, -0.0341, wrist, t);
+        f.normalize();
+        t.normalize();
+        BABYLON.Vector3.CrossToRef(t, f, n);
+        n.normalize();
+        wrist.getTranslationToRef(p);
+        knuckle.getTranslationToRef(glass.handPosition);
+        glass.handPosition.addInPlace(p).scaleInPlace(0.5);
+        glass.handPosition.addInPlace(n.scaleInPlace(0.045)).addInPlace(t.scale(0.01));
+    }
+
+    // The cup follows the thumb axis, less the slight natural cant of a relaxed grip, so it stands upright on the counter
+    // and tips only for the sip.
+    _tiltMinglerCup(glass) {
+        const axis = glass.handAxis;
+        const angle = Math.acos(Math.min(1, Math.max(-1, axis.y))) - 0.28;
+        if (angle <= 0) {
+            glass.mesh.rotationQuaternion.set(0, 0, 0, 1);
+            return;
+        }
+        const about = glass._n.copyFromFloats(axis.z, 0, -axis.x);
+        if (about.lengthSquared() < 1e-8) return;
+        about.normalize();
+        BABYLON.Quaternion.RotationAxisToRef(about, angle, glass.mesh.rotationQuaternion);
     }
 
     _advanceMinglerDrink(npc, route) {
@@ -3279,6 +3401,7 @@ class VRClubAudioCrowd extends VRClubUI {
     /** The music as the choreographer sees it, in one reused object. */
     _crowdMusic(audioData) {
         const m = this._crowdMusicState || (this._crowdMusicState = { beatPresent: false, rhythm: false, beat: 0, bpm: 120, energy: 0.5, build: false, drop: false });
+        m.time = performance.now() / 1000;
         if (this._audioKind === 'soundcloud') {
             this._crowdAudioUntil = 0;
             m.beatPresent = false;

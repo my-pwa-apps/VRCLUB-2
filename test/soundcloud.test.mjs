@@ -159,14 +159,14 @@ test('fallback clock is frame-rate independent and selects varied dancing rather
             const music = club._crowdMusic({ hasAudio: false });
             dance.step(dancer, music, null, out);
             moves.add(out.move);
-            assert.notEqual(out.move, 'Groove_Sway');
+            assert.ok(!window.CrowdDance.MOVES[out.move].free, 'a free move was chosen while the embedded set had a clock');
             assert.ok(out.speed >= 0.5);
         }
         assert.equal(club._unanalysedDanceMusic().beat, 180);
         assert.ok(moves.size >= 4, `only ${moves.size} moves at ${fps} FPS`);
         widgets[0].emit('PAUSE');
         dance.step(dancer, club._crowdMusic({ hasAudio: false }), null, out);
-        assert.equal(out.move, 'Groove_Sway');
+        assert.ok(window.CrowdDance.MOVES[out.move].free, 'a paused set must leave the dancers in a free move');
     }
 });
 

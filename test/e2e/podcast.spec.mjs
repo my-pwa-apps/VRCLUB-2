@@ -40,6 +40,12 @@ async function routeUserMusic(page) {
     })));
 }
 
+// The DJ choice lives in the Show panel's Club tab, which is closed while Music is open.
+const chooseDJ = (page, id) => page.locator('#djStyle').evaluate((select, value) => {
+    select.value = value;
+    select.dispatchEvent(new Event('change', { bubbles: true }));
+}, id);
+
 const playing = (page, needle) => page.waitForFunction(text => {
     const audio = window.vrClub?.audioElement;
     return audio && !audio.paused && audio.src.includes(text) && audio.duration > 100;
@@ -55,7 +61,7 @@ test('the Audio menu seeks the episode: slider, and the 30 second skips', async 
     await page.locator('#audioToggle').click();
     await expect(page.locator('#audioSeekSection')).toBeVisible();
     await expect(page.locator('#audioSeekTotal')).toHaveText('3:00');
-    await page.locator('#playStreamBtn').click();
+    await page.locator('#audioPlaybackToggle').click();
     await page.waitForFunction(() => window.vrClub.audioElement.paused);
 
     await page.locator('#audioSeek').evaluate(input => {
@@ -71,8 +77,81 @@ test('the Audio menu seeks the episode: slider, and the 30 second skips', async 
     await page.waitForFunction(() => Math.abs(window.vrClub.audioElement.currentTime - 90) < 1);
     await page.locator('#audioSeekBack').click();
     await page.waitForFunction(() => Math.abs(window.vrClub.audioElement.currentTime - 60) < 4);
-    await page.locator('#playStreamBtn').click();
+    await page.locator('#audioPlaybackToggle').click();
     await page.waitForFunction(() => !window.vrClub.audioElement.paused && window.vrClub.audioElement.currentTime >= 60);
+    await expectHealthyRuntime(page);
+});
+
+test('the VJ desk set player slider seeks a playing set and the headset keeps rendering', async ({ page }) => {
+    test.setTimeout(240_000);
+    page.setDefaultTimeout(30_000);
+    await routeUserMusic(page);
+    await enterClub(page);
+    await playing(page, 'set.mp3');
+    const result = await page.evaluate(async () => {
+        const club = window.vrClub;
+        await club.modelLoadPromise;
+        if (club.isPeopleVisible('dj')) club.togglePeopleVisible('dj');
+        const panel = club._vjDesk.panels.find(item => item.id === 'transport');
+        const seek = window.VJDeskLayout.buttons.transport.find(button => button.id === 'seek');
+        const track = window.VJDeskLayout.seekTrack(seek.rect);
+        // A pick on the slider's track, built from canvas pixels like a controller ray's hit point.
+        const pickAt = fraction => {
+            const x = track.left + (track.right - track.left) * fraction;
+            const local = new BABYLON.Vector3((x / panel.canvas.width - 0.5) * panel.width, (0.5 - track.y / panel.canvas.height) * panel.depth, 0);
+            return { hit: true, pickedMesh: panel.mesh, pickedPoint: BABYLON.Vector3.TransformCoordinates(local, panel.mesh.getWorldMatrix()) };
+        };
+        const errors = [];
+        const framesBefore = club.engine.frameId;
+        try {
+            club.scene.onPointerDown(null, pickAt(0.25));
+            club.scene.onPointerMove(null, pickAt(0.5));
+            club.scene.onPointerUp();
+        } catch (error) { errors.push(error.message); }
+        await new Promise(resolve => club.scene.onAfterRenderObservable.addOnce(resolve));
+        await new Promise(resolve => club.scene.onAfterRenderObservable.addOnce(resolve));
+        return { errors, advanced: club.engine.frameId > framesBefore, time: club.audioElement.currentTime, duration: club.audioElement.duration };
+    });
+    expect(result.errors).toEqual([]);
+    expect(result.advanced, 'the display stopped rendering after the seek').toBe(true);
+    expect(Math.abs(result.time - result.duration / 2), 'the slider did not seek the set').toBeLessThan(5);
+    await expectHealthyRuntime(page);
+});
+
+test('pasting a second link while a set plays offers Play now and Save to my sets, and neither disturbs the other', async ({ page }) => {
+    test.setTimeout(240_000);
+    page.setDefaultTimeout(30_000);
+    await routeUserMusic(page);
+    await enterClub(page);
+    await playing(page, 'set.mp3');
+    await page.locator('#audioToggle').click();
+
+    // The set that is playing says so and is not a Pause button.
+    await expect(page.locator('#playStreamBtn')).toHaveText('Playing now');
+    await expect(page.locator('#playStreamBtn')).toBeDisabled();
+    await expect(page.locator('#saveStreamBtn')).toBeDisabled();
+
+    // A new link: both choices appear with a plain-language note.
+    await page.locator('#streamUrl').fill('https://audio.example/e2e/later.mp3');
+    await expect(page.locator('#playStreamBtn')).toHaveText('Play now');
+    await expect(page.locator('#playStreamBtn')).toBeEnabled();
+    await expect(page.locator('#saveStreamBtn')).toHaveText('Save to my sets');
+    await expect(page.locator('#saveStreamBtn')).toBeEnabled();
+    await expect(page.locator('#audioLinkNote')).toContainText('keeps the current set playing');
+
+    // Saving keeps the current set playing and adds the link to the list.
+    await page.locator('#setName').fill('For later');
+    await page.locator('#saveStreamBtn').click();
+    await expect(page.locator('#savedSets option')).toHaveCount(2);
+    expect(await page.evaluate(() => window.vrClub.audioElement.src)).toContain('set.mp3');
+    expect(await page.evaluate(() => window.vrClub.audioElement.paused)).toBe(false);
+    await expect(page.locator('#saveStreamBtn')).toHaveText('Saved in my sets');
+    await expect(page.locator('#playStreamBtn')).toHaveText('Play this set');
+
+    // Starting it is one press.
+    await page.locator('#playStreamBtn').click();
+    await playing(page, 'later.mp3');
+    await expect(page.locator('#playStreamBtn')).toHaveText('Playing now');
     await expectHealthyRuntime(page);
 });
 
@@ -92,10 +171,10 @@ test('user links save and restore; generic DJ selection is independent of the mu
     await page.locator('#playStreamBtn').click();
     await playing(page, 'second.mp3');
     await expect(page.locator('#savedSets option')).toHaveCount(2);
-    await page.locator('#djStyle').selectOption('female');
+    await chooseDJ(page, 'female');
     await page.waitForFunction(() => window.vrClub._djId === 'female', null, { timeout: 120_000 });
     expect(await page.evaluate(() => localStorage.getItem('vrclub.questDJ'))).toBe('female');
-    await page.locator('#djStyle').selectOption('male');
+    await chooseDJ(page, 'male');
     await page.waitForFunction(() => window.vrClub._djId === 'male', null, { timeout: 120_000 });
     expect(await page.evaluate(() => JSON.parse(localStorage.getItem('vrclub.questMusic')).items[1].name)).toBe('Second set');
     expect(await page.evaluate(() => window.vrClub.audioElement.src)).toContain('second.mp3');

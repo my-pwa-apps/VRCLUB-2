@@ -4,7 +4,7 @@ import { readFileSync } from 'node:fs';
 import vm from 'node:vm';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { questConfiguration } from '../scripts/prepare-quest.mjs';
+import { questConfiguration, parseKeytoolFingerprint } from '../scripts/prepare-quest.mjs';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const source = readFileSync(path.join(root, 'js', 'musicLibrary.js'), 'utf8');
@@ -47,6 +47,52 @@ function libraryFixture(raw = null, feed = '', playbackRaw = null) {
     return { library, club, storage, store, messages, plays, fetches };
 }
 
+test('replaceAll makes the saved sets match the phone\u2019s list, keeping the selection, names and episode choices', () => {
+    const f = libraryFixture();
+    f.library.save('https://audio.example/one.mp3', 'One');
+    f.library.save('https://audio.example/two.mp3', 'Two');
+    f.library.save('https://audio.example/three.mp3', 'Three');
+    f.library.select(1);
+
+    // Re-ordered, one removed, one added; the selected link is still listed, so it stays selected at its new position.
+    let outcome = f.library.replaceAll([
+        { url: 'https://audio.example/three.mp3', name: 'Three' }, { url: 'https://audio.example/two.mp3' },
+        { url: 'https://audio.example/four.mp3', name: 'Four' }
+    ]);
+    assert.deepEqual({ ...outcome }, { count: 3, skipped: 0, changed: true });
+    assert.deepEqual(Array.from(f.library.items.map(item => item.url)), ['https://audio.example/three.mp3', 'https://audio.example/two.mp3', 'https://audio.example/four.mp3']);
+    assert.equal(f.library.current().url, 'https://audio.example/two.mp3');
+    assert.equal(f.library.current().name, 'Two', 'a blank name on the phone keeps the name the headset already has');
+    assert.equal(JSON.parse(f.store.get('vrclub.questMusic')).items.length, 3, 'it is persisted');
+
+    // The same list again is not a change and writes nothing.
+    const before = f.store.get('vrclub.questMusic');
+    f.store.set('vrclub.questMusic', before + ' ');
+    outcome = f.library.replaceAll(f.library.items.map(item => ({ url: item.url, name: item.name })));
+    assert.equal(outcome.changed, false);
+    assert.equal(f.store.get('vrclub.questMusic'), before + ' ');
+
+    // The selected link removed: selection falls back to the first set. An empty list empties the library.
+    f.library.replaceAll([{ url: 'https://audio.example/four.mp3' }]);
+    assert.equal(f.library.current().url, 'https://audio.example/four.mp3');
+    assert.deepEqual({ ...f.library.replaceAll([]) }, { count: 0, skipped: 0, changed: true });
+    assert.equal(f.library.current(), null);
+});
+
+test('replaceAll skips links that cannot be played, drops duplicates, caps at eight and ignores junk input', () => {
+    const f = libraryFixture();
+    const entries = [
+        { url: 'https://audio.example/a.mp3', name: 'A' }, { url: 'https://audio.example/a.mp3', name: 'A again' },
+        { url: 'http://insecure.example/b.mp3' }, { url: 'https://www.youtube.com/watch?v=x' }, { url: 'not a url' }, null, {},
+        ...Array.from({ length: 9 }, (_, i) => ({ url: `https://audio.example/${i}.mp3` }))
+    ];
+    const outcome = f.library.replaceAll(entries);
+    assert.equal(outcome.count, 8);
+    assert.equal(outcome.skipped, 5, 'insecure, YouTube, not a URL, null and an empty object');
+    assert.equal(f.library.items[0].name, 'A', 'the first of two duplicates wins');
+    assert.deepEqual({ ...f.library.replaceAll('nonsense') }, { count: 0, skipped: 0, changed: true });
+});
+
 test('Quest music starts empty, persists user sets and wraps selection without auto-playing', () => {
     const f = libraryFixture();
     assert.equal(f.library.current(), null);
@@ -67,6 +113,40 @@ test('Quest music starts empty, persists user sets and wraps selection without a
     assert.equal(restored.current(), null);
     assert.throws(() => restored.remove(), /No saved set/);
     assert.throws(() => restored.step(1), /No saved sets/);
+});
+
+test('the Link tab offers Play now and Save to my sets, never Pause, and explains what each does while another set plays', () => {
+    const f = libraryFixture();
+    const playing = { url: 'https://audio.example/playing.mp3', playing: true };
+    // Nothing pasted: nothing to save.
+    let action = f.library.linkAction('', {});
+    assert.deepEqual([action.play.label, action.play.disabled, action.save.disabled, action.note], ['Play now', false, true, '']);
+    // A new link while another set plays: both choices are explained, and neither is a Pause button.
+    f.library.save('https://audio.example/playing.mp3', 'Playing');
+    action = f.library.linkAction('https://audio.example/other.mp3', playing);
+    assert.equal(action.play.label, 'Play now');
+    assert.equal(action.save.label, 'Save to my sets');
+    assert.equal(action.save.disabled, false);
+    assert.match(action.note, /Another set is playing/);
+    assert.match(action.note, /Save to my sets adds it and keeps the current set playing/);
+    // Saving it changes the offer: it can now be played as a saved set, and is no longer savable.
+    f.library.save('https://audio.example/other.mp3', 'Other');
+    action = f.library.linkAction('https://audio.example/other.mp3', playing);
+    assert.equal(action.play.label, 'Play this set');
+    assert.deepEqual([action.save.label, action.save.disabled], ['Saved in my sets', true]);
+    assert.match(action.note, /switches to it/);
+    // The link that is playing says so, and offers Resume only when paused.
+    action = f.library.linkAction('https://audio.example/playing.mp3', playing);
+    assert.deepEqual([action.play.label, action.play.disabled], ['Playing now', true]);
+    action = f.library.linkAction('https://audio.example/playing.mp3', { ...playing, playing: false });
+    assert.deepEqual([action.play.label, action.play.disabled], ['Resume', false]);
+    // A full library cannot take another link; an unusable link still lets Play now report why.
+    for (let i = 0; i < 6; i++) f.library.save(`https://audio.example/fill-${i}.mp3`, `Fill ${i}`);
+    assert.equal(f.library.items.length, 8);
+    action = f.library.linkAction('https://audio.example/ninth.mp3', playing);
+    assert.deepEqual([action.save.label, action.save.disabled], ['Sets full (8)', true]);
+    action = f.library.linkAction('not a link', playing);
+    assert.equal(action.play.disabled, false);
 });
 
 test('Quest music rejects unsafe and website links, invalid selection and capacity overflow', () => {
@@ -209,6 +289,85 @@ test('any SoundCloud track the creator shares with podcast players plays as anal
     assert.equal(f.plays.some(play => play[0] === 'soundcloud'), false);
 });
 
+test('the SoundCloud app\u2019s share link (on.soundcloud.com/<id>) is saved without tracking and played through the relay', async () => {
+    const f = libraryFixture(null, url => url.includes('/soundcloud/resolve')
+        ? JSON.stringify({ name: '77-missmelera-miss-melera-colourizon-168.mp3', title: 'Colourizon 168', path: '/soundcloud/stream/77-missmelera-miss-melera-colourizon-168.mp3' })
+        : new Error('unexpected'));
+    const item = f.library.save('https://on.soundcloud.com/NnMSCRNn9Rf5sN25hr?si=tracking&utm_source=mobi', 'Melera set');
+    assert.equal(item.kind, 'soundcloud');
+    assert.equal(item.url, 'https://on.soundcloud.com/NnMSCRNn9Rf5sN25hr');
+    assert.equal(await f.library.play(), true);
+    assert.equal(f.plays[0][0], 'direct', 'analysed audio, not SoundCloud\u2019s own player');
+    assert.equal(f.plays[0][1], 'https://vrclub-network.garfieldapp.workers.dev/soundcloud/stream/77-missmelera-miss-melera-colourizon-168.mp3');
+    assert.equal(f.fetches[0][0],
+        'https://vrclub-network.garfieldapp.workers.dev/soundcloud/resolve?url=' + encodeURIComponent('https://on.soundcloud.com/NnMSCRNn9Rf5sN25hr'),
+        'the relay expands the share link: a browser cannot follow its cross-origin redirect');
+});
+
+test('the club\u2019s own set fills silence: it loops, is never saved, and never plays over a guest\u2019s music or a host\u2019s room', async () => {
+    const quiet = f => { f.club.getPlaybackInfo = () => ({ seekable: false, position: 0, duration: 0, playing: false }); return f; };
+
+    // Nothing saved, nothing playing: it starts, from this site's own origin, and loops (no onDemand).
+    const f = quiet(libraryFixture());
+    assert.equal(await f.library.playDefault(), true);
+    assert.deepEqual([f.plays[0][0], f.plays[0][1]], ['direct', 'https://club.example/audio/nocturne-house.mp3']);
+    assert.deepEqual({ ...f.plays[0][2] }, { quietBlock: true }, 'a default set loops (no onDemand) and a blocked autoplay is quiet: the first gesture retries it');
+    assert.equal(f.club.nowPlayingLabel, 'NOCTURNE House (club set)');
+    assert.equal(f.library.items.length, 0, 'it is never added to the guest\u2019s list');
+    assert.equal(f.store.get('vrclub.questMusic'), undefined, 'and nothing is written to storage');
+    f.club._audioKind = 'stream';
+    f.club._audioStreamUrl = f.plays[0][1];
+    assert.equal(f.library.isDefaultPlaying(), true);
+
+    // A browser that held the sound back leaves it loaded but not playing: the next gesture may retry it.
+    assert.equal(await f.library.playDefault(), true);
+    assert.equal(f.plays.length, 2);
+
+    // A guest with saved sets plays their own (that is startEntryMusic's other branch), never the default.
+    const saved = quiet(libraryFixture());
+    saved.library.save('https://audio.example/mine.mp3', 'Mine');
+    assert.equal(await saved.library.playDefault(), false);
+    assert.equal(saved.plays.length, 0);
+
+    // Someone else's room: the host owns the music.
+    const room = quiet(libraryFixture());
+    room.club.isFollowingHost = () => true;
+    assert.equal(await room.library.playDefault(), false);
+    assert.equal(room.plays.length, 0);
+
+    // Something is already playing, or something else is loaded (a local file, SoundCloud's own player).
+    const playing = libraryFixture();
+    assert.equal(await playing.library.playDefault(), false);
+    for (const kind of ['file', 'soundcloud']) {
+        const other = quiet(libraryFixture());
+        other.club._audioKind = kind;
+        assert.equal(await other.library.playDefault(), false, kind);
+        assert.equal(other.plays.length, 0);
+    }
+    const another = quiet(libraryFixture());
+    another.club._audioKind = 'stream';
+    another.club._audioStreamUrl = 'https://audio.example/other.mp3';
+    assert.equal(await another.library.playDefault(), false, 'another stream is left alone');
+    assert.equal(another.library.isDefaultPlaying(), false);
+});
+
+test('the club set ships: a real MP3 under the Pages limit, copied by the build, registered in ASSETS.md and not cached by the service worker', () => {
+    const file = path.join(root, 'audio', 'nocturne-house.mp3');
+    const bytes = readFileSync(file);
+    assert.ok(bytes.length > 10 * 1048576 && bytes.length < 25 * 1048576, `${bytes.length} bytes must be 10-25 MiB (Cloudflare Pages limit)`);
+    const hasId3 = bytes.subarray(0, 3).toString('latin1') === 'ID3';
+    const sync = bytes[0] === 0xff && (bytes[1] & 0xe0) === 0xe0;
+    assert.ok(hasId3 || sync, 'it starts like an MP3');
+    assert.match(readFileSync(path.join(root, 'scripts', 'build.mjs'), 'utf8'), /cp\(path\.join\(root, 'audio'\), path\.join\(dist, 'audio'\)/);
+    assert.match(readFileSync(path.join(root, 'ASSETS.md'), 'utf8'), /audio\/nocturne-house\.mp3[\s\S]*original work of this project/);
+    assert.match(readFileSync(path.join(root, '_headers'), 'utf8'), /\/audio\/\*\n\s+Cache-Control: no-cache/);
+    assert.doesNotMatch(readFileSync(path.join(root, 'sw.js'), 'utf8'), /nocturne-house|\.mp3/, 'the 19 MiB set is never precached');
+    assert.match(readFileSync(path.join(root, 'scripts', 'build-default-set.mjs'), 'utf8'), /25 \* 1048576/, 'the generator refuses an oversized file');
+    // Entry music uses it only when nothing is saved.
+    const ui = readFileSync(path.join(root, 'js', 'ui-init.js'), 'utf8');
+    assert.match(ui, /if \(!item\) \{[\s\S]*library\.playDefault\(\)/);
+});
+
 test('a SoundCloud track that is not shared for analysis fails clearly and never opens the player on its own', async () => {
     const notShared = libraryFixture(null, () => new Error('HTTP 404 Not Found for relay'));
     notShared.library.save('https://soundcloud.com/some-dj/private-mix', 'My mix');
@@ -341,6 +500,55 @@ test('Quest packaging rejects incomplete identity, insecure URLs and in-tree sig
         { keystore: path.join(root, 'quest.keystore') }, { keystore: 'relative.keystore' },
         { versionCode: '1.5' }, { versionCode: '-1' }, { versionCode: 0 }, { versionCode: '2100000001' }
     ]) assert.throws(() => questConfiguration({ ...options, ...change }, '1.1.0'));
+});
+
+test('the generated manifest carries every field the Bubblewrap template renders, so the Gradle file compiles', () => {
+    const manifest = questConfiguration(options, '1.1.0').manifest;
+    assert.equal(manifest.enableNotifications, false);
+    assert.equal(manifest.splashScreenFadeOutDuration, 300);
+    assert.equal(manifest.appVersion, '1.1.0');
+    assert.equal(manifest.appVersionName, '1.1.0');
+});
+
+test('a two-segment package id such as nocturne.vrnightclub is accepted; one segment or a bad character is not', () => {
+    const manifest = questConfiguration({ ...options, packageId: 'nocturne.vrnightclub' }, '1.1.0');
+    assert.equal(manifest.manifest.packageId, 'nocturne.vrnightclub');
+    assert.equal(manifest.assetlinks[0].target.package_name, 'nocturne.vrnightclub');
+    for (const packageId of ['nocturne', 'nocturne.', '.nocturne.vr', 'Nocturne.vr', 'nocturne.1vr', 'nocturne.vr-club']) {
+        assert.throws(() => questConfiguration({ ...options, packageId }, '1.1.0'), /package id/);
+    }
+});
+
+test('Quest packaging rejects an unknown target or mode', () => {
+    for (const change of [{ target: 'playstore' }, { mode: 'vr' }]) {
+        assert.throws(() => questConfiguration({ ...options, ...change }, '1.1.0'));
+    }
+});
+
+test('the immersive app starts the club in VR through ?immersive=1; the setup-panel app does not', () => {
+    const immersive = questConfiguration({ ...options, mode: 'immersive' }, '1.1.0').manifest;
+    assert.equal(immersive.horizonOSAppMode, 'immersive');
+    assert.equal(immersive.startUrl, '/nocturne/?immersive=1');
+    const home = questConfiguration({ ...options, url: 'https://club.example/', mode: 'immersive' }, '1.1.0').manifest;
+    assert.equal(home.startUrl, '/?immersive=1');
+    assert.equal(questConfiguration(options, '1.1.0').manifest.startUrl, '/nocturne/');
+});
+
+test('a SideQuest build needs no Meta App ID and carries none; a Meta build still requires one', () => {
+    const withoutAppId = { ...options, appId: undefined };
+    const sideQuest = questConfiguration({ ...withoutAppId, target: 'sidequest', mode: 'immersive' }, '1.1.0').manifest;
+    assert.equal('applicationId' in sideQuest, false);
+    assert.equal(sideQuest.packageId, options.packageId);
+    assert.throws(() => questConfiguration({ ...withoutAppId, target: 'meta' }, '1.1.0'), /App ID/);
+    assert.throws(() => questConfiguration(withoutAppId, '1.1.0'), /App ID/);
+});
+
+test('the certificate fingerprint is read from keytool output', () => {
+    const fingerprint = Array.from({ length: 32 }, (_, i) => i.toString(16).padStart(2, '0').toUpperCase()).join(':');
+    const output = `Alias name: nocturne\nCertificate fingerprints:\n\t SHA1: 11:22\n\t SHA256: ${fingerprint.toLowerCase()}\n`;
+    assert.equal(parseKeytoolFingerprint(output), fingerprint);
+    assert.equal(parseKeytoolFingerprint('keytool error: Keystore was tampered with'), null);
+    assert.equal(parseKeytoolFingerprint('SHA256: AB:CD'), null);
 });
 
 test('Quest entry references no catalogue, artist DJs or Mixamo model files', () => {

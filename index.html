@@ -88,6 +88,7 @@
     <!-- WebXR and mobile browser support -->
     <meta name="mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-title" content="NOCTURNE">
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
     
     <!-- Performance Hints: the Babylon runtime is the critical path and is same-origin. -->
@@ -97,7 +98,7 @@
     
     <link rel="manifest" href="manifest.json?v=20261009-1">
     <link rel="icon" type="image/png" sizes="192x192" href="icons/icon-192.png?v=20261009-1">
-    <link rel="apple-touch-icon" href="icons/icon-192.png?v=20261009-1">
+    <link rel="apple-touch-icon" sizes="180x180" href="icons/icon-180.png?v=20261009-1">
     <link rel="stylesheet" href="css/styles.css?v=20261009-1">
 </head>
 <body>
@@ -442,7 +443,7 @@
             <!-- User-provided music only -->
             <div class="audio-section">
                 <div class="vj-section-title">Add music</div>
-                <p class="network-help">NOCTURNE includes no music. Add a link, file or folder below.</p>
+                <p class="network-help">Until you add music, the club plays its own original set. Add a link, file or folder below to play yours instead.</p>
                 <div class="audio-source-tabs" role="tablist" aria-label="Choose a music source">
                     <button class="audio-source-tab active" type="button" role="tab" id="audioSourceTabLink" data-audio-source="link" aria-selected="true" aria-controls="audioSourceLink">Link</button>
                     <button class="audio-source-tab" type="button" role="tab" id="audioSourceTabFile" data-audio-source="file" aria-selected="false" aria-controls="audioSourceFile">File</button>
@@ -459,9 +460,13 @@
                     </div>
                     <label for="setName">Set name <span class="audio-optional">(optional)</span></label>
                     <input class="audio-input" id="setName" maxlength="60" placeholder="A name you will recognise in VR">
-                    <button class="audio-button audio-primary-button" id="playStreamBtn" type="button">
-                        <span id="playStreamBtnLabel">Save &amp; play</span>
-                    </button>
+                    <div class="audio-link-actions">
+                        <button class="audio-button audio-primary-button" id="playStreamBtn" type="button">
+                            <span id="playStreamBtnLabel">Play now</span>
+                        </button>
+                        <button class="audio-button" id="saveStreamBtn" type="button" disabled>Save to my sets</button>
+                    </div>
+                    <p id="audioLinkNote" class="network-help" role="status" aria-live="polite" hidden></p>
                     <div id="audioSourceHint" class="audio-source-hint" role="status" aria-live="polite" hidden></div>
                     <div id="feedEpisodeRow" class="audio-episode-row" hidden>
                         <label for="feedEpisode">Episode</label>
@@ -820,12 +825,17 @@
             </p>
             <ul>
                 <li>Enter in immersive WebXR on a compatible VR headset or explore with keyboard and mouse on desktop.</li>
-                <li>Bring direct music links or local audio files; no music is bundled with the experience.</li>
+                <li>Bring direct music links or local audio files; until you do, the club plays its own original house set.</li>
                 <li>Meet friends in multiplayer rooms with avatars, spatial voice, chat, reactions, and shared music.</li>
                 <li>Control moving lights, lasers, LED visuals, effects, the resident DJ, and the automatic NOCTURNE show.</li>
                 <li>Use Photosensitive Safe Mode and optional VR comfort movement at any time.</li>
             </ul>
         </section>
+        <div class="install-app" id="installApp" hidden>
+            <div class="credits-heading"><strong>Install NOCTURNE</strong></div>
+            <p class="credits-note">Add NOCTURNE to this device to open it like an app, in its own window, with the app shell available offline.</p>
+            <button type="button" id="installAppBtn">Install app</button>
+        </div>
         <div class="credits-heading"><strong>3D models and textures</strong></div>
         <div>
             • <a href="https://sketchfab.com/3d-models/pioneer-dj-console-0ba527fa6b164c34aa050dcecbaa2ffb" target="_blank" rel="noopener noreferrer" class="credit-link">"Pioneer DJ Console"</a>
@@ -905,7 +915,8 @@
         </div>
         <div class="credits-heading"><strong>Music</strong></div>
         <div>
-            No music, podcasts or third-party sound recordings are included.
+            The only music included is the club's own original house set, written for this project (MIT licence).
+            No podcasts or third-party sound recordings are included.
             Crowd ambience and reverb are generated by the app.
             Use audio you own or have permission to play and share.
         </div>
@@ -1017,6 +1028,8 @@
     <!-- VR Club Main Application -->
     <script src="js/club_hyperrealistic.js?v=20261009-1"></script>
     <script src="js/paymentGate.js?v=20261009-1"></script>
+    <!-- Opt-in (?immersive=1) in-headset launch: safe-mode choice, access and pairing without a 2D page -->
+    <script src="js/immersiveLaunch.js?v=20261009-1"></script>
     
     <!-- UI Initialization (splash screen, VJ controls, audio, multiplayer) -->
     <script src="js/ui-init.js?v=20261009-1"></script>

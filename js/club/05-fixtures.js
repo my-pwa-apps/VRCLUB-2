@@ -19,7 +19,7 @@ class VRClubFixtures extends VRClubEnvironment {
         //   LED wall plane          z = -20.00   (210 emissive panels - keep clear)
         //   operator standing zone  z = -20.00 .. -19.00  (1.0 m, on the riser)
         //   deck row                z = -19.00 .. -18.00
-        //   booth front barrier     z = -18.05 .. -17.55  (collisionWall5)
+        //   booth front face        z = -18.00 (the table itself is the collider)
         const RISER_TOP_Y = 0.5;    // top face of djPlatform / djPlatformTop
         const DECK_Z = -18.5;       // centre of the deck row
         const DECK_DEPTH = 1.0;     // front edge lands on the booth barrier at z = -18
@@ -62,8 +62,7 @@ class VRClubFixtures extends VRClubEnvironment {
         
         // Front edge nosing on the deck plinth. This used to be a free-floating
         // bar at z = -19, which the re-layout puts inside the standing zone at
-        // shin height; as a nosing it instead marks the plinth's front face,
-        // which is exactly where the invisible booth barrier (collisionWall5) sits.
+        // shin height; as a nosing it instead marks the plinth's front face.
         const frontRail = BABYLON.MeshBuilder.CreateBox("frontRail", {
             width: 4,
             height: 0.08,
@@ -85,6 +84,7 @@ class VRClubFixtures extends VRClubEnvironment {
         
         const tableMat = this.materialFactory.getPreset('table');
         djTable.material = tableMat;
+        djTable.checkCollisions = true;
         
         // === CDJ DECKS ===
         const cdjMat = this.materialFactory.getPreset('cdjBody');
@@ -256,7 +256,11 @@ class VRClubFixtures extends VRClubEnvironment {
         wall.material = wallMat;
         wall.checkCollisions = true;
 
+        // The visible wall is tiled geometry with deliberate bezel gaps. A continuous thin backing prevents a
+        // camera at the booth from slipping through a seam and falling into the narrow space behind it.
         const wallCollider = BABYLON.MeshBuilder.CreateBox('ledWallCollider', {
+            // Overlap the side-wall collision volumes so the camera cannot squeeze
+            // around an edge into the space behind the LED wall.
             width: wallWidth + 0.4,
             height: rows * panelHeight,
             depth: 0.3
@@ -677,6 +681,18 @@ class VRClubFixtures extends VRClubEnvironment {
         ];
         
         this.trussLights = [];
+        const clampMat = this.materialFactory.createPBRMaterial("spotClampMatShared", {
+            baseColor: [0.1, 0.1, 0.1], // Dark gray steel
+            metallic: 0.9,
+            roughness: 0.4
+        }, true); // shared
+        const bezelMat = this.materialFactory.createPBRMaterial("bezelMatShared", {
+            baseColor: [0.02, 0.02, 0.02],
+            metallic: 0.8,
+            roughness: 0.4
+        }, true); // shared
+        const clampParts = [];
+        const staticBaseParts = [];
 
         lightPositions.forEach((pos, i) => {
             // === REALISTIC MOVING HEAD FIXTURE WITH TRUSS MOUNTING ===
@@ -686,15 +702,6 @@ class VRClubFixtures extends VRClubEnvironment {
             const root = new BABYLON.TransformNode("lightRoot" + i, this.scene);
             root.position = new BABYLON.Vector3(pos.x, 7.8, pos.z);
             
-            // === TRUSS MOUNTING HARDWARE (connects fixture to truss above) ===
-            // Professional C-clamp that wraps around truss tube
-            // UPGRADE: Shared clamp material for all spotlight fixtures (was 6 unique)
-            const clampMat = this.materialFactory.createPBRMaterial("spotClampMatShared", {
-                baseColor: [0.1, 0.1, 0.1], // Dark gray steel
-                metallic: 0.9,
-                roughness: 0.4
-            }, true); // shared
-            
             // C-Clamp body (wraps around truss tube at Y=8)
             const clamp = BABYLON.MeshBuilder.CreateTorus("clamp" + i, {
                 diameter: 0.12,  // Fits around 48mm (0.048m) truss tube
@@ -702,14 +709,10 @@ class VRClubFixtures extends VRClubEnvironment {
                 tessellation: 16,
                 arc: 0.85  // Open C-shape
             }, this.scene);
-            clamp.parent = root;
-            clamp.position.y = 0.2;  // 0.2m above fixture base (at truss level Y=8)
+            clamp.position.set(pos.x, 8.0, pos.z);
             clamp.rotation.x = Math.PI / 2;  // Horizontal orientation
             clamp.rotation.z = Math.PI;  // Open side facing outward
-            clamp.material = clampMat;
-            // UPGRADE: Freeze static mounting hardware
-            clamp.freezeWorldMatrix();
-            clamp.doNotSyncBoundingInfo = true;
+            clampParts.push(clamp);
             
             // Clamp bolt (tightening mechanism)
             const clampBolt = BABYLON.MeshBuilder.CreateCylinder("clampBolt" + i, {
@@ -717,12 +720,9 @@ class VRClubFixtures extends VRClubEnvironment {
                 height: 0.08,
                 tessellation: 8
             }, this.scene);
-            clampBolt.parent = root;
-            clampBolt.position = new BABYLON.Vector3(0.06, 0.2, 0);
+            clampBolt.position.set(pos.x + 0.06, 8.0, pos.z);
             clampBolt.rotation.z = Math.PI / 2;
-            clampBolt.material = clampMat;
-            clampBolt.freezeWorldMatrix();
-            clampBolt.doNotSyncBoundingInfo = true;
+            clampParts.push(clampBolt);
             
             // Drop pipe (vertical pipe from clamp to fixture base)
             const dropPipe = BABYLON.MeshBuilder.CreateCylinder("dropPipe" + i, {
@@ -730,11 +730,8 @@ class VRClubFixtures extends VRClubEnvironment {
                 height: 0.2,  // 0.2m drop from truss to fixture
                 tessellation: 12
             }, this.scene);
-            dropPipe.parent = root;
-            dropPipe.position.y = 0.1;  // Centered between clamp and base
-            dropPipe.material = lightFixtureMat;
-            dropPipe.freezeWorldMatrix();
-            dropPipe.doNotSyncBoundingInfo = true;
+            dropPipe.position.set(pos.x, 7.9, pos.z);
+            staticBaseParts.push(dropPipe);
             
             // Safety cable (realistic safety loop)
             const safetyCable = BABYLON.MeshBuilder.CreateTorus("safetyCable" + i, {
@@ -742,12 +739,9 @@ class VRClubFixtures extends VRClubEnvironment {
                 thickness: 0.005,
                 tessellation: 16
             }, this.scene);
-            safetyCable.parent = root;
-            safetyCable.position.y = 0.15;
+            safetyCable.position.set(pos.x, 7.95, pos.z);
             safetyCable.rotation.x = Math.PI / 2;
-            safetyCable.material = clampMat;
-            safetyCable.freezeWorldMatrix();
-            safetyCable.doNotSyncBoundingInfo = true;
+            clampParts.push(safetyCable);
 
             // 1. BASE (Static mount)
             const base = BABYLON.MeshBuilder.CreateBox("fixtureBase" + i, {
@@ -755,44 +749,43 @@ class VRClubFixtures extends VRClubEnvironment {
                 height: 0.1,
                 depth: 0.4
             }, this.scene);
-            base.parent = root;
-            base.position.y = 0; // At root position
-            base.material = lightFixtureMat;
-            base.freezeWorldMatrix();
-            base.doNotSyncBoundingInfo = true;
+            base.position.set(pos.x, 7.8, pos.z);
+            staticBaseParts.push(base);
             
             // 2. YOKE (Pan mechanism - Rotates around Y)
             const yoke = new BABYLON.TransformNode("yoke" + i, this.scene);
             yoke.parent = root;
             yoke.position.y = -0.1; // Below base
             
-            // Yoke Geometry (U-bracket)
+            // Yoke Geometry (U-bracket, merged into one draw per moving yoke)
             const yokeCrossbar = BABYLON.MeshBuilder.CreateBox("yokeCross" + i, {
                 width: 0.5,
                 height: 0.05,
                 depth: 0.15
             }, this.scene);
-            yokeCrossbar.parent = yoke;
             yokeCrossbar.position.y = 0;
-            yokeCrossbar.material = lightFixtureMat;
 
             const yokeArmL = BABYLON.MeshBuilder.CreateBox("yokeArmL" + i, {
                 width: 0.05,
                 height: 0.4,
                 depth: 0.15
             }, this.scene);
-            yokeArmL.parent = yoke;
             yokeArmL.position = new BABYLON.Vector3(-0.225, -0.2, 0);
-            yokeArmL.material = lightFixtureMat;
 
             const yokeArmR = BABYLON.MeshBuilder.CreateBox("yokeArmR" + i, {
                 width: 0.05,
                 height: 0.4,
                 depth: 0.15
             }, this.scene);
-            yokeArmR.parent = yoke;
             yokeArmR.position = new BABYLON.Vector3(0.225, -0.2, 0);
-            yokeArmR.material = lightFixtureMat;
+
+            const yokeMesh = BABYLON.Mesh.MergeMeshes([yokeCrossbar, yokeArmL, yokeArmR], true, true, undefined, false, false);
+            if (yokeMesh) {
+                yokeMesh.name = "yokeMesh" + i;
+                yokeMesh.parent = yoke;
+                yokeMesh.material = lightFixtureMat;
+                yokeMesh.isPickable = false;
+            }
 
             // 3. HEAD (Tilt mechanism - Rotates around X)
             // Pivot point is between the yoke arms
@@ -819,11 +812,7 @@ class VRClubFixtures extends VRClubEnvironment {
             }, this.scene);
             bezel.parent = head;
             bezel.position.y = -0.255;
-            bezel.material = this.materialFactory.createPBRMaterial("bezelMat" + i, {
-                baseColor: [0.02, 0.02, 0.02],
-                metallic: 0.8,
-                roughness: 0.4
-            });
+            bezel.material = bezelMat;
             
             // Light lens
             const lens = BABYLON.MeshBuilder.CreateCylinder("lens" + i, {
@@ -854,10 +843,24 @@ class VRClubFixtures extends VRClubEnvironment {
                 fixture, 
                 lens, 
                 lensMat, 
-                base,
+                base: null,
                 bezel
             });
         });
+
+        for (const [name, parts, mat] of [
+            ['spotMountingClamps', clampParts, clampMat],
+            ['spotStaticBases', staticBaseParts, lightFixtureMat]
+        ]) {
+            const merged = BABYLON.Mesh.MergeMeshes(parts, true, true, undefined, false, false);
+            if (merged) {
+                merged.name = name;
+                merged.material = mat;
+                merged.isPickable = false;
+                merged.freezeWorldMatrix();
+                merged.doNotSyncBoundingInfo = true;
+            }
+        }
         
         // Strobe lights on truss corners
         this.createStrobeLights();
@@ -893,6 +896,7 @@ class VRClubFixtures extends VRClubEnvironment {
             metallic: 0.9,
             roughness: 0.4
         }, true); // shared
+        const strobeMountParts = [];
         
         strobePositions.forEach((pos, i) => {
             // === STROBE MOUNTING HARDWARE ===
@@ -903,10 +907,7 @@ class VRClubFixtures extends VRClubEnvironment {
                 depth: 0.1
             }, this.scene);
             bracket.position = new BABYLON.Vector3(pos.x, 7.8, pos.z);
-            bracket.material = strobeMountMat;
-            // UPGRADE: Freeze static mounting hardware
-            bracket.freezeWorldMatrix();
-            bracket.doNotSyncBoundingInfo = true;
+            strobeMountParts.push(bracket);
             
             // Clamp at top (grips truss)
             const clamp = BABYLON.MeshBuilder.CreateTorus("strobeClamp" + i, {
@@ -917,9 +918,7 @@ class VRClubFixtures extends VRClubEnvironment {
             }, this.scene);
             clamp.position = new BABYLON.Vector3(pos.x, 8, pos.z);
             clamp.rotation.x = Math.PI / 2;
-            clamp.material = strobeMountMat;
-            clamp.freezeWorldMatrix();
-            clamp.doNotSyncBoundingInfo = true;
+            strobeMountParts.push(clamp);
             
             const strobe = BABYLON.MeshBuilder.CreateBox("strobe" + i, {
                 width: 0.8,
@@ -979,6 +978,15 @@ class VRClubFixtures extends VRClubEnvironment {
                 flashDuration: 0
             });
         });
+
+        const mergedStrobeMounts = BABYLON.Mesh.MergeMeshes(strobeMountParts, true, true, undefined, false, false);
+        if (mergedStrobeMounts) {
+            mergedStrobeMounts.name = 'strobeMounts';
+            mergedStrobeMounts.material = strobeMountMat;
+            mergedStrobeMounts.isPickable = false;
+            mergedStrobeMounts.freezeWorldMatrix();
+            mergedStrobeMounts.doNotSyncBoundingInfo = true;
+        }
         
         // === SHARED STROBE FLASH LIGHT ===
         // Single PointLight high above dance floor that flashes with strobes

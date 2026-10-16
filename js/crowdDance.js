@@ -26,10 +26,16 @@ class CrowdDance {
         Groove_Bounce: Object.freeze({ beats: 2, anchor: 0, weight: 2.0, energy: 0.15 }),
         Groove_SideTap: Object.freeze({ beats: 4, anchor: 0, weight: 1.4, energy: 0.3 }),
         Groove_Clap: Object.freeze({ beats: 2, anchor: 0, halfAnchor: -0.5, weight: 0.8, energy: 0.35, build: 5, drop: 0.5 }),
+        // The same clap held above the head.
+        Groove_ClapUp: Object.freeze({ beats: 2, anchor: 0, halfAnchor: -0.5, weight: 0.45, energy: 0.45, build: 4, drop: 0.7 }),
         Groove_Pump: Object.freeze({ beats: 4, anchor: 0, weight: 0.7, energy: 0.6, build: 1.5, drop: 4 }),
         Groove_Twist: Object.freeze({ beats: 2, anchor: 0, weight: 1.0, energy: 0.4 }),
         Groove_HandsUp: Object.freeze({ beats: 4, anchor: 0, weight: 0.35, energy: 0.75, build: 1.5, drop: 6 }),
-        Groove_Sway: Object.freeze({ beats: 4, anchor: 0, weight: 0.5, energy: 0, quiet: 4, free: true, rhythm: 2.5 })
+        Groove_Sway: Object.freeze({ beats: 4, anchor: 0, weight: 0.5, energy: 0, quiet: 4, free: true, rhythm: 2.5 }),
+        // What dancers do when there is no beat at all: a slow sway for most, arms spread wide or up high for a few.
+        // They run at their own slow pace (`freeSpeed`) and are never picked while there is a pulse.
+        Groove_ArmsWide: Object.freeze({ beats: 8, anchor: 0, weight: 0, energy: 0, free: true, freeWeight: 1.0, freeSpeed: 0.45 }),
+        Groove_ArmsUp: Object.freeze({ beats: 8, anchor: 0, weight: 0, energy: 0, free: true, freeWeight: 0.8, freeSpeed: 0.45 })
     });
 
     /**
@@ -38,8 +44,8 @@ class CrowdDance {
      */
     static get RHYTHM_WEIGHTS() {
         return this._rhythmWeights || (this._rhythmWeights = Object.freeze({
-            Groove_Sway: 2.5, Groove_Bounce: 1.4, Groove_SideTap: 1.4, Groove_Clap: 1.3, Groove_Twist: 1.0,
-            Dance_Loop: 0.7, Groove_Pump: 0.15, Groove_HandsUp: 0
+            Groove_Sway: 2.5, Groove_Bounce: 1.4, Groove_SideTap: 1.4, Groove_Clap: 1.3, Groove_ClapUp: 0.4, Groove_Twist: 1.0,
+            Dance_Loop: 0.7, Groove_Pump: 0.15, Groove_HandsUp: 0, Groove_ArmsWide: 0, Groove_ArmsUp: 0
         }));
     }
 
@@ -47,6 +53,10 @@ class CrowdDance {
     static CLIP_BPM = 120;
     /** Free-running pace of the quiet sway (about one sway every four seconds). */
     static FREE_SPEED = 0.5;
+    /** The plain sway's share among the free moves: most people just sway; a few open their arms or reach up. */
+    static FREE_SWAY_WEIGHT = 3;
+    /** How long somebody keeps a free move before they may choose another (seconds). */
+    static FREE_HOLD = Object.freeze([18, 40]);
 
     constructor({ rng = Math.random } = {}) {
         this.rng = rng;
@@ -83,17 +93,28 @@ class CrowdDance {
         const pulse = music.beatPresent ? true : music.rhythm ? 'rhythm' : music.fallback ? 'fallback' : false;
 
         if (!pulse) {
-            const move = dancer.moves.includes('Groove_Sway') ? 'Groove_Sway' : dancer.moves[0];
-            if (dancer.move !== move || dancer.hadBeat !== false) {
-                dancer.move = move;
-                dancer.half = false;
-                out.switched = true;
-                out.frac = this.rng();
+            // No beat at all: nobody is on the grid. Most just sway, a few open their arms wide or reach up high, and
+            // everybody may change their mind after a long while (`music.time`, in seconds, when the club supplies it).
+            const entering = dancer.hadBeat !== false;
+            const current = dancer.move && CrowdDance.MOVES[dancer.move];
+            const due = music.time !== undefined && dancer.freeUntil !== undefined && music.time >= dancer.freeUntil;
+            if (entering || due || !current || !current.free) {
+                const move = this._pickFree(dancer);
+                if (music.time !== undefined) {
+                    const [lo, hi] = CrowdDance.FREE_HOLD;
+                    dancer.freeUntil = music.time + lo + (hi - lo) * this.rng();
+                }
+                if (dancer.move !== move || entering) {
+                    dancer.move = move;
+                    dancer.half = false;
+                    out.switched = true;
+                    out.frac = this.rng();
+                }
             }
             dancer.hadBeat = false;
             dancer.lastBar = bar;
             out.move = dancer.move;
-            out.speed = CrowdDance.FREE_SPEED;
+            out.speed = CrowdDance.MOVES[dancer.move].freeSpeed || CrowdDance.FREE_SPEED;
             return out;
         }
 
@@ -142,6 +163,34 @@ class CrowdDance {
         }
         out.speed = base * (1 + Math.max(-0.4, Math.min(0.4, errorBeats * 0.8)));
         return out;
+    }
+
+    /**
+     * A move for a stretch with no beat: the plain sway for most, arms wide or up high for others. Each dancer has stable
+     * leanings (`taste`), so the same people tend to be the ones who reach up.
+     */
+    _pickFree(dancer) {
+        const sway = dancer.moves.includes('Groove_Sway') ? 'Groove_Sway' : null;
+        const table = this._freeTable || (this._freeTable = []);
+        table.length = 0;
+        let total = 0;
+        for (const name of dancer.moves) {
+            const meta = CrowdDance.MOVES[name];
+            if (!meta.free) continue;
+            let w = name === 'Groove_Sway' ? CrowdDance.FREE_SWAY_WEIGHT : (meta.freeWeight || 0);
+            if (w <= 0) continue;
+            w *= dancer.taste[name] == null ? 1 : dancer.taste[name];
+            if (name === dancer.move) w *= 0.35;       // prefer a change when it is time for one
+            total += w;
+            table.push(name, w);
+        }
+        if (total <= 0) return sway || dancer.moves[0];
+        let r = this.rng() * total;
+        for (let i = 0; i < table.length; i += 2) {
+            r -= table[i + 1];
+            if (r <= 0) return table[i];
+        }
+        return table[table.length - 2];
     }
 
     _pick(dancer, music, drop, rhythm = false) {

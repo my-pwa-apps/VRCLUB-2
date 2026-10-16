@@ -505,6 +505,7 @@ test('Quest 3 emulation enters WebXR, registers controllers, and restores deskto
         hasHelper: true,
         xrDiagnostics: []
     });
+    // Use the shared helper so the payment lease is prepared before the user-activation click.
     await enterVR(page);
     const xrState = await page.evaluate(() => ({
         inVR: window.vrClub.isInVRMode,
@@ -525,6 +526,7 @@ test('Quest 3 emulation enters WebXR, registers controllers, and restores deskto
             glowIntensity: window.vrClub.glowLayer.intensity === window.vrClub.vrSettings.vr.glowIntensity,
             selectiveGlowDisabled: !window.vrClub.glowLayer.isEnabled,
             vrDiffersFromDesktop: window.vrClub.vrSettings.vr.exposure !== window.vrClub.vrSettings.desktop.exposure
+                || window.vrClub.vrSettings.vr.bloomWeight !== window.vrClub.vrSettings.desktop.bloomWeight
         },
         vrSmoke: {
             hazeRate: window.vrClub.haze.emitRate,

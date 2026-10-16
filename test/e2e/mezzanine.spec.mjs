@@ -1,5 +1,5 @@
 import { test, expect } from '@playwright/test';
-import { enterClub, expectHealthyRuntime, useQuestHarness } from './support.mjs';
+import { enterClub, enterVR, expectHealthyRuntime, useQuestHarness } from './support.mjs';
 
 useQuestHarness();
 
@@ -23,11 +23,7 @@ const walkWithLeftStick = (page, stickY, limit) => page.evaluate(async ([y, stop
 
 async function enterVRWalking(page) {
     await enterClub(page);
-    const vrButton = page.locator('#vrButton');
-    await expect(vrButton).toBeEnabled({ timeout: 60_000 });
-    await vrButton.click();
-    await page.waitForFunction(() => window.vrClub?.isInVRMode === true);
-    await page.waitForFunction(() => window.vrClub?._xrControllers?.length === 2);
+    await enterVR(page);
     await page.evaluate(() => window.vrClub.setVRComfortMode(false));
 }
 
@@ -137,11 +133,7 @@ const aimQuaternion = ([x, y, z]) => {
 test('in VR the balcony and its stair can be reached by teleport, stood on, and left', async ({ page }) => {
     test.setTimeout(900_000);
     await enterClub(page);
-    const vrButton = page.locator('#vrButton');
-    await expect(vrButton).toBeEnabled({ timeout: 60_000 });
-    await vrButton.click();
-    await page.waitForFunction(() => window.vrClub?.isInVRMode === true);
-    await page.waitForFunction(() => window.vrClub?._xrControllers?.length === 2);
+    await enterVR(page);
     const frames = n => page.evaluate(async count => {
         const scene = window.vrClub.scene;
         for (let i = 0; i < count; i++) await new Promise(r => scene.onAfterRenderObservable.addOnce(r));

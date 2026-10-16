@@ -1,0 +1,27 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <!-- A small standalone page for pairing a VR headset from a phone. It has no inline script or style and talks only to the access API. -->
+    <meta http-equiv="Content-Security-Policy" content="default-src 'self'; base-uri 'none'; object-src 'none'; form-action 'none'; script-src 'self'; style-src 'self'; img-src 'self' data:; connect-src 'self' https://api.mitwee.nl;">
+    <meta name="referrer" content="no-referrer">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="robots" content="noindex, nofollow">
+    <meta name="theme-color" content="#030308">
+    <title>Link your headset | NOCTURNE</title>
+    <link rel="icon" type="image/png" sizes="192x192" href="../icons/icon-192.png">
+    <link rel="apple-touch-icon" sizes="180x180" href="../icons/icon-180.png">
+    <link rel="stylesheet" href="link.css">
+</head>
+<body>
+    <main class="link-card" id="app">
+        <p class="link-brand">NOCTURNE</p>
+        <h1 id="stepTitle" tabindex="-1">Link your headset</h1>
+        <div id="step"></div>
+        <p id="status" class="link-status" role="status" aria-live="polite"></p>
+        <p class="link-foot"><a href="../">Back to NOCTURNE</a></p>
+    </main>
+    <noscript><p class="link-card">This page needs JavaScript to link a headset.</p></noscript>
+    <script src="link.js"></script>
+</body>
+</html>

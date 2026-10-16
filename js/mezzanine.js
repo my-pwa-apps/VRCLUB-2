@@ -37,6 +37,11 @@ const MEZZANINE = {
         return 0;
     },
 
+    /**
+     * How the flown PA reaches this ear. `cover` is 1 when the deck or stair soffit is between the
+     * listener and the boxes; `onDeck` is 1 when the ear is on the open balcony, near the horns.
+     * Both are 0 on the dance floor. Writes `out` so the listener can call it every frame.
+     */
     paZones(x, y, z, out) {
         const D = this.deck, S = this.stairs;
         const result = out || { cover: 0, onDeck: 0 };
@@ -45,6 +50,8 @@ const MEZZANINE = {
             return t * t * (3 - 2 * t);
         };
         const soffit = D.top - D.thickness;
+        // Room-facing edges ramp over more than two metres. The filter closes about 4.7 octaves,
+        // and a smoothstep's steepest 10 cm step must stay under a third of an octave.
         const deckFoot = edge(D.x1 + 1.7, D.x1 - 0.7, x)
             * edge(D.x0 - 0.2, D.x0 + 0.05, x)
             * edge(D.z0 - 0.3, D.z0 + 0.15, z)

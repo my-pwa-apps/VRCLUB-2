@@ -320,6 +320,31 @@ html, body {
     color: #ffffff;
 }
 
+#modelCredits .install-app {
+    margin: 8px 0 10px;
+}
+
+#modelCredits .install-app[hidden] {
+    display: none;
+}
+
+#modelCredits .install-app button {
+    margin-top: 6px;
+    padding: 8px 12px;
+    border: 1px solid #7aa2ff;
+    border-radius: 4px;
+    background: #244a86;
+    color: #fff;
+    font: inherit;
+    font-weight: 700;
+    cursor: pointer;
+}
+
+#modelCredits .install-app button:disabled {
+    cursor: wait;
+    opacity: 0.72;
+}
+
 @keyframes fadeOut {
     0% { opacity: 1; }
     70% { opacity: 1; }
@@ -1177,6 +1202,24 @@ body:has(.panel:not(.hidden)) .payment-toggle,
 .audio-source-panel > .audio-primary-button {
     width: 100%;
     justify-content: center;
+}
+
+/* "Play now" and "Save to my sets" sit side by side; each can be disabled when it has nothing to do. */
+.audio-link-actions {
+    display: flex;
+    gap: 8px;
+    margin-top: 8px;
+}
+
+.audio-link-actions .audio-button {
+    flex: 1 1 0;
+    min-width: 0;
+    justify-content: center;
+    white-space: nowrap;
+}
+
+.audio-link-actions .audio-button:disabled {
+    opacity: 0.55;
 }
 
 .audio-optional {

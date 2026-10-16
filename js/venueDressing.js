@@ -15,7 +15,10 @@ const VENUE_BAR = {
     stoolX: 9.2,
     stoolZ: [-12.9, -11.6, -10.3, -9.0, -7.7],
     bartender: { x: 10.85, z: -9.9 },
-
+    /**
+     * 0..1 when the ear is in the bar alcove (stools and the gap in front of the counter).
+     * A partial shelf, not a wall: the back bar and bottles take the top end off and add a little room.
+     */
     listenerShelf(x, y, z) {
         const c = this.counter;
         const edge = (outer, inner, value) => {
@@ -406,14 +409,23 @@ const VenueDressing = {
         const screen = b.box(screens, 0.34, 0.24, 0.02, -(VW - 0.5), S + 1.2, 2.1);
         screen.rotation.y = Math.PI / 2;
         screen.rotation.z = 0.28;
-        // Coat rail with a row of coats.
-        b.cylinder(metal, 0.03, 1.9, VW - 0.25, S + 1.95, 4.15, 'z');
+        // Coat rail. Garments hang from it (shoulders, sleeves, a hem) with a gap and two empty hooks.
+        const railX = VW - 0.25, railY = S + 1.95, railZ = 4.15;
+        b.cylinder(metal, 0.03, 1.9, railX, railY, railZ, 'z');
+        for (const z of [4.18, 4.34]) b.cylinder(metal, 0.012, 0.07, railX, railY - 0.04, z);
         const coatMat = factory.createPBRMaterial('coatMat', {
             baseColor: [0.045, 0.045, 0.055], metallic: 0, roughness: 0.92
         }, true);
         const coats = b.group('Coats', coatMat);
-        for (let i = 0; i < 7; i++) {
-            b.box(coats, 0.08, 1.15 - (i % 3) * 0.06, 0.22, VW - 0.25, S + 1.35, 3.3 + i * 0.28);
+        const coatRun = [
+            { z: 3.38, scale: 1.0 }, { z: 3.68, scale: 0.9 }, { z: 3.96, scale: 1.06 },
+            { z: 4.62, scale: 0.94 }, { z: 4.9, scale: 1.02 }, { z: 5.16, scale: 0.86 }
+        ];
+        for (const coat of coatRun) {
+            for (const part of coatSilhouetteParts(railX, railY, coat.z, coat.scale)) {
+                b.box(coats, part.w, part.h, part.d, part.x, part.y, part.z, part.tilt
+                    ? (mesh => { mesh.rotation.x = part.tilt; }) : undefined);
+            }
         }
 
         // Light: warm sconces over the galleries, step lights in the stair walls, magenta and cyan coves under the
@@ -1234,11 +1246,34 @@ const VenueDressing = {
         const targetRate = this.isInVRMode ? 2 : 1;
         if (tex.refreshRate !== targetRate) tex.refreshRate = targetRate;
     }
-};window.VenueLayout = {
+};
+
+window.VenueLayout = {
     bar: VENUE_BAR,
     lounge: VENUE_LOUNGE,
     monitors: VENUE_MONITORS,
     restroom: VENUE_RESTROOM,
     vestibule: VENUE_VESTIBULE
 };
+/**
+ * Boxes for one coat hung from a rail. Shoulders are wider than the cloth is thick, sleeves
+ * tilt out, and the hem is below the shoulders. `scale` only changes length and shoulder width.
+ */
+function coatSilhouetteParts(railX, railY, z, scale) {
+    const s = scale || 1;
+    const x = railX + 0.03;
+    const top = railY - 0.07;
+    const length = 0.9 * s;
+    return [
+        { w: 0.02, h: 0.06, d: 0.02, x, y: railY - 0.03, z },
+        { w: 0.07, h: 0.07, d: 0.13, x, y: top, z },
+        { w: 0.09, h: 0.1, d: 0.4 * s, x, y: top - 0.06, z },
+        { w: 0.06, h: length * 0.52, d: 0.28 * s, x, y: top - 0.08 - length * 0.3, z },
+        { w: 0.07, h: length * 0.2, d: 0.34 * s, x, y: top - 0.08 - length * 0.68, z },
+        { w: 0.05, h: 0.38 * s, d: 0.06, x, y: top - 0.24, z: z - 0.15 * s, tilt: 0.22 },
+        { w: 0.05, h: 0.38 * s, d: 0.06, x, y: top - 0.24, z: z + 0.15 * s, tilt: -0.22 }
+    ];
+}
+window.coatSilhouetteParts = coatSilhouetteParts;
+
 window.VenueDressing = VenueDressing;

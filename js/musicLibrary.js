@@ -4,6 +4,8 @@ class MusicLibrary {
     static KEY = 'vrclub.questMusic';
     static PLAYBACK_KEY = 'vrclub.questMusicPlayback';
     static MAX_SETS = 8;
+    /** The club's own generated set, served from this site (so it is first-party and the audio analyser can read it). */
+    static DEFAULT_SET = Object.freeze({ path: 'audio/nocturne-house.mp3', name: 'NOCTURNE House (club set)' });
     static COLOURIZON_FEED_PATH = '/podcast/colourizon/feed.xml';
     static SOUNDCLOUD_RESOLVE_PATH = '/soundcloud/resolve';
     static DEFAULT_NAMES = new Set(['SoundCloud set', 'Resident by Hernan Cattaneo']);
@@ -254,6 +256,37 @@ class MusicLibrary {
         }
     }
 
+    /**
+     * What the Link tab's two buttons say for the link in its field, given what is playing right now.
+     * `active` is `{ url, playing }`: the address being played (if any) and whether anything is playing.
+     * Pure: the panel only draws the answer. "Play now" saves AND plays; "Save to my sets" only saves.
+     */
+    linkAction(url, active = {}) {
+        const text = String(url || '').trim();
+        let normalised = null;
+        try { if (text) normalised = this._item(text).url; } catch (_) { normalised = null; }
+        const saved = !!normalised && this.items.some(item => item.url === normalised);
+        const isActive = !!(text && active.url && this.matchesPlaybackUrl(normalised || text, active.url));
+        const full = this.items.length >= MusicLibrary.MAX_SETS;
+        const play = !text ? { label: 'Play now', disabled: false }
+            : isActive ? (active.playing ? { label: 'Playing now', disabled: true } : { label: 'Resume', disabled: false })
+                : { label: saved ? 'Play this set' : 'Play now', disabled: false };
+        const save = !text ? { label: 'Save to my sets', disabled: true }
+            : saved ? { label: 'Saved in my sets', disabled: true }
+                : full ? { label: 'Sets full (8)', disabled: true } : { label: 'Save to my sets', disabled: false };
+        let note = '';
+        if (text && !isActive && active.playing) {
+            note = saved
+                ? 'Another set is playing. Play this set switches to it.'
+                : 'Another set is playing. Play now switches to this link. Save to my sets adds it and keeps the current set playing.';
+        } else if (text && !saved && !isActive) {
+            note = 'Play now saves this link and plays it. Save to my sets only saves it.';
+        } else if (text && saved && !isActive) {
+            note = 'This link is already in your saved sets.';
+        }
+        return { play, save, note, saved, active: isActive };
+    }
+
     _resumePosition(item, playbackUrl) {
             if (!this._startupResumePending) return 0;
             this._startupResumePending = false;
@@ -316,6 +349,71 @@ class MusicLibrary {
         }
         this._persist(items, index);
         return item;
+    }
+
+    /**
+     * Makes the saved sets exactly `entries` (the list kept on the owner's phone). Entries that cannot be played are
+     * skipped, the selection stays on its link when that link is still listed, and a feed's episode choice and a name the
+     * player learned survive. Resolves to { count, skipped, changed }; storage is only written when something differs.
+     */
+    replaceAll(entries) {
+        const next = [];
+        let skipped = 0;
+        for (const entry of Array.isArray(entries) ? entries.slice(0, 64) : []) {
+            if (next.length >= MusicLibrary.MAX_SETS) break;
+            try {
+                const item = this._item(entry && entry.url, entry && entry.name);
+                if (next.some(saved => saved.url === item.url)) continue;
+                const old = this.items.find(saved => saved.url === item.url);
+                if (old) {
+                    if (item.kind === 'feed' && old.episode) item.episode = old.episode;
+                    if (!(entry && typeof entry.name === 'string' && entry.name.trim())) item.name = old.name;
+                }
+                next.push(item);
+            } catch (_) {
+                skipped++;
+            }
+        }
+        const currentUrl = this.current() && this.current().url;
+        const selected = Math.max(0, next.findIndex(item => item.url === currentUrl));
+        const changed = JSON.stringify(next) !== JSON.stringify(this.items);
+        if (changed) this._persist(next, selected);
+        return { count: next.length, skipped, changed };
+    }
+
+    /** The club's own set (scripts/build-default-set.mjs): an absolute URL on the page's own origin, never saved to the list. */
+    defaultItem() {
+        return {
+            url: new URL(MusicLibrary.DEFAULT_SET.path, window.location.href).href,
+            name: MusicLibrary.DEFAULT_SET.name, kind: 'direct', builtin: true
+        };
+    }
+
+    /** True while the club's own set is what is playing (nothing of the guest's is). */
+    isDefaultPlaying() {
+        return !!this._defaultUrl && this.club._audioStreamUrl === this._defaultUrl;
+    }
+
+    /**
+     * Plays the club's own original set so nobody stands in a silent club. It only ever fills silence: it does nothing when
+     * the guest has saved sets (that is what plays), in someone else's room (the host owns the music), or when something
+     * is already playing. It is not saved, so it never appears in, or overwrites, the guest's list, and it loops.
+     */
+    async playDefault() {
+        const club = this.club;
+        if (this.items.length || (club.isFollowingHost && club.isFollowingHost())) return false;
+        const info = club.getPlaybackInfo ? club.getPlaybackInfo() : null;
+        const item = this.defaultItem();
+        // Something else is loaded (a local file, SoundCloud's player, another stream): leave it. The club's own set loaded
+        // but held back by the browser's autoplay rules is fine to retry on the next gesture.
+        const other = club._audioKind && !(club._audioKind === 'stream' && club._audioStreamUrl === item.url);
+        if ((info && info.playing) || other) return false;
+        this.lastMode = 'analysed';
+        this._defaultUrl = item.url;
+        await club.startAudioStream(item.url, { quietBlock: true });
+        club.nowPlayingLabel = item.name;
+        if (this.onChange) this.onChange(item);
+        return true;
     }
 
     select(index) {

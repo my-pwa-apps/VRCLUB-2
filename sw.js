@@ -129,6 +129,8 @@ self.addEventListener('fetch', (event) => {
     // on `request.url.includes('stream')`, which matched any deploy path or query
     // string containing that word and silently disabled the SW for it.
     if (url.origin !== self.location.origin) return;
+    // The phone pairing page is its own tiny site: never answer it with (or cache it as) the club's app shell.
+    if (url.pathname.startsWith(new URL('./link/', self.registration.scope).pathname)) return;
     if (request.destination === 'audio' || request.destination === 'media') return;
     if (IDB_OWNED.test(url.pathname)) return;
 

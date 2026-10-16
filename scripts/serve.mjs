@@ -68,6 +68,8 @@ function resolveSafe(urlPath) {
     if (decoded.includes('\0')) return null;
     if (DENY.test(decoded)) return null;
     if (decoded === '/' || decoded === '') decoded = '/index.html';
+    // A directory URL serves its index.html, as static hosts do (the phone pairing page lives at /link/).
+    else if (decoded.endsWith('/')) decoded += 'index.html';
     const resolved = normalize(join(ROOT, decoded));
     if (!isInsideRoot(resolved)) return null;
     return resolved;
@@ -100,6 +102,14 @@ const server = createServer(async (req, res) => {
 
         const info = await stat(realPath);
         if (info.isDirectory()) {
+            // Static hosts redirect /link to /link/ so the page's relative URLs resolve.
+            const pathOnly = (req.url || '/').split('?')[0];
+            if (!pathOnly.endsWith('/') && !DENY.test(pathOnly)) {
+                // Collapse leading slashes: "//host" must never become a protocol-relative redirect.
+                const target = `/${pathOnly.replace(/^\/+/, '')}/`;
+                res.writeHead(308, { Location: target + ((req.url || '').includes('?') ? '?' + req.url.split('?')[1] : '') }).end();
+                return;
+            }
             res.writeHead(403).end('Forbidden');
             return;
         }
@@ -114,11 +124,16 @@ const server = createServer(async (req, res) => {
         // importScripts() is served FROM the HTTP cache - `immutable, max-age=1y`
         // would pin it for a year and make worker updates impossible to ship.
         const isWorker = /(^|[\\/])(sw|serviceworker)\.js$/i.test(realPath);
-        const cacheControl = (ext === '.html' || isWorker || !IS_DIST)
+        // The manifest and its icons keep stable names (they are not content-hashed), so they must revalidate or an
+        // edited manifest would be pinned for a year.
+        const isPwaMetadata = /(^|[\\/])manifest\.json$/i.test(realPath) || /[\\/](icons|screenshots|link|audio)[\\/]/i.test(realPath);
+        const cacheControl = (ext === '.html' || isWorker || isPwaMetadata || !IS_DIST)
             ? 'no-cache'
             : 'public, max-age=31536000, immutable';
 
-        const contentType = MIME[ext] || 'application/octet-stream';
+        const contentType = /(^|[\\/])manifest\.json$/i.test(realPath)
+            ? 'application/manifest+json; charset=utf-8'
+            : (MIME[ext] || 'application/octet-stream');
         const headers = {
             'Content-Type': contentType,
             'Cache-Control': cacheControl,
@@ -169,6 +184,30 @@ const server = createServer(async (req, res) => {
         }
         if (encoder) headers['Vary'] = 'Accept-Encoding';
         else headers['Content-Length'] = info.size;
+        // Audio is seekable only when the server honours byte ranges (Cloudflare Pages does; this mirrors it).
+        if (!encoder) headers['Accept-Ranges'] = 'bytes';
+
+        const range = !encoder ? /^bytes=(\d*)-(\d*)$/.exec(String(req.headers.range || '')) : null;
+        if (range && (range[1] || range[2])) {
+            let start, end;
+            if (range[1] === '') {
+                start = Math.max(0, info.size - Number(range[2]));
+                end = info.size - 1;
+            } else {
+                start = Number(range[1]);
+                end = range[2] === '' ? info.size - 1 : Math.min(Number(range[2]), info.size - 1);
+            }
+            if (start > end || start >= info.size) {
+                res.writeHead(416, { 'Content-Range': `bytes */${info.size}` }).end();
+                return;
+            }
+            headers['Content-Range'] = `bytes ${start}-${end}/${info.size}`;
+            headers['Content-Length'] = end - start + 1;
+            res.writeHead(206, headers);
+            if (req.method === 'HEAD') { res.end(); return; }
+            pipeline(createReadStream(realPath, { start, end }), res, () => { /* client disconnects are normal */ });
+            return;
+        }
 
         res.writeHead(200, headers);
         if (req.method === 'HEAD') { res.end(); return; }

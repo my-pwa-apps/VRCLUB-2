@@ -101,6 +101,7 @@ const projectGlobals = {
     AvatarRig: 'readonly',
     DJPerformer: 'readonly',
     CrowdDance: 'readonly',
+    ImmersiveLaunch: 'readonly',
     log: 'readonly',
     module: 'readonly'
 };
