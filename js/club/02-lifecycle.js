@@ -212,8 +212,12 @@ class VRClubLifecycle extends VRClubCore {
             // Rendering during ENTERING/EXITING_XR produced hundreds of incomplete-framebuffer
             // warnings and no useful frame, so skip only that transition window.
             if (this._xrTransitioning) return;
+            const t0 = performance.now();
             this.updateAnimations();
+            const t1 = performance.now();
             this.scene.render();
+            const t2 = performance.now();
+            if (this._frameStats) this._frameStats.add(t0, t1 - t0, t2 - t1);
             this.updatePerformanceMonitor();
         };
         this.engine.runRenderLoop(this._renderLoop);

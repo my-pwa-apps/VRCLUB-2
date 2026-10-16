@@ -3693,6 +3693,8 @@ class VRClubAudioCrowd extends VRClubUI {
         this.frames = 0;
         this.fps = 0;
         this.drawCallsPerFrame = 0;
+        // Frame-time distribution (js/frameStats.js): the once-a-second FPS above hides hitches and judder.
+        this._frameStats = window.FrameStats ? new window.FrameStats.Recorder() : null;
         this._lastDrawCallCount = this.engine && this.engine._drawCalls
             ? this.engine._drawCalls.current
             : 0;
@@ -3727,6 +3729,8 @@ class VRClubAudioCrowd extends VRClubUI {
                     const pos = this.camera.position;
                     text += `\nX: ${pos.x.toFixed(1)} Y: ${pos.y.toFixed(1)} Z: ${pos.z.toFixed(1)}`;
                     text += `\nDraws: ${this.drawCallsPerFrame}`;
+                    const stats = this._frameStats && this._frameStats.summary(this.frameBudgetMs());
+                    if (stats && stats.frames) text += `\nframe p95 ${stats.p95} ms  p99 ${stats.p99} ms  missed ${Math.round(stats.missedShare * 100)}%`;
                     text += `\nMeshes: ${this.scene.getActiveMeshes().length}/${this.scene.meshes.length}`;
                     text += `\nMaterials: ${this.scene.materials.length}`;
                 }

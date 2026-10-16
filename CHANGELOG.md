@@ -26,6 +26,10 @@ kept in lockstep with `index.html`, `sw.js` and `serviceworker.js` by
 
 ### Added
 
+- **Frame-time instrumentation.** The render loop now records the frame-interval distribution (p50/p95/p99, share of judder and missed frames against the
+  headset's refresh budget) and the CPU time of the simulation and of draw submission (`club.getPerformanceReport()`, `club.resetFrameStats()`, shown
+  in the `Ctrl+Shift+D` overlay), with draw calls, active triangles, bones, lights and heap. GPU time is not measurable from a page and is not reported.
+  A new `perf-scenarios` spec measures an empty club, lighting, a crowd and a crowd with the show at its peak, on desktop and in the Quest emulator.
 - **Seated mode and height matching.** VR menu, comfort page: **SEATED MODE** lets you sit while your avatar stays standing (your view is lifted to
   standing eye height, easing in over a few seconds and falling away when you stand), and in standing mode your avatar now takes your real height,
   estimated as you play or set with **MEASURE HEIGHT** (stand tall for three seconds). Other guests see a person your size (a new optional `eh` field

@@ -1185,6 +1185,45 @@ class VRClubCore {
     }
 
     /**
+     * Frame timing and render-load counters for a measurement scenario. `resetFrameStats()` starts a window,
+     * `getPerformanceReport()` reads it. Frame/update/submit times are measured (see js/frameStats.js); GPU time is NOT
+     * measurable from the page, so none is reported. Counters come from the engine for the last rendered frame.
+     */
+    resetFrameStats() {
+        if (this._frameStats) this._frameStats.reset();
+    }
+
+    /** The frame budget the player is judged against: the headset's refresh rate in VR (72 Hz if it does not say), 60 Hz on desktop. */
+    frameBudgetMs() {
+        const session = this.vrHelper && this.vrHelper.baseExperience && this.vrHelper.baseExperience.sessionManager
+            && this.vrHelper.baseExperience.sessionManager.session;
+        const hz = this.isInVRMode ? (session && session.frameRate) || 72 : 60;
+        return 1000 / hz;
+    }
+
+    getPerformanceReport() {
+        const scene = this.scene, engine = this.engine;
+        const memory = typeof performance !== 'undefined' ? performance.memory : null;
+        let enabledLights = 0;
+        if (scene) for (const light of scene.lights) if (light.isEnabled()) enabledLights++;
+        return {
+            mode: this.isInVRMode ? 'xr' : 'desktop',
+            tier: this.graphicsTier,
+            time: this._frameStats ? this._frameStats.summary(this.frameBudgetMs()) : null,
+            drawCalls: this.drawCallsPerFrame || 0,
+            activeMeshes: scene ? scene.getActiveMeshes().length : 0,
+            activeTriangles: scene ? Math.round(scene.getActiveIndices() / 3) : 0,
+            activeBones: scene ? scene.getActiveBones() : 0,
+            enabledLights,
+            renderTargets: scene && scene.customRenderTargets ? scene.customRenderTargets.length : 0,
+            particleSystems: scene ? scene.particleSystems.length : 0,
+            // Chromium only; coarse. A rising value over a steady scenario indicates allocation pressure.
+            jsHeapMB: memory ? Math.round(memory.usedJSHeapSize / 104857.6) / 10 : null,
+            engineFps: engine ? Math.round(engine.getFps()) : 0
+        };
+    }
+
+    /**
      * Export complete runtime diagnostics snapshot.
      */
     getDiagnostics() {

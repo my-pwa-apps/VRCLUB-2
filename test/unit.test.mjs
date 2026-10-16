@@ -721,6 +721,72 @@ test('player height: MEASURE HEIGHT keeps the median of the last second and reje
     assert.equal(club.startHeightMeasure(), false, 'height is measured in the headset');
 });
 
+test('frame statistics: percentiles, budget shares, stalls and a bounded window', () => {
+    const { window } = loadClassic('js/frameStats.js');
+    const { Recorder } = window.FrameStats;
+    const recorder = new Recorder(100);
+    const empty = recorder.summary(13.89);
+    assert.equal(empty.frames, 0);
+    assert.equal(empty.budgetMs, 13.89);
+    let now = 1000;
+    recorder.add(now, 1, 1);   // the first call only sets the origin
+    for (let i = 0; i < 90; i++) { now += 13.89; recorder.add(now, 2, 3); }
+    for (let i = 0; i < 9; i++) { now += 20; recorder.add(now, 2, 3); }     // judder: over 1.25x the budget
+    now += 40; recorder.add(now, 4, 6);                                        // a missed frame: over 2.2x
+    const summary = recorder.summary(13.89);
+    assert.equal(summary.frames, 100);
+    assert.equal(summary.p50, 13.89);
+    assert.equal(summary.p95, 20);
+    assert.equal(summary.p99, 20);
+    assert.equal(summary.maxFrameMs, 40);
+    assert.equal(summary.overBudgetShare, 0.1);
+    assert.equal(summary.missedShare, 0.01);
+    assert.ok(Math.abs(summary.updateMeanMs - 2.02) < 1e-6 && Math.abs(summary.submitMeanMs - 3.03) < 1e-6);
+
+    // A hidden tab or an XR transition is a stall, not a 5 s frame that wrecks the mean.
+    now += 5000; recorder.add(now, 1, 1);
+    assert.equal(recorder.summary(13.89).stalls, 1);
+    assert.equal(recorder.summary(13.89).maxFrameMs, 40);
+
+    // The window is bounded and keeps the newest frames; garbage input is ignored.
+    for (let i = 0; i < 500; i++) { now += 10; recorder.add(now, 0, 0); }
+    recorder.add(NaN, 1, 1); recorder.add(now, 1, 1);
+    const later = recorder.summary(13.89);
+    assert.equal(later.frames, 100);
+    assert.equal(later.maxFrameMs, 10);
+    recorder.reset();
+    assert.equal(recorder.summary(13.89).frames, 0);
+});
+
+test('the render loop times updates and submission, and the report exposes them without inventing GPU time', () => {
+    const source = readFileSync(join(ROOT, 'js/club/02-lifecycle.js'), 'utf8');
+    assert.match(source, /this\._frameStats\.add\(t0, t1 - t0, t2 - t1\)/);
+    const { window } = loadClassic('js/club/01-core.js', { BABYLON: {}, log: { info() {}, warn() {}, error() {} } });
+    const proto = window.VRClubCore.prototype;
+    const club = Object.create(proto);
+    const FrameStats = loadClassic('js/frameStats.js').window.FrameStats;
+    club._frameStats = new FrameStats.Recorder();
+    club.isInVRMode = true;
+    club.vrHelper = { baseExperience: { sessionManager: { session: { frameRate: 90 } } } };
+    assert.ok(Math.abs(club.frameBudgetMs() - 11.11) < 0.01, 'the budget follows the headset refresh rate');
+    club.vrHelper = null;
+    assert.ok(Math.abs(club.frameBudgetMs() - 13.89) < 0.01, 'a headset that does not say gets 72 Hz');
+    club.isInVRMode = false;
+    assert.ok(Math.abs(club.frameBudgetMs() - 16.67) < 0.01);
+    club.scene = {
+        lights: [{ isEnabled: () => true }, { isEnabled: () => false }], getActiveMeshes: () => ({ length: 5 }),
+        getActiveIndices: () => 3000, getActiveBones: () => 62, customRenderTargets: [1, 2], particleSystems: [1]
+    };
+    club.engine = { getFps: () => 71.6 };
+    club.graphicsTier = 'balanced';
+    const report = club.getPerformanceReport();
+    assert.equal(report.activeTriangles, 1000);
+    assert.equal(report.enabledLights, 1);
+    assert.equal(report.renderTargets, 2);
+    assert.equal(report.time.frames, 0);
+    assert.equal('gpuMs' in report || 'gpu' in report, false, 'GPU time is not measurable from the page and is not reported');
+});
+
 test('remote avatars stand on the floor under the sender eye and snap on their first sample', () => {
     const { manager, AvatarManager } = loadAvatarManager();
     manager.updatePeerState('p', 'Pat', { x: 3, y: 1.7, z: -12, rotY: 0.5 });

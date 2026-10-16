@@ -70,6 +70,7 @@ js/mezzanine.js            Steel balcony and stair along the left wall, plus the
 js/cityDistrict.js         The street outside (baked GLB), its sky and skyline, fence, street door and "outdoors" amount, mixed into VRClub.prototype
 js/vjDesk.js               The VJ desk at the DJ table: two touch panels (who has the lights, the DJ, music, macros, faders; every light), mixed into VRClub.prototype
 js/avatarRig.js            Procedural player body on the dancer skeleton: planted gait, turning, head, IK arms and legs
+js/frameStats.js           Frame-time distribution recorder (frame interval, update and submit CPU time, p95/p99, missed frames)
 js/playerHeight.js         Pure player-height maths: standing eye-height estimator and the Seated mode view lift
 js/djPerformer.js          The DJ's live set as a pose for AvatarRig: mixing, cueing, knobs, crowd, hands up on a drop, waves at visitors, on the beat
 js/crowdDance.js           The crowd's choreographer: who dances which move, on the beat; claps in a build, hands up on a drop, sway or stand when the kick goes

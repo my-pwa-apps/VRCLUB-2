@@ -2015,6 +2015,16 @@ protocol only grew, so older clients keep working.
 4. `Too many lights` or `GL_INVALID_OPERATION` means a material exceeded `maxLights`.
 5. `DEBUG_MODE` / `*_DEBUG` constants must be left `false` on commit — `npm test` enforces it.
 6. The diagnostics overlay is `Ctrl+Shift+D`; `getDiagnostics()` returns the circular buffer.
+7. **Performance measurement** (`js/frameStats.js`, `window.FrameStats`): the render loop times `updateAnimations()` and
+   `scene.render()` and feeds a 720-frame ring buffer. `club.resetFrameStats()` starts a window and
+   `club.getPerformanceReport()` reads it: frame-interval mean/p50/p95/p99/max, the share of frames over 1.25x and 2.2x the
+   budget (`frameBudgetMs()`: the headset's `session.frameRate`, else 72 Hz in VR and 60 Hz on desktop), mean update and
+   submit CPU time, draw calls, active triangles and bones, enabled lights, render targets and (Chromium) the JS heap. The
+   `Ctrl+Shift+D` overlay shows p95/p99. **GPU time is not measurable from the page and is deliberately not reported**: a
+   GPU-bound frame shows as a long frame interval with short update and submit times. `test/e2e/perf-scenarios.spec.mjs`
+   runs four scenarios (empty, lit, crowded, crowded with the show at its peak) on desktop and in the Quest emulator and
+   prints `PERF_SCENARIOS_*`; on the CI browser's software GL those frame times are relative regression evidence only (and the
+   spec raises the recorder's `stallMs` so slow frames still count). Compare on real hardware with the same report.
 
 ## Licensing
 
