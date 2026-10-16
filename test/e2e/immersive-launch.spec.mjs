@@ -144,3 +144,25 @@ test('an unpaired headset previews, then shows only a pairing code until the pho
     expect(state.acquired).toBeGreaterThan(0);
     expect(browserFailures.get(page)).toEqual([]);
 });
+
+test('an invite link opened in the immersive launch joins that room and leaves the music to the host', async ({ page }) => {
+    await fakeAccess(page, { registered: true });
+    const sockets = [];
+    await page.routeWebSocket(/^wss?:/, ws => { sockets.push(ws.url()); });
+    await page.goto('/?immersive=1&room=482913');
+    await page.waitForFunction(() => window.vrClub?.isInVRMode === true, null, { timeout: 240_000 });
+    await expect.poll(() => sockets.length, { timeout: 30_000 }).toBeGreaterThan(0);
+    expect(sockets[0]).toMatch(/room=private-482913/);
+
+    // The first controller press resumes the audio context but must not start the club's own set under the host's music.
+    await page.evaluate(() => {
+        const library = window.vrClub.musicLibrary;
+        window.__defaultSetCalls = 0;
+        const original = library.playDefault.bind(library);
+        library.playDefault = (...args) => { window.__defaultSetCalls++; return original(...args); };
+        window.vrClub.scene.onPointerObservable.notifyObservers({ type: BABYLON.PointerEventTypes.POINTERDOWN, event: {} });
+    });
+    await page.waitForTimeout(1500);
+    expect(await page.evaluate(() => window.__defaultSetCalls)).toBe(0);
+    expect(browserFailures.get(page)).toEqual([]);
+});

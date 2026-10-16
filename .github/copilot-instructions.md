@@ -1933,7 +1933,10 @@ protocol only grew, so older clients keep working.
     or the lights must call `guardHostControl`; `test/multiplayer.test.mjs` fails if a listed one stops doing so.
   - *Rooms.* A private room's code is six digits (`private-482913`, typed on the VR keypad; unlisted, not secret:
     the host can lock it and kick or ban). `ClubMultiplayer.roomFromCode()` maps six digits to that name and passes
-    any other text through; `?room=` in the URL (`inviteUrl()`) joins a room directly.
+    any other text through; `?room=` in the URL (`inviteUrl()`) joins a room directly. The desktop splash asks for a
+    name; `?immersive=1&room=...` has no splash to type into, so the launch connects with the saved name and the first
+    controller press only resumes audio (no entry music: the host's music is followed). `test/e2e/immersive-launch.spec.mjs`
+    covers it.
 - Unmeasured: eight skinned people plus voice analysers on a Quest 3S. Verified with two desktop browsers against a
   local `wrangler dev` relay (walk/wave/nod/dance clips, voice, mute, reroll, block across a reconnect, kick, ban).
 

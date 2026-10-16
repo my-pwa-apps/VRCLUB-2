@@ -434,9 +434,10 @@ if (enterClubBtn) {
         }
 
         // Immersive launch has no click to resume audio with: the first controller press does it (see ImmersiveLaunch).
+        // Through a room invite the host owns the music, exactly as for the desktop link, so no entry music starts.
         if (window.ImmersiveLaunch && ImmersiveLaunch.requested()) {
             window.vrClub._immersive = new ImmersiveLaunch(window.vrClub, {
-                onFirstGesture: () => startEntryMusic(window.vrClub, pointAtAudioMenu)
+                onFirstGesture: () => { if (!invitedRoom) startEntryMusic(window.vrClub, pointAtAudioMenu); }
             });
             void window.vrClub._immersive.start();
         }

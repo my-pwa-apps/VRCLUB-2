@@ -1,6 +1,7 @@
 # Quest distribution candidate
 
-This branch has no built-in music or artist DJ selection. Desktop mode is free;
+This branch has no third-party music, built-in streams or artist DJ selection; the only bundled recording is the club's
+own generated house set, played when a guest has no music of their own. Desktop mode is free;
 immersive VR is protected by a server-verified one-time Stripe purchase.
 It opens as a **2D setup panel** so the photosensitivity/comfort choices and Quest
 keyboard are available, then enters WebXR using **Enter VR**. For a headset app that

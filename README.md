@@ -10,7 +10,8 @@ This branch is a **Quest distribution candidate**, not an uploaded or signed sto
 Run `npm run build:quest` for the web payload. See [docs/QUEST.md](docs/QUEST.md) for
 signing, Meta Bubblewrap packaging, Digital Asset Links, release checks and remaining blockers.
 
-No music is included. Open **Music**, choose a local file, paste a direct HTTPS audio link,
+The only music included is the club's own original, generated house set (`audio/nocturne-house.mp3`, MIT), which plays
+until you add music of your own. Open **Music**, choose a local file, paste a direct HTTPS audio link,
 or paste one SoundCloud track page in the same **Choose a file or paste a URL** section,
 optionally name it, and press **Save & play**. Up to eight sets are saved on this device.
 Choose them from the VR Music menu; **ADD MUSIC** returns to the setup panel for the Quest
