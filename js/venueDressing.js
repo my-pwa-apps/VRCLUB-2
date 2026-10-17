@@ -1431,7 +1431,7 @@ const VenueDressing = {
         // Live controller arms go in after the clips have been evaluated, or the clip would erase them.
         double.observer = this.scene.onAfterAnimationsObservable.add(() => {
             if (!double.active || !double.arms || !(double.hands.left || double.hands.right)) return;
-            double.arms.updateTrackedArms(double.hands, double.root.rotation.y, this._activeSeat ? 1.2 : this._bodyEyeHeight());
+            double.arms.updateTrackedArms(double.hands, double.root.rotation.y, this._activeSeat ? 1.2 : this._shownBodyEye());
         });
         this._mirrorDouble = double;
         this._extendAccentLight(this._restroomLight, meshes);
@@ -1469,7 +1469,7 @@ const VenueDressing = {
         const pos = cam && (cam.globalPosition || cam.position);
         if (!pos) return;
         // The reflection is the player's own height, like everyone else's view of them.
-        const eyeScale = this._bodyEyeHeight() / 1.7;
+        const eyeScale = this._shownBodyEye() / 1.7;
         const applied = double.eyeScale || 1;
         if (Math.abs(eyeScale - applied) >= 0.01) {
             double.node.scaling.scaleInPlace(eyeScale / applied);

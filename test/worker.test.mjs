@@ -229,6 +229,15 @@ test('a guest\'s standing eye height is relayed only when it is a plausible huma
     assert.equal(join(room).ws.last('welcome').peers.find(p => p.id === a.session.id).state.eh, 1.9, 'late joiners get it too');
 });
 
+test('a standing guest\'s floor is relayed too, so a crouching headset is not sunk below it', () => {
+    assert.equal(sanitizeState({ x: 0, y: 1.1, z: 0, seated: false, floorY: 2.8 }).floorY, 2.8);
+    assert.equal(sanitizeState({ x: 0, y: 1.1, z: 0, seated: false, floorY: 2.8 }).seated, undefined);
+    assert.equal(sanitizeState({ x: 0, y: 1.7, z: 0 }).floorY, undefined, 'older clients send none');
+    for (const bad of [NaN, Infinity, 'up', {}]) {
+        assert.equal(sanitizeState({ x: 0, y: 1.7, z: 0, floorY: bad }).floorY, undefined, `floorY ${String(bad)}`);
+    }
+});
+
 test('rtc-signal is relayed only to a different, existing peer', () => {
     const room = new ClubRoom({});
     const a = join(room);

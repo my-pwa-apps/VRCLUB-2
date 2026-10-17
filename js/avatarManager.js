@@ -20,6 +20,8 @@
 class AvatarManager {
     /** Remote `state.y` is the sender's EYE height; the avatar head sits this far above its root. */
     static EYE_HEIGHT = 1.7;
+    static EYE_EASE_SPEED = 0.3;     // m/s a remote person grows or shrinks toward the sender's height
+    static FLOOR_CLAMP = 0.9;        // a crouch may lift the root onto the sender's floor by at most this far
     // Mirrors the Multiplayer panel's buttons and the relay's allow-list.
     static ALLOWED_EMOJI = new Set(['🎉', '🔥', '❤️', '😂', '👋', '🙌', '💃', '🕺']);
     static EMOJI_MIN_INTERVAL = 0.5; // seconds between reactions rendered per guest
@@ -111,8 +113,7 @@ class AvatarManager {
             id, name: name || 'Guest', pid: info.pid || null, avatarId: null,
             root, body, head, nameplate: null, person: null,
             muted: false, speaking: false, isHost: false, hidden: false, culled: false, seated: false,
-            eyeHeight: AvatarManager.EYE_HEIGHT,
-            pose: null,
+            eyeHeight: AvatarManager.EYE_HEIGHT, wantedEye: AvatarManager.EYE_HEIGHT, eyeEasing: false, eyeY: 0, floorY: null,
             emojiPlane: null, emojiTimer: 0, lastEmojiAt: -Infinity,
             chatPlane: null, chatTimer: 0,
             gesture: { until: 0, last: -Infinity, dancing: false },
@@ -359,19 +360,47 @@ class AvatarManager {
     /**
      * A guest's standing eye height (`state.eh`, 1.1-2.1 m; absent from older clients and relays = the standard
      * 1.7 m). The person is scaled by its ratio to 1.7, so the default is exactly the old size, and the root sits that
-     * far below the sender's eye. Changes under 2 cm are ignored so estimator noise never re-fits a skeleton.
+     * far below the sender's eye. A change is eased in `_easeEyeHeight()` (people do not grow in a frame); the first
+     * sample, and one before the person exists, applies at once.
      */
     _setEyeHeight(peer, eh) {
-        const wanted = Number.isFinite(eh) && eh >= 1.1 && eh <= 2.1 ? eh : AvatarManager.EYE_HEIGHT;
-        if (Math.abs(wanted - peer.eyeHeight) < 0.02) return;
-        const ratio = wanted / peer.eyeHeight;
-        peer.eyeHeight = wanted;
+        peer.wantedEye = Number.isFinite(eh) && eh >= 1.1 && eh <= 2.1 ? eh : AvatarManager.EYE_HEIGHT;
+        if (!peer.hasState || !peer.person) this._applyEyeHeight(peer, peer.wantedEye);
+    }
+
+    _applyEyeHeight(peer, value) {
+        if (value === peer.eyeHeight) return;
+        const ratio = value / peer.eyeHeight;
+        peer.eyeHeight = value;
         const node = peer.person && peer.person.node;
         if (!node) return;
         // The feet offset is proportional to the scale, so one multiply keeps them on the floor.
         node.scaling.scaleInPlace(ratio);
         node.position.y *= ratio;
         if (peer.person.arms) peer.person.arms.invalidateLimbs();
+    }
+
+    /** Moves the person's height toward the sender's at 0.3 m/s; changes under 2 cm are ignored so estimator noise never re-fits a skeleton. */
+    _easeEyeHeight(peer, dt) {
+        const wanted = peer.wantedEye;
+        if (wanted === undefined || wanted === peer.eyeHeight) return;
+        const gap = wanted - peer.eyeHeight;
+        if (Math.abs(gap) < 0.02 && !peer.eyeEasing) return;
+        peer.eyeEasing = true;
+        const step = AvatarManager.EYE_EASE_SPEED * dt;
+        if (Math.abs(gap) <= step) { peer.eyeEasing = false; this._applyEyeHeight(peer, wanted); return; }
+        this._applyEyeHeight(peer, peer.eyeHeight + Math.sign(gap) * step);
+    }
+
+    /**
+     * Where the person's root stands. Normally the sender's eye minus their eye height; when that would put it under their
+     * own floor (a crouch, a seated headset without Seated mode) it stays ON the floor, upright, instead of sinking. A floor
+     * more than 0.9 m above the estimate is a stale or wrong value and is ignored.
+     */
+    _rootY(peer) {
+        const below = peer.eyeY - peer.wantedEye;
+        const floor = peer.floorY;
+        return Number.isFinite(floor) && floor > below && floor - below <= AvatarManager.FLOOR_CLAMP ? floor : below;
     }
 
     /** @param {{x:number,y:number,z:number,rotY:number,seated?:boolean,floorY?:number,eh?:number}} state */
@@ -384,7 +413,9 @@ class AvatarManager {
         // their eye. Using the eye height as the root floated every guest ~1.7 m up.
         peer.target.seated = state.seated === true;
         this._setEyeHeight(peer, state.eh);
-        peer.target.y = peer.target.seated ? finite(state.floorY) : finite(state.y) - peer.eyeHeight;
+        peer.eyeY = finite(state.y);
+        peer.floorY = Number.isFinite(state.floorY) ? state.floorY : null;
+        peer.target.y = peer.target.seated ? finite(state.floorY) : this._rootY(peer);
         peer.target.z = finite(state.z);
         peer.target.rotY = finite(state.rotY);
         for (const side of ['left', 'right']) {
@@ -619,6 +650,7 @@ class AvatarManager {
 
         for (const peer of this.remotes.values()) {
             const root = peer.root;
+            this._easeEyeHeight(peer, step);
             root.position.x += (peer.target.x - root.position.x) * lerpK;
             root.position.y += (peer.target.y - root.position.y) * lerpK;
             root.position.z += (peer.target.z - root.position.z) * lerpK;

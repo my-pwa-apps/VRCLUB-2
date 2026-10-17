@@ -8,7 +8,7 @@
  *
  * Message protocol (all JSON, one object per frame):
  *   client -> server
- *     { type: 'state', state: {x,y,z,rotY,seated?,floorY?,eh?,hands?} } - eye position/facing, intentional seat state
+ *     { type: 'state', state: {x,y,z,rotY,seated?,floorY?,eh?,hands?} } - eye position/facing, intentional seat state, floorY = the walking surface (kept for standing guests too)
  *       and the sender's standing eye height (1.1-2.1 m);
  *       hands are eye-relative positions and world forward/up vectors
  *     { type: 'emoji', emoji: '🎉' }                  - one-shot reaction (allow-listed)
@@ -214,6 +214,9 @@ export function sanitizeState(state) {
     };
     if (state.seated === true) {
         result.seated = true;
+        result.floorY = coord(state.floorY);
+    } else if (state.floorY != null && Number.isFinite(Number(state.floorY))) {
+        // A standing guest's floor too, so a crouching or seated headset never sinks their person below it.
         result.floorY = coord(state.floorY);
     }
     // The sender's standing eye height, so others see a person of that height. Out of range means "not sent".

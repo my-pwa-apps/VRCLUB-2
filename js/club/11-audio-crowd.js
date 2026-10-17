@@ -1767,6 +1767,28 @@ class VRClubAudioCrowd extends VRClubUI {
         return this.isInVRMode && this.playerEyeHeight ? this.playerEyeHeight : standard;
     }
 
+    /**
+     * The height the local body is drawn at: `_bodyEyeHeight()` approached at 0.3 m/s, so a measured height, entering VR or
+     * leaving it grows or shrinks the person over about a second instead of jumping (the first call, and a rig that
+     * has not been fitted yet, start there).
+     */
+    _easedBodyEyeHeight(dt) {
+        const target = this._bodyEyeHeight();
+        let shown = this._bodyEyeShown;
+        if (!Number.isFinite(shown) || !(dt > 0)) shown = target;
+        else {
+            const step = 0.3 * Math.min(dt, 0.1);
+            shown = Math.abs(target - shown) <= step ? target : shown + Math.sign(target - shown) * step;
+        }
+        this._bodyEyeShown = shown;
+        return shown;
+    }
+
+    /** The eased height the local body is drawn at right now (the target until the body has run once). */
+    _shownBodyEye() {
+        return Number.isFinite(this._bodyEyeShown) ? this._bodyEyeShown : this._bodyEyeHeight();
+    }
+
     /** One controller's hand pose into a reusable object, or null when untracked. */
     _handPose(side, head) {
         const hand = side === 'left' ? (this._handL || (this._handL = {})) : (this._handR || (this._handR = {}));
@@ -1813,7 +1835,7 @@ class VRClubAudioCrowd extends VRClubUI {
         pose.x = seat ? seat.x : pos.x;
         pose.z = seat ? seat.z : pos.z;
         pose.groundY = seat ? seat.floorY : ((pos.x > -3 && pos.x < 3 && pos.z < -16 && pos.z > -20.5) ? 0.5 : (this._walkLevel || 0));
-        rig.setEyeHeight(this._bodyEyeHeight());   // refits only when it differs by 4 cm or more
+        rig.setEyeHeight(this._easedBodyEyeHeight(dt));   // refits only when it differs by 4 cm or more
         pose.eyeY = pose.groundY + (rig.standEye || 1.7);
         pose.seated = !!seat;
         pose.seatY = seat ? seat.seatY : 0;

@@ -163,7 +163,7 @@ legs, VR arms IK'd to the controllers with the hand taking the controller's orie
 crouch and flight from the same root-height maths, and the torso backing off as you look
 down (the body mesh is open at the neck). The body's height is the player's own eye height in a headset
 (`club._bodyEyeHeight()`: `playerEyeHeight` when known, else 1.7 m; desktop is always 1.7 m because its camera is).
-`_updateLocalPlayerBody` calls `rig.setEyeHeight()` every frame, which refits only past a 4 cm difference. The height
+`_updateLocalPlayerBody` calls `rig.setEyeHeight(_easedBodyEyeHeight(dt))` every frame: the height approaches the target at 0.3 m/s (`_bodyEyeShown`, also what the mirror double uses via `_shownBodyEye()`), and the rig refits only past a 4 cm difference. The height
 comes from `js/playerHeight.js` (pure maths, `window.PlayerHeight`): while standing (not Seated mode, not on room
 furniture) `Mezzanine._trackPlayerHeight()` feeds each XR frame's head height to a `HeightEstimator` (80th percentile of
 a 90 s window), and an estimate under 1.35 m is taken for sitting and ignored, so somebody who sits without Seated mode
@@ -1887,7 +1887,10 @@ protocol only grew, so older clients keep working.
   head (the capsule always remains as the invisible collision body). `state.y` on the wire is the sender's **eye**
   height and `state.eh` (optional, 1.1-2.1 m, clamped by the relay's `sanitizeState`) their standing eye height; the avatar
   root is placed `eh` below the eye (1.7 for older clients) and the person is scaled by `eh / 1.7`, so the default is exactly
-  the old size (`_setEyeHeight`, ignoring changes under 2 cm; the relay must be deployed or the field is stripped). An intentional seat adds `state.seated: true` and a bounded
+  the old size (`_setEyeHeight` sets the wanted height; `_easeEyeHeight` moves the person there at 0.3 m/s, ignoring changes under 2 cm, so nobody grows in a frame; the relay must be deployed or the field is stripped).
+  A standing guest's `floorY` (the walking surface) is relayed too (relay deploy needed, an older relay strips it): `_rootY()` keeps the root ON that
+  floor when a crouch or a physically seated headset would sink it below (upright, no crouch pose), but only when the floor is within 0.9 m of the
+  estimate, so a stale balcony floor never floats anyone. An intentional seat adds `state.seated: true` and a bounded
   `floorY`; the receiver puts the root on that surface and plays the shared `Seated_Loop` carried by all 17 assignable
   crowd looks (the capsule fallback lowers too). Physical seated play sends no flag and therefore remains standing.
   Name tag (a 0.6 x 0.15 m pill sized to the name, mipmapped,

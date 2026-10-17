@@ -42,6 +42,10 @@ kept in lockstep with `index.html`, `sw.js` and `serviceworker.js` by
 
 ### Changed
 
+- **Height changes are smooth, and nobody sinks when they crouch.** A measured height, entering VR or a remote guest's new height now grows or shrinks the person at
+  0.3 m/s instead of jumping (your own body, the restroom mirror double and everyone else's view of you). A remote guest who crouches or sits in a headset stays
+  upright on their floor instead of sinking into it: the relay now forwards a standing guest's floor (`floorY`) as well as a seated one's. **Redeploy the relay**:
+  an older relay strips it and guests fall back to the previous behaviour.
 - **The VR comfort page is split, and choosing a character is a real picker.** Comfort now holds only how you move and see (locomotion, safe mode, quality, auto quality,
   credits) and a new ME page holds who you are (MY CHARACTER, MEASURE HEIGHT, SEATED MODE). MY CHARACTER opens a two-page grid of all 17 people (women, then men),
   each labelled with the kind and outfit and the current one lit, instead of a button that stepped through them one at a time.

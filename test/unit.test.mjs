@@ -570,28 +570,67 @@ test('a remote guest\'s own eye height sizes their person, and the root stays on
     assert.equal(peer.eyeHeight, 1.92);
     assert.ok(Math.abs(peer.root.position.y) < 1e-9, 'a tall guest stands on the floor, not below it');
 
-    // A short guest: the root follows the eye minus THEIR eye height.
+    // A short guest: the root follows the eye minus THEIR eye height (the person's own scale eases toward it).
     manager.updatePeerState('p', null, { x: 0, y: 2.65 - 0.3, z: -18, rotY: 0, eh: 1.4 });
     assert.ok(Math.abs(peer.target.y - 0.95) < 1e-9);
+    manager.update(10);
+    assert.equal(peer.eyeHeight, 1.4);
 
     // Older clients and relays send no eh; anything out of range is ignored. Both mean the standard 1.7 m.
     for (const eh of [undefined, 0.5, 9, NaN, '1.8']) {
         manager.updatePeerState('p', null, { x: 0, y: 1.7, z: 0, rotY: 0, eh });
+        manager.update(10);
         assert.equal(peer.eyeHeight, AvatarManager.EYE_HEIGHT, `eh ${eh} must fall back to the standard height`);
     }
 
     // The person is rescaled in place, with the feet kept on the floor and tiny changes ignored.
-    let rescaled = 0;
+    let scale = 1, invalidated = 0, feet = 0.5;
     peer.person = {
-        node: { scaling: { scaleInPlace(k) { rescaled = k; } }, position: { y: 0.5 } },
-        arms: { invalidateLimbs() { rescaled += 100; } }
+        node: { scaling: { scaleInPlace(k) { scale *= k; } }, position: { get y() { return feet; }, set y(v) { feet = v; } } },
+        groups: {}, current: null,
+        arms: { invalidateLimbs() { invalidated++; } }
     };
     manager.updatePeerState('p', null, { x: 0, y: 1.71, z: 0, rotY: 0, eh: 1.71 });
-    assert.equal(rescaled, 0, 'a 1 cm change must not refit a skeleton');
+    manager.update(1);
+    assert.equal(invalidated, 0, 'a 1 cm change must not refit a skeleton');
+    assert.equal(scale, 1);
     manager.updatePeerState('p', null, { x: 0, y: 1.87, z: 0, rotY: 0, eh: 1.87 });
-    assert.ok(Math.abs(rescaled - 100 - 1.87 / 1.7) < 1e-9);
-    assert.ok(Math.abs(peer.person.node.position.y - 0.5 * 1.87 / 1.7) < 1e-9);
+    manager.update(0.1);
+    assert.ok(peer.eyeHeight > 1.7 && peer.eyeHeight < 1.87, 'a taller guest grows over time, not in one frame');
+    assert.ok(Math.abs(peer.eyeHeight - (1.7 + AvatarManager.EYE_EASE_SPEED * 0.1)) < 1e-9, 'at the easing speed');
+    for (let i = 0; i < 40; i++) manager.update(0.05);
+    assert.equal(peer.eyeHeight, 1.87);
+    assert.ok(Math.abs(scale - 1.87 / 1.7) < 1e-9, 'the scale arrives exactly');
+    assert.ok(Math.abs(feet - 0.5 * 1.87 / 1.7) < 1e-9, 'the feet stay proportional to the scale');
+    const arrived = invalidated;
+    manager.update(1);
+    assert.equal(invalidated, arrived, 'nothing is refitted once it has arrived');
 });
+
+test('a remote guest who crouches or sits in a headset stays upright on their floor instead of sinking', () => {
+    const { manager, AvatarManager } = loadAvatarManager();
+    const stand = { x: 0, z: 0, rotY: 0, eh: 1.7, floorY: 0 };
+    manager.updatePeerState('p', 'Pat', { ...stand, y: 1.7 });
+    const peer = manager.remotes.get('p');
+    assert.ok(Math.abs(peer.target.y) < 1e-9);
+    manager.updatePeerState('p', null, { ...stand, y: 1.1 });
+    assert.equal(peer.target.y, 0, 'a crouch (eye 60 cm low) keeps the feet on the floor');
+    manager.updatePeerState('p', null, { ...stand, y: 0.3 });
+    assert.ok(Math.abs(peer.target.y + 1.4) < 1e-9, 'a floor more than 0.9 m above the estimate is ignored');
+    // On the balcony the floor is 3 m up; a crouch there stays on it.
+    manager.updatePeerState('p', null, { ...stand, y: 3.0 + 1.2, floorY: 3.0 });
+    assert.equal(peer.target.y, 3.0);
+    manager.updatePeerState('p', null, { ...stand, y: 4.7, floorY: 3.0 });
+    assert.ok(Math.abs(peer.target.y - 3.0) < 1e-9, 'standing is unchanged');
+    // A stale floor from the balcony must not float a guest who is on the ground.
+    manager.updatePeerState('p', null, { ...stand, y: 1.7, floorY: 3.0 });
+    assert.ok(Math.abs(peer.target.y) < 1e-9, 'a stale floor 3 m up is ignored');
+    // An older client sends no floor: the old estimate applies.
+    manager.updatePeerState('p', null, { x: 0, y: 1.1, z: 0, rotY: 0, eh: 1.7 });
+    assert.ok(Math.abs(peer.target.y + 0.6) < 1e-9);
+    assert.equal(AvatarManager.FLOOR_CLAMP, 0.9);
+});
+
 
 test('player height: the estimator finds the standing eye height and ignores crouching, sitting and a jump', () => {
     const { window } = loadClassic('js/playerHeight.js');
@@ -3724,6 +3763,26 @@ test('the crowd character files: one skin, one draw, vertex-coloured, only the c
     assert.ok(/Modular Women/.test(assets) && /Modular Men/.test(assets), 'ASSETS.md must credit both Modular packs');
 });
 
+test('the local body grows or shrinks toward a new height at 0.3 m/s instead of jumping', () => {
+    const { window } = loadClassic('js/club/11-audio-crowd.js', { BABYLON: makeBabylonStub(), VRClubUI: class {} });
+    const proto = window.VRClubAudioCrowd.prototype;
+    const club = { _bodyEyeHeight: () => club.target };
+    club.target = 1.7;
+    assert.equal(proto._easedBodyEyeHeight.call(club, 0.016), 1.7, 'the first call starts at the target');
+    assert.equal(proto._shownBodyEye.call({ _bodyEyeHeight: () => 1.9 }), 1.9, 'before the body has run, the target is shown');
+    club.target = 1.9;
+    const first = proto._easedBodyEyeHeight.call(club, 0.1);
+    assert.ok(Math.abs(first - 1.73) < 1e-9, `0.3 m/s for 0.1 s: ${first}`);
+    assert.equal(proto._shownBodyEye.call(club), first);
+    let t = 0;
+    while (club._bodyEyeShown < 1.9 && t < 3) { proto._easedBodyEyeHeight.call(club, 1 / 60); t += 1 / 60; }
+    assert.equal(club._bodyEyeShown, 1.9, 'it arrives exactly');
+    assert.ok(t > 0.5 && t < 0.8, `a 0.17 m change takes about 0.6 s, not one frame: ${t}`);
+    club.target = 1.6;
+    const down = proto._easedBodyEyeHeight.call(club, 5);
+    assert.ok(Math.abs(down - (1.9 - 0.03)) < 1e-9, 'a long frame is clamped to 0.1 s, so a hitch cannot jump it');
+});
+
 test('a multi-clip character plays only its own clip, and does not react to the beat when it is a guest', () => {
     const BABYLON = makeBabylonStub();
     const { window } = loadClassic('js/club/11-audio-crowd.js', { BABYLON, VRClubUI: class {} });
@@ -5819,6 +5878,7 @@ test('the local body stays full standing height until a room seat is intentional
         isInVRMode: false, camera, _xrControllers: [],
         _localRig: { ok: true, standEye: 1.7, setEyeHeight(h) { calls.push(['eye', h]); }, update(dt, pose) { calls.push(['update', dt, { ...pose }]); } },
         _playerCamera: proto._playerCamera, _handPose: proto._handPose, _bodyEyeHeight: proto._bodyEyeHeight,
+        _easedBodyEyeHeight: proto._easedBodyEyeHeight, _shownBodyEye: proto._shownBodyEye,
         standFromSeat: () => { club._activeSeat = null; }
     };
     proto._updateLocalPlayerBody.call(club, 1 / 60);
@@ -5859,10 +5919,12 @@ test('the local body stays full standing height until a room seat is intentional
     calls.length = 0;
     proto._updateLocalPlayerBody.call(club, 1 / 60);
     assert.equal(calls[0][0], 'eye');
+    assert.ok(Math.abs(calls[0][1] - 1.705) < 1e-9, 'the body starts toward the measured height (0.3 m/s), it does not jump');
+    for (let i = 0; i < 120; i++) { calls.length = 0; proto._updateLocalPlayerBody.call(club, 1 / 60); }
     assert.equal(calls[0][1], 1.86);
     club.isInVRMode = false;
     calls.length = 0;
-    proto._updateLocalPlayerBody.call(club, 1 / 60);
+    for (let i = 0; i < 120; i++) { calls.length = 0; proto._updateLocalPlayerBody.call(club, 1 / 60); }
     assert.equal(calls[0][1], 1.7);
     club.isInVRMode = true;
     club.playerEyeHeight = null;
@@ -8031,7 +8093,7 @@ test('the mirror reflection does not buzz with headset tremor, keeps its walk cl
         getDirectionToRef(axis, ref) { ref.set(Math.sin(this.yaw), 0, Math.cos(this.yaw)); return ref; }
     };
     const club = Object.assign({
-        isInVRMode: false, _walkLevel: 0, _activeSeat: null, camera, _playerCamera: () => camera, _bodyEyeHeight: () => 1.7
+        isInVRMode: false, _walkLevel: 0, _activeSeat: null, camera, _playerCamera: () => camera, _bodyEyeHeight: () => 1.7, _shownBodyEye: () => 1.7
     }, venueWindow.VenueDressing);
     const double = {
         root: { position: new BABYLON.Vector3(), rotation: new BABYLON.Vector3() },
