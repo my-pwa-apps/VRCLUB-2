@@ -1816,8 +1816,25 @@ class VRClubAudioCrowd extends VRClubUI {
     }
 
     _updateLocalPlayerBody(dt) {
+        // The eased body height drives whichever body is shown (the character's scale, or the mannequin's fit).
+        const eye = this._easedBodyEyeHeight(dt);
         const rig = this._localRig;
         if (!rig || !rig.ok) return;
+        // When the player has a character (the one in the mirror), THAT is their body: the procedural mannequin stays hidden
+        // and idle, and takes over again (from where the player now stands) when there is no character to show.
+        const character = this._mirrorDouble;
+        if (character && character.shown) {
+            if (!rig._standsDown) {
+                rig._standsDown = true;
+                rig.meshes.forEach(mesh => mesh.setEnabled(false));
+            }
+            return;
+        }
+        if (rig._standsDown) {
+            rig._standsDown = false;
+            rig._placed = false;
+            rig.meshes.forEach(mesh => mesh.setEnabled(true));
+        }
         const cam = this._playerCamera();
         const pos = cam && (cam.globalPosition || cam.position);
         if (!pos) return;
@@ -1836,7 +1853,7 @@ class VRClubAudioCrowd extends VRClubUI {
         pose.x = seat ? seat.x : pos.x;
         pose.z = seat ? seat.z : pos.z;
         pose.groundY = seat ? seat.floorY : ((pos.x > -3 && pos.x < 3 && pos.z < -16 && pos.z > -20.5) ? 0.5 : (this._walkLevel || 0));
-        rig.setEyeHeight(this._easedBodyEyeHeight(dt));   // refits only when it differs by 4 cm or more
+        rig.setEyeHeight(eye);   // refits only when it differs by 4 cm or more
         pose.eyeY = pose.groundY + (rig.standEye || 1.7);
         pose.seated = !!seat;
         pose.seatY = seat ? seat.seatY : 0;

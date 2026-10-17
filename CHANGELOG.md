@@ -42,6 +42,10 @@ kept in lockstep with `index.html`, `sw.js` and `serviceworker.js` by
 
 ### Changed
 
+- **Your own body is the character in the mirror.** Looking down used to show a different person (the club's default dancer body) from the one in the restroom mirror. Now the
+  character you chose offline, or the one the relay gave you in a room, is your body everywhere in the club: the same instance as the reflection, sized so its eyes sit at
+  your eye height, with its head hidden from your own camera and shown only in the mirror. In a headset your controllers move its arms. With no character chosen the default
+  body is unchanged. Known limits: crouching keeps a standing body, and walking is a speed-matched clip rather than the default body's planted-foot steps.
 - **The FX page's knobs and crossfader are real 3D controls.** Five knobs (a fluted metal cap with a coloured top and a white pointer, turning from 7:30 to 4:30 like a
   mixer pot) and the crossfader's cap now stand on the panel. They are not in the way of a ray, so twisting and sliding work exactly as before.
   **A / X with the ray on a knob or the crossfader resets it** (a knob to off, the crossfader to full; anywhere else A / X still jumps), and a right-click does the same

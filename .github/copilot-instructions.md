@@ -1218,10 +1218,24 @@ GLBs instanced once more, and `restroomLight` plus `restroomBackLight` are scope
   per eye and only while the mirror is in view: also listing it in `scene.customRenderTargets` drew it twice a frame, and a headset
   refresh of every other frame showed one eye's reflection to both and lagged the head. Do not reintroduce either. `refreshRate` is 0
   away from the restroom and 1 inside; `_restroomMirrorQuality()` sets size/MSAA per tier (desktop 1024/4 ultra, 1024/2 high, 512/1
-  balanced; VR 512/2, 512/2, 384/1). Online, the reflected body is `_mirrorDouble`, a hidden copy of the relay-assigned character that
-  only the mirror draws; `_updateMirrorDouble` low-passes its position (50 ms) and heading (100 ms) so headset tremor does not make
-  the reflection buzz, snaps on a teleport or seat change, and picks idle/walk/run with hysteresis. The cost of two mirror passes
-  per frame in a headset is unmeasured.
+  balanced; VR 512/2, 512/2, 384/1). **The reflected body is also the player's own body.** `_mirrorDouble` is the player's
+  character (the relay's assignment online, `getLocalCharacter()` offline; none = the mannequin shows in both): it is built
+  whenever a character is known and `_syncMirrorDouble()`/`_updateMirrorDouble()` run every frame from `updateRestroomMirror`,
+  not only near the restroom. It is drawn in the main view (`isVisible`), and `_updateLocalPlayerBody` hides and idles the
+  mannequin (`rig._standsDown`) while it is `shown`, resuming from where the player stands when it goes. It is sized from its
+  EYES: `_characterEyeHeight` reads the mean height of the cast's shared eye colour (`#31251c`, top 15% of the mesh; 93.5% of the
+  height if none) and the node is scaled so that height equals `_shownBodyEye()` with its feet on the floor, so the camera sits
+  in its head (a woman's `f*` body is therefore taller than the 1.68 m others see, because your eyes are at 1.7 m). The
+  character is ONE mesh, so its head is hidden from your own camera by collapsing the `Head` bone (`_setSelfHead`, scale 0.0001
+  plus a skeleton re-prepare); the mirror's before/after render handlers bring it back for the reflection and collapse it again.
+  `_updateMirrorDouble` backs the body off up to 18 cm (4 cm in a headset) as you look steeply down, hiding the open neck, and
+  low-passes its position (30 ms) and heading (100 ms) so headset tremor does not buzz, snapping on a teleport or seat change,
+  with idle/walk/run/seated chosen with hysteresis; in a headset the controllers move its arms (`createTrackedArms`). Limits:
+  a crouching or low-headset player keeps a standing body (no crouch pose; the camera is inside the torso), and the gait is a
+  speed-matched clip, not the mannequin's planted-foot IK. The pixels of the mirror itself cannot be checked on the software
+  renderer (its reflection renders black there): the render list, the head toggle and the visible body are tested instead
+  (`test/e2e/self-body.spec.mjs`). The cost of two mirror passes per frame in a headset, and of the character
+  in view all the time, is unmeasured.
 - Tests: `test/unit.test.mjs` (doors, double smoothing, art, props), `test/e2e/bar.spec.mjs` (mirror renders once per frame, art,
   doors shut and reopen) and `test/e2e/restroom-vr.spec.mjs` (VR mirror refresh and size).
 
@@ -1900,8 +1914,9 @@ protocol only grew, so older clients keep working.
   reconnecting after a drop) until the Durable Object happened to be evicted.
 - **Avatars.** The relay assigns each guest a random, room-unique character from `AVATARS` (the 17 Quaternius Modular
   people `f1`–`f8`, `m1`–`m9`; a test ties the list to `AVATAR_SOURCES`) and a guest may reroll. A guest can restrict the draw to women (`f*`) or men (`m*`) (`vrclub.avatarPool`: `any`/`women`/`men`; `?avatars=` on connect, `pool` on a reroll; `AVATAR_POOLS` in the relay). If a pool is exhausted the relay gives any free person, never a double; choosing a pool in a room rerolls only a look outside it. Others see you as that
-  character. Your own first-person body is still the UE-mannequin `AvatarRig`, which only drives that skeleton, so you
-  do not see yourself as your assigned avatar.
+  character. **Your own body is that character too**: whenever a character is known (the relay's assignment in a room, the
+  one you chose offline) the same instance that fills the mirror is your first-person body (see "The mirror"), so looking down
+  shows the outfit and skin you see in the mirror. With no character the UE-mannequin `AvatarRig` is the body as before.
 - `js/networkClient.js` — WebSocket presence plus a WebRTC voice mesh using **perfect
   negotiation** (`negotiationneeded`; the higher id is polite). Either guest may enable the
   mic first. Muting removes tracks but keeps connections, so the guest still hears others.

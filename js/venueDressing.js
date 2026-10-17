@@ -1304,11 +1304,14 @@ const VenueDressing = {
                 // A hidden mesh is skipped by the scene's own pass, so its skeleton was not advanced this frame.
                 const double = this._mirrorDouble;
                 if (double && double.skeletons) for (let i = 0; i < double.skeletons.length; i++) double.skeletons[i].prepare(true);
+                // The reflection shows the whole person, head included; the player's own view does not.
+                if (double) this._setSelfHead(double, true);
             });
             mirrorTex.onAfterRenderObservable.add(() => {
                 const shown = mirrorTex._revealed;
                 for (let i = 0; i < shown.length; i++) if (!shown[i].isDisposed()) shown[i].isVisible = false;
                 shown.length = 0;
+                if (this._mirrorDouble) this._setSelfHead(this._mirrorDouble, false);
             });
             mat.reflectionTexture = mirrorTex;
             this.restroomMirrorTexture = mirrorTex;
@@ -1394,21 +1397,25 @@ const VenueDressing = {
         node.scaling.setAll(1);
         node.position.set(0, 0, 0);
         node.computeWorldMatrix(true);
-        // The same real-world height and feet-on-the-floor placement the remote guests get.
-        const heights = (window.AvatarManager && window.AvatarManager.PERSON_HEIGHT) || {};
-        const height = heights[avatarId[0]] || 1.72;
-        let bounds = node.getHierarchyBoundingVectors(true);
-        const raw = bounds.max.y - bounds.min.y;
-        if (raw > 1e-6) node.scaling.setAll(height / raw);
+        // The first-person body is this same instance, so it is sized from the EYES: scaled so the character's eyes are at
+        // the player's eye height (read from its eye-coloured vertices; 93.5% of its height when it has none) with its feet
+        // on the floor. The camera then sits in its head, and looking down shows exactly the person in the mirror.
         node.computeWorldMatrix(true);
-        bounds = node.getHierarchyBoundingVectors(true);
-        node.position.y -= bounds.min.y;
+        const bounds = node.getHierarchyBoundingVectors(true);
+        const minY = bounds.min.y, raw = bounds.max.y - bounds.min.y;
+        const eyeRaw = this._characterEyeHeight(node, minY) || raw * 0.935;
+        if (!(raw > 1e-6) || !(eyeRaw > 0.3)) { entry.dispose(); root.dispose(); return; }
+        const scale = this._shownBodyEye() / eyeRaw;
+        node.scaling.setAll(scale);
+        node.position.y = -minY * scale;
+        node.computeWorldMatrix(true);
 
         const meshes = node.getChildMeshes();
+        // Hidden until it has been placed under the player (one frame), so it never flashes at the origin.
+        root.setEnabled(false);
         meshes.forEach(mesh => {
             mesh.isPickable = false;
             mesh.alwaysSelectAsActiveMesh = true;
-            mesh.isVisible = false;   // only the mirror draws it (see the mirror's before/after render handlers)
         });
         const wanted = new Set(['Idle', 'Walk', 'Run', 'Seated_Loop']);
         const groups = {};
@@ -1423,6 +1430,7 @@ const VenueDressing = {
         const arms = typeof AvatarRig !== 'undefined' ? AvatarRig.createTrackedArms(node, prefix) : null;
         const double = {
             avatarId, entry, root, node, meshes, groups, arms, current: null, speed: 0,
+            eyeRaw, minY, active: true, shown: false,
             skeletons: Array.from(new Set(meshes.map(mesh => mesh.skeleton).filter(Boolean))),
             hands: { left: null, right: null }, handBuffers: { left: {}, right: {} },
             prevX: NaN, prevZ: NaN, observer: null,
@@ -1434,10 +1442,53 @@ const VenueDressing = {
             double.arms.updateTrackedArms(double.hands, double.root.rotation.y, this._activeSeat ? 1.2 : this._shownBodyEye());
         });
         this._mirrorDouble = double;
+        // The head is part of the one mesh, so it is hidden by collapsing its bone: the camera sits where it was. The mirror
+        // brings it back while it renders (see _createRestroomMirrorMaterial).
+        double.head = node.getChildTransformNodes(false).find(item => item.name === `${prefix}Head`) || null;
+        this._setSelfHead(double, false);
         this._extendAccentLight(this._restroomLight, meshes);
         this._extendAccentLight(this._restroomBackLight, meshes);
         this._playMirrorDouble(double, 'Idle', 1);
         this._mirrorSignature = -1;
+    },
+
+    /**
+     * How high the character's eyes are above its feet, in the character's own (unscaled) units: the mean height of its
+     * eye-coloured vertices (the cast's shared dark-brown eye colour, only in the top 15%), or 0 when none are found.
+     */
+    _characterEyeHeight(node, minY) {
+        const EYE = [0.0307, 0.0185, 0.0116];   // '#31251c' in linear light, what the build script paints the eyes with
+        const meshes = node.getChildMeshes();
+        let top = -Infinity;
+        for (const mesh of meshes) {
+            const box = mesh.getBoundingInfo && mesh.getBoundingInfo().boundingBox;
+            if (box) top = Math.max(top, box.maximumWorld.y);
+        }
+        if (!Number.isFinite(top)) return 0;
+        let sum = 0, count = 0;
+        const point = new BABYLON.Vector3();
+        for (const mesh of meshes) {
+            const colours = mesh.getVerticesData && mesh.getVerticesData(BABYLON.VertexBuffer.ColorKind);
+            const positions = mesh.getVerticesData && mesh.getVerticesData(BABYLON.VertexBuffer.PositionKind);
+            if (!colours || !positions) continue;
+            const stride = colours.length / (positions.length / 3);
+            const world = mesh.computeWorldMatrix(true);
+            for (let i = 0; i < positions.length / 3; i++) {
+                const c = i * stride;
+                if (Math.abs(colours[c] - EYE[0]) > 0.006 || Math.abs(colours[c + 1] - EYE[1]) > 0.006 || Math.abs(colours[c + 2] - EYE[2]) > 0.006) continue;
+                BABYLON.Vector3.TransformCoordinatesFromFloatsToRef(positions[i * 3], positions[i * 3 + 1], positions[i * 3 + 2], world, point);
+                if (point.y > top - 0.15 * (top - minY)) { sum += point.y; count++; }
+            }
+        }
+        return count >= 4 ? sum / count - minY : 0;
+    },
+
+    /** Show or collapse the character's head (a bone scale), and re-skin so the change is drawn by the next pass. */
+    _setSelfHead(double, shown) {
+        if (!double || !double.head || double.headShown === shown) return;
+        double.headShown = shown;
+        double.head.scaling.setAll(shown ? 1 : 0.0001);
+        if (double.skeletons) for (let i = 0; i < double.skeletons.length; i++) double.skeletons[i].prepare(true);
     },
 
     _playMirrorDouble(double, clip, speedRatio) {
@@ -1468,15 +1519,17 @@ const VenueDressing = {
         const cam = this._playerCamera ? this._playerCamera() : this.camera;
         const pos = cam && (cam.globalPosition || cam.position);
         if (!pos) return;
-        // The reflection is the player's own height, like everyone else's view of them.
-        const eyeScale = this._shownBodyEye() / 1.7;
-        const applied = double.eyeScale || 1;
-        if (Math.abs(eyeScale - applied) >= 0.01) {
-            double.node.scaling.scaleInPlace(eyeScale / applied);
-            double.node.position.y *= eyeScale / applied;
-            if (double.arms) double.arms.invalidateLimbs();
-            double.eyeScale = eyeScale;
+        // The body is the player's own size: its eyes at the eye height the body is drawn at (eased, see _easedBodyEyeHeight).
+        if (double.node && double.eyeRaw) {
+            const wanted = this._shownBodyEye() / double.eyeRaw;
+            const applied = double.node.scaling.x;
+            if (Math.abs(wanted / applied - 1) >= 0.005) {
+                double.node.scaling.setAll(wanted);
+                double.node.position.y = -double.minY * wanted;
+                if (double.arms) double.arms.invalidateLimbs();
+            }
         }
+        if (!double.shown && double.root.setEnabled) { double.shown = true; double.root.setEnabled(true); }
         const seat = this._activeSeat;
         const dir = this._mirrorDir || (this._mirrorDir = new BABYLON.Vector3());
         cam.getDirectionToRef(BABYLON.Axis.Z, dir);
@@ -1493,7 +1546,7 @@ const VenueDressing = {
             double.prevX = NaN; double.speed = 0; double.gait = 'idle';
             double.placed = true; double.seatKey = seatKey;
         } else {
-            const kp = 1 - Math.exp(-dt / 0.05);
+            const kp = 1 - Math.exp(-dt / 0.03);
             const ky = 1 - Math.exp(-dt / 0.10);
             double.x += (targetX - double.x) * kp;
             double.z += (targetZ - double.z) * kp;
@@ -1503,6 +1556,14 @@ const VenueDressing = {
         }
         double.root.position.set(double.x, seat ? seat.floorY : (this._walkLevel || 0), double.z);
         double.root.rotation.y = double.yaw;
+        // Looking down puts the neck right under the camera: back the body off a hand's breadth as the head tips forward
+        // (less in a headset, where the arms must still reach the controllers).
+        const lookDown = Math.min(1, Math.max(0, (-dir.y - 0.7) / 0.3));
+        if (lookDown > 0) {
+            const back = (this.isInVRMode ? 0.04 : 0.18) * lookDown * lookDown * (3 - 2 * lookDown);
+            double.root.position.x -= Math.sin(double.yaw) * back;
+            double.root.position.z -= Math.cos(double.yaw) * back;
+        }
         if (Number.isFinite(double.prevX)) {
             const instant = Math.hypot(double.x - double.prevX, double.z - double.prevZ) / dt;
             double.speed += (Math.min(instant, 8) - double.speed) * (1 - Math.exp(-dt / 0.2));
@@ -1559,22 +1620,21 @@ const VenueDressing = {
      */
     updateRestroomMirror(ctx) {
         this._updateRestroomDoors(ctx && ctx.dt);
+        if (!this.scene) return;
+        // The character is the player's own body everywhere in the club, not only in front of the mirror: it is built
+        // (and follows the player) whenever a character is known, and dropped when there is none.
+        this._syncMirrorDouble();
+        this._updateMirrorDouble(ctx && ctx.dt);
         const tex = this.restroomMirrorTexture;
-        if (!tex || !this.scene) return;
+        if (!tex) return;
         const cam = (this.isInVRMode && this.vrHelper?.baseExperience?.camera) || this.camera;
         const pos = cam && (cam.globalPosition || cam.position);
         const R = VENUE_RESTROOM;
         const nearRestroom = !!pos && pos.x < -10.0 && pos.z > R.z0 - 1.2 && pos.z < R.z1 + 1.2;
-        const double = this._mirrorDouble;
-        if (double) double.active = nearRestroom;
         if (!nearRestroom) {
             if (tex.refreshRate !== 0) tex.refreshRate = 0;
-            // Nothing is built for a guest who never goes near the restroom; the double is dropped again online-to-offline.
-            if (double && !(this.multiplayer && this.multiplayer.connected)) this._disposeMirrorDouble();
             return;
         }
-        this._syncMirrorDouble();
-        this._updateMirrorDouble(ctx && ctx.dt);
         // Rebuild the list when who is in the mirror changes: the double or the body, and every guest's character.
         const manager = this.avatarManager;
         let people = 0;
