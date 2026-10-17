@@ -181,7 +181,7 @@ test('the entrance vestibule and the bar are built, lit by their own accents and
         const result = {
             built: !!double, avatar: double && double.avatarId,
             listed: !!double && double.meshes.every(mesh => tex.renderList.includes(mesh)),
-            hiddenInView: !!double && double.meshes.every(mesh => !mesh.isVisible),
+            visibleInView: !!double && double.meshes.every(mesh => mesh.isVisible),
             playing: double && double.current,
             lit: !!double && double.meshes[0].lightSources.some(light => light.name === 'restroomLight')
         };
@@ -194,7 +194,7 @@ test('the entrance vestibule and the bar are built, lit by their own accents and
     expect(online.built, 'the relay-assigned character must be built for the mirror').toBe(true);
     expect(online.avatar).toBe('m3');
     expect(online.listed, 'the mirror must draw it').toBe(true);
-    expect(online.hiddenInView, 'only the mirror may draw it').toBe(true);
+    expect(online.visibleInView, 'it is also the player\'s own body, drawn in their view').toBe(true);
     expect(online.playing).toBe('Idle');
     expect(online.lit, 'it takes the restroom light like everyone else in there').toBe(true);
     expect(online.goneAfterLeaving, 'it is released again when the guest leaves the room').toBe(true);

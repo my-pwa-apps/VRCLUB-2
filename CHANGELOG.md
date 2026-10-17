@@ -79,9 +79,11 @@ kept in lockstep with `index.html`, `sw.js` and `serviceworker.js` by
   off your gaze and over 4 m away) and resume well before they could enter your view, from the frame they stopped on, so nothing is ever seen frozen. A
   guest standing on the street while you are deep inside the club (the street is not drawn) is neither drawn nor animated for you, and returns with the
   right clip. The queue's raw idle clip also lost its finger channels (108 -> 40; the hands keep a relaxed pose).
+- **The DJ monitor speakers are back to their full-detail model.** The simplified copy (10.0k down to 4.3k triangles each) looked worse up close at the DJ table, so the original
+  model is restored and the optimizer no longer simplifies geometry (about +11k triangles in the empty club).
 - **Fewer triangles where nobody can see them.** The truss weld rings and hoist chain links are built with 6 instead of 8 sides (a 6 cm ring with a 7 mm
-  tube, seen from the floor as a speck), and the two DJ monitor speakers are simplified from 10.0k to 4.3k triangles each by `npm run optimize:models`.
-  The empty club draws about 388k active triangles instead of 429k (-10%). Screenshots from the booth and under the rig look the same.
+  tube, seen from the floor as a speck).
+  The empty club draws about 388k active triangles instead of 429k (-10%) with that change alone. Screenshots from the booth and under the rig look the same.
 
 ### Added
 

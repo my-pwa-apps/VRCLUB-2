@@ -18,9 +18,8 @@
 //   dead files        js/models/djgear/textures (unreferenced copies of what the GLB embeds)
 //                     and small_speaker_1_1001_metallic.jpg (never read)
 //
-// Geometry is never COMPRESSED (Draco, meshopt and KTX2 all need a decoder that Babylon fetches from a CDN by default, and
-// the project keeps its critical path same-origin). It can still be SIMPLIFIED offline: the output is plain glTF. The DJ
-// monitor speaker is capped at MONITOR_MAX_TRIANGLES that way.
+// Geometry is never COMPRESSED or simplified (Draco, meshopt and KTX2 all need a decoder that Babylon fetches from a CDN by
+// default, and the project keeps its critical path same-origin; a simplified monitor speaker also looked worse and was undone).
 //
 // Usage: node scripts/optimize-models.mjs            (npm run optimize:models)
 //        node scripts/optimize-models.mjs --check    exits 1 if anything would change
@@ -30,11 +29,8 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { NodeIO } from '@gltf-transform/core';
 import { ALL_EXTENSIONS, EXTTextureWebP } from '@gltf-transform/extensions';
-import { dedup, flatten, join as joinPrimitives, prune, simplify, weld } from '@gltf-transform/functions';
-import { MeshoptSimplifier } from 'meshoptimizer';
+import { dedup, flatten, join as joinPrimitives } from '@gltf-transform/functions';
 import sharp from 'sharp';
-
-await MeshoptSimplifier.ready;
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
 const CHECK_ONLY = process.argv.includes('--check');
@@ -43,13 +39,8 @@ const DJ_GLB = 'js/models/djgear/source/pioneer_DJ_console.glb';
 const SPEAKER_GLB = 'js/models/paspeakers/source/stage_speaker___black.glb';
 const BASS_BIN_GLB = 'js/models/bassbin/source/bass_bin_3.glb';
 const COUCH_GLB = 'js/models/lounge/source/old_couch.glb';
-/**
- * The Sketchfab HS8 studio monitor is ~10k triangles each and the DJ table has two (the 14th and 15th largest meshes in
- * the empty club). It is a 25 cm box with a woofer, seen from the booth: 4.5k keeps the silhouette, the port and the
- * woofer ring. Plain glTF geometry out of the meshopt simplifier needs no runtime decoder.
- */
-const MONITOR_GLB = 'js/models/monitors/source/monitor_speaker.glb';
-const MONITOR_MAX_TRIANGLES = 4500;
+// The Yamaha HS8 studio monitors (js/models/monitors/source/monitor_speaker.glb, ~10k triangles each) ship exactly as they
+// were authored: a simplified copy (4.3k triangles) was tried and looked worse up close at the DJ table, so it was undone.
 const SPEAKER_TEXTURES = 'js/models/paspeakers/source/authored/textures/small_speaker_1_1001_';
 const OLD_SPEAKER_TEXTURES = 'js/models/paspeakers/source/textures/small_speaker_1_1001_';
 
@@ -185,36 +176,7 @@ async function stripSpeakerEmbeddedTextures() {
     }
 }
 
-const trianglesOf = document => document.getRoot().listMeshes()
-    .reduce((sum, mesh) => sum + mesh.listPrimitives().reduce((s, p) => s + p.getIndices().getCount() / 3, 0), 0);
-
-/**
- * Reduce a GLB's geometry to at most `maxTriangles`. Idempotent: a model already at or under the ceiling is left alone,
- * and the target sits 5% under it so a second run never finds more to do. Fails loudly if the simplifier cannot get
- * there within its error limit, rather than leaving a file that `--check` would flag forever.
- */
-async function simplifyGlbGeometry(glb, maxTriangles) {
-    const path = abs(glb);
-    if (!existsSync(path)) return;
-    const io = newIo();
-    const document = await io.read(path);
-    const before = trianglesOf(document);
-    if (before <= maxTriangles) return;
-    const sizeBefore = statSync(path).size;
-    if (CHECK_ONLY) { note(`${glb} ${Math.round(before)} -> <=${maxTriangles} triangles`, sizeBefore, 0); return; }
-    await document.transform(
-        weld({ tolerance: 0.0001 }),
-        simplify({ simplifier: MeshoptSimplifier, ratio: (maxTriangles * 0.95) / before, error: 0.02, lockBorder: true }),
-        prune()
-    );
-    const after = trianglesOf(document);
-    if (after > maxTriangles) throw new Error(`${glb}: simplifier stopped at ${after} triangles, above the ${maxTriangles} ceiling`);
-    await io.write(path, document);
-    note(`${glb} ${Math.round(before)} -> ${Math.round(after)} triangles`, sizeBefore, statSync(path).size);
-}
-
 await stripSpeakerEmbeddedTextures();
-await simplifyGlbGeometry(MONITOR_GLB, MONITOR_MAX_TRIANGLES);
 for (const target of LOOSE_TEXTURES) await optimizeLooseTexture(target);
 await optimizeGlbTextures(DJ_GLB, DJ_TEXTURE_MAX, DJ_SLOT_ENCODING);
 await optimizeGlbTextures(BASS_BIN_GLB, BIN_TEXTURE_MAX, BIN_SLOT_ENCODING, { joinMeshes: true });

@@ -2088,8 +2088,8 @@ protocol only grew, so older clients keep working.
      `scene._activeAnimatables.length` against the clips you actually play.
    - The crowd's own JavaScript (`_updateCrowdDance` + `updateDancingNPCs`) costs about 0.04 ms a frame; do not optimise it, and do not add distance-based
      animation LOD without a measured need (pausing animatables skews playhead time and the beat lock).
-   - Empty club: ~388k active triangles. Largest: DJ console 48k, bar bottles 47k, three trusses ~28k each, hoist chains ~13k, side beams 27k. The truss welds and
-     chain links are 6-sided; the DJ monitors are capped at 4.5k triangles by `npm run optimize:models` (`simplifyGlbGeometry`, idempotent).
+   - Empty club: ~388k active triangles when the monitors were simplified (about +11k now that they are at full detail, 10k each, again). Largest: DJ console 48k, bar bottles 47k, three trusses ~28k each, hoist chains ~13k, side beams 27k. The truss welds and
+     chain links are 6-sided; the DJ monitors are NOT simplified (a 4.3k copy looked worse and was undone; the optimizer no longer touches geometry).
    - **Seen-only animation (street people and remote guests).** Only the *pose* is ever held; positions, facing, speed and state keep running on
      their normal clocks (a remote guest's root keeps interpolating toward the last network position, the mingler stays on `MinglerClock`), so
      whoever you turn to is where everyone else sees them. Street characters (`npc.street`) are held only when more than 130 degrees off the gaze
