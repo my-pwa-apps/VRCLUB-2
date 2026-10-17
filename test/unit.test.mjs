@@ -5588,6 +5588,22 @@ test('a guest out on the street is neither drawn nor animated here while the str
     assert.equal(peer.root.enabled, false);
 });
 
+test('the road paint is biased toward the camera so it cannot depth-fight the asphalt it lies on', () => {
+    const BABYLON = {
+        PBRMaterial: { PBRMATERIAL_ALPHATEST: 1, PBRMATERIAL_OPAQUE: 0 }, Material: { AllDirtyFlag: 0xff },
+        Vector3: class {}
+    };
+    const { window } = loadClassic('js/cityDistrict.js', { BABYLON });
+    const make = name => ({ name, markAsDirty() {} });
+    const decals = make('decals'), asphalt = make('asphalt'), windows = make('windows');
+    window.CityDistrict._styleCityMaterials.call({ maxLights: 3 }, [decals, asphalt, windows]);
+    assert.equal(decals.transparencyMode, 1, 'the paint is alpha-tested, not blended');
+    assert.ok(decals.zOffset < 0 && decals.zOffsetUnits < 0, 'the baked paint lies exactly on the road: it needs a depth bias');
+    assert.equal(asphalt.zOffset, undefined, 'the road itself is not biased');
+    assert.equal(windows.zOffset, undefined);
+    assert.equal(windows.emissiveIntensity, 1.7);
+});
+
 test('MY CHARACTER: the player picks one of the 17 people offline, it is saved, and the mirror shows it', () => {
     const store = new Map();
     const localStorage = {

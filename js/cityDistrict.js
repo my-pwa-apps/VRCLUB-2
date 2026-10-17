@@ -165,6 +165,11 @@ const CityDistrict = {
             if (material.name === 'decals') {
                 material.transparencyMode = BABYLON.PBRMaterial.PBRMATERIAL_ALPHATEST;
                 material.alphaCutOff = 0.5;
+                // The baked road paint lies exactly on the asphalt (both at y -0.0109), so the two depth-fought: lane lines and
+                // crosswalks flickered, worse with distance. A hardware depth bias pulls the paint toward the camera by a few
+                // depth units and a slope term, which stays correct at any range where a fixed millimetre of lift would not.
+                material.zOffset = -2;
+                material.zOffsetUnits = -2;
             } else {
                 material.alpha = 1;
                 material.transparencyMode = BABYLON.PBRMaterial.PBRMATERIAL_OPAQUE;

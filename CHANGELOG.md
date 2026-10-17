@@ -26,6 +26,9 @@ kept in lockstep with `index.html`, `sw.js` and `serviceworker.js` by
 
 ### Fixed
 
+- **The street's lane lines and crosswalks no longer flicker.** The baked road paint lay exactly on the asphalt (both at the same height), so the two depth-fought, worse with
+  distance: the kerb line broke into dashes and crosswalk stripes came and went. The paint now has a hardware depth bias. Measured with the show pinned, 1 mm of
+  camera movement changed 15.9k pixels of the mid-distance road before and about 1k after (-94%); far view 4.4k -> 0.6k (-87%).
 - **About 2,200 invisible animations ran every frame.** Babylon's glTF loader starts the first clip of every character file on its source skeleton, even in
   a container nothing draws, and it looped there for ever (17 files, 2,654 active animatables where about 470 belong to visible people). Source clips are
   now stopped when a file loads. Measured in one session on a desktop CPU: `scene.animate()` 11.8 ms -> 1.4-1.6 ms per call. A Quest CPU is slower, so
