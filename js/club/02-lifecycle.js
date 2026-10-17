@@ -263,6 +263,9 @@ class VRClubLifecycle extends VRClubCore {
             // The quick menu uses far pointer rays. Near interaction creates a
             // decorative touch orb by fetching a material from snippet.babylonjs.com.
             disableNearInteraction: true,
+            // Both hands point and click. Babylon otherwise routes clicks through ONE controller (the first it sees) and the other
+            // hand's first trigger pull only switches the pointer to it, so a menu press with the "wrong" hand did nothing.
+            pointerSelectionOptions: { enablePointerSelectionOnAllControllers: true },
             // #vrButton is the single entry point: it feature-detects, explains
             // failures and waits for background loading. Babylon's overlay icon
             // would bypass all three.

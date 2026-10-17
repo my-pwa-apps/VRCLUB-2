@@ -5671,16 +5671,14 @@ test('MY CHARACTER: the player picks one of the 17 people offline, it is saved, 
         _refreshVRQuickMenu() { this.refreshed++; }
     };
     assert.equal(club.getLocalCharacter(), null, 'nothing chosen: the default body');
-    assert.equal(proto.stepLocalCharacter.call(club, 1), 'f1', 'from the default woman it starts at the first woman');
+    assert.equal(club.setLocalCharacter('f1'), 'f1');
     assert.equal(store.get('vrclub.myCharacter'), 'f1', 'saved');
     assert.equal(club._mirrorSignature, -1, 'the mirror re-lists');
-    assert.equal(proto.stepLocalCharacter.call(club, -1), 'm9', 'wraps backwards');
+    assert.equal(club.setLocalCharacter('m9'), 'm9');
     assert.equal(styles.at(-1), 'male', 'the first-person body follows the gender');
-    assert.equal(proto.stepLocalCharacter.call(club, 1), 'f1');
     assert.equal(club.setLocalCharacter('nobody'), null, 'unknown ids are refused');
     assert.equal(store.has('vrclub.myCharacter'), false);
-    store.set('vrclub.avatarStyle', 'male');
-    assert.equal(proto.stepLocalCharacter.call(club, 1), 'm1', 'a default man starts at the first man');
+    assert.equal(club.setLocalCharacter(null), null, 'the default is a choice too');
     store.set('vrclub.myCharacter', 'zz');
     assert.equal(club.getLocalCharacter(), null, 'a corrupt saved value is ignored');
 
@@ -5695,7 +5693,91 @@ test('MY CHARACTER: the player picks one of the 17 people offline, it is saved, 
 
     const html = readFileSync(join(ROOT, 'index.html'), 'utf8');
     assert.match(html, /<select[^>]*id="myCharacter"/);
-    assert.match(readFileSync(join(ROOT, 'js/club/10-ui.js'), 'utf8'), /label: 'MY CHARACTER', action: 'character'/);
+});
+
+test('a drag belongs to the pointer that started it: the other hand cannot steer or end it', () => {
+    const { window } = loadClassic('js/club/10-ui.js', { VRClubAnimationFinish: class {}, BABYLON: {}, log: { info() {}, warn() {}, error() {} } });
+    const club = Object.create(window.VRClubUI.prototype);
+    const calls = [];
+    const seekMesh = {};
+    club.scene = {};
+    club._vrSeek = { mesh: seekMesh, drag: null };
+    club._vrQuickMenuButtons = [];
+    club._vjDeskDrag = null;
+    club._beginVRSeek = () => { club._vrSeek.drag = { fraction: 0.2 }; calls.push('begin'); };
+    club._moveVRSeek = () => calls.push('move');
+    club._endVRSeek = () => { if (!club._vrSeek.drag) return; club._vrSeek.drag = null; calls.push('end'); };
+    club.releaseVJDesk = () => calls.push('release');
+    club.dragVJDesk = () => {};
+    club.setupVJControlInteraction();
+    const press = { hit: true, pickedMesh: seekMesh };
+
+    club.scene.onPointerDown({ pointerId: 7 }, press);
+    club.scene.onPointerMove({ pointerId: 9 }, press);
+    club.scene.onPointerUp({ pointerId: 9 });
+    assert.equal(calls.join(), 'begin', 'the idle hand neither moves the drag nor ends it');
+    club.scene.onPointerMove({ pointerId: 7 }, press);
+    club.scene.onPointerUp({ pointerId: 7 });
+    assert.equal(calls.join(), 'begin,move,end,release', 'the hand that started it steers it and ends it');
+
+    // A mouse (no pointer id) and a drag that never started behave as before.
+    calls.length = 0;
+    club.scene.onPointerDown({}, press);
+    club.scene.onPointerUp({});
+    assert.equal(calls.join(), 'begin,end,release');
+    calls.length = 0;
+    club.scene.onPointerUp({ pointerId: 3 });
+    assert.equal(calls.join(), 'release', 'with no drag, any release goes through');
+});
+
+test('the VR menu: COMFORT holds how you move, ME holds who you are, and the character picker pages nine at a time', () => {
+    const BABYLON = { Axis: { Z: 'Z', Y: 'Y' }, Vector3: class {}, Color3: class { constructor(r, g, b) { Object.assign(this, { r, g, b }); } } };
+    const store = new Map();
+    const localStorage = { getItem: k => (store.has(k) ? store.get(k) : null), setItem: (k, v) => store.set(k, String(v)), removeItem: k => store.delete(k) };
+    const crowd = loadClassic('js/club/11-audio-crowd.js', { VRClubUI: class {}, BABYLON, localStorage });
+    const multi = loadClassic('js/multiplayer.js').window.ClubMultiplayer;
+    const { window } = loadClassic('js/club/10-ui.js', { VRClubAnimationFinish: class {}, BABYLON, log: { info() {}, warn() {}, error() {} } });
+    window.VRClubAudioCrowd = crowd.window.VRClubAudioCrowd;
+    window.ClubMultiplayer = multi;
+    const UI = window.VRClubUI.prototype, Crowd = crowd.window.VRClubAudioCrowd.prototype;
+    const club = {
+        _multiplayer: () => null, lightHold: { mode: 'resume' }, _immersive: null, _vrCharacterPage: 0,
+        getLocalCharacter: Crowd.getLocalCharacter, getLocalAvatarStyle: Crowd.getLocalAvatarStyle,
+        _vrCharacterPageDefinitions: UI._vrCharacterPageDefinitions, isFollowingHost: () => false
+    };
+    const labels = page => UI._vrQuickMenuPageDefinitions.call(club, page).map(b => (b ? b.label : null));
+
+    const same = (a, b, message) => assert.equal(JSON.stringify(a), JSON.stringify(b), message);
+    const comfort = labels('comfort');
+    same(comfort, ['LOCOMOTION', 'SAFE MODE', 'QUALITY', 'AUTO QUALITY', 'ME', 'CREDITS / LICENCES', '\u2190 BACK', 'CLOSE']);
+    same(labels('me'), ['MY CHARACTER', 'MEASURE HEIGHT', 'SEATED MODE', '\u2190 BACK', 'CLOSE']);
+    for (const page of ['comfort', 'me', 'character']) assert.ok(labels(page).length <= 12, `${page} fits the twelve slots`);
+
+    // Page one: the default and the eight women; page two: the nine men. Each names the kind of person and what they wear.
+    const first = UI._vrCharacterPageDefinitions.call(club, { back: { label: 'BACK', action: 'back' }, close: { label: 'CLOSE', action: 'close' } });
+    assert.equal(first.length, 12);
+    same(first.slice(0, 9).map(b => b.character), [null, 'f1', 'f2', 'f3', 'f4', 'f5', 'f6', 'f7', 'f8']);
+    assert.equal(first[0].label, 'DEFAULT');
+    assert.equal(first[1].label, 'WOMAN');
+    assert.equal(first[1].detail, 'BLACK HAIR, WHITE TOP');
+    assert.equal(first[3].label, 'PUNK');
+    assert.equal(first[10].action, 'characterPage');
+    assert.equal(first[10].label, 'MEN \u2192');
+    club._vrCharacterPage = 1;
+    const second = UI._vrCharacterPageDefinitions.call(club, { back: { label: 'BACK', action: 'back' }, close: { label: 'CLOSE', action: 'close' } });
+    same(second.slice(0, 9).map(b => b.character), ['m1', 'm2', 'm3', 'm4', 'm5', 'm6', 'm7', 'm8', 'm9']);
+    assert.equal(second[10].label, '\u2190 WOMEN');
+    // Every one of the seventeen is reachable exactly once.
+    same([...first, ...second].filter(b => b && b.action === 'pickCharacter' && b.character).map(b => b.character).sort(),
+        Array.from(crowd.window.VRClubAudioCrowd.MY_CHARACTERS).sort());
+
+    // The current one is lit; the default is lit while nothing is chosen.
+    const active = UI._isVRQuickMenuButtonActive;
+    assert.equal(active.call(club, { action: 'pickCharacter', character: null }), true);
+    store.set('vrclub.myCharacter', 'm3');
+    assert.equal(active.call(club, { action: 'pickCharacter', character: null }), false);
+    assert.equal(active.call(club, { action: 'pickCharacter', character: 'm3' }), true);
+    assert.equal(active.call(club, { action: 'pickCharacter', character: 'm4' }), false);
 });
 
 test('a loaded avatar source never keeps animating: the loader\'s auto-started clips are stopped', async () => {

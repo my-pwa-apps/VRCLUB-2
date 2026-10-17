@@ -65,12 +65,6 @@ const press = (page, hand, button, value) => page.evaluate(([side, id, v]) => {
     window.__iwerDevice.controllers[side].updateButtonValue(id, v);
 }, [hand, button, value]);
 
-/** The hand whose laser Babylon currently routes clicks through; the other hand's first pull only switches to it. */
-const activePointerHand = page => page.evaluate(() => {
-    const club = window.vrClub;
-    const id = club.vrHelper.pointerSelection._attachedController;
-    return club._xrControllers.find(controller => controller.uniqueId === id).inputSource.handedness;
-});
 
 const angleDelta = (to, from) => ((to - from + 540) % 360) - 180;
 
@@ -123,32 +117,33 @@ test('Quest session: headset, controllers, snap turn, teleport and the lighting 
         await setController(page, 'right', { position: [0.25, 1.5, -0.4] });
     });
 
-    await test.step('pointing at a menu button and pulling the trigger operates it', async () => {
+    await test.step('pointing at a menu button and pulling the trigger operates it, with either hand and on the first pull', async () => {
         await press(page, 'left', 'y-button', 1);
         await page.waitForFunction(() => window.vrClub._vrQuickMenuRoot?.isEnabled() === true);
         await press(page, 'left', 'y-button', 0);
         await renderFrames(page, 5);
 
-        const hand = await activePointerHand(page);
-        const target = await page.evaluate(() => {
-            const club = window.vrClub;
-            club._showVRQuickMenuPage('effects');
-            const button = club._vrQuickMenuButtons.find(item => item.control === 'smokeActive');
-            button.mesh.computeWorldMatrix(true);
-            return { world: button.mesh.getAbsolutePosition().asArray(), before: club.smokeActive };
-        });
-        const origin = await controllerXrPosition(page, hand);
-        const direction = worldToXr(target.world).map((value, axis) => value - origin[axis]);
-        await setController(page, hand, { quaternion: aimQuaternion(direction) });
-        await renderFrames(page, 6);
-        await press(page, hand, 'trigger', 1);
-        await renderFrames(page, 4);
-        await press(page, hand, 'trigger', 0);
-        await renderFrames(page, 6);
-        expect(await page.evaluate(() => window.vrClub.smokeActive), 'haze toggled by a ray select').toBe(!target.before);
-        expect(await page.evaluate(() => window.vrClub.vjManualMode), 'a menu click hands the show to the user').toBe(true);
-
-        await setController(page, hand, { quaternion: [0, 0, 0, 1] });
+        // Babylon used to route clicks through one controller only: the other hand's first pull merely switched to it.
+        for (const hand of ['right', 'left']) {
+            const target = await page.evaluate(() => {
+                const club = window.vrClub;
+                club._showVRQuickMenuPage('effects');
+                const button = club._vrQuickMenuButtons.find(item => item.control === 'smokeActive');
+                button.mesh.computeWorldMatrix(true);
+                return { world: button.mesh.getAbsolutePosition().asArray(), before: club.smokeActive };
+            });
+            const origin = await controllerXrPosition(page, hand);
+            const direction = worldToXr(target.world).map((value, axis) => value - origin[axis]);
+            await setController(page, hand, { quaternion: aimQuaternion(direction) });
+            await renderFrames(page, 6);
+            await press(page, hand, 'trigger', 1);
+            await renderFrames(page, 4);
+            await press(page, hand, 'trigger', 0);
+            await renderFrames(page, 6);
+            expect(await page.evaluate(() => window.vrClub.smokeActive), `haze toggled by the FIRST ${hand}-hand pull`).toBe(!target.before);
+            expect(await page.evaluate(() => window.vrClub.vjManualMode), 'a menu click hands the show to the user').toBe(true);
+            await setController(page, hand, { quaternion: [0, 0, 0, 1] });
+        }
         await page.evaluate(() => window.vrClub.toggleVRQuickMenu(false));
         await renderFrames(page, 3);
     });

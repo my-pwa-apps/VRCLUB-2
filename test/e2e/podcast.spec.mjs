@@ -202,11 +202,7 @@ test('the VR Music page seeks by clicking the bar with the controller ray', asyn
     await page.evaluate(() => window.vrClub._showVRQuickMenuPage('music'));
     await renderFrames(page, 8);
 
-    const hand = await page.evaluate(() => {
-        const club = window.vrClub;
-        const id = club.vrHelper.pointerSelection._attachedController;
-        return club._xrControllers.find(controller => controller.uniqueId === id).inputSource.handedness;
-    });
+    const hand = 'right';   // either hand clicks (all controllers have a live pointer); the right is the one that used to need two pulls
     const aim = await page.evaluate(({ side, fraction }) => {
         const club = window.vrClub;
         const { left, right, width } = window.VRClubUI.VR_SEEK_BAR_PX;

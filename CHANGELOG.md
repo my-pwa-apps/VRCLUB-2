@@ -26,6 +26,8 @@ kept in lockstep with `index.html`, `sw.js` and `serviceworker.js` by
 
 ### Fixed
 
+- **The first trigger pull from the idle hand now clicks in VR.** Babylon only gave the "active" controller a pointer, so the other hand's first pull was spent
+  waking it up. Both hands now have a live pointer, and a drag (seek bar, desk fader) belongs to the pointer that started it, so the idle hand cannot steer or end it.
 - **Desktop reflections no longer get 50% stronger after a VR visit.** The club started at 0.4 and returned from VR at 0.6 (two sources of truth); both now read
   `vrSettings.desktop.environmentIntensity` (0.4, the look players already knew).
 - **The street's lane lines and crosswalks no longer flicker.** The baked road paint lay exactly on the asphalt (both at the same height), so the two depth-fought, worse with

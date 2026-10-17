@@ -681,6 +681,7 @@ class VRClubUI extends VRClubAnimationFinish {
 
     _isVRQuickMenuButtonActive(button) {
         if (button.op) return this._vrNetActive(button);
+        if (button.action === 'pickCharacter') return this.getLocalCharacter() === button.character;
         if (button.action === 'people') {
             return VRClubCore.peopleCategories(button.people).every(name => this.isPeopleVisible(name));
         }
@@ -736,7 +737,8 @@ class VRClubUI extends VRClubAnimationFinish {
             return this._heightMeasure ? 'MEASURING...'
                 : this.playerEyeHeight ? `EYES ${this.playerEyeHeight.toFixed(2)} M` : 'STAND TALL, TAP';
         }
-        if (button.action === 'character') {
+        if (button.action === 'pickCharacter') return button.detail || '';
+        if (button.action === 'page' && button.target === 'character') {
             const id = this.getLocalCharacter();
             const labels = (window.ClubMultiplayer && window.ClubMultiplayer.AVATAR_LABELS) || {};
             return id ? String(labels[id] || id).toUpperCase().slice(0, 28) : (this.getLocalAvatarStyle() === 'male' ? 'DEFAULT MAN' : 'DEFAULT WOMAN');
@@ -792,6 +794,32 @@ class VRClubUI extends VRClubAnimationFinish {
         if (button.action === 'autoShow') return active ? 'ON' : 'MANUAL';
         if (button.control) return active ? 'ON' : 'OFF';
         return '';
+    }
+
+    /**
+     * The character picker: nine buttons a page (women and the default first, then men), the current one lit, a button to flip
+     * the page, BACK and CLOSE. Each button names the kind of person and, beneath, what they wear; it replaced stepping
+     * blindly through seventeen people with NEXT.
+     */
+    _vrCharacterPageDefinitions(common) {
+        const Crowd = window.VRClubAudioCrowd;
+        const labels = (window.ClubMultiplayer && window.ClubMultiplayer.AVATAR_LABELS) || {};
+        const ids = Crowd ? Crowd.MY_CHARACTERS : [];
+        const second = this._vrCharacterPage === 1;
+        const entry = id => {
+            const [kind, ...rest] = String(labels[id] || id).split(',').map(part => part.trim());
+            return { label: kind.toUpperCase(), detail: rest.join(', ').toUpperCase(), action: 'pickCharacter', character: id };
+        };
+        const buttons = second
+            ? ids.filter(id => id[0] === 'm').map(entry)
+            : [{ label: 'DEFAULT', detail: 'YOUR OWN BODY', action: 'pickCharacter', character: null }, ...ids.filter(id => id[0] === 'f').map(entry)];
+        while (buttons.length < 9) buttons.push(null);
+        return [
+            ...buttons.slice(0, 9),
+            common.back,
+            { label: second ? '\u2190 WOMEN' : 'MEN \u2192', action: 'characterPage' },
+            common.close
+        ];
     }
 
     _vrQuickMenuPageDefinitions(page) {
@@ -863,19 +891,26 @@ class VRClubUI extends VRClubAnimationFinish {
                 common.back,
                 common.close
             ],
+            // Comfort is how you move and what you see; who you are (character, height, seating) lives on ME. The home page
+            // has no free slot in a room (twelve is the most a page holds), so ME is reached from here.
             comfort: [
                 { label: 'LOCOMOTION', control: 'vrComfortMode' },
-                { label: 'SEATED MODE', control: 'vrSeatedMode' },
-                { label: 'MY CHARACTER', action: 'character', step: 1 },
-                { label: 'PREVIOUS CHARACTER', action: 'character', step: -1 },
-                { label: 'MEASURE HEIGHT', action: 'measureHeight' },
                 { label: 'SAFE MODE', control: 'photosensitiveSafeMode' },
                 { label: 'QUALITY', action: 'quality' },
                 { label: 'AUTO QUALITY', control: 'autoQuality' },
+                { label: 'ME', action: 'page', target: 'me' },
                 { label: 'CREDITS / LICENCES', action: 'credits' },
                 common.back,
                 common.close
             ],
+            me: [
+                { label: 'MY CHARACTER', action: 'page', target: 'character' },
+                { label: 'MEASURE HEIGHT', action: 'measureHeight' },
+                { label: 'SEATED MODE', control: 'vrSeatedMode' },
+                common.back,
+                common.close
+            ],
+            character: this._vrCharacterPageDefinitions(common),
             // Who is in the club: a personal choice, like Safe Mode, so it is never the host's.
             crowd: [
                 { label: 'DANCERS', action: 'people', people: 'dancers' },
@@ -988,6 +1023,8 @@ class VRClubUI extends VRClubAnimationFinish {
             button.inactive = false;
             button.scope = null;
             button.danger = false;
+            button.character = undefined;
+            button.detail = '';
             Object.assign(button, definition);
             this._drawVRQuickMenuButton(button);
         });
@@ -1007,6 +1044,7 @@ class VRClubUI extends VRClubAnimationFinish {
             context.textAlign = 'left';
             context.textBaseline = 'middle';
             const titles = { home: 'VR CLUB', room: 'JOIN ROOM', look: 'RANDOM LOOK', gestures: 'REACT', chat: 'CHAT', crowd: 'WHO IS HERE',
+                me: 'ME', character: 'YOUR CHARACTER',
                 voiceAudience: 'MICROPHONE AUDIENCE', chatAudience: 'CHAT RECIPIENTS', welcome: 'WELCOME', access: 'LINK YOUR ACCOUNT', musicPhone: 'MUSIC FROM YOUR PHONE' };
             // Immersive launch pages draw their own words: the pairing code is the title, so it is read at arm's length.
             const immersiveText = (page === 'welcome' || page === 'access' || page === 'musicPhone') && this._immersive ? this._immersive.pageText(page) : null;
@@ -1022,6 +1060,8 @@ class VRClubUI extends VRClubAnimationFinish {
                 show: 'THE AUTOMATIC SHOW THAT FOLLOWS THE MUSIC',
                 showSections: 'JUMP TO A MOVEMENT AND KEEP IT BY YOUR HOLD RULE',
                 comfort: 'HOW YOU MOVE, WHAT YOU SEE AND FEEL',
+                me: 'YOUR CHARACTER, YOUR HEIGHT AND SITTING',
+                character: 'WHO YOU ARE IN THE RESTROOM MIRROR OFFLINE',
                 crowd: 'SEND THE DANCERS, GUESTS OR DJ HOME',
                 travel: 'POINT AT A PLACE TO JUMP THERE',
                 music: 'CONTROL THE CURRENT TRACK OR CHANGE SOURCE',
@@ -1648,6 +1688,8 @@ class VRClubUI extends VRClubAnimationFinish {
         if (button.action === 'page') {
             // Remember where this page was opened from, so its BACK returns there (REACT is reached from HOME and ONLINE).
             this._vrPageParent = { ...(this._vrPageParent || {}), [button.target]: this._vrQuickMenuPage || 'home' };
+            // The picker opens on the page that holds the current character: women and the default, or men.
+            if (button.target === 'character') this._vrCharacterPage = (this.getLocalCharacter() || '')[0] === 'm' ? 1 : 0;
             this._showVRQuickMenuPage(button.target);
             return;
         }
@@ -1743,11 +1785,15 @@ class VRClubUI extends VRClubAnimationFinish {
             this.setSeatedMode(!this.vrSeatedMode);
             return;
         }
-        if (button.action === 'character') {
+        if (button.action === 'pickCharacter') {
             // Personal and saved: who you are offline, i.e. your reflection in the restroom mirror (and the body's man/woman).
-            const id = this.stepLocalCharacter(button.step);
-            const labels = (window.ClubMultiplayer && window.ClubMultiplayer.AVATAR_LABELS) || {};
-            this.showErrorMessage(`Your character: ${labels[id] || id}`);
+            const id = this.setLocalCharacter(button.character);
+            this.showErrorMessage(id ? `Your character: ${button.label.toLowerCase()}, ${button.detail.toLowerCase()}` : 'Your character: your own body');
+            return;
+        }
+        if (button.action === 'characterPage') {
+            this._vrCharacterPage = this._vrCharacterPage === 1 ? 0 : 1;
+            this._showVRQuickMenuPage('character');
             return;
         }
         if (button.action === 'measureHeight') {
@@ -2221,12 +2267,17 @@ class VRClubUI extends VRClubAnimationFinish {
                 if (this.recordDiagnostic) this.recordDiagnostic('error', `Pointer ${name} failed: ${error.message}`);
             }
         };
+        // Both hands have a live pointer, so a drag (the seek bar, a desk fader or knob) belongs to the pointer that started it:
+        // the other hand's move or release must not steer it or end it. Events without a pointer id (a mouse stub) match anything.
+        const dragging = () => !!((this._vrSeek && this._vrSeek.drag) || this._vjDeskDrag || this._vjDeskSeek);
+        const foreign = evt => this._dragPointer !== undefined && evt && evt.pointerId !== undefined && evt.pointerId !== this._dragPointer;
         this.scene.onPointerDown = (evt, pickResult) => guarded('press', () => {
             if (!pickResult || !pickResult.hit || !pickResult.pickedMesh) return;
             const vrMenuButton = this._vrQuickMenuButtons &&
                 this._vrQuickMenuButtons.find(button => button.mesh === pickResult.pickedMesh);
             if (this._vrSeek && pickResult.pickedMesh === this._vrSeek.mesh) {
                 this._beginVRSeek(pickResult);
+                this._dragPointer = dragging() ? (evt && evt.pointerId) : undefined;
                 return;
             }
             if (vrMenuButton) {
@@ -2236,14 +2287,18 @@ class VRClubUI extends VRClubAnimationFinish {
             if (typeof this._pressStallDoor === 'function' && this._pressStallDoor(pickResult)) return;
             if (this._pressSeat(pickResult)) return;
             if (typeof this.pressVJDesk === 'function') this.pressVJDesk(pickResult);
+            this._dragPointer = dragging() ? (evt && evt.pointerId) : undefined;
         });
 
-        this.scene.onPointerUp = () => guarded('release', () => {
+        this.scene.onPointerUp = evt => guarded('release', () => {
+            if (foreign(evt)) return;
+            this._dragPointer = undefined;
             this._endVRSeek();
             if (typeof this.releaseVJDesk === 'function') this.releaseVJDesk();
         });
 
         this.scene.onPointerMove = (evt, pickResult) => guarded('move', () => {
+            if (foreign(evt)) return;
             this._moveVRSeek(pickResult);
             if (typeof this.dragVJDesk === 'function') this.dragVJDesk(pickResult);
         });

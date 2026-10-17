@@ -2015,7 +2015,7 @@ Checked and found sound (do not re-raise without new evidence):
   **Product value:** Low
   **Technical debt reduction:** Low
 
-- [ ] **The first trigger pull from the inactive hand does not click**
+- [x] **The first trigger pull from the inactive hand does not click** *(fixed: `enablePointerSelectionOnAllControllers`; `vr-session.spec` selects with both hands)*
 
   **Priority:** Medium
   **Category:** UX
