@@ -8,7 +8,7 @@
  *
  * Message protocol (all JSON, one object per frame):
  *   client -> server
- *     { type: 'state', state: {x,y,z,rotY,seated?,floorY?,eh?,hands?} } - eye position/facing, intentional seat state, floorY = the walking surface (kept for standing guests too)
+ *     { type: 'state', state: {x,y,z,rotY,seated?,floorY?,seatH?,eh?,hands?} } - eye position/facing, intentional seat state (seatH = seat height above floorY), floorY = the walking surface (kept for standing guests too)
  *       and the sender's standing eye height (1.1-2.1 m);
  *       hands are eye-relative positions and world forward/up vectors
  *     { type: 'emoji', emoji: '🎉' }                  - one-shot reaction (allow-listed)
@@ -215,6 +215,9 @@ export function sanitizeState(state) {
     if (state.seated === true) {
         result.seated = true;
         result.floorY = coord(state.floorY);
+        // How high the seat is above that floor (a couch or toilet ~0.4, a stool ~0.76), so receivers pick the right posture.
+        const seatH = Number(state.seatH);
+        if (state.seatH != null && Number.isFinite(seatH) && seatH >= 0.1 && seatH <= 1.2) result.seatH = Math.round(seatH * 100) / 100;
     } else if (state.floorY != null && Number.isFinite(Number(state.floorY))) {
         // A standing guest's floor too, so a crouching or seated headset never sinks their person below it.
         result.floorY = coord(state.floorY);

@@ -860,7 +860,10 @@ and fail `npm test`.
   `npm run optimize:avatars -- <file>` (it merges skinned parts that share a skin and material, packs
   `COLOR_0`, `WEIGHTS_0` and `JOINTS_0` into normalized 8-bit accessors, welds the vertex-coloured crowd,
   simplifies non-DJ/non-guest meshes while preserving their vertical extrema, and resamples animation
-  keys; a character remains ~6 draws and a contract test fails above 6). Add every new GLB to `ASSETS.md`. The three
+  keys; a character remains ~6 draws and a contract test fails above 6). **It is idempotent by a ceiling**: a crowd person is
+  simplified (to 50%) only while above 4,500 triangles (9,000 for the other characters), because every unconditional run
+  halved the faces again; a unit test fails if a shipped crowd person is under 2,400 triangles. Never rebuild the crowd with
+  `--optimize` twice from the same files by hand-editing that ceiling away. Add every new GLB to `ASSETS.md`. The three
   Mixamo GLBs are source-only historical assets, excluded from Quest distribution
   (Quaternius's free libraries have ONE dance clip, `Dance_Loop`). The two Quaternius sci-fi prop packs were evaluated and not used:
   chunky pieces (a 1.6 m chair, 2 m desks, 4-6k-vertex crates) that do not fit this club.
@@ -1043,7 +1046,9 @@ and fail `npm test`.
   sip and a swallow, lowers it and sets it down. The runtime bottle rides in her palm, 6 cm up its axis and 3 cm
   toward her midline, and tips toward her lips with `VRClubAudioCrowd.barBottleTilt(phase)`, the same curve
   `scripts/build-crowd-glbs.mjs` uses to wrap her fingers; its resting point is her measured resting palm
-  (`test/rig.test.mjs` fails if they drift). The generic `Seated_Loop` (couch, stools, balcony) stays the upright pose
+  (`test/rig.test.mjs` fails if they drift). The generic `Seated_Loop` (stools, balcony) stays the upright pose
+  (pelvis ~0.88 m, built for 0.76 m seats) and is NOT the bar idle; low seats (couch, toilets, seat height under 0.6 m) use
+  `Seated_Low_Loop` (pelvis on the cushion, hands on the thighs), chosen from `state.seatH`.
   and is NOT the bar idle. `_updateBarPatron()` alternates long idle periods, bartender conversation and an occasional
   drink; the prop is either fixed on the counter or fixed to her hand, never interpolated through open space. The
   bartender gives the mingler's physical service priority and otherwise turns naturally toward the regular while
@@ -1227,7 +1232,9 @@ GLBs instanced once more, and `restroomLight` plus `restroomBackLight` are scope
   height if none) and the node is scaled so that height equals `_shownBodyEye()` with its feet on the floor, so the camera sits
   in its head (a woman's `f*` body is therefore taller than the 1.68 m others see, because your eyes are at 1.7 m). The
   character is ONE mesh, so its head is hidden from your own camera by collapsing the `Head` bone (`_setSelfHead`, scale 0.0001
-  plus a skeleton re-prepare); the mirror's before/after render handlers bring it back for the reflection and collapse it again.
+  plus a skeleton re-prepare) only while the camera is inside it (`headWanted`: hidden under 22 cm, shown beyond 34 cm; a
+  seated camera stands in front of the body, so a seated sitter keeps a head); the mirror's before/after render handlers
+  bring it back for the reflection and restore `headWanted` after.
   `_updateMirrorDouble` backs the body off up to 18 cm (4 cm in a headset) as you look steeply down, hiding the open neck, and
   low-passes its position (30 ms) and heading (100 ms) so headset tremor does not buzz, snapping on a teleport or seat change,
   with idle/walk/run/seated chosen with hysteresis; in a headset the controllers move its arms (`createTrackedArms`). Limits:
@@ -1951,7 +1958,9 @@ protocol only grew, so older clients keep working.
   analyser-driven speaking frame, per-guest mute and mute-all through the gain node, and a **personal-space bubble**
   (a guest hides within 0.7 m and returns beyond 0.95 m). Each remote voice is also attached to
   a muted `<audio>` element, because Chromium delivers no samples from a remote WebRTC
-  stream into Web Audio otherwise. The full `AvatarRig` remains the local player's body.
+  stream into Web Audio otherwise. The full `AvatarRig` remains the local player's body only when there is no character (see "The mirror").
+  `state.seatH` (optional, seat height above `floorY`, 0.1-1.2 m, sent by an intentionally seated guest, needs the relay deployed)
+  picks `Seated_Low_Loop` for a couch or toilet and `Seated_Loop` for a stool; without it every seat uses the stool posture.
   **Live VR arms.** `updateNetworkPresence()` sends optional `state.hands.left/right` at up to
   20 Hz in VR (desktop stays 10 Hz): each has position relative to the eye, plus world forward/up
   vectors from the same `_handPose()` used by the local body. Missing tracking is null.

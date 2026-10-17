@@ -229,6 +229,13 @@ test('a guest\'s standing eye height is relayed only when it is a plausible huma
     assert.equal(join(room).ws.last('welcome').peers.find(p => p.id === a.session.id).state.eh, 1.9, 'late joiners get it too');
 });
 
+test('a seated guest\'s seat height is relayed only when it is a plausible seat', () => {
+    assert.equal(sanitizeState({ x: 0, y: 1.1, z: 0, seated: true, floorY: 0, seatH: 0.404 }).seatH, 0.4);
+    assert.equal(sanitizeState({ x: 0, y: 1.1, z: 0, seated: true, floorY: 0 }).seatH, undefined, 'older clients send none');
+    for (const bad of [0, 5, NaN, Infinity, 'high', {}]) assert.equal(sanitizeState({ x: 0, y: 1.1, z: 0, seated: true, floorY: 0, seatH: bad }).seatH, undefined, `seatH ${String(bad)}`);
+    assert.equal(sanitizeState({ x: 0, y: 1.7, z: 0, seatH: 0.4 }).seatH, undefined, 'a standing guest has no seat');
+});
+
 test('a standing guest\'s floor is relayed too, so a crouching headset is not sunk below it', () => {
     assert.equal(sanitizeState({ x: 0, y: 1.1, z: 0, seated: false, floorY: 2.8 }).floorY, 2.8);
     assert.equal(sanitizeState({ x: 0, y: 1.1, z: 0, seated: false, floorY: 2.8 }).seated, undefined);

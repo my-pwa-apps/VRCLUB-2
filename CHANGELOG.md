@@ -26,6 +26,13 @@ kept in lockstep with `index.html`, `sw.js` and `serviceworker.js` by
 
 ### Fixed
 
+- **The crowd's faces and arms are back.** Rebuilding the crowd's dances ran the avatar optimizer a second time, and it halves every character's triangles on each run (about
+  3,200 down to 800 each), which took the faces and thickened arms in some poses. The people are restored to full detail, the optimizer now only simplifies a character that
+  is still above its target size, and a test fails if a crowd person drops under 2,400 triangles.
+- **Sitting on the couch is a real sit.** Your character (and everyone else's view of you) used the bar-stool posture on the couch: a squat 48 cm above the cushion with
+  arms out in front. Low seats (the couch, the toilets) now have their own seated clip with the pelvis on the cushion, thighs level and hands on the thighs, chosen from the
+  seat height (`seatH`, sent to the relay: **redeploy the relay**; an older relay shows the stool posture). Your own head is also drawn whenever the camera is outside it, so a
+  seated sitter is no longer headless, and the mirror's list is refreshed when your character is rebuilt.
 - **Expanded model credits no longer cover the camera controls on a phone.** The plate grew up over the "Go to" button; on narrow screens it is now a full-width
   sheet above the control row, scrolling inside if the list is long.
 - **The first trigger pull from the idle hand now clicks in VR.** Babylon only gave the "active" controller a pointer, so the other hand's first pull was spent

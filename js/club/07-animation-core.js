@@ -72,6 +72,7 @@ class VRClubAnimationCore extends VRClubEffects {
         state.rotY = seat ? seat.facing : rotY;
         state.seated = !!seat;
         state.floorY = seat ? seat.floorY : (this._walkLevel || 0);
+        state.seatH = seat ? Math.round((seat.seatY - seat.floorY) * 100) / 100 : 0;
         state.hands = null;
         if (this.isInVRMode) {
             const hands = this._networkHands || (this._networkHands = { left: null, right: null });

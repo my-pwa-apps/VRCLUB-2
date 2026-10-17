@@ -189,7 +189,7 @@ class AvatarManager {
         });
 
         // Keep the clips a guest can play; any other would still be evaluated every frame.
-        const wanted = new Set(['Idle', 'Walk', 'Run', 'Wave', 'Yes', 'Dance_Loop', 'Seated_Loop']);
+        const wanted = new Set(['Idle', 'Walk', 'Run', 'Wave', 'Yes', 'Dance_Loop', 'Seated_Loop', 'Seated_Low_Loop']);
         const groups = {};
         for (const group of entry.animationGroups) {
             const clip = group.name.startsWith(prefix) ? group.name.slice(prefix.length) : group.name;
@@ -415,6 +415,7 @@ class AvatarManager {
         this._setEyeHeight(peer, state.eh);
         peer.eyeY = finite(state.y);
         peer.floorY = Number.isFinite(state.floorY) ? state.floorY : null;
+        peer.seatH = Number.isFinite(state.seatH) ? state.seatH : null;
         peer.target.y = peer.target.seated ? finite(state.floorY) : this._rootY(peer);
         peer.target.z = finite(state.z);
         peer.target.rotY = finite(state.rotY);
@@ -810,9 +811,11 @@ class AvatarManager {
 
     _updateClip(peer) {
         const person = peer.person;
-        if (peer.seated && person.groups.Seated_Loop) {
+        if (peer.seated && (person.groups.Seated_Loop || person.groups.Seated_Low_Loop)) {
             peer.gesture.dancing = false;
-            this._play(peer, 'Seated_Loop', true, 1);
+            // A low seat (couch, toilet) has its own posture; an older client or relay sends no height: the stool posture.
+            const low = Number.isFinite(peer.seatH) && peer.seatH < 0.6 && !!person.groups.Seated_Low_Loop;
+            this._play(peer, low ? 'Seated_Low_Loop' : 'Seated_Loop', true, 1);
             return;
         }
         const moving = peer.speed > AvatarManager.WALK_SPEED;

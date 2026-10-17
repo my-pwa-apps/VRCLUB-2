@@ -993,7 +993,7 @@ test('network presence sends both eye-relative controllers only in VR and retain
     club.updateNetworkPresence({ time: 1.12, dt: 1 / 60 });
     assert.equal(samples.length, 2, 'desktop cadence is slower');
     club.updateNetworkPresence({ time: 1.17, dt: 1 / 60 });
-    assert.deepEqual(samples[2], { x: 1, y: 1.7, z: 2, rotY: 0.2, hands: null, seated: false, floorY: 0, eh: 1.7 });
+    assert.deepEqual(samples[2], { x: 1, y: 1.7, z: 2, rotY: 0.2, hands: null, seated: false, floorY: 0, seatH: 0, eh: 1.7 });
 
     club._activeSeat = { x: -11.3, z: -17.55, facing: 0, floorY: 3 };
     club.updateNetworkPresence({ time: 1.28, dt: 1 / 60 });
@@ -3750,7 +3750,7 @@ test('the crowd character files: one skin, one draw, vertex-coloured, only the c
             'Groove_ArmsWide', 'Groove_ArmsUp', 'Groove_Still'];
         const expected = (guests.has(id)
             ? ['Dance_Loop', 'Idle_FoldArms_Loop', 'Idle_Loop', 'Idle_TalkingPhone_Loop', 'Idle_Talking_Loop', 'Yes']
-            : ['Dance_Loop', 'Yes', ...grooves]).concat(natives, id === 'bouncer' ? [] : ['Seated_Loop']).sort();
+            : ['Dance_Loop', 'Yes', ...grooves]).concat(natives, id === 'bouncer' ? [] : ['Seated_Loop', 'Seated_Low_Loop']).sort();
         if (id === 'f7' || id === 'vf6') expected.push('Idle_Railing_Loop');
         if (id === 'f6') expected.push('Seated_Bar_Idle_Loop', 'Seated_Bar_Drink_Loop');
         if (id === 'm6') expected.push('Drink_Loop', 'Smoke_Loop', 'Idle_Railing_Loop');

@@ -727,6 +727,30 @@ const SEATED_IDLE_POSE = {
     }
 };
 
+// A real sit on a LOW seat (the lounge couch and the toilets, cushion 0.40-0.42 m): the pelvis on the cushion, thighs about
+// level, shins down to feet planted on the floor in front, an upright relaxed back and the hands resting on the thighs.
+// `Seated_Loop` above is the stool posture (pelvis ~0.88 m, hands out to a counter); on a couch it left the sitter squatting
+// 48 cm above the cushion with straight arms. The pelvis sits 6 cm BEHIND the head column the seat is placed by.
+const SEATED_LOW_POSE = {
+    name: 'Seated_Low_Loop',
+    beats: 24,
+    pose: b => {
+        const breath = Math.sin(TAU * b / 6);
+        const look = 0.72 * Math.sin(TAU * b / 24) + 0.28 * Math.sin(TAU * b / 9 + 0.7);
+        return {
+            hip: [0, -0.47, -0.13], hipRot: [-0.05, 0.02 * look, 0],
+            spine: [0.02 + 0.012 * breath, 0.04 * look, -0.015 * look],
+            head: [-0.02 + 0.012 * breath, 0.30 * look, 0.025 * Math.sin(TAU * b / 13)],
+            hands: {
+                R: { at: [0.10, -0.40, 0.30 + 0.01 * breath], pole: [0.65, -0.3, -0.4], fingers: [0, -0.35, 1] },
+                L: { at: [-0.10, -0.40, 0.29 + 0.01 * breath], pole: [-0.65, -0.3, -0.4], fingers: [0, -0.35, 1] }
+            },
+            feet: { R: [0.07, 0, 0.40], L: [-0.07, 0, 0.40] },
+            shrug: { R: 0.01 * breath, L: -0.008 * breath }
+        };
+    }
+};
+
 // The regular at the bar sits on the real stool, feet planted, and LEANS ON THE COUNTER: the torso tips forward, the
 // elbows are bent and the forearms rest on the bar, with her right hand beside her bottle. Hand targets are relative to
 // each shoulder in the chest's own frame [right, up, forward], so they tilt with the lean. Both bar clips share this
@@ -1138,6 +1162,7 @@ async function build(person) {
     if (person.drink) results.push(synthesize(tgt, DRINK_POSE, !!person.mirror));
     if (person.smoke) results.push(synthesize(tgt, SMOKE_POSE, !!person.mirror));
     if (person.id !== 'bouncer') results.push(synthesize(tgt, SEATED_IDLE_POSE, !!person.mirror));
+    if (person.id !== 'bouncer') results.push(synthesize(tgt, SEATED_LOW_POSE, !!person.mirror));
     if (person.seated) {
         results.push(synthesize(tgt, SEATED_BAR_IDLE_POSE, !!person.mirror));
         results.push(synthesize(tgt, SEATED_BAR_DRINK_POSE, !!person.mirror));
@@ -1184,6 +1209,7 @@ async function refreshStaticClips() {
         name: `club-crowd-${person.id}.glb`,
         poses: [
             { pose: SEATED_IDLE_POSE, mirror: false },
+            { pose: SEATED_LOW_POSE, mirror: false },
             ...(extras.get(person.id) || []).map(pose => ({ pose, mirror: false })),
             ...(person.guest ? [] : refreshedGrooves.map(pose => ({ pose, mirror: !!person.mirror })))
         ]

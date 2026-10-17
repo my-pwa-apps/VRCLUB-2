@@ -1311,7 +1311,7 @@ const VenueDressing = {
                 const shown = mirrorTex._revealed;
                 for (let i = 0; i < shown.length; i++) if (!shown[i].isDisposed()) shown[i].isVisible = false;
                 shown.length = 0;
-                if (this._mirrorDouble) this._setSelfHead(this._mirrorDouble, false);
+                if (this._mirrorDouble) this._setSelfHead(this._mirrorDouble, !!this._mirrorDouble.headWanted);
             });
             mat.reflectionTexture = mirrorTex;
             this.restroomMirrorTexture = mirrorTex;
@@ -1417,7 +1417,7 @@ const VenueDressing = {
             mesh.isPickable = false;
             mesh.alwaysSelectAsActiveMesh = true;
         });
-        const wanted = new Set(['Idle', 'Walk', 'Run', 'Seated_Loop']);
+        const wanted = new Set(['Idle', 'Walk', 'Run', 'Seated_Loop', 'Seated_Low_Loop']);
         const groups = {};
         for (const group of entry.animationGroups) {
             const clip = group.name.startsWith(prefix) ? group.name.slice(prefix.length) : group.name;
@@ -1430,7 +1430,7 @@ const VenueDressing = {
         const arms = typeof AvatarRig !== 'undefined' ? AvatarRig.createTrackedArms(node, prefix) : null;
         const double = {
             avatarId, entry, root, node, meshes, groups, arms, current: null, speed: 0,
-            eyeRaw, minY, active: true, shown: false,
+            eyeRaw, minY, active: true, shown: false, serial: (this._mirrorDoubleSerial = (this._mirrorDoubleSerial || 0) + 1),
             skeletons: Array.from(new Set(meshes.map(mesh => mesh.skeleton).filter(Boolean))),
             hands: { left: null, right: null }, handBuffers: { left: {}, right: {} },
             prevX: NaN, prevZ: NaN, observer: null,
@@ -1572,7 +1572,9 @@ const VenueDressing = {
         // Hysteresis: a swaying head must not flip the clip between idle and walk.
         const speed = double.speed;
         let gait = double.gait;
-        if (seat && double.groups.Seated_Loop) gait = 'seated';
+        // A low seat (the couch, a toilet) has its own posture; the stool clip would leave the sitter squatting above it.
+        const lowSeat = !!seat && (seat.seatY - seat.floorY) < 0.6 && !!double.groups.Seated_Low_Loop;
+        if (seat && (double.groups.Seated_Loop || lowSeat)) gait = 'seated';
         else {
             if (gait === 'seated') gait = 'idle';
             if (gait === 'run') {
@@ -1584,7 +1586,7 @@ const VenueDressing = {
             else if (speed > 0.45) gait = 'walk';
         }
         double.gait = gait;
-        if (gait === 'seated') this._playMirrorDouble(double, 'Seated_Loop', 1);
+        if (gait === 'seated') this._playMirrorDouble(double, lowSeat ? 'Seated_Low_Loop' : 'Seated_Loop', 1);
         else if (gait === 'run' && double.groups.Run) this._playMirrorDouble(double, 'Run', Math.min(1.5, speed / 4));
         else if (gait !== 'idle' && double.groups.Walk) this._playMirrorDouble(double, 'Walk', Math.min(1.7, Math.max(0.6, speed / 1.4)));
         else this._playMirrorDouble(double, 'Idle', 1);
@@ -1597,6 +1599,16 @@ const VenueDressing = {
             hand.fx = tracked.fx; hand.fy = tracked.fy; hand.fz = tracked.fz;
             hand.ux = tracked.ux; hand.uy = tracked.uy; hand.uz = tracked.uz;
             double.hands[side] = hand;
+        }
+        // The head is hidden only while the camera is inside it. Seated, the camera stands in front of the body (so it cannot
+        // be trapped by the furniture) and a headless sitter would be looking back at you: show it whenever the camera is outside.
+        if (double.head) {
+            const head = double.head.getAbsolutePosition();
+            const away = Math.hypot(head.x - pos.x, head.y - pos.y, head.z - pos.z);
+            if (double.headWanted === undefined) double.headWanted = away > 0.3;
+            else if (double.headWanted && away < 0.22) double.headWanted = false;
+            else if (!double.headWanted && away > 0.34) double.headWanted = true;
+            this._setSelfHead(double, double.headWanted);
         }
     },
 
@@ -1639,7 +1651,8 @@ const VenueDressing = {
         const manager = this.avatarManager;
         let people = 0;
         if (manager && manager.remotes) manager.remotes.forEach(peer => { people += peer.person ? 2 : 1; });
-        const signature = (this._mirrorDouble ? 1 : 0) + 2 * ((this._localRig && this._localRig.meshes) ? this._localRig.meshes.length : 0) + 1000 * people;
+        const signature = (this._mirrorDouble ? 1 : 0) + 2 * ((this._localRig && this._localRig.meshes) ? this._localRig.meshes.length : 0) + 1000 * people
+            + 100000 * (this._mirrorDouble ? this._mirrorDouble.serial : 0);
         if (this._mirrorSignature !== signature) {
             this._mirrorSignature = signature;
             this._syncRestroomMirrorRenderList();
