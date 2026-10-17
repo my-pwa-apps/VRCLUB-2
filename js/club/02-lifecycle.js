@@ -66,7 +66,8 @@ class VRClubLifecycle extends VRClubCore {
             "./textures/environment/empty_warehouse_01_256.env",
             this.scene
         );
-        this.scene.environmentIntensity = 0.4; // Enhanced PBR reflections for hyperrealistic surfaces
+        // One source of truth with applyDesktopSettings(): the desktop value is what the club starts with and returns to after VR.
+        this.scene.environmentIntensity = this.vrSettings.desktop.environmentIntensity;
         
         // Atmospheric fog for depth and haze machine simulation
         // Real clubs have warm-gray smoke machine haze that scatters light beams

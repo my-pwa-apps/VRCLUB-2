@@ -41,9 +41,7 @@ const INTENTIONAL_DIFFERENCES = new Map([
  * Drift that remains on the desktop after a VR visit. Each entry is an open BACKLOG item:
  * when one is fixed this test fails until the entry is removed, so the list can only shrink.
  */
-const KNOWN_DESKTOP_RESTORE_DRIFT = [
-    'environment.environmentIntensity'
-];
+const KNOWN_DESKTOP_RESTORE_DRIFT = [];
 
 const flatten = (value, path = '') => Object.entries(value).flatMap(([key, child]) => {
     const here = path ? `${path}.${key}` : key;

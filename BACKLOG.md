@@ -1986,7 +1986,11 @@ Checked and found sound (do not re-raise without new evidence):
   **Product value:** Medium
   **Technical debt reduction:** Low
 
-- [ ] **Desktop reflections get 50% stronger after a VR visit**
+- [x] **Desktop reflections get 50% stronger after a VR visit**
+
+  **Implemented 2026-10-17.** `vrSettings.desktop.environmentIntensity` is now 0.4, the value the club has always started with, and `init()` reads it
+  instead of repeating a literal, so the desktop value is identical before and after a VR visit. `environment.environmentIntensity` is removed from
+  `KNOWN_DESKTOP_RESTORE_DRIFT` in `test/e2e/vr-parity.spec.mjs`, which is now empty. The desktop look after VR is the one players already knew.
 
   **Rechecked 2026-10-06:** Source still initializes 0.4 and restores 0.6; the isolated
   parity run still reports this field through its exact known-drift assertion.

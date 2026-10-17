@@ -217,7 +217,7 @@ class VRClubCore {
                 glowIntensity: 0.65,
                 hazeAlpha: [0.04, 0.03],
                 ambientIntensity: 0.08,
-                environmentIntensity: 0.6, // Rich PBR reflections for wet/metallic surfaces
+                environmentIntensity: 0.4, // Rich PBR reflections for wet/metallic surfaces (the value the club starts with, and returns to after VR)
                 clearColor: new BABYLON.Color3(0.003, 0.003, 0.008), // Near-black with subtle blue tint
                 grainEnabled: false,
                 chromaticAberrationEnabled: false,

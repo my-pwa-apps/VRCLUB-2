@@ -26,6 +26,8 @@ kept in lockstep with `index.html`, `sw.js` and `serviceworker.js` by
 
 ### Fixed
 
+- **Desktop reflections no longer get 50% stronger after a VR visit.** The club started at 0.4 and returned from VR at 0.6 (two sources of truth); both now read
+  `vrSettings.desktop.environmentIntensity` (0.4, the look players already knew).
 - **The street's lane lines and crosswalks no longer flicker.** The baked road paint lay exactly on the asphalt (both at the same height), so the two depth-fought, worse with
   distance: the kerb line broke into dashes and crosswalk stripes came and went. The paint now has a hardware depth bias. Measured with the show pinned, 1 mm of
   camera movement changed 15.9k pixels of the mid-distance road before and about 1k after (-94%); far view 4.4k -> 0.6k (-87%).
