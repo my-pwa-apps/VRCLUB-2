@@ -180,9 +180,47 @@ function vjDeskCrossfaderTrack(rect) {
 //   canvas  without a controller (a mouse, a touch screen) the knob follows the pointer circling its centre: a pointer
 //           circling clockwise on screen (canvas y is down) turns it up.
 const VJ_KNOB = Object.freeze({
-    start: -Math.PI * 0.75, sweep: Math.PI * 1.5, radius: 36, grab: 78,
+    // 7:30 (off) clockwise to 4:30 (full), like a mixer pot; angles in canvas terms (0 = 3 o'clock, y down).
+    start: Math.PI * 0.75, sweep: Math.PI * 1.5, radius: 36, grab: 78,
     wristGain: 1.5, fine: 0.5, aimTolerance: 0.4
 });
+
+/**
+ * The real, 3D controls standing on the FX page (metres). A knob is a fluted metal cap on a dark collar with a coloured
+ * top and a white pointer; the crossfader is a fader cap that slides in the slot the canvas draws. They are not pickable:
+ * a ray goes through them to the panel behind, so pressing, twisting and sliding use exactly the canvas hit logic.
+ * `ease` is the share of the way a knob closes toward its value each 1/60 s (a reset swings back instead of jumping).
+ */
+const VJ_KNOB3D = Object.freeze({ capR: 0.026, capH: 0.022, collarR: 0.033, collarH: 0.006, ease: 0.3 });
+const VJ_FADER3D = Object.freeze({ w: 0.046, d: 0.03, h: 0.02 });
+
+/**
+ * The only haptics in the club: a short, light tick on the controller that holds a desk control, because a knob or a fader
+ * has no physical resistance of its own. Taking hold, reaching an end stop (a knob at off or full, the fader at cut or full),
+ * passing the fader's centre and a reset are felt; turning or sliding in between is not. Strength 0..1, duration in ms.
+ */
+const VJ_HAPTIC = Object.freeze({
+    grab: Object.freeze({ strength: 0.15, ms: 8 }),
+    stop: Object.freeze({ strength: 0.35, ms: 18 }),
+    centre: Object.freeze({ strength: 0.2, ms: 10 }),
+    reset: Object.freeze({ strength: 0.5, ms: 25 })
+});
+
+/**
+ * Where a ray meets a panel's plane, in the panel's own metres (x along its width, y up its depth), or null when it
+ * points away from or along the plane. `m` is the panel's INVERSE world matrix (a Babylon matrix array, row vectors); the
+ * panel faces -z, so its plane is z = 0 in its own frame. Pure: it lets a held fader keep following the controller's
+ * ray after the ray has left the panel, so a fast slide always lands on the end stop.
+ */
+function vjDeskPlanePoint(m, origin, direction) {
+    const point = v => [v[0] * m[0] + v[1] * m[4] + v[2] * m[8] + m[12], v[0] * m[1] + v[1] * m[5] + v[2] * m[9] + m[13], v[0] * m[2] + v[1] * m[6] + v[2] * m[10] + m[14]];
+    const vector = v => [v[0] * m[0] + v[1] * m[4] + v[2] * m[8], v[0] * m[1] + v[1] * m[5] + v[2] * m[9], v[0] * m[2] + v[1] * m[6] + v[2] * m[10]];
+    const o = point(origin), d = vector(direction);
+    if (Math.abs(d[2]) < 1e-6) return null;
+    const t = -o[2] / d[2];
+    if (!(t > 0)) return null;
+    return { x: o[0] + d[0] * t, y: o[1] + d[1] * t };
+}
 
 /**
  * The signed twist, in radians, between two poses of one controller about its pointing axis: positive when its top
@@ -301,13 +339,128 @@ const VJDesk = {
             housing.isPickable = false;
             housing.freezeWorldMatrix();
         }
-        this._vjDesk = { panels, housing, transportHousing, playerVisible: null, clock: 0, dirty: true };
+        this._vjDesk = { panels, housing, transportHousing, playerVisible: null, clock: 0, dirty: true, controls: null };
         this._vjDeskDrag = null;
         this._vjDeskSeek = null;
         this._vjDeskPressed = null;
         this._vjDeskPlayerPage = 'player';
+        this._createVJDeskControls();
         this._applyVJDeskPlayerVisibility();
         for (const panel of panels) this._drawVJDeskPanel(panel);
+    },
+
+    /** The knobs and the crossfader as real meshes on the FX page (see VJ_KNOB3D). Failure leaves the canvas drawing in charge. */
+    _createVJDeskControls() {
+        const desk = this._vjDesk;
+        const panel = desk && desk.panels.find(item => item.id === 'transport');
+        const B = BABYLON;
+        if (!panel || !B.MeshBuilder.CreateCylinder || !B.MeshBuilder.CreateBox || !B.TransformNode || !B.Color3) return;
+        try {
+            const K = VJ_KNOB3D, F = VJ_FADER3D, scene = this.scene, factory = this.materialFactory;
+            const buttons = vjDeskLayout().transport;
+            const knobButtons = buttons.filter(button => button.kind === 'effect');
+            const fader = buttons.find(button => button.kind === 'crossfader');
+            const lx = px => (px / panel.canvas.width - 0.5) * panel.width;
+            const ly = py => (0.5 - py / panel.canvas.height) * panel.depth;
+            // The panel is a plane facing -z: a control stands out of the glass toward -z. A holder turned -90 degrees about x
+            // lays a cylinder's axis along -z and makes its local +z point up the panel (12 o'clock).
+            const capMat = factory.createPBRMaterial('vjDeskKnobMat', {
+                baseColor: [0.16, 0.17, 0.2], metallic: 0.7, roughness: 0.38, emissiveColor: [0.05, 0.055, 0.065]
+            }, true);
+            const collarMat = factory.createPBRMaterial('vjDeskCollarMat', { baseColor: [0.03, 0.03, 0.035], metallic: 0.9, roughness: 0.3 }, true);
+            const markMat = factory.createStandardMaterial('vjDeskMarkMat', { emissiveColor: [1, 1, 1], disableLighting: true });
+            const nodes = [];
+            const mount = (node, parent) => {
+                node.parent = parent;
+                if (node.isPickable !== undefined) node.isPickable = false;
+                return node;
+            };
+
+            const collars = knobButtons.map(button => {
+                const k = vjDeskKnob(button.rect);
+                const collar = B.MeshBuilder.CreateCylinder(`vjDeskCollar_${button.id}`, { diameter: K.collarR * 2, height: K.collarH, tessellation: 28 }, scene);
+                collar.rotation.x = -Math.PI / 2;
+                collar.position.set(lx(k.x), ly(k.y), -K.collarH / 2);
+                return collar;
+            });
+            const collar = B.Mesh.MergeMeshes(collars, true);
+            collar.name = 'vjDeskKnobCollars';
+            collar.material = collarMat;
+            nodes.push(mount(collar, panel.mesh));
+
+            const knobs = knobButtons.map(button => {
+                const k = vjDeskKnob(button.rect);
+                const holder = new B.TransformNode(`vjDeskKnob_${button.id}`, scene);
+                holder.parent = panel.mesh;
+                holder.position.set(lx(k.x), ly(k.y), -(K.collarH + K.capH / 2));
+                holder.rotation.x = -Math.PI / 2;
+                const cap = mount(B.MeshBuilder.CreateCylinder(`vjDeskKnobCap_${button.id}`, {
+                    diameterTop: K.capR * 2 * 0.88, diameterBottom: K.capR * 2, height: K.capH, tessellation: 24
+                }, scene), holder);
+                cap.material = capMat;
+                const topMat = factory.createStandardMaterial(`vjDeskKnobTop_${button.id}`, { emissiveColor: B.Color3.FromHexString(button.colour), disableLighting: true });
+                const top = mount(B.MeshBuilder.CreateCylinder(`vjDeskKnobTop_${button.id}`, { diameter: K.capR * 2 * 0.7, height: 0.0012, tessellation: 24 }, scene), cap);
+                top.position.y = K.capH / 2 + 0.0006;
+                top.material = topMat;
+                const mark = mount(B.MeshBuilder.CreateBox(`vjDeskKnobMark_${button.id}`, { width: 0.0045, height: 0.0014, depth: K.capR * 0.78 }, scene), cap);
+                mark.position.set(0, K.capH / 2 + 0.0014, K.capR * 0.42);
+                mark.material = markMat;
+                nodes.push(holder);
+                return { id: button.id, effect: button.effect, holder, cap, shown: null };
+            });
+
+            const track = vjDeskCrossfaderTrack(fader.rect);
+            const faderCap = mount(B.MeshBuilder.CreateBox('vjDeskFaderCap', { width: F.w, height: F.d, depth: F.h }, scene), panel.mesh);
+            faderCap.material = capMat;
+            faderCap.position.set(lx(track.left), ly(track.y), -F.h / 2 - 0.0005);
+            const faderMark = mount(B.MeshBuilder.CreateBox('vjDeskFaderMark', { width: 0.003, height: F.d * 0.8, depth: 0.0014 }, scene), faderCap);
+            faderMark.position.z = -F.h / 2 - 0.0007;
+            faderMark.material = markMat;
+            nodes.push(faderCap);
+
+            nodes.forEach(node => node.setEnabled(false));
+            desk.controls = {
+                knobs, nodes, visible: false,
+                fader: { cap: faderCap, left: lx(track.left), right: lx(track.right), shown: null }
+            };
+        } catch (error) {
+            if (typeof log !== 'undefined') log.warn('VJ desk 3D controls unavailable:', error);
+            desk.controls = null;
+        }
+    },
+
+    /**
+     * Per frame: show the real controls only on the FX page (and only while the desk's player is), turn each knob toward its
+     * value (at once while somebody holds it) and put the fader cap where the level says.
+     */
+    _syncVJDeskControls(dt) {
+        const desk = this._vjDesk, controls = desk && desk.controls;
+        if (!controls) return;
+        const visible = !!desk.playerVisible && this._vjDeskPlayerPage === 'fx';
+        if (visible !== controls.visible) {
+            controls.visible = visible;
+            controls.nodes.forEach(node => node.setEnabled(visible));
+            if (visible) desk.dirty = true;
+        }
+        if (!visible) return;
+        const state = this._djEffectsState();
+        const drag = this._vjDeskDrag;
+        const k = 1 - Math.pow(1 - VJ_KNOB3D.ease, Math.max(0, Math.min(0.1, dt || 1 / 60)) * 60);
+        for (const knob of controls.knobs) {
+            const target = state[knob.effect] || 0;
+            const held = !!(drag && drag.knob && drag.button.id === knob.id);
+            let shown = knob.shown === null ? target : held ? target : knob.shown + (target - knob.shown) * k;
+            if (Math.abs(shown - target) < 0.0005) shown = target;
+            if (shown !== knob.shown) {
+                knob.shown = shown;
+                knob.cap.rotation.y = -VJ_KNOB.sweep / 2 + shown * VJ_KNOB.sweep;
+            }
+        }
+        const level = Math.min(1, Math.max(0, state.channel === undefined ? 1 : state.channel));
+        if (level !== controls.fader.shown) {
+            controls.fader.shown = level;
+            controls.fader.cap.position.x = controls.fader.left + level * (controls.fader.right - controls.fader.left);
+        }
     },
 
     /** The panel and button under a pick, and the hit in canvas pixels; null when the pick is not on the desk. */
@@ -353,13 +506,14 @@ const VJDesk = {
         const button = hit.button;
         this._vjDeskPressed = { id: button.id, until: performance.now() + VJ_DESK.pressMs };
         if (button.kind === 'fader') {
-            if (this._vjDeskSetFader(button, hit.x)) this._vjDeskDrag = { panel: hit.panel, button };
+            if (this._vjDeskSetFader(button, hit.x)) this._vjDeskLockSlider({ panel: hit.panel, button }, pickResult);
         } else if (button.kind === 'crossfader') {
-            if (this._vjDeskSetCrossfader(button, hit.x)) this._vjDeskDrag = { panel: hit.panel, button };
+            const aimed = this._vjDeskControllerAt(pickResult && pickResult.pickedPoint);
+            if (this._vjDeskSetCrossfader(button, hit.x, aimed && aimed.controller)) this._vjDeskLockSlider({ panel: hit.panel, button }, pickResult, aimed);
         } else if (button.kind === 'effect') {
             this._vjDeskGrabKnob(button, hit, pickResult);
         } else if (button.kind === 'seek') {
-            if (this._vjDeskSetSeekPreview(button, hit.x)) this._vjDeskDrag = { panel: hit.panel, button };
+            if (this._vjDeskSetSeekPreview(button, hit.x)) this._vjDeskLockSlider({ panel: hit.panel, button }, pickResult);
         } else {
             this._runVJDeskButton(button);
         }
@@ -367,10 +521,56 @@ const VJDesk = {
         return true;
     },
 
+    /**
+     * Start a slider drag. A controller that grabs a slider stays locked to it until the trigger is let go: while it is held
+     * the fader follows the controller's ray on the panel's plane, on or off the panel (`ray`), so sweeping past the edge
+     * of the glass lands on the end stop instead of stopping short. A mouse follows pointer moves over the panel.
+     */
+    _vjDeskLockSlider(drag, pickResult, aimed) {
+        const found = aimed === undefined ? this._vjDeskControllerAt(pickResult && pickResult.pickedPoint) : aimed;
+        if (found) {
+            drag.ray = { controller: found.controller, node: found.node };
+            this._vjDeskHaptic(found.controller, 'grab');
+        }
+        this._vjDeskDrag = drag;
+    },
+
+    /** Per frame while a controller holds a slider: set it from where the ray meets the panel's plane. */
+    _vjDeskFollowRay() {
+        const drag = this._vjDeskDrag, node = drag && drag.ray && drag.ray.node;
+        if (!node || typeof node.getAbsolutePosition !== 'function') return false;
+        const inverse = drag.panel.mesh.getWorldMatrix().clone().invert();
+        const o = node.getAbsolutePosition(), d = node.getDirection(BABYLON.Axis.Z);
+        const local = vjDeskPlanePoint(inverse.m, [o.x, o.y, o.z], [d.x, d.y, d.z]);
+        if (!local) return false;
+        const x = (local.x / drag.panel.width + 0.5) * drag.panel.canvas.width;
+        if (drag.button.kind === 'seek') this._vjDeskSetSeekPreview(drag.button, x);
+        else if (drag.button.kind === 'crossfader') this._vjDeskSetCrossfader(drag.button, x, drag.ray.controller);
+        else this._vjDeskSetFader(drag.button, x);
+        return true;
+    },
+
+    /** A short light tick on this controller (see VJ_HAPTIC). A mouse, or a controller with no actuator, feels nothing. */
+    _vjDeskHaptic(controller, kind) {
+        const profile = VJ_HAPTIC[kind], motion = controller && controller.motionController;
+        if (!profile || !motion || typeof motion.pulse !== 'function') return;
+        try {
+            const result = motion.pulse(profile.strength, profile.ms);
+            if (result && typeof result.catch === 'function') result.catch(() => {});
+        } catch (_) { /* no actuator on this controller */ }
+    },
+
+    /** The end stops and the centre detent: tick when a value reaches an end or crosses the middle. */
+    _vjDeskFeel(controller, before, after, centre = false) {
+        if (!controller || before === after) return;
+        if ((after <= 0 && before > 0) || (after >= 1 && before < 1)) this._vjDeskHaptic(controller, 'stop');
+        else if (centre && (before - 0.5) * (after - 0.5) < 0) this._vjDeskHaptic(controller, 'centre');
+    },
+
     /** Pointer move: a fader or seek preview follows the pointer for as long as it stays on its panel. */
     dragVJDesk(pickResult) {
         const drag = this._vjDeskDrag;
-        if (!drag) return;
+        if (!drag || drag.ray) return;
         const hit = this._vjDeskHit(pickResult);
         if (!hit || hit.panel !== drag.panel) return;
         if (drag.button.kind === 'seek') this._vjDeskSetSeekPreview(drag.button, hit.x);
@@ -428,13 +628,16 @@ const VJDesk = {
      * (the audio graph smooths it over ~25 ms, so a fast slide is a clean cut or swell, never a click). The last few percent
      * at each end snap to fully cut and fully open, like a real fader's end stops. Returns false when it cannot be used.
      */
-    _vjDeskSetCrossfader(button, x) {
+    _vjDeskSetCrossfader(button, x, controller = null) {
         if (this._vjDeskEffectBlocked()) return false;
         const track = vjDeskCrossfaderTrack(button.rect);
         let f = Math.min(1, Math.max(0, (x - track.left) / (track.right - track.left)));
         const snap = VJ_CROSSFADER.endSnap;
         if (f < snap) f = 0; else if (f > 1 - snap) f = 1;
-        return this.setDJEffect('channel', f);
+        const before = this._djEffectsState().channel;
+        const ok = this.setDJEffect('channel', f);
+        if (ok) this._vjDeskFeel(controller, before, f, true);
+        return ok;
     },
 
     /** CLEAR FX: every knob back to off and the music unmuted, smoothly. */
@@ -442,6 +645,41 @@ const VJDesk = {
         if (this._vjDeskEffectBlocked() || !this.guardHostControl('music')) return false;
         this.resetDJEffects();
         if (this._vjDesk) this._vjDesk.dirty = true;
+        return true;
+    },
+
+    /**
+     * The quick default of a real mixer: a knob goes back to off, the crossfader to full. Returns true when the press was
+     * about a desk control (even if it could not be changed right now), so the caller does not also use it for something else.
+     */
+    _vjDeskResetControl(button) {
+        if (!button || (button.kind !== 'effect' && button.kind !== 'crossfader')) return false;
+        if (this._vjDeskEffectBlocked()) return true;
+        if (!this.setDJEffect(button.effect, button.kind === 'crossfader' ? 1 : 0)) return true;
+        const drag = this._vjDeskDrag;
+        if (drag && drag.button.id === button.id) drag.value = 0;
+        if (this._vjDesk) this._vjDesk.dirty = true;
+        return true;
+    },
+
+    /** A mouse right-click on the desk: reset the knob or crossfader under it. */
+    resetVJDeskAt(pickResult) {
+        const hit = this._vjDeskHit(pickResult);
+        return !!(hit && this._vjDeskResetControl(hit.button));
+    },
+
+    /** A / X on a controller whose ray is on a knob or the crossfader: reset it. False when the ray is elsewhere (then A / X jumps). */
+    resetVJDeskFromController(motionController) {
+        const desk = this._vjDesk;
+        const panel = desk && desk.panels.find(item => item.id === 'transport');
+        if (!panel || !panel.mesh.isEnabled() || (this._vjDeskPlayerPage || 'player') !== 'fx') return false;
+        const controller = (this._xrControllers || []).find(item => item.motionController === motionController);
+        const node = controller && controller.pointer;
+        if (!node || typeof node.getAbsolutePosition !== 'function') return false;
+        const ray = new BABYLON.Ray(node.getAbsolutePosition().clone(), node.getDirection(BABYLON.Axis.Z).clone(), 4);
+        const pick = this.scene.pickWithRay(ray, mesh => mesh === panel.mesh);
+        if (!(pick && pick.hit && this.resetVJDeskAt(pick))) return false;
+        this._vjDeskHaptic(controller, 'reset');
         return true;
     },
 
@@ -491,6 +729,7 @@ const VJDesk = {
             pose: aimed ? vjDeskAxes(aimed.node) : null,
             last: distance > 8 ? Math.atan2(dy, dx) : null
         };
+        if (aimed) this._vjDeskHaptic(aimed.controller, 'grab');
         return true;
     },
 
@@ -503,10 +742,14 @@ const VJDesk = {
         drag.pose = now;
         if (!twist) return false;
         const gain = VJ_KNOB.wristGain * (this._vjDeskGripHeld(drag.controller) ? VJ_KNOB.fine : 1);
+        const before = this._djEffectsState()[drag.button.effect] || 0;
         drag.value = Math.min(1, Math.max(0, drag.value + twist * gain / VJ_KNOB.sweep));
         if (Math.abs(twist) > 0.004) drag.moved = true;
         // A soft detent at zero, where a mixer's pot clicks into "off".
-        return this.setDJEffect(drag.button.effect, drag.value < 0.02 ? 0 : drag.value);
+        const after = drag.value < 0.02 ? 0 : drag.value;
+        const ok = this.setDJEffect(drag.button.effect, after);
+        if (ok) this._vjDeskFeel(drag.controller, before, after);
+        return ok;
     },
 
     /** A mouse or touch: the knob follows the pointer circling its centre. */
@@ -652,6 +895,8 @@ const VJDesk = {
         this._applyVJDeskPlayerVisibility();
         // A knob held by a controller follows its wrist every frame, even when the ray itself barely moves.
         if (this._vjDeskDrag && this._vjDeskDrag.controller && this._vjDeskTwistKnob()) desk.dirty = true;
+        if (this._vjDeskDrag && this._vjDeskDrag.ray && this._vjDeskFollowRay()) desk.dirty = true;
+        this._syncVJDeskControls(ctx && ctx.dt);
         const now = performance.now();
         if (this.vjManualMode && this._operatorAtVJDesk()) this.lastVJInteraction = now / 1000;
         if (this._vjDeskPressed && now > this._vjDeskPressed.until) {
@@ -719,7 +964,7 @@ const VJDesk = {
                 const level = Math.round((this._djEffectsState().channel || 0) * 100);
                 return { tone: 'music', title: 'DJ EFFECTS', detail: `CROSSFADER ${level}%` };
             }
-            return { tone: 'music', title: 'DJ EFFECTS', detail: 'TRIGGER ON A KNOB, THEN TWIST YOUR WRIST • SLIDE THE XFADE TO CUT THE MUSIC' };
+            return { tone: 'music', title: 'DJ EFFECTS', detail: this.isInVRMode ? 'TRIGGER + TWIST A KNOB • A / X ON ONE RESETS IT' : 'DRAG ROUND A KNOB • RIGHT-CLICK ONE TO RESET IT' };
         }
         const info = this.getPlaybackInfo();
         const loaded = !!(this._audioKind || (this.audioElement && this.audioElement.src));
@@ -1031,7 +1276,9 @@ const VJDesk = {
                 ctx.arc(k.x, k.y, k.r + 11, a0, a1);
                 ctx.stroke();
             }
-            // The knob: a fluted rim, a darker cap and a pointer that is easy to read from across the table.
+            const has3D = !!(this._vjDesk && this._vjDesk.controls);
+            // Without 3D meshes the knob is drawn too: a fluted rim, a darker cap and a pointer.
+            if (!has3D) {
             ctx.beginPath();
             ctx.arc(k.x, k.y, k.r, 0, Math.PI * 2);
             ctx.fillStyle = state.disabled ? '#1c2029' : '#343e52';
@@ -1058,6 +1305,7 @@ const VJDesk = {
             ctx.moveTo(k.x + Math.cos(a1) * 6, k.y + Math.sin(a1) * 6);
             ctx.lineTo(k.x + Math.cos(a1) * (k.r - 6), k.y + Math.sin(a1) * (k.r - 6));
             ctx.stroke();
+            }
             ctx.lineCap = 'butt';
             if (state.disabled) {
                 // The reason it cannot be used goes under the name, small.
@@ -1106,7 +1354,8 @@ const VJDesk = {
                 ctx.fillStyle = colour;
                 ctx.fill();
             }
-            // The cap: a wide fader knob with a centre line, white while it is held.
+            if (!(this._vjDesk && this._vjDesk.controls)) {
+            // The cap (a real mesh when 3D controls exist): a wide fader knob with a centre line, white while it is held.
             deskRoundRect(ctx, cap - capW / 2, track.y - capH / 2, capW, capH, 7);
             ctx.fillStyle = state.grabbed ? '#ffffff' : '#dfe5f0';
             ctx.fill();
@@ -1115,6 +1364,7 @@ const VJDesk = {
             ctx.stroke();
             ctx.fillStyle = '#10131a';
             ctx.fillRect(cap - 2, track.y - capH / 2 + 5, 4, capH - 10);
+            }
             // The setting, only while it is not at full: FULL is the normal state and needs no word.
             if (level < 0.999) {
                 ctx.textAlign = 'left';
@@ -1196,5 +1446,9 @@ window.VJDeskLayout = Object.freeze({
     seekTrack: vjDeskSeekTrack,
     knob: vjDeskKnob,
     knobSpec: VJ_KNOB,
-    wristTwist: vjDeskWristTwist
+    knob3D: VJ_KNOB3D,
+    fader3D: VJ_FADER3D,
+    wristTwist: vjDeskWristTwist,
+    planePoint: vjDeskPlanePoint,
+    haptic: VJ_HAPTIC
 });

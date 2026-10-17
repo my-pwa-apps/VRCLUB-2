@@ -42,6 +42,12 @@ kept in lockstep with `index.html`, `sw.js` and `serviceworker.js` by
 
 ### Changed
 
+- **The FX page's knobs and crossfader are real 3D controls.** Five knobs (a fluted metal cap with a coloured top and a white pointer, turning from 7:30 to 4:30 like a
+  mixer pot) and the crossfader's cap now stand on the panel. They are not in the way of a ray, so twisting and sliding work exactly as before.
+  **A / X with the ray on a knob or the crossfader resets it** (a knob to off, the crossfader to full; anywhere else A / X still jumps), and a right-click does the same
+  on desktop. A held fader is now locked to the controller that grabbed it: sweep past the edge of the panel and it still lands on the end stop; let go of the
+  trigger to unlock. The desk now gives light haptic ticks on the controller that holds a control (taking hold, the end stops, the fader's centre, a reset); that is
+  the only vibration in the club.
 - **The crowd dances more like people.** The dancers' bodies now follow the hips with a small delay (the chest, then the head, then the hands), the bounce falls into
   the beat and lets go of it slowly instead of following a cosine, and the longer moves are phrases: Bounce, Side tap and Pump are eight beats (the weight and head wander,
   the bar line is pressed harder, the side tap starts on the other foot in the second bar and the pump changes fists between two beats, with a bent elbow), Twist is four.

@@ -5473,7 +5473,7 @@ test('VR jump arc is identical at 72 and 120 Hz and lands at the player\'s own e
     assert.equal(at72.gravity, false, 'landing must not re-enable camera gravity (it fights the walking-surface follow)');
 });
 
-test('haptics are gone: no option, no preference, no controller vibration code', () => {
+test('haptics are desk-only: no option, no preference, no bass or menu vibration, one light tick API on the VJ desk', () => {
     const { window } = loadClassic('js/club/10-ui.js', { VRClubAnimationFinish: class {} });
     assert.equal(window.VRClubUI.prototype.pulseHaptic, undefined, 'menu feedback pulses were removed with the option');
     const html = readFileSync(join(ROOT, 'index.html'), 'utf8');
@@ -5481,6 +5481,11 @@ test('haptics are gone: no option, no preference, no controller vibration code',
     for (const file of ['js/club/01-core.js', 'js/club/07-animation-core.js', 'js/club/10-ui.js', 'js/club/11-audio-crowd.js', 'js/ui-init.js', 'js/vjDesk.js']) {
         assert.doesNotMatch(readFileSync(join(ROOT, file), 'utf8'), /bassHaptics|pulseHaptic|hapticActuators|vibrationActuator|vrclub\.bassHaptics/, file);
     }
+    // The only controller vibration in the club is the desk's own tick, through the motion controller's pulse().
+    for (const file of ['js/club/01-core.js', 'js/club/02-lifecycle.js', 'js/club/07-animation-core.js', 'js/club/10-ui.js', 'js/club/11-audio-crowd.js', 'js/ui-init.js']) {
+        assert.doesNotMatch(readFileSync(join(ROOT, file), 'utf8'), /\.pulse\(/, `${file} must not vibrate a controller`);
+    }
+    assert.match(readFileSync(join(ROOT, 'js/vjDesk.js'), 'utf8'), /motion\.pulse\(/);
     const club = Object.create(window.VRClubUI.prototype);
     club.multiplayer = null;
     club._multiplayer = () => null;
@@ -9969,6 +9974,150 @@ test('the XFADE crossfader slides the PA level with a short throw, snaps at its 
     club.multiplayer = { following: true, hostName: () => 'Bo' };
     assert.equal(club._vjDeskDisabledReason(fader), 'HOST ONLY');
     assert.equal(club._vjDeskClearEffects(), false, 'a guest must not clear the host\'s effects');
+});
+
+test('a held desk control is felt on the controller that holds it: light ticks at the stops, the fader centre and a reset, never in between', () => {
+    const { club, calls, people, button, VJDeskLayout } = deskHarness();
+    people.dj = false;
+    club._vjDesk = { panels: [], dirty: false };
+    const pulses = [];
+    const controller = { motionController: { pulse: (strength, ms) => { pulses.push([strength, ms]); return Promise.resolve(true); } } };
+    const profile = VJDeskLayout.haptic;
+    // A crossfader slide: the ends and the middle tick, the stretches between do not.
+    const fader = button('crossfader');
+    const track = VJDeskLayout.crossfaderTrack(fader.rect);
+    const at = f => track.left + f * (track.right - track.left);
+    club._djEffects.channel = 1;
+    for (const f of [0.9, 0.8, 0.7, 0.6]) club._vjDeskSetCrossfader(fader, at(f), controller);
+    assert.deepEqual(pulses, [], 'sliding between the stops is silent');
+    club._vjDeskSetCrossfader(fader, at(0.4), controller);
+    assert.deepEqual(pulses, [[profile.centre.strength, profile.centre.ms]], 'passing the middle ticks once');
+    club._vjDeskSetCrossfader(fader, at(0.2), controller);
+    club._vjDeskSetCrossfader(fader, at(0), controller);
+    assert.deepEqual(pulses.at(-1), [profile.stop.strength, profile.stop.ms], 'reaching cut is the end stop');
+    const afterStop = pulses.length;
+    club._vjDeskSetCrossfader(fader, at(0), controller);
+    assert.equal(pulses.length, afterStop, 'resting on the stop does not buzz');
+    club._vjDeskSetCrossfader(fader, at(1), controller);
+    assert.deepEqual(pulses.at(-1), [profile.stop.strength, profile.stop.ms], 'and full is the other stop');
+    // A mouse or a controller with no actuator feels nothing and breaks nothing.
+    const before = pulses.length;
+    club._vjDeskSetCrossfader(fader, at(0), null);
+    club._vjDeskSetCrossfader(fader, at(1), { motionController: {} });
+    club._vjDeskSetCrossfader(fader, at(0), { motionController: { pulse() { throw new Error('no actuator'); } } });
+    assert.equal(pulses.length, before);
+    // A knob twisted to off or to full ticks; taking hold and a reset have their own ticks.
+    club._djEffects.echo = 0.5;
+    const knob = { controller, node: {}, pose: null, button: button('echo'), value: 0.5 };
+    pulses.length = 0;
+    club._vjDeskDrag = knob;
+    club._vjDeskFeel(controller, 0.5, 0.1);
+    assert.deepEqual(pulses, [], 'turning a knob between its stops is silent');
+    club._vjDeskFeel(controller, 0.1, 0);
+    club._vjDeskFeel(controller, 0.9, 1);
+    assert.deepEqual(pulses, [[profile.stop.strength, profile.stop.ms], [profile.stop.strength, profile.stop.ms]]);
+    club._vjDeskHaptic(controller, 'grab');
+    club._vjDeskHaptic(controller, 'reset');
+    assert.deepEqual(pulses.slice(2), [[profile.grab.strength, profile.grab.ms], [profile.reset.strength, profile.reset.ms]]);
+    for (const kind of Object.values(profile)) assert.ok(kind.strength <= 0.5 && kind.ms <= 25, 'desk ticks stay light and short');
+    assert.ok(calls.length > 0);
+});
+
+test('a slider held by a controller follows the ray on the panel plane, even past the edge of the glass', () => {
+    const { VJDeskLayout } = deskHarness();
+    const identity = [1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1];
+    // A ray from 1 m in front of the panel (it faces -z, so the viewer is at z -1) pointing straight at it.
+    assert.equal(JSON.stringify(VJDeskLayout.planePoint(identity, [0.2, 0.05, -1], [0, 0, 1])), JSON.stringify({ x: 0.2, y: 0.05 }));
+    // Tilted sideways it lands further along the plane, past the panel's 0.5 m half-width.
+    const wide = VJDeskLayout.planePoint(identity, [0, 0, -1], [0.8, 0, 0.6]);
+    assert.ok(Math.abs(wide.x - 1.3333333) < 1e-6 && Math.abs(wide.y) < 1e-9);
+    // Behind it, or along it, there is no hit.
+    assert.equal(VJDeskLayout.planePoint(identity, [0, 0, 1], [0, 0, 1]), null);
+    assert.equal(VJDeskLayout.planePoint(identity, [0, 0, -1], [1, 0, 0]), null);
+    // The panel's own transform is honoured: moved 0.3 m along x, the same ray is 0.3 m off.
+    const moved = [1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, -0.3, 0, 0, 1];
+    assert.ok(Math.abs(VJDeskLayout.planePoint(moved, [0.2, 0, -1], [0, 0, 1]).x + 0.1) < 1e-9);
+});
+
+test('A / X or a right-click puts a knob back to off and the crossfader to full, and is consumed even when it cannot act', () => {
+    const { club, calls, people, button } = deskHarness();
+    people.dj = false;
+    club._vjDesk = { panels: [], dirty: false };
+    club._djEffects.echo = 0.7; club._djEffects.channel = 0.2;
+    assert.equal(club._vjDeskResetControl(button('echo')), true);
+    assert.equal(calls.at(-1), 'effect echo 0', 'a knob defaults to off');
+    assert.equal(club._vjDeskResetControl(button('crossfader')), true);
+    assert.equal(calls.at(-1), 'effect channel 1', 'the crossfader defaults to full');
+    assert.equal(club._vjDeskResetControl(button('clearFx')), false, 'only a knob or the crossfader has a default gesture');
+    assert.equal(club._vjDeskResetControl(null), false);
+    // A knob that is held while it is reset keeps turning from zero, not from where it was.
+    club._vjDeskDrag = { button: button('echo'), value: 0.6, knob: true };
+    club._vjDeskResetControl(button('echo'));
+    assert.equal(club._vjDeskDrag.value, 0);
+    // Blocked (the DJ is at the decks): the press is still about the desk, so it does not jump, and nothing changes.
+    people.dj = true;
+    calls.length = 0;
+    assert.equal(club._vjDeskResetControl(button('echo')), true);
+    assert.deepEqual(calls, []);
+    // The mouse path goes through the same hit test as a press.
+    people.dj = false;
+    club._vjDeskHit = () => ({ button: button('echo') });
+    assert.equal(club.resetVJDeskAt({}), true);
+    assert.equal(calls.at(-1), 'effect echo 0');
+    club._vjDeskHit = () => ({ button: null });
+    assert.equal(club.resetVJDeskAt({}), false, 'a right-click off the controls is not ours');
+    // A controller does nothing on the player page (so A / X still jumps), and nothing without a desk.
+    club._vjDesk = { panels: [{ id: 'transport', mesh: { isEnabled: () => true } }], dirty: false };
+    club._vjDeskPlayerPage = 'player';
+    assert.equal(club.resetVJDeskFromController({}), false);
+    club._vjDeskPlayerPage = 'fx';
+    club._xrControllers = [];
+    assert.equal(club.resetVJDeskFromController({}), false, 'no controller, no ray');
+    // The jump binding asks the desk first, and a held A / X is consumed once so it cannot jump on a later event.
+    const source = readFileSync(join(ROOT, 'js/club/02-lifecycle.js'), 'utf8');
+    assert.ok(source.indexOf('resetVJDeskFromController(motionController)') > 0
+        && source.indexOf('resetVJDeskFromController(motionController)') < source.indexOf('this._startVRJump(xrCamera)'), 'A / X must try the desk reset before jumping');
+});
+
+test('the real 3D knobs follow their values (the sweep is 7:30 to 4:30), ease back after a reset, and only show on the FX page', () => {
+    const { club, button, VJDeskLayout } = deskHarness();
+    const node = () => ({ enabled: null, setEnabled(v) { this.enabled = v; } });
+    const knob = id => ({ id, effect: id, cap: { rotation: { y: 0 } }, shown: null });
+    const echo = knob('echo');
+    const fader = { cap: { position: { x: 0 } }, left: -0.1, right: 0.1, shown: null };
+    const a = node(), b = node();
+    const desk = { controls: { knobs: [echo], nodes: [a, b], visible: null, fader }, playerVisible: true, dirty: false };
+    club._vjDesk = desk;
+    club._vjDeskDrag = null;
+    club._vjDeskPlayerPage = 'player';
+    club._djEffects.echo = 1; club._djEffects.channel = 0.5;
+    club._syncVJDeskControls(1 / 60);
+    assert.equal(a.enabled, false, 'the controls stay hidden on the player page');
+    club._vjDeskPlayerPage = 'fx';
+    club._syncVJDeskControls(1 / 60);
+    assert.deepEqual([a.enabled, b.enabled], [true, true]);
+    assert.ok(Math.abs(echo.cap.rotation.y - 0.75 * Math.PI) < 1e-9, 'full is 4:30: 135 degrees clockwise of 12 o\'clock');
+    assert.ok(Math.abs(fader.cap.position.x) < 1e-9, 'half-way is the middle of the throw');
+    club._djEffects.channel = 1;
+    club._syncVJDeskControls(1 / 60);
+    assert.ok(Math.abs(fader.cap.position.x - 0.1) < 1e-9, 'the fader cap is at the end of its throw at full');
+    // A reset swings back over a few frames instead of jumping, and arrives exactly.
+    club._djEffects.echo = 0;
+    club._syncVJDeskControls(1 / 60);
+    assert.ok(echo.cap.rotation.y < 0.75 * Math.PI && echo.cap.rotation.y > -0.75 * Math.PI, 'it is part way after one frame');
+    for (let i = 0; i < 120; i++) club._syncVJDeskControls(1 / 60);
+    assert.ok(Math.abs(echo.cap.rotation.y + 0.75 * Math.PI) < 1e-9, 'off is 7:30');
+    // A knob somebody holds follows their hand at once.
+    club._djEffects.echo = 0.5;
+    club._vjDeskDrag = { button: button('echo'), knob: true };
+    club._syncVJDeskControls(1 / 60);
+    assert.ok(Math.abs(echo.cap.rotation.y) < 1e-9, 'half-way points at 12 o\'clock, immediately');
+    // Leaving the page hides everything again; frame hitches cannot jump the easing.
+    club._vjDeskDrag = null;
+    club._vjDeskPlayerPage = 'player';
+    club._syncVJDeskControls(1 / 60);
+    assert.deepEqual([a.enabled, b.enabled], [false, false]);
+    assert.ok(VJDeskLayout.knob3D.capR * 2 > 0.04 && VJDeskLayout.knob3D.capR * 2 < 0.07, 'a mixer knob is a few centimetres across');
 });
 
 test('the VJ desk set player switches to compact effects and resets to PLAYER when the DJ returns', () => {

@@ -2273,6 +2273,8 @@ class VRClubUI extends VRClubAnimationFinish {
         const foreign = evt => this._dragPointer !== undefined && evt && evt.pointerId !== undefined && evt.pointerId !== this._dragPointer;
         this.scene.onPointerDown = (evt, pickResult) => guarded('press', () => {
             if (!pickResult || !pickResult.hit || !pickResult.pickedMesh) return;
+            // A right-click puts a desk knob or the crossfader back to its default (a controller uses A / X, see the bindings).
+            if (evt && evt.button === 2 && typeof this.resetVJDeskAt === 'function' && this.resetVJDeskAt(pickResult)) return;
             const vrMenuButton = this._vrQuickMenuButtons &&
                 this._vrQuickMenuButtons.find(button => button.mesh === pickResult.pickedMesh);
             if (this._vrSeek && pickResult.pickedMesh === this._vrSeek.mesh) {

@@ -730,7 +730,8 @@ class VRClubLifecycle extends VRClubCore {
             });
         }
 
-        // 3. JUMP FEATURE: Press A (Right) or X (Left) to jump
+        // 3. JUMP FEATURE: Press A (Right) or X (Left) to jump. With the ray on a desk knob or the crossfader the same press
+        // resets that control instead (the quick default of a real mixer) and never jumps.
         // Lazy-init the per-frame physics observer ONCE per VRClub instance
         // (previous bug: a new observer was added every first jump and never removed,
         // accumulating across XR sessions and continuing to raycast every frame.)
@@ -750,6 +751,13 @@ class VRClubLifecycle extends VRClubCore {
             const btn = motionController.getComponent(id);
             if (btn) {
                 btn.onButtonStateChangedObservable.add((c) => {
+                    if (!c.pressed) { c._vrclubDeskConsumed = false; return; }
+                    if (c._vrclubDeskConsumed) return;
+                    if (c.changes && c.changes.pressed && typeof this.resetVJDeskFromController === 'function'
+                        && this.resetVJDeskFromController(motionController)) {
+                        c._vrclubDeskConsumed = true;
+                        return;
+                    }
                     if (c.pressed && !this.vrComfortMode && !this.jumpState.active) {
                         log.info('🦘 VR Jump activated');
                         this._startVRJump(xrCamera);

@@ -1640,8 +1640,12 @@ into a `DynamicTexture` (`_drawVRQuickMenuBack`, 632 px a metre, alpha from the 
 last button row, not an opaque slab with dead space; the second line of a button (ON/OFF, the current value) is 40 px
 and the page subtitle 36 px, shrinking to fit, because the old 30-32 px text was about one degree tall in a headset.
 Buttons that leave the immersive session (ADD MUSIC, CREDITS / LICENCES) say `LEAVES VR` before they are pressed.
-**There is no haptics feature:** the controllers never vibrate (no bass rumble, no menu or desk feedback pulse), and
-`vrclub.bassHaptics` is no longer read or written. These preference and
+**Haptics exist only on the VJ desk.** The controllers never vibrate for bass, menus or anything else (`vrclub.bassHaptics` is
+gone, and a test fails if a controller is pulsed outside `js/vjDesk.js`); the one exception is a short, light tick on the
+controller that holds a desk knob or fader (`VJ_HAPTIC`, through the motion controller's `pulse()`, on by default, no switch):
+taking hold (0.15 for 8 ms), reaching an end stop (0.35 / 18 ms), passing the crossfader's centre (0.2 / 10 ms) and a reset
+(0.5 / 25 ms). A knob or fader has no resistance of its own, and nothing in between is felt. A mouse or a controller with no
+actuator feels nothing. Unmeasured on a headset. These preference and
 travel actions must not force VJ manual mode.
 
 **Fast social wheel.** In a room, clicking the right thumbstick opens a world-locked wheel for Chat,
@@ -1703,9 +1707,25 @@ controller ray therefore use the same path (`pressVJDesk` / `dragVJDesk` / `rele
     fine control (`VJ_KNOB.fine`), matching Tribe XR's documented "low sensitivity grab" (trigger and grab together).
     It runs per frame, not on pointer-move events, because a pure wrist roll barely moves the ray.
   - **From a mouse or touch** it follows the pointer circling the dial's centre.
-  - Both clamp at the end stops, with a soft detent at zero. There is NO hidden double-tap reset: Tribe XR's public
-    documentation describes no knob reset gesture (checked docs.tribexr.com), and an unexplained one was found unclear.
-    Reset is the visible CLEAR FX button (every knob off, music unmuted, smoothly through `resetDJEffects()`).
+  - Both clamp at the end stops, with a soft detent at zero. There is NO hidden double-tap reset (an unexplained gesture
+    was found unclear). A knob's quick default is explicit and shown in the panel header: **A / X with the ray on a knob or
+    the crossfader** (`resetVJDeskFromController`, bound in the jump binding of `02-lifecycle.js`: on the desk's FX page it
+    resets the control and does NOT jump, anywhere else A / X jumps as before; one press is consumed once) or a **right-click**
+    on desktop (`resetVJDeskAt`): a knob goes to off, the crossfader to full, and the real cap swings back over a few frames.
+    CLEAR FX remains the reset for everything (every knob off, music unmuted, smoothly through `resetDJEffects()`).
+  - **The controls are real meshes** (`_createVJDeskControls`, `VJ_KNOB3D`, `VJ_FADER3D`): five knobs (a fluted metal cap on a
+    dark collar, a coloured top and a white pointer) and the crossfader cap stand out of the transport panel, children of it,
+    shown only on the FX page while the desk player is (`_syncVJDeskControls`, per frame). They are NOT pickable, so a ray
+    goes through them to the panel and pressing, twisting and sliding use exactly the canvas hit logic; the canvas still draws
+    the scale arc, the label, the value and the slot (and draws a 2D knob/cap itself if the meshes could not be built). A
+    knob's sweep is the mixer standard, 7:30 off to 4:30 full (`VJ_KNOB.start` 0.75 pi), measured in the real scene (12 o'clock
+    at half); a knob eases toward its value (`VJ_KNOB3D.ease`) unless somebody holds it. 13 draws, merged collars; unmeasured on
+    a headset.
+  - **A held slider is locked to the controller that grabbed it** (the crossfader, the SHOW faders and the set-position
+    strip): `_vjDeskLockSlider` records the controller's ray (`drag.ray`) and `_vjDeskFollowRay()` sets the slider every frame
+    from where the ray meets the panel's plane, on or off the glass (`vjDeskPlanePoint`, pure), so a fast slide past the edge
+    lands on the end stop. Letting go of the trigger unlocks it; there is deliberately no sticky latch. Knobs were already
+    locked (the wrist twist does not depend on where the ray points). A mouse follows pointer moves over the panel as before.
   - XFADE is a short-throw crossfader on the `channel` effect (0 cut .. 1 full, default full), not a mute button: press or drag
     anywhere along its ~230 px throw and the cap centre follows the pointer (`_vjDeskSetCrossfader`, `VJ_CROSSFADER`), the last
     4% at each end snapping to cut / full like end stops. The level goes through an audio taper (`channel^2`, so half-way is

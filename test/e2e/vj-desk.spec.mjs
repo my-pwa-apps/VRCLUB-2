@@ -189,7 +189,7 @@ test('the VJ desk: every button is where it is drawn, and presses hand the light
                 ledFrontZ: ledColliderBox.maximumWorld.z
             },
             couchGlow,
-            meshes: scene.meshes.filter(mesh => /^vjDesk/.test(mesh.name)).map(mesh => mesh.name),
+            meshes: scene.meshes.filter(mesh => /^vjDesk/.test(mesh.name) && !/^vjDesk(Knob|Fader)/.test(mesh.name)).map(mesh => mesh.name),
             oldDesk: scene.meshes.filter(mesh => /^toggleBtn_|speedSlider|audioStreamBtn|vjConsole$/.test(mesh.name)).length
         };
     });
