@@ -2305,6 +2305,19 @@ button:active,
         font-size: 11px;
     }
 
+    /* Opened, the plate is a full-width sheet above the camera controls instead of a 60%-wide box that grew up over the "Go to"
+       button in the middle of the bottom edge (at 375x667 a tap or a hit-test there landed on the credits). */
+    #modelCredits[open] {
+        right: calc(10px + env(safe-area-inset-right, 0px));
+        max-width: none;
+        bottom: calc(84px + env(safe-area-inset-bottom, 0px));
+        font-size: 12px;
+    }
+
+    #modelCredits[open] .credits-body {
+        max-height: calc(100dvh - 200px);
+    }
+
     .splash-content {
         padding: 20px 14px;
     }

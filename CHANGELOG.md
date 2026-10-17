@@ -26,6 +26,8 @@ kept in lockstep with `index.html`, `sw.js` and `serviceworker.js` by
 
 ### Fixed
 
+- **Expanded model credits no longer cover the camera controls on a phone.** The plate grew up over the "Go to" button; on narrow screens it is now a full-width
+  sheet above the control row, scrolling inside if the list is long.
 - **The first trigger pull from the idle hand now clicks in VR.** Babylon only gave the "active" controller a pointer, so the other hand's first pull was spent
   waking it up. Both hands now have a live pointer, and a drag (seek bar, desk fader) belongs to the pointer that started it, so the idle hand cannot steer or end it.
 - **Desktop reflections no longer get 50% stronger after a VR visit.** The club started at 0.4 and returned from VR at 0.6 (two sources of truth); both now read

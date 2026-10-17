@@ -954,7 +954,7 @@ findings are updated in place rather than duplicated. Historical measurements re
   **Product value:** High
   **Technical debt reduction:** High
 
-- [ ] **Keep expanded model credits clear of the narrow-screen camera control**
+- [x] **Keep expanded model credits clear of the narrow-screen camera control** *(fixed: expanded credits are a full-width sheet above the control row on narrow screens; `credits-layout.spec.mjs` at 375x667, 320x568 and 1280x720, fails without the CSS)*
 
   **Rechecked 2026-10-06:** The new collapsed disclosure fixes the permanent obstruction.
   At 375x667 the collapsed camera hit-test reaches the button. With credits expanded,
