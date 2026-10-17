@@ -218,6 +218,7 @@ class VRClubLifecycle extends VRClubCore {
             this.scene.render();
             const t2 = performance.now();
             if (this._frameStats) this._frameStats.add(t0, t1 - t0, t2 - t1);
+            if (this.autoQuality) this._updateAutoQuality(t0 / 1000);
             this.updatePerformanceMonitor();
         };
         this.engine.runRenderLoop(this._renderLoop);

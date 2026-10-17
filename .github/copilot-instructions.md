@@ -2025,6 +2025,17 @@ protocol only grew, so older clients keep working.
    runs four scenarios (empty, lit, crowded, crowded with the show at its peak) on desktop and in the Quest emulator and
    prints `PERF_SCENARIOS_*`; on the CI browser's software GL those frame times are relative regression evidence only (and the
    spec raises the recorder's `stallMs` so slow frames still count). Compare on real hardware with the same report.
+8. **Performance work log** (measured, desktop CPU unless stated; the software-GL frame times drift between runs and machines, so only same-session A/Bs and
+   geometry counters are trusted):
+   - Character GLBs are loaded into containers, and Babylon's glTF loader auto-starts the first clip of each on its source skeleton. `_loadAvatarSource`
+     stops every container group (2,654 -> 470 active animatables, `scene.animate()` 11.8 -> 1.4-1.6 ms). **Any new GLB loader must do the same**: check
+     `scene._activeAnimatables.length` against the clips you actually play.
+   - The crowd's own JavaScript (`_updateCrowdDance` + `updateDancingNPCs`) costs about 0.04 ms a frame; do not optimise it, and do not add distance-based
+     animation LOD without a measured need (pausing animatables skews playhead time and the beat lock).
+   - Empty club: ~388k active triangles. Largest: DJ console 48k, bar bottles 47k, three trusses ~28k each, hoist chains ~13k, side beams 27k. The truss welds and
+     chain links are 6-sided; the DJ monitors are capped at 4.5k triangles by `npm run optimize:models` (`simplifyGlbGeometry`, idempotent).
+   - `AdaptiveQuality` (js/frameStats.js) is opt-in (`vrclub.autoQuality`), steps down only (a tier change recompiles materials), never persists the lower
+     tier (`setGraphicsTier(tier, { persist: false })`), and is paused around VR entry/exit and hidden tabs.
 
 ## Licensing
 

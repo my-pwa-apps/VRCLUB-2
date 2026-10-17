@@ -1022,6 +1022,13 @@ function initVJMenu() {
             vrClubInstance.setVRComfortMode(!vrClubInstance.vrComfortMode);
         });
     }
+    const autoQualityBtn = document.getElementById('vjAutoQualityBtn');
+    if (autoQualityBtn) {
+        setToggleState(autoQualityBtn, vrClubInstance.autoQuality);
+        autoQualityBtn.addEventListener('click', () => {
+            setToggleState(autoQualityBtn, vrClubInstance.setAutoQuality(!vrClubInstance.autoQuality));
+        });
+    }
     const splashSafeState = document.getElementById('splashSafeModeState');
     const splashSafeBtn = document.getElementById('splashSafeModeBtn');
     if (safeModeBtn) {
@@ -1898,7 +1905,7 @@ function initAudioMenu() {
 function initRoomGuestLock(mp) {
     const club = vrClubInstance;
     const panels = [
-        { id: 'vjMenu', what: 'show controls', keep: '#vjSafeModeBtn, #vjVRComfortBtn, #vjMinimize, #vjClose, [data-open-panel], [data-vj-tab-target], [data-control="cycleGraphicsQuality"], [data-people], [data-hold], #vjHoldTiming, #djStyle, #myCharacter' },
+        { id: 'vjMenu', what: 'show controls', keep: '#vjSafeModeBtn, #vjVRComfortBtn, #vjMinimize, #vjClose, [data-open-panel], [data-vj-tab-target], [data-control="cycleGraphicsQuality"], [data-people], [data-hold], #vjHoldTiming, #djStyle, #myCharacter, #vjAutoQualityBtn' },
         { id: 'audioMenu', what: 'music', keep: '#audioMinimize, #audioClose, #audioVolume, #crowdAmbience, [data-open-panel]' }
     ];
     const renders = [];

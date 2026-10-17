@@ -689,7 +689,9 @@ class VRClubEnvironment extends VRClubRendering {
                         const weld = BABYLON.MeshBuilder.CreateTorus(protoName + "_weld" + i + "_" + idx, {
                             diameter: tubeSize * 1.3,
                             thickness: tubeSize * 0.15,
-                            tessellation: 8
+                            // A 6 cm ring with a 7 mm tube: it reads as a bright speck from the floor, so six sides lose nothing
+                            // (eight cost 128 triangles each, times 96 per truss and three trusses).
+                            tessellation: 6
                         }, this.scene);
                         weld.rotation.z = Math.PI / 2;
                         weld.position = new BABYLON.Vector3(xStart, pos.y, pos.z);
@@ -862,7 +864,7 @@ class VRClubEnvironment extends VRClubRendering {
                 const link = BABYLON.MeshBuilder.CreateTorus(name + "_link" + i, {
                     diameter: 0.04,
                     thickness: 0.008,
-                    tessellation: 8
+                    tessellation: 6   // a 4 cm chain link, 8 mm wire: see the truss welds above
                 }, this.scene);
                 link.rotation.x = (i % 2 === 0) ? 0 : Math.PI / 2;
                 link.position.set(position.x, position.y + 0.95 - (i * (chainLength / linkCount)), position.z);

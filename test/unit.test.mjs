@@ -758,6 +758,79 @@ test('frame statistics: percentiles, budget shares, stalls and a bounded window'
     assert.equal(recorder.summary(13.89).frames, 0);
 });
 
+test('automatic quality steps down only after sustained misses, holds, never climbs, and ignores thin windows', () => {
+    const { window } = loadClassic('js/frameStats.js');
+    const { AdaptiveQuality } = window.FrameStats;
+    const bad = { frames: 300, budgetMs: 13.89, overBudgetShare: 0.4, p95: 30 };
+    const good = { frames: 300, budgetMs: 13.89, overBudgetShare: 0.01, p95: 14 };
+    const aq = new AdaptiveQuality();
+    aq.reset(0);
+    // 5 s windows: two bad ones are not enough, a good one resets the streak, three in a row act.
+    assert.equal(aq.evaluate(bad, 5, 'ultra'), null);
+    assert.equal(aq.evaluate(bad, 10, 'ultra'), null);
+    assert.equal(aq.evaluate(good, 15, 'ultra'), null);
+    assert.equal(aq.evaluate(bad, 20, 'ultra'), null);
+    assert.equal(aq.evaluate(bad, 25, 'ultra'), null);
+    const down = aq.evaluate(bad, 30, 'ultra');
+    assert.equal(down.tier, 'high');
+    assert.match(down.reason, /40% of frames over the 13\.89 ms budget/);
+    // Held for 45 s after a change, whatever the frames say, and it can reach balanced but never go below it.
+    for (let t = 35; t < 75; t += 5) assert.equal(aq.evaluate(bad, t, 'high'), null, `held at ${t}`);
+    let step = null;
+    for (let t = 75; t <= 100 && !step; t += 5) step = aq.evaluate(bad, t, 'high');
+    assert.equal(step && step.tier, 'balanced');
+    for (let t = 105; t < 400; t += 5) assert.equal(aq.evaluate(bad, t, 'balanced'), null, 'balanced is the floor');
+    // Never climbs, however healthy the frames are.
+    for (let t = 405; t < 2000; t += 5) assert.equal(aq.evaluate(good, t, 'balanced'), null);
+    // A window with too few frames (a hidden tab, a stall) is not evidence; pause() makes a mode change quiet for 20 s.
+    const thin = new AdaptiveQuality();
+    thin.reset(0);
+    for (let t = 5; t <= 60; t += 5) assert.equal(thin.evaluate({ ...bad, frames: 10 }, t, 'ultra'), null);
+    const entering = new AdaptiveQuality();
+    entering.reset(0);
+    entering.pause(100, 20);
+    for (let t = 105; t < 120; t += 5) assert.equal(entering.evaluate(bad, t, 'ultra'), null);
+    // A p95 more than 1.5x the budget counts even when few frames individually crossed 1.25x.
+    const slowTail = new AdaptiveQuality({ streak: 1 });
+    slowTail.reset(0);
+    assert.equal(slowTail.evaluate({ frames: 300, budgetMs: 13.89, overBudgetShare: 0.1, p95: 25 }, 5, 'high').tier, 'balanced');
+});
+
+test('automatic quality is opt-in, session-only and wired into the render loop and both menus', () => {
+    const { window } = loadClassic('js/club/01-core.js', { BABYLON: {}, log: { info() {}, warn() {}, error() {} } });
+    const store = new Map();
+    const storage = { getItem: key => (store.has(key) ? store.get(key) : null) };
+    assert.equal(window.VRClubCore.resolveAutoQuality(storage), false, 'off for new visitors');
+    store.set('vrclub.autoQuality', '1');
+    assert.equal(window.VRClubCore.resolveAutoQuality(storage), true);
+    store.set('vrclub.autoQuality', 'true');
+    assert.equal(window.VRClubCore.resolveAutoQuality(storage), false, 'only a stored 1 enables it');
+
+    // An automatic drop must not overwrite the player's own saved tier.
+    const saved = [];
+    const club = Object.create(window.VRClubCore.prototype);
+    Object.assign(club, {
+        qualityTiers: { ultra: {}, high: {}, balanced: {} }, graphicsTier: 'ultra',
+        ssrPipeline: null, motionBlur: null, isInVRMode: false, scene: { materials: [] },
+        _applyTierToPipeline() {}, _createScreenSpaceReflections() {}, _createMotionBlur() {}, _suppressUnlitSpecular() {},
+        _applyAnisotropicFiltering() {}, _applyShadowQuality() {}, _rebuildFloorReflectionProbe() {}, _applyCrowdSize() {},
+        applyDesktopSettings() {}, showErrorMessage() {}
+    });
+    const realSet = globalThis.localStorage;
+    globalThis.localStorage = { setItem: (k, v) => saved.push([k, v]) };
+    try {
+        window.VRClubCore.prototype.setGraphicsTier.call(club, 'high', { persist: false });
+        assert.equal(club.graphicsTier, 'high');
+        assert.deepEqual(saved, [], 'session-only');
+    } finally { globalThis.localStorage = realSet; }
+
+    const read = file => readFileSync(join(ROOT, file), 'utf8');
+    assert.match(read('js/club/02-lifecycle.js'), /if \(this\.autoQuality\) this\._updateAutoQuality\(t0 \/ 1000\)/);
+    assert.match(read('js/club/10-ui.js'), /label: 'AUTO QUALITY', control: 'autoQuality'/);
+    assert.match(read('js/club/10-ui.js'), /'vrSeatedMode', 'autoQuality'/, 'personal: never host-gated');
+    assert.match(read('index.html'), /id="vjAutoQualityBtn"/);
+});
+
 test('the render loop times updates and submission, and the report exposes them without inventing GPU time', () => {
     const source = readFileSync(join(ROOT, 'js/club/02-lifecycle.js'), 'utf8');
     assert.match(source, /this\._frameStats\.add\(t0, t1 - t0, t2 - t1\)/);
@@ -5429,6 +5502,26 @@ test('MY CHARACTER: the player picks one of the 17 people offline, it is saved, 
     const html = readFileSync(join(ROOT, 'index.html'), 'utf8');
     assert.match(html, /<select[^>]*id="myCharacter"/);
     assert.match(readFileSync(join(ROOT, 'js/club/10-ui.js'), 'utf8'), /label: 'MY CHARACTER', action: 'character'/);
+});
+
+test('a loaded avatar source never keeps animating: the loader\'s auto-started clips are stopped', async () => {
+    const stopped = [];
+    const group = name => ({ name, stop() { stopped.push(name); } });
+    const BABYLON = {
+        Axis: { Z: 'Z', Y: 'Y' }, Vector3: class {},
+        Color3: class { constructor(r, g, b) { Object.assign(this, { r, g, b }); } },
+        SceneLoader: { LoadAssetContainerAsync: async () => ({ materials: [], animationGroups: [group('Idle_Loop'), group('Dance_Loop')] }) }
+    };
+    const { window } = loadClassic('js/club/11-audio-crowd.js', { VRClubUI: class {}, BABYLON, log: { info() {}, warn() {}, error() {} } });
+    const club = {
+        scene: {}, _avatarContainers: [], _prepareAvatarMaterials() {}, _restoreLightBudgets() {},
+        _loadAvatarSource: window.VRClubAudioCrowd.prototype._loadAvatarSource
+    };
+    const container = await club._loadAvatarSource('./js/models/avatars/club-crowd-f1.glb');
+    assert.ok(container);
+    assert.deepEqual(Array.from(stopped), ['Idle_Loop', 'Dance_Loop'],
+        'Babylon starts the first clip of every file on its source skeleton; ~2,200 invisible animatables ran every frame');
+    assert.equal(club._avatarContainers.length, 1);
 });
 
 test('the local body stays full standing height until a room seat is intentionally selected', () => {

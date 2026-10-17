@@ -334,6 +334,8 @@ class VRClubCore {
         // Seated mode keeps the avatar standing while the player sits; playerEyeHeight (null = unmeasured, a 1.7 m
         // body) sizes that body to the player. Both are personal and local, like comfort and Safe Mode.
         this.vrSeatedMode = VRClubCore.resolveSeatedMode();
+        // Opt-in: lower the graphics tier (this session only) when frames keep missing the budget. See js/frameStats.js.
+        this.autoQuality = VRClubCore.resolveAutoQuality();
         this.playerEyeHeight = VRClubCore.resolvePlayerEyeHeight();
         // === WHO IS IN THE CLUB ===
         // Each group of characters can be sent home: the dancers on the floor, the bystanders (the guests at the
@@ -1081,7 +1083,7 @@ class VRClubCore {
      * Persists the choice so it survives a reload.
      * @param {'ultra'|'high'|'balanced'} tier
      */
-    setGraphicsTier(tier) {
+    setGraphicsTier(tier, { persist = true } = {}) {
         if (!this.qualityTiers[tier]) {
             log.warn(`⚠️ Unknown graphics tier: ${tier}`);
             return;
@@ -1089,7 +1091,8 @@ class VRClubCore {
         if (tier === this.graphicsTier) return;
 
         this.graphicsTier = tier;
-        try { localStorage.setItem('vrclub.graphicsTier', tier); } catch (_) { /* ignore */ }
+        // Automatic quality lowers the tier for this session only: the player's own choice is what the next visit starts from.
+        if (persist) { try { localStorage.setItem('vrclub.graphicsTier', tier); } catch (_) { /* ignore */ } }
 
         // Tear down tier-owned pipelines; they are rebuilt with the new settings.
         if (this.ssrPipeline) { this.ssrPipeline.dispose(); this.ssrPipeline = null; }
@@ -1307,6 +1310,11 @@ class VRClubCore {
 
     static resolveVRComfortMode() {
         try { return localStorage.getItem('vrclub.vrComfort') === '1'; } catch (_) { return false; }
+    }
+
+    /** Automatic quality is off for new visitors; only a stored '1' enables it. */
+    static resolveAutoQuality(storage) {
+        try { return (storage || localStorage).getItem('vrclub.autoQuality') === '1'; } catch (_) { return false; }
     }
 
     /** Seated mode is off for new visitors; only a stored '1' enables it. */

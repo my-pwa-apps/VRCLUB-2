@@ -703,7 +703,7 @@ class VRClubUI extends VRClubAnimationFinish {
     _isHostOwnedVRButton(button) {
         if (['seek', 'playPause', 'play', 'pause', 'stop', 'sourceStep', 'folderMode', 'savedSet', 'setStep',
             'musicSetup', 'autoShow', 'reset', 'cycle', 'nextSection', 'showDrop', 'showSection'].includes(button.action)) return true;
-        return !!button.control && !button.action && !['vrComfortMode', 'vrSeatedMode', 'photosensitiveSafeMode'].includes(button.control);
+        return !!button.control && !button.action && !['vrComfortMode', 'vrSeatedMode', 'autoQuality', 'photosensitiveSafeMode'].includes(button.control);
     }
 
     _vrQuickMenuButtonValue(button, active) {
@@ -741,6 +741,7 @@ class VRClubUI extends VRClubAnimationFinish {
             const labels = (window.ClubMultiplayer && window.ClubMultiplayer.AVATAR_LABELS) || {};
             return id ? String(labels[id] || id).toUpperCase().slice(0, 28) : (this.getLocalAvatarStyle() === 'male' ? 'DEFAULT MAN' : 'DEFAULT WOMAN');
         }
+        if (button.control === 'autoQuality') return this.autoQuality ? 'ON \u2022 STEPS DOWN IF SLOW' : 'OFF';
         if (button.control === 'vrSeatedMode') return this.vrSeatedMode ? 'ON \u2022 AVATAR STANDS' : 'OFF';
         if (button.action === 'quality') return this.graphicsTier.toUpperCase();
         if (button.action === 'cycle' && button.control === 'cycleLedPattern') {
@@ -870,6 +871,7 @@ class VRClubUI extends VRClubAnimationFinish {
                 { label: 'MEASURE HEIGHT', action: 'measureHeight' },
                 { label: 'SAFE MODE', control: 'photosensitiveSafeMode' },
                 { label: 'QUALITY', action: 'quality' },
+                { label: 'AUTO QUALITY', control: 'autoQuality' },
                 { label: 'CREDITS / LICENCES', action: 'credits' },
                 common.back,
                 common.close
@@ -1731,6 +1733,10 @@ class VRClubUI extends VRClubAnimationFinish {
         }
         if (button.control === 'vrComfortMode') {
             this.setVRComfortMode(!this.vrComfortMode);
+            return;
+        }
+        if (button.control === 'autoQuality') {
+            this.setAutoQuality(!this.autoQuality);
             return;
         }
         if (button.control === 'vrSeatedMode') {
@@ -2754,6 +2760,22 @@ class VRClubUI extends VRClubAnimationFinish {
         this._toastHost.appendChild(errorDiv);
 
         setTimeout(() => errorDiv.remove(), 4000);
+    }
+
+    /**
+     * Automatic quality: while on, a tier that keeps missing the frame budget is lowered for this session (never raised,
+     * never saved). Personal and local, like Safe Mode.
+     */
+    setAutoQuality(enabled) {
+        this.autoQuality = !!enabled;
+        try { localStorage.setItem('vrclub.autoQuality', this.autoQuality ? '1' : '0'); } catch (_) { /* private mode */ }
+        if (this._autoQuality) this._autoQuality.pause(performance.now() / 1000);
+        if (this._frameStats) this._frameStats.reset();
+        this.showErrorMessage(this.autoQuality ? 'Auto quality on: graphics step down if frames are missed' : 'Auto quality off');
+        this._refreshVRQuickMenu();
+        const button = typeof document !== 'undefined' ? document.getElementById('vjAutoQualityBtn') : null;
+        if (button) { button.setAttribute('aria-pressed', String(this.autoQuality)); button.classList.toggle('active', this.autoQuality); }
+        return this.autoQuality;
     }
 
     /**

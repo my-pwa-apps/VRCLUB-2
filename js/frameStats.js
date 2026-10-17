@@ -88,7 +88,57 @@ const FrameStats = (() => {
         }
     }
 
-    return { Recorder, percentile, CAPACITY };
+    /**
+     * Opt-in automatic quality: steps the graphics tier DOWN when frames keep missing the budget. It never steps up
+     * (a tier change rebuilds pipelines and recompiles materials, a hitch worth paying only to recover, and a climb back
+     * would oscillate with the load that forced the drop); the player raises it by hand. Pure decision logic.
+     *
+     * Hysteresis: a window counts as struggling when a quarter of its frames ran 25% over budget (or p95 is over 1.5x);
+     * it takes `streak` struggling evaluations in a row (15 s at the defaults) to act, never within `holdSeconds` of the
+     * last change or of `pause()` (start-up, entering VR), and a healthy window resets the streak.
+     */
+    class AdaptiveQuality {
+        constructor({ evalSeconds = 5, streak = 3, holdSeconds = 45, minFrames = 60, tiers = ['balanced', 'high', 'ultra'] } = {}) {
+            this.evalSeconds = evalSeconds;
+            this.streak = streak;
+            this.holdSeconds = holdSeconds;
+            this.minFrames = minFrames;
+            this.tiers = tiers;
+            this.reset(0);
+        }
+
+        /** Forget history and stay quiet until `now + seconds` (a mode change makes the previous window meaningless). */
+        reset(now, seconds = 0) {
+            this.struggling = 0;
+            this.nextEval = now + Math.max(this.evalSeconds, seconds);
+            this.quietUntil = now + seconds;
+        }
+
+        pause(now, seconds = 20) { this.reset(now, seconds); }
+
+        /**
+         * @param {object} summary a Recorder summary for the window
+         * @param {number} now seconds
+         * @param {string} tier the active tier
+         * @returns {null|{tier:string, reason:string}} a tier to switch to, or null
+         */
+        evaluate(summary, now, tier) {
+            if (now < this.nextEval) return null;
+            this.nextEval = now + this.evalSeconds;
+            if (now < this.quietUntil || !summary || !(summary.frames >= this.minFrames)) return null;
+            const struggling = summary.overBudgetShare >= 0.25 || summary.p95 > summary.budgetMs * 1.5;
+            this.struggling = struggling ? this.struggling + 1 : 0;
+            const index = this.tiers.indexOf(tier);
+            if (this.struggling < this.streak || index <= 0) return null;
+            this.reset(now, this.holdSeconds);
+            return {
+                tier: this.tiers[index - 1],
+                reason: `${Math.round(summary.overBudgetShare * 100)}% of frames over the ${summary.budgetMs} ms budget (p95 ${summary.p95} ms)`
+            };
+        }
+    }
+
+    return { Recorder, AdaptiveQuality, percentile, CAPACITY };
 })();
 
 window.FrameStats = FrameStats;

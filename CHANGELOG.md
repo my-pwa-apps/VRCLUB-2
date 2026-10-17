@@ -24,8 +24,24 @@ kept in lockstep with `index.html`, `sw.js` and `serviceworker.js` by
   three show looks (which are back on the aurora, ripple and breathing patterns they used before). The booth DJ still follows the set's gender when
   the name makes that certain.
 
+### Fixed
+
+- **About 2,200 invisible animations ran every frame.** Babylon's glTF loader starts the first clip of every character file on its source skeleton, even in
+  a container nothing draws, and it looped there for ever (17 files, 2,654 active animatables where about 470 belong to visible people). Source clips are
+  now stopped when a file loads. Measured in one session on a desktop CPU: `scene.animate()` 11.8 ms -> 1.4-1.6 ms per call. A Quest CPU is slower, so
+  the saving there should be larger; not yet measured on a headset.
+
+### Changed
+
+- **Fewer triangles where nobody can see them.** The truss weld rings and hoist chain links are built with 6 instead of 8 sides (a 6 cm ring with a 7 mm
+  tube, seen from the floor as a speck), and the two DJ monitor speakers are simplified from 10.0k to 4.3k triangles each by `npm run optimize:models`.
+  The empty club draws about 388k active triangles instead of 429k (-10%). Screenshots from the booth and under the rig look the same.
+
 ### Added
 
+- **Opt-in automatic quality.** VR menu comfort page **AUTO QUALITY** and Show & Lights, Club tab: when frames keep missing the headset's (or screen's)
+  budget for about 15 s, the graphics tier steps down one level for that visit only. It never steps up, never saves the lower tier, pauses on entering
+  or leaving VR and in a hidden tab, and waits 45 s between steps. Off by default.
 - **Frame-time instrumentation.** The render loop now records the frame-interval distribution (p50/p95/p99, share of judder and missed frames against the
   headset's refresh budget) and the CPU time of the simulation and of draw submission (`club.getPerformanceReport()`, `club.resetFrameStats()`, shown
   in the `Ctrl+Shift+D` overlay), with draw calls, active triangles, bones, lights and heap. GPU time is not measurable from a page and is not reported.

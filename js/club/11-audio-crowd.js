@@ -1521,6 +1521,10 @@ class VRClubAudioCrowd extends VRClubUI {
     async _loadAvatarSource(url, garmentColor = null, hairColor = null) {
         try {
             const container = await BABYLON.SceneLoader.LoadAssetContainerAsync("", url, this.scene);
+            // Babylon's glTF loader starts the file's first clip on the SOURCE skeleton, even in a container nothing draws, and it
+            // loops there for ever: every frame the scene evaluated ~2,200 animatables (about 17 source files) that no one could
+            // see. The instantiated characters start their own cloned groups, so the sources' can simply be stopped.
+            for (const group of container.animationGroups) group.stop();
             this._prepareAvatarMaterials(container.materials, garmentColor, hairColor);
             this._restoreLightBudgets();
             this._avatarContainers.push(container);
@@ -3667,6 +3671,31 @@ class VRClubAudioCrowd extends VRClubUI {
                     + (npc.dance ? npc.dance.attentionYaw : 0);
             }
         }
+    }
+
+    /**
+     * Automatic quality (opt-in): every few seconds ask the pure `AdaptiveQuality` whether the last window of frames has
+     * kept missing the budget, and if so lower the tier by one for this session. Entering or leaving VR, a hidden tab and
+     * a tier change all start a fresh, quiet window, because the frames before them say nothing about the new mode.
+     */
+    _updateAutoQuality(now) {
+        const FrameStats = window.FrameStats;
+        if (!FrameStats || !this._frameStats) return;
+        const controller = this._autoQuality || (this._autoQuality = new FrameStats.AdaptiveQuality());
+        if (document.hidden || this._xrTransitioning || this._aqVR !== this.isInVRMode) {
+            this._aqVR = this.isInVRMode;
+            controller.pause(now);
+            this._frameStats.reset();
+            return;
+        }
+        if (now < controller.nextEval) return;
+        const decision = controller.evaluate(this._frameStats.summary(this.frameBudgetMs()), now, this.graphicsTier);
+        if (!decision) return;
+        this.recordDiagnostic('quality', `Auto quality: ${this.graphicsTier} -> ${decision.tier} (${decision.reason})`);
+        this.setGraphicsTier(decision.tier, { persist: false });
+        this.showErrorMessage(`Auto quality lowered the graphics to ${decision.tier.toUpperCase()}: frames were missing the target`);
+        this._frameStats.reset();
+        controller.pause(now, controller.holdSeconds);
     }
 
     setupPerformanceMonitor() {
