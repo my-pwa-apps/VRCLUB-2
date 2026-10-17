@@ -115,13 +115,23 @@ test('the VJ desk: every button is where it is drawn, and presses hand the light
         hand.dispose();
         club.setDJEffect('echo', 0);
 
-        // MUTE MUSIC: one press silences, the next restores.
-        press('channel');
+        // XFADE: a quick slide from full to cut and back, the way a DJ would, then a half-way rest.
+        const xfade = buttons.transport.find(b => b.id === 'crossfader');
+        const xTrack = window.VJDeskLayout.crossfaderTrack(xfade.rect);
+        const xAt = f => ({ x: xTrack.left + f * (xTrack.right - xTrack.left), y: xTrack.y });
+        club.pressVJDesk(pickAt('transport', xfade, xAt(1)));
+        const xfadeFull = club._djEffectsState().channel;
+        for (const f of [0.75, 0.5, 0.25, 0]) club.dragVJDesk(pickAt('transport', xfade, xAt(f)));
         const mutedAfterFirst = club._djEffectsState().channel;
-        press('channel');
+        club.releaseVJDesk();
+        club.pressVJDesk(pickAt('transport', xfade, xAt(0)));
+        for (const f of [0.3, 0.6, 1]) club.dragVJDesk(pickAt('transport', xfade, xAt(f)));
         const unmutedAfterSecond = club._djEffectsState().channel;
-        press('channel');
-        const effectsChanged = { ...club._djEffectsState(), echoOnGrab, echoTurned, heldBy, wristOnGrab, wristTurned, mutedAfterFirst, unmutedAfterSecond };
+        club.releaseVJDesk();
+        club.pressVJDesk(pickAt('transport', xfade, xAt(0.5)));
+        const halfWay = club._djEffectsState().channel;
+        club.releaseVJDesk();
+        const effectsChanged = { ...club._djEffectsState(), echoOnGrab, echoTurned, heldBy, wristOnGrab, wristTurned, mutedAfterFirst, unmutedAfterSecond, xfadeFull, halfWay };
         press('dj');
         const playerHiddenOnReturn = !transportPanel.mesh.isEnabled();
         const pageOnReturn = club._vjDeskPlayerPage;
@@ -202,9 +212,10 @@ test('the VJ desk: every button is where it is drawn, and presses hand the light
     expect(result.effectsChanged.heldBy, 'the controller aimed at the knob did not take hold of it').toBe(true);
     expect(result.effectsChanged.wristOnGrab, 'the trigger alone must not move the knob').toBe(0);
     expect(result.effectsChanged.wristTurned, 'a 120 degree wrist twist turns the dial by 1.5 x 120 of 270 degrees').toBeCloseTo(1.5 * 120 / 270, 1);
-    expect(result.effectsChanged.mutedAfterFirst, 'one press of MUTE MUSIC silences the music').toBe(0);
-    expect(result.effectsChanged.unmutedAfterSecond, 'the second press brings it back').toBe(1);
-    expect(result.effectsChanged.channel, 'the third press mutes again').toBe(0);
+    expect(result.effectsChanged.xfadeFull, 'pressing the right end is full level').toBe(1);
+    expect(result.effectsChanged.mutedAfterFirst, 'sliding the XFADE to the left end cuts the music').toBe(0);
+    expect(result.effectsChanged.unmutedAfterSecond, 'sliding it back to the right end brings it back').toBe(1);
+    expect(result.effectsChanged.halfWay, 'it rests where it is put').toBeCloseTo(0.5, 1);
     expect(result.playerHiddenOnReturn, 'returning the DJ must hide the replacement player').toBe(true);
     expect(result.pageOnReturn).toBe('player');
     expect(result.effectsOnReturn).toEqual({ lowpass: 0, highpass: 0, echo: 0, flanger: 0, reverb: 0, channel: 1 });

@@ -42,6 +42,9 @@ kept in lockstep with `index.html`, `sw.js` and `serviceworker.js` by
 
 ### Changed
 
+- **The FX page's MUTE MUSIC button is now a small XFADE crossfader.** A short-throw slider with a wide cap: press or drag along it and the PA level follows at once,
+  snapping to cut and to full at the end stops, with an audio taper (half-way is -12 dB) and a ~25 ms smoothing so a quick slide is a clean cut or swell.
+  CLEAR FX still returns everything to full.
 - **Height changes are smooth, and nobody sinks when they crouch.** A measured height, entering VR or a remote guest's new height now grows or shrinks the person at
   0.3 m/s instead of jumping (your own body, the restroom mirror double and everyone else's view of you). A remote guest who crouches or sits in a headset stays
   upright on their floor instead of sinking into it: the relay now forwards a standing guest's floor (`floorY`) as well as a seated one's. **Redeploy the relay**:

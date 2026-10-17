@@ -424,7 +424,8 @@ class VRClubAudioCrowd extends VRClubUI {
         this._setDJAudioParam(this.djFxEchoFeedback?.gain, state.echo > 0 ? 0.2 + state.echo * 0.45 : 0, timeConstant);
         this._setDJAudioParam(this.djFxFlangerWet?.gain, state.flanger * 0.7, timeConstant);
         this._setDJAudioParam(this.djFxReverb?.gain, state.reverb * 0.7, timeConstant);
-        this._setDJAudioParam(this.djFxChannel?.gain, state.channel, timeConstant);
+        // An audio taper: a straight line in gain sounds like nothing happens until the fader is nearly at the end.
+        this._setDJAudioParam(this.djFxChannel?.gain, state.channel * state.channel, timeConstant);
     }
 
     setDJEffect(name, value) {

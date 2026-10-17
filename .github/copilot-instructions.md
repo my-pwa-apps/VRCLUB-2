@@ -1680,7 +1680,7 @@ controller ray therefore use the same path (`pressVJDesk` / `dragVJDesk` / `rele
   delegate to `stepAudioSource`; the other buttons delegate to `setAudioPlayback` and `stopAudioPlayback`. Dragging the slider previews the time and calls
   `seekAudioToFraction()` once on release, never repeatedly while the controller moves. Unavailable/live states are
   written on the controls, and room guests see HOST ONLY. Its header shows playing/paused, position and set title. FX has
-  five real knobs (low-pass, high-pass, echo, flanger, reverb), a MUTE MUSIC button and a CLEAR FX button. A knob
+  five real knobs (low-pass, high-pass, echo, flanger, reverb), a small XFADE crossfader and a CLEAR FX button. A knob
   sweeps 270 degrees (7:30 to 4:30) and is TURNED, not slid, and is relative to where it was grabbed so it never jumps:
   - **From a controller (VR)** the trigger grabs the knob the controller's ray is on (`_vjDeskControllerAt`), and the
     knob then follows the WRIST: every frame `updateVJDesk()` reads the controller pointer's roll about its pointing
@@ -1692,7 +1692,11 @@ controller ray therefore use the same path (`pressVJDesk` / `dragVJDesk` / `rele
   - Both clamp at the end stops, with a soft detent at zero. There is NO hidden double-tap reset: Tribe XR's public
     documentation describes no knob reset gesture (checked docs.tribexr.com), and an unexplained one was found unclear.
     Reset is the visible CLEAR FX button (every knob off, music unmuted, smoothly through `resetDJEffects()`).
-  - MUTE MUSIC is one big toggle on the `channel` effect (0 or 1, a ~25 ms fade): there is no channel fader.
+  - XFADE is a short-throw crossfader on the `channel` effect (0 cut .. 1 full, default full), not a mute button: press or drag
+    anywhere along its ~230 px throw and the cap centre follows the pointer (`_vjDeskSetCrossfader`, `VJ_CROSSFADER`), the last
+    4% at each end snapping to cut / full like end stops. The level goes through an audio taper (`channel^2`, so half-way is
+    -12 dB) and the ~25 ms smoothing, so a quick slide is a clean cut or swell. It is slid, so it is host-owned and blocked
+    like the knobs (SEND DJ HOME / HOST ONLY / PLAYER AUDIO ONLY). CLEAR FX returns it to full.
   The analyser taps remain before these
   effects, while PA, sub and local-file listener broadcast receive the processed signal. Returning the DJ smoothly opens
   both filters, clears the wet effects, restores full channel gain, returns the page to PLAYER and hides the panel. The

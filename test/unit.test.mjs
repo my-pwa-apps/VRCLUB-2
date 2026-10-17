@@ -2074,6 +2074,9 @@ test('the Web Audio graph spatialises the PA, keeps the analyser pre-spatial and
     assert.equal(club.djFxLowpass.frequency.value, 250);
     assert.equal(club.djFxHighpass.frequency.value, 4000);
     assert.equal(club.djFxChannel.gain.value, 0);
+    club._djEffects.channel = 0.5;
+    club._writeDJEffects(0);
+    assert.equal(club.djFxChannel.gain.value, 0.25, 'the crossfader has an audio taper: half-way is -12 dB, not -6');
     club.resetDJEffects();
     assert.equal(JSON.stringify(club._djEffects), JSON.stringify({ lowpass: 0, highpass: 0, echo: 0, flanger: 0, reverb: 0, channel: 1 }));
     assert.equal(club.djFxChannel.gain.value, 1);
@@ -9588,9 +9591,9 @@ test('the VJ desk: every button fits its panel, nothing overlaps, and every ligh
             const r = b.rect;
             const minimumY = b.kind === 'playerPage' ? 0 : 130;
             assert.ok(r.x >= 0 && r.y >= minimumY && r.x + r.w <= width && r.y + r.h <= height, `${b.id} is off the panel or under the header`);
-            const minimumWidth = b.kind === 'playerPage' ? 150 : b.kind === 'effect' ? 180 : b.kind === 'effectMute' ? 400
+            const minimumWidth = b.kind === 'playerPage' ? 150 : b.kind === 'effect' ? 180 : b.kind === 'crossfader' ? 360
                 : b.kind === 'effectClear' ? 220 : panel === 'transport' ? 220 : b.kind === 'section' ? 270 : 300;
-            const minimumHeight = b.kind === 'effectMute' || b.kind === 'effectClear' ? 48 : 70;
+            const minimumHeight = b.kind === 'crossfader' || b.kind === 'effectClear' ? 48 : 70;
             assert.ok(r.h >= minimumHeight && r.w >= minimumWidth, `${b.id} is too small to hit with a controller ray`);
             for (const other of buttons) {
                 if (other === b) continue;
@@ -9602,6 +9605,10 @@ test('the VJ desk: every button fits its panel, nothing overlaps, and every ligh
             if (b.kind === 'fader') {
                 const track = VJDeskLayout.faderTrack(r);
                 assert.ok(track.left > r.x + 200 && track.right < r.x + r.w - 100 && track.right - track.left > 400, `${b.id}'s track`);
+            } else if (b.kind === 'crossfader') {
+                const track = VJDeskLayout.crossfaderTrack(r), cap = VJDeskLayout.crossfader.capW;
+                assert.ok(track.left - cap / 2 > r.x + 100 && track.right + cap / 2 <= r.x + r.w, 'the crossfader cap stays inside its button');
+                assert.ok(track.right - track.left >= 150 && track.right - track.left <= 300, 'a crossfader is a short throw');
             } else if (b.kind === 'seek') {
                 const track = VJDeskLayout.seekTrack(r);
                 assert.ok(track.left > r.x && track.right < r.x + r.w && track.right - track.left > 800, `${b.id}'s seek track`);
@@ -9621,7 +9628,7 @@ test('the VJ desk: every button fits its panel, nothing overlaps, and every ligh
     assert.deepEqual([...VJDeskLayout.buttons.transport.filter(button => button.page === 'player').map(button => button.label)],
         ['PREVIOUS', 'PLAY / PAUSE', 'STOP', 'NEXT', 'SET POSITION']);
     assert.deepEqual([...VJDeskLayout.buttons.transport.filter(button => button.page === 'fx').map(button => button.label)],
-        ['LOW PASS', 'HIGH PASS', 'ECHO', 'FLANGER', 'REVERB', 'MUTE MUSIC', 'CLEAR FX']);
+        ['LOW PASS', 'HIGH PASS', 'ECHO', 'FLANGER', 'REVERB', 'XFADE', 'CLEAR FX']);
     assert.ok(VJDeskLayout.config.transport.width <= 1 && VJDeskLayout.config.transport.depth <= 0.3,
         'the compact player can overlap the mixer or side panels');
     // The desktop panel keeps its own allow-list literal (a test reads it): it must be the same set.
@@ -9913,25 +9920,39 @@ test('a VJ desk knob turns with the twist of the wrist, relative to the grab, wi
     assert.equal(club._vjDeskTwistKnob(), false);
 });
 
-test('MUTE MUSIC is a single quick toggle and CLEAR FX puts every knob back, with no long channel fader', () => {
+test('the XFADE crossfader slides the PA level with a short throw, snaps at its end stops, and CLEAR FX puts every knob back', () => {
     const { club, calls, people, button, VJDeskLayout } = deskHarness();
     people.dj = false;
     club._vjDesk = { panels: [], dirty: false };
-    const mute = button('channel'), clear = button('clearFx');
-    assert.equal(mute.kind, 'effectMute');
-    assert.ok(mute.rect.h >= 48 && mute.rect.w >= 400, 'the mute button is too small to hit quickly');
-    assert.ok(!VJDeskLayout.buttons.transport.some(b => b.kind === 'effectFader'), 'the long channel fader is back');
-    assert.equal(club._vjDeskButtonState(mute).value, 'TAP TO MUTE');
-    club._runVJDeskButton(mute);
-    assert.equal(calls.at(-1), 'effect channel 0');
+    const fader = button('crossfader'), clear = button('clearFx');
+    assert.equal(fader.kind, 'crossfader');
+    assert.equal(button('channel'), undefined, 'the MUTE MUSIC button is gone');
+    const track = VJDeskLayout.crossfaderTrack(fader.rect);
+    const at = f => track.left + f * (track.right - track.left);
+    assert.equal(club._vjDeskButtonState(fader).value, 'FULL');
+    // Press and slide: the level follows the pointer, clamps beyond the throw and snaps at both ends.
+    assert.equal(club._vjDeskSetCrossfader(fader, at(0.5)), true);
+    assert.equal(calls.at(-1), 'effect channel 0.5');
+    club._vjDeskSetCrossfader(fader, track.left - 200);
+    assert.equal(calls.at(-1), 'effect channel 0', 'past the left end stop is a full cut');
+    club._vjDeskSetCrossfader(fader, at(0.02));
+    assert.equal(calls.at(-1), 'effect channel 0', 'the last 4% at the bottom snaps to cut');
+    club._vjDeskSetCrossfader(fader, at(0.98));
+    assert.equal(calls.at(-1), 'effect channel 1', 'and at the top snaps to full');
+    club._vjDeskSetCrossfader(fader, track.right + 500);
+    assert.equal(calls.at(-1), 'effect channel 1');
     club._djEffects.channel = 0;
-    assert.equal(club._vjDeskButtonState(mute).active, true);
-    assert.match(club._vjDeskButtonState(mute).value, /UNMUTE/);
-    // The press path (a click or a controller trigger) works the same way.
-    club.pressVJDesk({ hit: true, pickedMesh: null, pickedPoint: null });
-    club._vjDeskToggleMute();
-    assert.equal(calls.at(-1), 'effect channel 1', 'the second press did not unmute');
-    // CLEAR FX: every knob and the channel back to clean, through the shared reset.
+    assert.equal(club._vjDeskButtonState(fader).value, 'CUT');
+    club._djEffects.channel = 0.5;
+    assert.equal(club._vjDeskButtonState(fader).value, '50%');
+    // A drag on the panel keeps steering it until released.
+    const panel = { id: 'transport' };
+    club._vjDeskDrag = { panel, button: fader };
+    club._vjDeskHit = () => ({ panel, button: fader, x: at(0.25), y: fader.rect.y + 25 });
+    club.dragVJDesk({});
+    assert.equal(calls.at(-1), 'effect channel 0.25');
+    club.releaseVJDesk();
+    // CLEAR FX: every knob and the fader back to clean, through the shared reset.
     Object.assign(club._djEffects, { lowpass: 0.7, echo: 0.4, channel: 0 });
     assert.equal(club._vjDeskButtonState(clear).value, 'ALL KNOBS OFF');
     club._runVJDeskButton(clear);
@@ -9939,14 +9960,14 @@ test('MUTE MUSIC is a single quick toggle and CLEAR FX puts every knob back, wit
     assert.equal(club._vjDeskButtonState(clear).value, 'ALREADY CLEAR');
     // Both are unavailable, and say why, while the resident DJ is at the decks, and are host-owned in a room.
     people.dj = true;
-    assert.equal(club._vjDeskDisabledReason(mute), 'SEND DJ HOME');
+    assert.equal(club._vjDeskDisabledReason(fader), 'SEND DJ HOME');
     assert.equal(club._vjDeskDisabledReason(clear), 'SEND DJ HOME');
     calls.length = 0;
-    assert.equal(club._vjDeskToggleMute(), false);
+    assert.equal(club._vjDeskSetCrossfader(fader, at(0.5)), false);
     assert.deepEqual(calls, []);
     people.dj = false;
     club.multiplayer = { following: true, hostName: () => 'Bo' };
-    assert.equal(club._vjDeskDisabledReason(mute), 'HOST ONLY');
+    assert.equal(club._vjDeskDisabledReason(fader), 'HOST ONLY');
     assert.equal(club._vjDeskClearEffects(), false, 'a guest must not clear the host\'s effects');
 });
 

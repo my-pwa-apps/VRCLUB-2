@@ -69,21 +69,21 @@ function vjDeskLayout() {
         ...extra
     });
     // The FX page: five real knobs in a row (the whole cell is the control, the dial sits in its top half), and under them
-    // two big buttons: MUTE MUSIC (a quick mute and unmute) and CLEAR FX (every knob back to off).
+    // a short-throw CROSSFADER (slide left to cut the music, right for full; a real DJ's quick fade) and CLEAR FX (every knob back to off).
     const knobWidth = (VJ_DESK.transport.canvas.width - playerMargin * 2 - playerGap * 4) / 5;
     const effect = (id, label, col, colour) => ({
         id, panel: 'transport', page: 'fx', kind: 'effect', effect: id, label, colour,
         rect: { x: Math.round(playerMargin + col * (knobWidth + playerGap)), y: 130, w: Math.round(knobWidth), h: 106 }
     });
     const fxRowWidth = VJ_DESK.transport.canvas.width - playerMargin * 2;
-    const muteWidth = Math.round((fxRowWidth - playerGap) * 0.64);
-    const effectMute = (colour) => ({
-        id: 'channel', panel: 'transport', page: 'fx', kind: 'effectMute', effect: 'channel', label: 'MUTE MUSIC', colour,
-        rect: { x: playerMargin, y: 244, w: muteWidth, h: 50 }
+    const crossfaderWidth = 400;
+    const effectCrossfader = (colour) => ({
+        id: 'crossfader', panel: 'transport', page: 'fx', kind: 'crossfader', effect: 'channel', label: 'XFADE', colour,
+        rect: { x: playerMargin, y: 244, w: crossfaderWidth, h: 50 }
     });
     const effectClear = (colour) => ({
         id: 'clearFx', panel: 'transport', page: 'fx', kind: 'effectClear', label: 'CLEAR FX', colour,
-        rect: { x: playerMargin + muteWidth + playerGap, y: 244, w: fxRowWidth - muteWidth - playerGap, h: 50 }
+        rect: { x: playerMargin + crossfaderWidth + playerGap, y: 244, w: fxRowWidth - crossfaderWidth - playerGap, h: 50 }
     });
     const sectionButton = (id, label, col, colour) =>
         ({ id: `section-${id}`, panel: 'show', kind: 'section', section: id, label, rect: sections(col, 3), colour });
@@ -148,7 +148,7 @@ function vjDeskLayout() {
             effect('echo', 'ECHO', 2, '#b48cff'),
             effect('flanger', 'FLANGER', 3, '#ffb020'),
             effect('reverb', 'REVERB', 4, '#39e0c8'),
-            effectMute('#ff5d7a'),
+            effectCrossfader('#ff5d7a'),
             effectClear('#9aa3b5')
         ])
     });
@@ -161,6 +161,15 @@ function vjDeskFaderTrack(rect) {
 
 function vjDeskSeekTrack(rect) {
     return { left: rect.x + 28, right: rect.x + rect.w - 28, y: rect.y + 50 };
+}
+
+/**
+ * The crossfader's throw (pixels): where the CENTRE of its cap sits at either end. Short on purpose, like a real
+ * mixer's, so a flick of the wrist or a sweep of the ray takes it from cut to full; the cap is wide so it reads as a fader.
+ */
+const VJ_CROSSFADER = Object.freeze({ capW: 46, capH: 34, trackLeft: 138, trackRightInset: 38, endSnap: 0.04 });
+function vjDeskCrossfaderTrack(rect) {
+    return { left: rect.x + VJ_CROSSFADER.trackLeft, right: rect.x + rect.w - VJ_CROSSFADER.trackRightInset, y: rect.y + rect.h / 2 };
 }
 
 // An effect knob sweeps 270 degrees like a real mixer pot: from 7:30 (off) clockwise to 4:30 (full).
@@ -345,6 +354,8 @@ const VJDesk = {
         this._vjDeskPressed = { id: button.id, until: performance.now() + VJ_DESK.pressMs };
         if (button.kind === 'fader') {
             if (this._vjDeskSetFader(button, hit.x)) this._vjDeskDrag = { panel: hit.panel, button };
+        } else if (button.kind === 'crossfader') {
+            if (this._vjDeskSetCrossfader(button, hit.x)) this._vjDeskDrag = { panel: hit.panel, button };
         } else if (button.kind === 'effect') {
             this._vjDeskGrabKnob(button, hit, pickResult);
         } else if (button.kind === 'seek') {
@@ -363,6 +374,7 @@ const VJDesk = {
         const hit = this._vjDeskHit(pickResult);
         if (!hit || hit.panel !== drag.panel) return;
         if (drag.button.kind === 'seek') this._vjDeskSetSeekPreview(drag.button, hit.x);
+        else if (drag.button.kind === 'crossfader') this._vjDeskSetCrossfader(drag.button, hit.x);
         else if (drag.button.kind === 'effect') { if (!drag.controller) this._vjDeskTurnKnob(drag, hit); }
         else this._vjDeskSetFader(drag.button, hit.x);
         this._vjDesk.dirty = true;
@@ -411,11 +423,18 @@ const VJDesk = {
         return this.isFollowingHost() ? 'HOST ONLY' : '';
     },
 
-    /** MUTE MUSIC: one press silences the PA mix, the next brings it back (a quick fade, not a click). */
-    _vjDeskToggleMute() {
+    /**
+     * The crossfader: the cap's centre follows the pointer along a short throw, and the PA level follows the cap at once
+     * (the audio graph smooths it over ~25 ms, so a fast slide is a clean cut or swell, never a click). The last few percent
+     * at each end snap to fully cut and fully open, like a real fader's end stops. Returns false when it cannot be used.
+     */
+    _vjDeskSetCrossfader(button, x) {
         if (this._vjDeskEffectBlocked()) return false;
-        const muted = (this._djEffectsState().channel || 0) < 0.5;
-        return this.setDJEffect('channel', muted ? 1 : 0);
+        const track = vjDeskCrossfaderTrack(button.rect);
+        let f = Math.min(1, Math.max(0, (x - track.left) / (track.right - track.left)));
+        const snap = VJ_CROSSFADER.endSnap;
+        if (f < snap) f = 0; else if (f > 1 - snap) f = 1;
+        return this.setDJEffect('channel', f);
     },
 
     /** CLEAR FX: every knob back to off and the music unmuted, smoothly. */
@@ -526,7 +545,6 @@ const VJDesk = {
             if (this._vjDesk) this._vjDesk.dirty = true;
             return;
         }
-        if (button.kind === 'effectMute') { this._vjDeskToggleMute(); return; }
         if (button.kind === 'effectClear') { this._vjDeskClearEffects(); return; }
         if (button.kind === 'transport') { this._runVJDeskTransport(button); return; }
         // What happens after YOUR change is a personal setting, like the DJ: it never needs the host.
@@ -697,7 +715,11 @@ const VJDesk = {
                     detail: `${drag.button.label} ${level}% • ${grip ? 'FINE CONTROL' : drag.controller ? 'GRIP TOO FOR FINE' : 'TURN IT'}`
                 };
             }
-            return { tone: 'music', title: 'DJ EFFECTS', detail: 'TRIGGER ON A KNOB, THEN TWIST YOUR WRIST' };
+            if (drag && drag.button.kind === 'crossfader') {
+                const level = Math.round((this._djEffectsState().channel || 0) * 100);
+                return { tone: 'music', title: 'DJ EFFECTS', detail: `CROSSFADER ${level}%` };
+            }
+            return { tone: 'music', title: 'DJ EFFECTS', detail: 'TRIGGER ON A KNOB, THEN TWIST YOUR WRIST • SLIDE THE XFADE TO CUT THE MUSIC' };
         }
         const info = this.getPlaybackInfo();
         const loaded = !!(this._audioKind || (this.audioElement && this.audioElement.src));
@@ -714,7 +736,7 @@ const VJDesk = {
         if (button.kind === 'playerPage') return '';
         if (button.kind === 'holdTiming') return this.lightHold && this.lightHold.mode === 'keep' ? 'NOT USED WHEN KEPT' : '';
         if (this.isFollowingHost()) return 'HOST ONLY';
-        if (button.kind === 'effect' || button.kind === 'effectMute' || button.kind === 'effectClear') {
+        if (button.kind === 'effect' || button.kind === 'crossfader' || button.kind === 'effectClear') {
             if (this.isPeopleVisible('dj')) return 'SEND DJ HOME';
             return this._audioKind === 'soundcloud' ? 'PLAYER AUDIO ONLY' : '';
         }
@@ -784,10 +806,11 @@ const VJDesk = {
                 out.value = `${Math.round(state[button.effect] * 100)}%`;
                 break;
             }
-            case 'effectMute': {
-                const muted = (this._djEffectsState().channel || 0) < 0.5;
-                out.active = muted;
-                out.value = muted ? 'MUTED: TAP TO UNMUTE' : 'TAP TO MUTE';
+            case 'crossfader': {
+                const level = this._djEffectsState().channel;
+                out.level = level;
+                out.active = level < 0.999;
+                out.value = level >= 0.999 ? 'FULL' : level <= 0.001 ? 'CUT' : `${Math.round(level * 100)}%`;
                 break;
             }
             case 'effectClear': {
@@ -927,7 +950,7 @@ const VJDesk = {
     _drawVJDeskButton(ctx, button, state) {
         const { x, y, w, h } = button.rect;
         const colour = button.colour;
-        const lit = state.active && !state.disabled && button.kind !== 'effect';
+        const lit = state.active && !state.disabled && button.kind !== 'effect' && button.kind !== 'crossfader';
         deskRoundRect(ctx, x, y, w, h, 16);
         ctx.fillStyle = state.disabled ? '#11141b' : lit ? colour : '#151b26';
         ctx.fill();
@@ -1058,19 +1081,55 @@ const VJDesk = {
             }
             return;
         }
-        if (button.kind === 'effectMute' || button.kind === 'effectClear') {
-            // One row: what it is on the left, what pressing it does (or its state) on the right.
+        if (button.kind === 'crossfader') {
+            const track = vjDeskCrossfaderTrack(button.rect);
+            const { capW, capH } = VJ_CROSSFADER;
+            ctx.textBaseline = 'middle';
+            ctx.textAlign = 'left';
+            ctx.fillStyle = ink;
+            ctx.font = 'bold 22px sans-serif';
+            ctx.fillText(button.label, x + 20, y + (state.disabled || state.level >= 0.999 ? h / 2 : 17), 100);
+            if (state.disabled) {
+                ctx.fillStyle = sub;
+                ctx.font = 'bold 20px sans-serif';
+                ctx.fillText(state.value, track.left - capW / 2, y + h / 2, track.right - track.left + capW);
+                return;
+            }
+            const level = Math.min(1, Math.max(0, state.level === undefined ? 1 : state.level));
+            const cap = track.left + level * (track.right - track.left);
+            // The slot, with the open part lit, and the end stops either side of it.
+            deskRoundRect(ctx, track.left - capW / 2, track.y - 5, track.right - track.left + capW, 10, 5);
+            ctx.fillStyle = '#0b0e14';
+            ctx.fill();
+            if (level > 0.004) {
+                deskRoundRect(ctx, track.left - capW / 2, track.y - 3, Math.max(10, cap - track.left + capW / 2), 6, 3);
+                ctx.fillStyle = colour;
+                ctx.fill();
+            }
+            // The cap: a wide fader knob with a centre line, white while it is held.
+            deskRoundRect(ctx, cap - capW / 2, track.y - capH / 2, capW, capH, 7);
+            ctx.fillStyle = state.grabbed ? '#ffffff' : '#dfe5f0';
+            ctx.fill();
+            ctx.lineWidth = 2;
+            ctx.strokeStyle = '#59627a';
+            ctx.stroke();
+            ctx.fillStyle = '#10131a';
+            ctx.fillRect(cap - 2, track.y - capH / 2 + 5, 4, capH - 10);
+            // The setting, only while it is not at full: FULL is the normal state and needs no word.
+            if (level < 0.999) {
+                ctx.textAlign = 'left';
+                ctx.fillStyle = colour;
+                ctx.font = 'bold 20px sans-serif';
+                ctx.fillText(state.value, x + 20, y + 37, 100);
+            }
+            return;
+        }
+        if (button.kind === 'effectClear') {
             ctx.textBaseline = 'middle';
             ctx.textAlign = 'left';
             ctx.fillStyle = ink;
             ctx.font = 'bold 28px sans-serif';
-            ctx.fillText(button.label, x + 20, y + h / 2, button.kind === 'effectMute' ? 250 : w - 40);
-            if (button.kind === 'effectMute') {
-                ctx.textAlign = 'right';
-                ctx.fillStyle = sub;
-                ctx.font = 'bold 22px sans-serif';
-                ctx.fillText(state.value, x + w - 20, y + h / 2, w - 300);
-            }
+            ctx.fillText(button.label, x + 20, y + h / 2, w - 40);
             return;
         }
         if (button.icon) {
@@ -1132,6 +1191,8 @@ window.VJDeskLayout = Object.freeze({
     buttons: vjDeskLayout(),
     config: VJ_DESK,
     faderTrack: vjDeskFaderTrack,
+    crossfaderTrack: vjDeskCrossfaderTrack,
+    crossfader: VJ_CROSSFADER,
     seekTrack: vjDeskSeekTrack,
     knob: vjDeskKnob,
     knobSpec: VJ_KNOB,
