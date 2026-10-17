@@ -240,9 +240,15 @@ for (const file of files) {
     mergeSkinnedPrimitives(document);
     packVertexAttributes(document);
     const keepExactTriangles = /^club-(?:dj|guest)-/.test(basename(file));
+    // Idempotent: a character already at its target size is left alone. Halving every run quartered the crowd's faces and
+    // thickened their limbs when the avatars were rebuilt twice.
+    const trianglesNow = document.getRoot().listMeshes()
+        .reduce((sum, mesh) => sum + mesh.listPrimitives().reduce((s, p) => s + (p.getIndices() ? p.getIndices().getCount() / 3 : 0), 0), 0);
+    const simplifyAbove = /^club-crowd-/.test(basename(file)) ? 4500 : 9000;
+    const simplifyNow = !keepExactTriangles && trianglesNow > simplifyAbove;
     await document.transform(
         weld({ tolerance: 0.0001 }),
-        ...(keepExactTriangles ? [] : [simplify({ simplifier: MeshoptSimplifier, ratio: 0.5, error: 0.01, lockBorder: true })]),
+        ...(simplifyNow ? [simplify({ simplifier: MeshoptSimplifier, ratio: 0.5, error: 0.01, lockBorder: true })] : []),
         prune({ keepLeaves: true })
     );
     // Preserve exact vertical extrema so AvatarRig._measure(eyeHeight) computes identical stature/ankle offsets.

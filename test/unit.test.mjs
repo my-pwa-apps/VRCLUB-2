@@ -11228,6 +11228,17 @@ test('every move the choreographer knows is in the dancers\' files, as long as i
     }
 });
 
+test('the crowd keeps its face detail: re-running the avatar optimizer must not simplify them again', () => {
+    for (const file of readdirSync(join(ROOT, 'js/models/avatars')).filter(name => /^club-crowd-.*\.glb$/.test(name))) {
+        const json = readGlbJson(`js/models/avatars/${file}`);
+        const triangles = json.meshes.flatMap(mesh => mesh.primitives)
+            .reduce((sum, primitive) => sum + json.accessors[primitive.indices].count / 3, 0);
+        // Every shipped person is about 2.7-3.4k triangles (the eyes and mouth are a few dozen each); halving them once more
+        // took the faces and thickened the arms in some poses.
+        assert.ok(triangles > 2400 && triangles < 4500, `${file}: ${triangles} triangles`);
+    }
+});
+
 test('shipped avatar GLBs keep compact skin attributes within the Quest payload budget', () => {
     const files = readdirSync(join(ROOT, 'js/models/avatars'))
         .filter(file => /^club-.*\.glb$/.test(file));
