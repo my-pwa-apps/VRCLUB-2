@@ -11299,7 +11299,7 @@ test('the free moves never appear while there is a pulse, and the overhead clap 
 });
 
 test('nobody is exactly on the grid: each dancer has a small personal lag and starts a move on their own beat of its phrase', () => {
-    const { CrowdDance, choreographer } = loadCrowdDance(77);
+    const { choreographer } = loadCrowdDance(77);
     const dancers = Array.from({ length: 200 }, () => choreographer.createDancer(ALL_MOVES));
     const lags = dancers.map(d => d.lag);
     assert.ok(Math.min(...lags) >= -0.02 && Math.max(...lags) <= 0.06, 'a lag is at most 30 ms at 120 BPM');
