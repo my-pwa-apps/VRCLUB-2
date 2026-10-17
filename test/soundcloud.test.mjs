@@ -163,7 +163,8 @@ test('fallback clock is frame-rate independent and selects varied dancing rather
             assert.ok(out.speed >= 0.5);
         }
         assert.equal(club._unanalysedDanceMusic().beat, 180);
-        assert.ok(moves.size >= 4, `only ${moves.size} moves at ${fps} FPS`);
+        // A single dancer picks only four or five moves in 90 s, and may pick one twice.
+        assert.ok(moves.size >= 3, `only ${moves.size} moves at ${fps} FPS`);
         widgets[0].emit('PAUSE');
         dance.step(dancer, club._crowdMusic({ hasAudio: false }), null, out);
         assert.ok(window.CrowdDance.MOVES[out.move].free, 'a paused set must leave the dancers in a free move');

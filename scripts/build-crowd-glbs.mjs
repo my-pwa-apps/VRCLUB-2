@@ -390,45 +390,73 @@ const TAU = 2 * Math.PI;
 // How far each wrist is from the midline when the palms are together in a clap (the palm centres end up ~3 cm apart).
 const CLAP_TOUCH = 0.017;
 // The grooves `--refresh-static` re-authors on the shipped dancers (no asset packs needed). Names only: see GROOVES.
-const REFRESHED_GROOVES = ['Groove_Clap', 'Groove_ClapUp', 'Groove_ArmsWide', 'Groove_ArmsUp'];
+const REFRESHED_GROOVES = ['Groove_Bounce', 'Groove_SideTap', 'Groove_Clap', 'Groove_ClapUp', 'Groove_Pump', 'Groove_Twist', 'Groove_HandsUp',
+    'Groove_Sway', 'Groove_ArmsWide', 'Groove_ArmsUp', 'Groove_Still'];
 /** 1 on the beat, 0 half way to the next: the shape of a bounce that lands on the beat. */
 const onBeat = beat => 0.5 + 0.5 * Math.cos(TAU * beat);
+/**
+ * A body's bounce rather than a cosine: it lets go of the beat slowly and falls back into the next one faster, so the
+ * weight drops ON the beat. 1 on every beat, 0 about half way; smooth through the beat. Shifting `beat` back by a few
+ * hundredths makes a part that FOLLOWS the hips (the chest, then the head, then the hands): overlapping action.
+ */
+const dip = beat => onBeat(Math.pow(beat - Math.floor(beat), 1.3));
 const smooth = t => { const c = Math.min(1, Math.max(0, t)); return c * c * (3 - 2 * c); };
 const lerp3 = (a, b, t) => a.map((v, i) => v + (b[i] - v) * t);
 /** A step that leaves its key in the second half of a beat and lands exactly on the next: keys are per beat. */
 const stepped = (keys, beat) => {
-    const i = Math.floor(beat) % keys.length, frac = beat - Math.floor(beat);
+    const n = keys.length, at = ((beat % n) + n) % n;
+    const i = Math.floor(at), frac = at - i;
     const travel = smooth((frac - 0.45) / 0.55);
-    const from = keys[i], to = keys[(i + 1) % keys.length];
+    const from = keys[i], to = keys[(i + 1) % n];
     return { value: from + (to - from) * travel, moving: from !== to ? Math.sin(Math.PI * Math.min(1, Math.max(0, (frac - 0.45) / 0.55))) : 0 };
 };
 
 const GROOVES = [
     {
-        // Knees bend down on every beat, weight rocks side to side, arms swing low with bent elbows, head nods.
-        name: 'Groove_Bounce', beats: 2,
+        // Knees bend down on every beat, weight rocks side to side every two beats, arms swing low with bent elbows, head
+        // nods. Eight beats long: the hips drop first and the chest, head and hands follow a beat's fraction later
+        // (overlapping action), the weight settles a little differently each bar, the head wanders, the arms open a
+        // little through the phrase and the bar line is pressed a bit harder. Nobody repeats a two-beat loop for a minute.
+        name: 'Groove_Bounce', beats: 8,
         pose: b => {
-            const p = onBeat(b), c = Math.cos(Math.PI * b);
+            const p = dip(b), pc = dip(b - 0.06), ph = dip(b - 0.13), pa = dip(b - 0.18);
+            const c = Math.cos(Math.PI * b), cs = Math.cos(Math.PI * (b - 0.07)), ca = Math.cos(Math.PI * (b - 0.14));
+            const w8 = Math.sin(TAU * b / 8), v8 = Math.cos(TAU * b / 8 + 0.7), q4 = Math.sin(TAU * b / 4 + 1.1);
+            const grow = 1 + 0.3 * (0.5 - 0.5 * Math.cos(TAU * b / 8 - 0.6));
+            const stress = 0.5 + 0.5 * Math.cos(TAU * b / 4);
             return {
-                hip: [0.03 * c, -(0.03 + 0.055 * p), 0.015 * p], hipRot: [0.05 + 0.05 * p, 0.08 * c, 0.05 * c],
-                spine: [0.03 * p, -0.12 * c, -0.04 * c], head: [-0.04 + 0.16 * p, 0.05 * c, 0.06 * c],
-                hands: { R: { at: [0.05, -0.30 + 0.05 * p, 0.17 + 0.1 * c] }, L: { at: [-0.05, -0.30 + 0.05 * p, 0.17 - 0.1 * c] } }
+                hip: [0.03 * c + 0.012 * w8, -(0.03 + 0.055 * p * (1 + 0.3 * stress)), 0.015 * p],
+                hipRot: [0.05 + 0.05 * p, 0.08 * c + 0.03 * q4, 0.05 * c],
+                spine: [0.03 * pc, -0.12 * cs * grow + 0.04 * w8, -0.04 * cs],
+                head: [-0.04 + 0.16 * ph, 0.05 * cs + 0.1 * v8, 0.06 * cs],
+                hands: {
+                    R: { at: [0.05 + 0.03 * w8, -0.30 + 0.05 * pa + 0.02 * v8, 0.17 + 0.1 * ca * grow] },
+                    L: { at: [-0.05 - 0.02 * w8, -0.30 + 0.05 * pa - 0.02 * v8, 0.17 - 0.09 * ca * grow] }
+                }
             };
         }
     },
     {
         // Side taps: the right foot taps out on beat 1 and back on 2, the left out on 3 and back on 4; the arms open
-        // toward the tapping side and the head follows it.
-        name: 'Groove_SideTap', beats: 4,
+        // toward the tapping side and the head follows it. The second bar starts on the left and ends on the right, so
+        // the phrase is eight beats and the weight does not always go the same way first.
+        name: 'Groove_SideTap', beats: 8,
         pose: b => {
-            const p = onBeat(b);
-            const r = stepped([0.22, 0, 0, 0], b), l = stepped([0, 0, -0.22, 0], b);
+            const p = dip(b), pc = dip(b - 0.06), ph = dip(b - 0.12);
+            const w8 = Math.sin(TAU * b / 8), v8 = Math.cos(TAU * b / 8 + 0.7);
+            const keysR = [0.22, 0, 0, 0, 0, 0, 0.22, 0], keysL = [0, 0, -0.22, 0, -0.22, 0, 0, 0];
+            const r = stepped(keysR, b), l = stepped(keysL, b);
+            const rh = stepped(keysR, b - 0.12), lh = stepped(keysL, b - 0.12);
             const outR = r.value / 0.22, outL = -l.value / 0.22;
+            const lagR = rh.value / 0.22, lagL = -lh.value / 0.22;
             const restR = [0.05, -0.32, 0.15], restL = [-0.05, -0.32, 0.15];
             return {
                 hip: [-0.25 * (r.value + l.value), -(0.03 + 0.04 * p), 0], hipRot: [0.05 + 0.03 * p, 0.1 * (outR - outL), 0.1 * (outR - outL)],
-                spine: [0.02 * p, -0.06 * (outR - outL), -0.06 * (outR - outL)], head: [0.08 * p, 0.25 * (outR - outL), 0.05 * (outR - outL)],
-                hands: { R: { at: lerp3(restR, [0.3, -0.1, 0.12], outR) }, L: { at: lerp3(restL, [-0.3, -0.1, 0.12], outL) } },
+                spine: [0.02 * pc, -0.06 * (lagR - lagL), -0.06 * (lagR - lagL)], head: [0.08 * ph, 0.25 * (lagR - lagL) + 0.08 * v8, 0.05 * (lagR - lagL)],
+                hands: {
+                    R: { at: lerp3(restR, [0.3, -0.1 + 0.03 * w8, 0.12], lagR) },
+                    L: { at: lerp3(restL, [-0.3, -0.1 - 0.03 * w8, 0.12], lagL) }
+                },
                 feet: { R: [0.03 + r.value, 0.07 * r.moving, 0.05 * outR], L: [-0.03 + l.value, 0.07 * l.moving, 0.05 * outL] }
             };
         }
@@ -438,12 +466,12 @@ const GROOVES = [
         // forward and a little up) and meet flat, rather than the edges or backs of the hands knocking together.
         name: 'Groove_Clap', beats: 2,
         pose: (b, rig) => {
-            const p = onBeat(b), c = Math.cos(Math.PI * b);
+            const p = dip(b), ph = dip(b - 0.1), c = Math.cos(Math.PI * b), cs = Math.cos(Math.PI * (b - 0.08));
             const open = Math.pow(Math.sin(Math.PI * (b % 1)), 1.2);
             const half = CLAP_TOUCH + 0.17 * open;
             return {
                 hip: [0.015 * c, -(0.025 + 0.045 * p), 0.01 * p], hipRot: [0.06 + 0.04 * p, 0.05 * c, 0.03 * c],
-                spine: [0.03 * p, -0.06 * c, 0], head: [-0.02 + 0.12 * p, 0.06 * c, 0.04 * c],
+                spine: [0.03 * dip(b - 0.05), -0.06 * cs, 0], head: [-0.02 + 0.12 * ph, 0.06 * cs, 0.04 * cs],
                 hands: {
                     R: { at: [-rig.shoulder + half, -0.17 + 0.03 * open, 0.3], pole: [0.7, -0.6, -0.3], fingers: [0, 0.45, 1], thumb: [0, 1, 0] },
                     L: { at: [rig.shoulder - half, -0.17 + 0.03 * open, 0.3], pole: [-0.7, -0.6, -0.3], fingers: [0, 0.45, 1], thumb: [0, 1, 0] }
@@ -455,12 +483,12 @@ const GROOVES = [
         // The same clap held above the head: arms up, hands meeting palm to palm over the crown (fingers up, thumbs back).
         name: 'Groove_ClapUp', beats: 2,
         pose: (b, rig) => {
-            const p = onBeat(b), c = Math.cos(Math.PI * b);
+            const p = dip(b), ph = dip(b - 0.1), c = Math.cos(Math.PI * b), cs = Math.cos(Math.PI * (b - 0.08));
             const open = Math.pow(Math.sin(Math.PI * (b % 1)), 1.2);
             const half = CLAP_TOUCH + 0.2 * open;
             return {
                 hip: [0.015 * c, -(0.025 + 0.045 * p), 0.01 * p], hipRot: [0.03 + 0.03 * p, 0.05 * c, 0.03 * c],
-                spine: [-0.05, -0.05 * c, 0], head: [-0.2 + 0.08 * p, 0.05 * c, 0.03 * c],
+                spine: [-0.05, -0.05 * cs, 0], head: [-0.2 + 0.08 * ph, 0.05 * cs, 0.03 * cs],
                 hands: {
                     R: { at: [-rig.shoulder + half, 0.44 + 0.03 * open, 0.07], pole: [1, 0.2, -0.3], fingers: [0, 1, 0.12], thumb: [0, 0, -1] },
                     L: { at: [rig.shoulder - half, 0.44 + 0.03 * open, 0.07], pole: [-1, 0.2, -0.3], fingers: [0, 1, 0.12], thumb: [0, 0, -1] }
@@ -470,31 +498,39 @@ const GROOVES = [
         }
     },
     {
-        // A fist punched up on every beat, the other hand low; the body turns a little over the bar.
-        name: 'Groove_Pump', beats: 4,
+        // A fist punched up on every beat. Eight beats: the right fist for a bar, then the other arm takes over between
+        // two beats (never on one, so a fist is always up ON the beat), the body turns a little over the phrase and the
+        // head and shoulder follow the punch a moment late.
+        name: 'Groove_Pump', beats: 8,
         pose: b => {
-            const p = onBeat(b), s = Math.sin(Math.PI * b / 2);
+            const p = dip(b), pa = dip(b - 0.1), ph = dip(b - 0.14), s = Math.sin(Math.PI * b / 4);
+            const la = b < 3.25 ? 0 : b < 3.75 ? smooth((b - 3.25) / 0.5) : b < 7.25 ? 1 : b < 7.75 ? 1 - smooth((b - 7.25) / 0.5) : 0;
+            const arm = (sign, amt) => ({
+                at: lerp3([0.05 * sign, -0.28 + 0.04 * pa, 0.2], [0.17 * sign, 0.2 + 0.12 * pa, 0.14], amt),
+                pole: lerp3([0.5 * sign, -0.4, -0.7], [sign, -0.2, -0.4], amt),
+                fingers: lerp3([0.05 * sign, -0.7, 0.6], [0, 1, 0.2], amt)
+            });
             return {
-                hip: [0.02 * s, -(0.03 + 0.05 * p), 0.01 * p], hipRot: [0.04 + 0.04 * p, 0.12 + 0.08 * s, 0.03 * s],
-                spine: [0.02 * p, -0.05 * s, 0.03], head: [-0.06 + 0.12 * p, 0.1 + 0.05 * s, 0.03],
-                hands: {
-                    R: { at: [0.1, 0.3 + 0.12 * p, 0.16 + 0.04 * p], pole: [1, -0.2, -0.4], fingers: [0, 1, 0.2] },
-                    L: { at: [-0.04, -0.28 + 0.04 * p, 0.2] }
-                },
-                shrug: { R: 0.18 }
+                hip: [0.02 * s, -(0.03 + 0.05 * p), 0.01 * p], hipRot: [0.04 + 0.04 * p, 0.1 * (1 - 2 * la) + 0.08 * s, 0.03 * s],
+                spine: [0.02 * dip(b - 0.06), -0.05 * s, 0.03 * (1 - 2 * la)], head: [-0.06 + 0.12 * ph, 0.1 + 0.05 * s, 0.03],
+                hands: { R: arm(1, 1 - la), L: arm(-1, la) },
+                shrug: { R: 0.18 * (1 - la), L: 0.18 * la }
             };
         }
     },
     {
-        // The twist: hips turn one way on each beat, shoulders the other, feet pivot, forearms forward.
-        name: 'Groove_Twist', beats: 2,
+        // The twist: hips turn one way on each beat, shoulders the other (a little behind), feet pivot, forearms swing
+        // across. Four beats: the left turn alternates bigger and smaller, so it is a phrase and not a metronome.
+        name: 'Groove_Twist', beats: 4,
         pose: b => {
-            const p = onBeat(b), c = Math.cos(Math.PI * b);
+            const p = dip(b), ph = dip(b - 0.12);
+            const c = Math.cos(Math.PI * b), cs = Math.cos(Math.PI * (b - 0.1)), ch = Math.cos(Math.PI * (b - 0.2));
+            const a = 1 + 0.2 * Math.cos(Math.PI * b / 2);
             return {
-                hip: [0, -(0.04 + 0.04 * p), 0], hipRot: [0.06, 0.38 * c, 0.03 * c],
-                spine: [0.04, -0.55 * c, -0.02 * c], head: [0.04 + 0.06 * p, -0.15 * c, 0],
-                hands: { R: { at: [-0.02, -0.22, 0.26] }, L: { at: [0.02, -0.22, 0.26] } },
-                feet: { R: [0.06, 0, 0], L: [-0.06, 0, 0] }, feetYaw: 0.3 * c
+                hip: [0, -(0.04 + 0.04 * p), 0], hipRot: [0.06, 0.38 * c * a, 0.03 * c],
+                spine: [0.04, -0.55 * cs * a, -0.02 * cs], head: [0.04 + 0.06 * ph, -0.15 * ch * a, 0],
+                hands: { R: { at: [-0.02 + 0.05 * cs, -0.22, 0.26 - 0.04 * cs] }, L: { at: [0.02 + 0.05 * cs, -0.22, 0.26 + 0.04 * cs] } },
+                feet: { R: [0.06, 0, 0], L: [-0.06, 0, 0] }, feetYaw: 0.3 * c * a
             };
         }
     },
@@ -502,13 +538,13 @@ const GROOVES = [
         // Both hands up, swaying across over the bar, bouncing on every beat, looking up.
         name: 'Groove_HandsUp', beats: 4,
         pose: b => {
-            const p = onBeat(b), w = Math.sin(TAU * b / 4);
+            const p = dip(b), ph = dip(b - 0.13), pa = dip(b - 0.2), w = Math.sin(TAU * b / 4);
             return {
                 hip: [0.04 * w, -(0.03 + 0.05 * p), 0], hipRot: [0.02 + 0.03 * p, 0.04 * w, -0.06 * w],
-                spine: [-0.04, 0, 0.04 * w], head: [-0.18 + 0.1 * p, 0.05 * w, 0.05 * w],
+                spine: [-0.04, 0, 0.04 * w], head: [-0.18 + 0.1 * ph, 0.05 * w, 0.05 * w],
                 hands: {
-                    R: { at: [0.1 + 0.12 * w, 0.4, 0.06], pole: [1, 0, -0.3], fingers: [0.3 * w, 1, 0.1] },
-                    L: { at: [-0.1 + 0.12 * w, 0.4, 0.06], pole: [-1, 0, -0.3], fingers: [0.3 * w, 1, 0.1] }
+                    R: { at: [0.1 + 0.12 * w, 0.4 + 0.02 * pa, 0.06], pole: [1, 0, -0.3], fingers: [0.3 * w, 1, 0.1] },
+                    L: { at: [-0.1 + 0.12 * w, 0.4 + 0.018 * pa, 0.06], pole: [-1, 0, -0.3], fingers: [0.3 * w, 1, 0.1] }
                 },
                 shrug: { R: 0.25, L: 0.25 }
             };

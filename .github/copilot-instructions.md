@@ -240,7 +240,21 @@ faces), which rolls the palm about the fingers. Both claps keep the PALMS facing
 fingers forward and a little up in front of the chest; fingers up and thumbs back above the head), never the edges or
 backs of the hands; `Groove_ArmsWide` shows open palms up and `Groove_ArmsUp` palms forward. `test/rig.test.mjs` measures
 the palm normal on every dancer and fails if a clap's palms stop facing each other. `node scripts/build-crowd-glbs.mjs
---refresh-static --optimize` re-authors `REFRESHED_GROOVES` on the shipped dancers without the asset packs.
+--refresh-static --optimize` re-authors `REFRESHED_GROOVES` (every groove now) on the shipped dancers without the asset packs
+(and rebuilds the recoloured variants from them).
+- **Natural motion, not a metronome.** Three layers, each measured. (1) *Authoring*: `dip(beat)` is a bounce that lets go of
+  the beat slowly and falls into the next faster (smooth through the beat), and the parts FOLLOW the hips by shifting it back
+  (chest ~0.06 beat, head ~0.13, hands ~0.18: overlapping action). `Groove_Bounce`, `_SideTap` and `_Pump` are eight beats
+  long and `_Twist` four: the weight and the head wander through the phrase, the bar line is pressed harder, a SideTap bar
+  starts on the other foot, and the Pump changes fists between two beats (never on one, so a fist is always up ON the beat).
+  Contact moves (the claps) keep their beat-exact contact; only the body around them lags. (2) *Per dancer* (`createDancer`):
+  `lag` (-0.02..+0.06 beat, up to ~30 ms at 120 BPM, mostly behind) so nobody is exactly on the grid, and `phaseOffset` (a
+  whole beat of the move's phrase, drawn when the move changes) so a floor doing the same eight-beat move is not all stepping
+  the same way at the same instant; `step()` aims at `((beat - lag) * k + anchor + phaseOffset) / beats` and the phase lock
+  is unchanged. Whole-beat offsets keep every contact on the beat, in half time as well. (3) The rig and unit tests
+  (`test/rig.test.mjs`: feet planted, palms meet on the beat, a fist up on every beat, seamless eight-beat loops on four real
+  dancers; `test/unit.test.mjs`: lag bounds, offsets, phase lock including each dancer's own lag). It is authored motion on
+  desktop SwiftShader renders: it has not been seen on a headset, and "hyperrealistic" is a judgement the numbers cannot make.
 - **No beat at all** (`step()`'s `false` pulse): most dancers sway (`Groove_Sway`, `FREE_SWAY_WEIGHT` 3), and a stable few
   open their arms wide or reach up high (`Groove_ArmsWide` / `Groove_ArmsUp`, `freeWeight`, `freeSpeed` 0.45), chosen
   by each dancer's `taste` by `_pickFree()`. A choice is held for `FREE_HOLD` (18-40 s of `music.time`) before it may

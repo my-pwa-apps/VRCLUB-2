@@ -829,7 +829,7 @@ test('crowd animation reuses interpolation results without changing the real ske
 // every 0.5 s: measure them on the real skeleton, at the frames where the beats fall.
 test('the crowd grooves: on the beat where it matters, feet planted, hands where they should be, seamless loops', async () => {
     const GROOVES = {
-        Groove_Bounce: 2, Groove_SideTap: 4, Groove_Clap: 2, Groove_ClapUp: 2, Groove_Pump: 4, Groove_Twist: 2, Groove_HandsUp: 4,
+        Groove_Bounce: 8, Groove_SideTap: 8, Groove_Clap: 2, Groove_ClapUp: 2, Groove_Pump: 8, Groove_Twist: 4, Groove_HandsUp: 4,
         Groove_Sway: 4, Groove_ArmsWide: 8, Groove_ArmsUp: 8, Groove_Still: 8
     };
     for (const file of ['club-crowd-f1.glb', 'club-crowd-m1.glb', 'club-crowd-m7.glb', 'club-crowd-f2.glb']) {

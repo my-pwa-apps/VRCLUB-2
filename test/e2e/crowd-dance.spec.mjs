@@ -59,7 +59,7 @@ test('the crowd dances varied moves locked to the beat, and keeps swaying when t
                     if (meta.free) continue;
                     const k = state.half ? 0.5 : 1;
                     const anchor = state.half && meta.halfAnchor !== undefined ? meta.halfAnchor : meta.anchor;
-                    const target = CrowdDance.wrap01((beatAt(clock) * k + anchor) / meta.beats);
+                    const target = CrowdDance.wrap01(((beatAt(clock) - (state.lag || 0)) * k + anchor + (state.phaseOffset || 0)) / meta.beats);
                     const frac = VRClubAudioCrowd._loopFraction(npc.dance.current);
                     const error = frac === null ? 99 : Math.abs(CrowdDance.wrapHalf(target - frac)) * meta.beats / k;
                     stats.worst = Math.max(stats.worst, error); stats.sum += error; stats.n++;

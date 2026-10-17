@@ -10513,7 +10513,7 @@ test('the crowd stays on the beat with the lighter moves when only the rest of t
             const meta = CrowdDance.MOVES[f.move];
             const k = f.half ? 0.5 : 1;
             const anchor = f.half && meta.halfAnchor !== undefined ? meta.halfAnchor : meta.anchor;
-            const want = CrowdDance.wrap01((f.beat * k + anchor) / meta.beats);
+            const want = CrowdDance.wrap01(((f.beat - f.lag) * k + anchor + f.offset) / meta.beats);
             assert.ok(Math.abs(CrowdDance.wrapHalf(f.frac - want)) * meta.beats / k < 0.12, `${f.move} off the beat in the breakdown`);
         }
     }
@@ -11058,7 +11058,7 @@ function playDancer(CrowdDance, choreographer, dancer, { seconds = 20, bpm = 124
         if (each) each(music, t);
         const d = choreographer.step(dancer, music, frac, out);
         if (d.switched || d.snap || move !== d.move) { frac = d.frac; move = d.move; }
-        frames.push({ t, beat: music.beat, move, frac, half: dancer.half, switched: d.switched, present: music.beatPresent });
+        frames.push({ t, beat: music.beat, move, frac, half: dancer.half, switched: d.switched, present: music.beatPresent, lag: dancer.lag || 0, offset: dancer.phaseOffset || 0 });
         const beats = CrowdDance.MOVES[move].beats;
         frac = (frac + (1 / fps) * d.speed / (beats * 0.5)) % 1;
     }
@@ -11149,6 +11149,31 @@ test('the free moves never appear while there is a pulse, and the overhead clap 
     assert.ok(CrowdDance.MOVES.Groove_ClapUp.halfAnchor !== undefined, 'the overhead clap lands on the backbeat at half time like the other clap');
 });
 
+test('nobody is exactly on the grid: each dancer has a small personal lag and starts a move on their own beat of its phrase', () => {
+    const { CrowdDance, choreographer } = loadCrowdDance(77);
+    const dancers = Array.from({ length: 200 }, () => choreographer.createDancer(ALL_MOVES));
+    const lags = dancers.map(d => d.lag);
+    assert.ok(Math.min(...lags) >= -0.02 && Math.max(...lags) <= 0.06, 'a lag is at most 30 ms at 120 BPM');
+    assert.ok(Math.max(...lags) - Math.min(...lags) > 0.05, 'the floor does not share one lag');
+    // The same eight-beat move, started at the same instant, is at different points of its phrase for different people.
+    const out = {};
+    const offsets = new Set(), phases = new Set();
+    for (const dancer of dancers) {
+        dancer.move = 'Dance_Loop'; dancer.hadBeat = true; dancer.barsLeft = 0; dancer.lastBar = 3;
+        const d = choreographer.step(dancer, { beatPresent: true, beat: 16, bpm: 120, energy: 0.6 }, null, out);
+        if (d.move !== 'Groove_Bounce') continue;
+        assert.ok(Number.isInteger(dancer.phaseOffset) && dancer.phaseOffset >= 0 && dancer.phaseOffset < 8, 'a whole beat of the phrase');
+        offsets.add(dancer.phaseOffset);
+        phases.add(Math.round(d.frac * 8 * 4) / 4 % 8);
+    }
+    assert.ok(offsets.size >= 4 || phases.size >= 3, 'every dancer starts the phrase on the same beat');
+    // Whole beats keep a dancer ON the beat: the clip's beat position is the music's, up to their own lag.
+    const dancer = choreographer.createDancer(ALL_MOVES);
+    dancer.move = 'Groove_Pump'; dancer.hadBeat = true; dancer.barsLeft = 999; dancer.lastBar = 0; dancer.half = false; dancer.phaseOffset = 3;
+    const d = choreographer.step(dancer, { beatPresent: true, beat: 8 + dancer.lag, bpm: 120, energy: 0.6 }, null, out);
+    assert.ok(Math.abs(d.frac * 8 - 3 - 0) < 1e-9 || Math.abs(d.frac * 8 - 3 - 8) < 1e-9, `beat 8 of a bar-8 phrase, offset 3: ${d.frac * 8}`);
+});
+
 test('dancers lock onto the beat: claps land on it, at any tempo, from any starting point', () => {
     for (const bpm of [96, 124, 140]) {
         const { CrowdDance, choreographer } = loadCrowdDance(bpm);
@@ -11158,8 +11183,9 @@ test('dancers lock onto the beat: claps land on it, at any tempo, from any start
         const frames = playDancer(CrowdDance, choreographer, dancer, { seconds: 8, bpm, each: (m, t) => { if (t === 0) m.beat = 0; } });
         const late = frames.filter(f => f.beat > 4);
         for (const f of late) {
-            // The clap loop is 2 beats with a clap at 0 and 0.5 of it: where the clip is should match the beat.
-            const want = (f.beat % 2) / 2;
+            // The clap loop is 2 beats with a clap at 0 and 0.5 of it: where the clip is should match the beat, less this
+            // person's own hair of lag.
+            const want = (((f.beat - dancer.lag) % 2) + 2) % 2 / 2;
             const err = Math.abs(CrowdDance.wrapHalf(f.frac - want)) * 2;
             assert.ok(err < 0.04, `${bpm} BPM: the clap is ${err.toFixed(3)} beats off at beat ${f.beat.toFixed(2)}`);
         }
@@ -11168,11 +11194,11 @@ test('dancers lock onto the beat: claps land on it, at any tempo, from any start
     const { CrowdDance, choreographer } = loadCrowdDance(3);
     const dancer = choreographer.createDancer(ALL_MOVES);
     const out = {};
-    dancer.move = 'Groove_Bounce'; dancer.hadBeat = true; dancer.barsLeft = 999; dancer.lastBar = 0;
-    const d = choreographer.step(dancer, { beatPresent: true, beat: 10, bpm: 120, energy: 0.5 }, CrowdDance.wrap01(10 / 2 + 0.2), out);
+    dancer.move = 'Groove_Bounce'; dancer.hadBeat = true; dancer.barsLeft = 999; dancer.lastBar = 0; dancer.lag = 0; dancer.phaseOffset = 0;
+    const d = choreographer.step(dancer, { beatPresent: true, beat: 10, bpm: 120, energy: 0.5 }, CrowdDance.wrap01(10 / 8 + 0.2 / 4), out);
     assert.equal(d.snap, false);
     assert.ok(d.speed < 1, 'ahead of the beat it slows down');
-    const far = choreographer.step(dancer, { beatPresent: true, beat: 10, bpm: 120, energy: 0.5 }, CrowdDance.wrap01(10 / 2 + 0.45), out);
+    const far = choreographer.step(dancer, { beatPresent: true, beat: 10, bpm: 120, energy: 0.5 }, CrowdDance.wrap01(10 / 8 + 0.45 / 4), out);
     assert.equal(far.snap, true, 'nearly a beat off it jumps rather than drifting for bars');
 });
 
@@ -11180,7 +11206,7 @@ test('Dance_Loop dips on the beat, and a half-time clap lands on 2 and 4', () =>
     const { CrowdDance, choreographer } = loadCrowdDance(5);
     const out = {};
     const dancer = choreographer.createDancer(ALL_MOVES);
-    dancer.move = 'Dance_Loop'; dancer.hadBeat = true; dancer.barsLeft = 999; dancer.lastBar = 0; dancer.half = false;
+    dancer.move = 'Dance_Loop'; dancer.hadBeat = true; dancer.barsLeft = 999; dancer.lastBar = 0; dancer.half = false; dancer.lag = 0;
     for (const beat of [8, 9, 10, 11]) {
         const d = choreographer.step(dancer, { beatPresent: true, beat, bpm: 120, energy: 0.5 }, null, out);
         // Its dips are at 0.25 and 0.75 of the loop.

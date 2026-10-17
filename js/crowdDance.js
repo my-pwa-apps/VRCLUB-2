@@ -23,13 +23,13 @@ class CrowdDance {
      */
     static MOVES = Object.freeze({
         Dance_Loop: Object.freeze({ beats: 2, anchor: 0.5, weight: 1.6, energy: 0.35 }),
-        Groove_Bounce: Object.freeze({ beats: 2, anchor: 0, weight: 2.0, energy: 0.15 }),
-        Groove_SideTap: Object.freeze({ beats: 4, anchor: 0, weight: 1.4, energy: 0.3 }),
+        Groove_Bounce: Object.freeze({ beats: 8, anchor: 0, weight: 2.0, energy: 0.15 }),
+        Groove_SideTap: Object.freeze({ beats: 8, anchor: 0, weight: 1.4, energy: 0.3 }),
         Groove_Clap: Object.freeze({ beats: 2, anchor: 0, halfAnchor: -0.5, weight: 0.8, energy: 0.35, build: 5, drop: 0.5 }),
         // The same clap held above the head.
         Groove_ClapUp: Object.freeze({ beats: 2, anchor: 0, halfAnchor: -0.5, weight: 0.45, energy: 0.45, build: 4, drop: 0.7 }),
-        Groove_Pump: Object.freeze({ beats: 4, anchor: 0, weight: 0.7, energy: 0.6, build: 1.5, drop: 4 }),
-        Groove_Twist: Object.freeze({ beats: 2, anchor: 0, weight: 1.0, energy: 0.4 }),
+        Groove_Pump: Object.freeze({ beats: 8, anchor: 0, weight: 0.7, energy: 0.6, build: 1.5, drop: 4 }),
+        Groove_Twist: Object.freeze({ beats: 4, anchor: 0, weight: 1.0, energy: 0.4 }),
         Groove_HandsUp: Object.freeze({ beats: 4, anchor: 0, weight: 0.35, energy: 0.75, build: 1.5, drop: 6 }),
         Groove_Sway: Object.freeze({ beats: 4, anchor: 0, weight: 0.5, energy: 0, quiet: 4, free: true, rhythm: 2.5 }),
         // What dancers do when there is no beat at all: a slow sway for most, arms spread wide or up high for a few.
@@ -74,7 +74,13 @@ class CrowdDance {
             // Stable personality knobs: authored moves still own the body, but not
             // everybody answers a beat or a drop with the same size reaction.
             response: this.rng(),
-            dropResponse: this.rng()
+            dropResponse: this.rng(),
+            // Nobody is exactly on the grid: each person sits a hair ahead of or behind it (-0.02 to +0.06 of a beat, up to
+            // about 30 ms at 120 BPM, mostly behind, like people following a kick they have to hear first).
+            lag: -0.02 + 0.08 * this.rng(),
+            // Which whole beat of its phrase the current move starts on, so a floor doing the same eight-beat move is not
+            // all stepping the same way at the same moment (the beat itself stays on the beat).
+            phaseOffset: 0
         };
     }
 
@@ -135,9 +141,10 @@ class CrowdDance {
             const halfChance = pulse === 'rhythm' ? 0.4
                 : music.energy < 0.3 ? 0.28 + 0.14 * (1 - dancer.response)
                     : 0.08 + 0.14 * (1 - dancer.response);
-            dancer.half = (pulse === 'rhythm' || move !== 'Groove_Sway') && this.rng() < halfChance && meta.beats <= 4;
+            dancer.half = (pulse === 'rhythm' || move !== 'Groove_Sway') && this.rng() < halfChance && meta.beats <= 8;
             dancer.barsLeft = 4 + Math.floor(this.rng() * 5);
             out.switched = move !== dancer.move || pick === 'drop';
+            if (out.switched) dancer.phaseOffset = Math.floor(this.rng() * meta.beats);
             dancer.move = move;
         }
 
@@ -146,7 +153,7 @@ class CrowdDance {
         const base = Math.max(40, music.bpm || 120) / CrowdDance.CLIP_BPM * k;
         // At half time a clap lands on the backbeat (2 and 4), not on 1 and 3.
         const anchor = dancer.half && meta.halfAnchor !== undefined ? meta.halfAnchor : meta.anchor;
-        const target = CrowdDance.wrap01((music.beat * k + anchor) / meta.beats);
+        const target = CrowdDance.wrap01(((music.beat - (dancer.lag || 0)) * k + anchor + (dancer.phaseOffset || 0)) / meta.beats);
         out.move = dancer.move;
         if (out.switched || frac === null || frac === undefined) {
             out.frac = target;

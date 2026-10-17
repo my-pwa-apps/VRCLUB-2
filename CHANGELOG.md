@@ -42,6 +42,12 @@ kept in lockstep with `index.html`, `sw.js` and `serviceworker.js` by
 
 ### Changed
 
+- **The crowd dances more like people.** The dancers' bodies now follow the hips with a small delay (the chest, then the head, then the hands), the bounce falls into
+  the beat and lets go of it slowly instead of following a cosine, and the longer moves are phrases: Bounce, Side tap and Pump are eight beats (the weight and head wander,
+  the bar line is pressed harder, the side tap starts on the other foot in the second bar and the pump changes fists between two beats, with a bent elbow), Twist is four.
+  Each dancer also has a personal lag (up to ~30 ms at 120 BPM) and starts a move on their own beat of its phrase, so the floor is not stepping the same way at the same
+  instant. Claps still meet exactly on the beat, feet stay planted and the loops stay seamless (measured on four real dancers). Authored and checked on desktop renders,
+  not on a headset.
 - **The FX page's MUTE MUSIC button is now a small XFADE crossfader.** A short-throw slider with a wide cap: press or drag along it and the PA level follows at once,
   snapping to cut and to full at the end stops, with an audio taper (half-way is -12 dB) and a ~25 ms smoothing so a quick slide is a clean cut or swell.
   CLEAR FX still returns everything to full.
