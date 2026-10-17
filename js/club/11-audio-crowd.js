@@ -1403,15 +1403,6 @@ class VRClubAudioCrowd extends VRClubUI {
         return next;
     }
 
-    /** Next (+1) or previous (-1) character; from the default it starts at the player's current man/woman style. */
-    stepLocalCharacter(step = 1) {
-        const list = VRClubAudioCrowd.MY_CHARACTERS;
-        const current = this.getLocalCharacter();
-        const start = current ? list.indexOf(current) : (this.getLocalAvatarStyle() === 'male' ? list.indexOf('m1') : 0);
-        const index = current ? (start + (step < 0 ? -1 : 1) + list.length) % list.length : start;
-        return this.setLocalCharacter(list[index]);
-    }
-
     /** Two fictional CC0 DJs, derived from the guest files, with rigged CC0 headphones. */
     static get DJ_LOOKS() {
         if (!this._djLooks) {

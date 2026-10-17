@@ -1613,10 +1613,10 @@ and refreshed on every comfort reapplication. XR entry preserves tracked eye hei
 `moveCameraToPreset()` routes to the XR camera when active,
 preserving head orientation and measured seated height with a booth floor offset.
 The paged quick menu separates LIGHTS (fixtures, colours and movement), EFFECTS (LED wall, strobes, smoke, mirror
-beams and gobos), SHOW (automatic-show actions plus a five-movement section page), a CROWD page (who is in the club), comfort (locomotion, seated mode, measure height, my character (`setLocalCharacter`/`stepLocalCharacter`: one of the 17 relay people, saved as `vrclub.myCharacter`; the offline mirror's double via `_mirrorAvatarId()`, and its gender sets `vrclub.avatarStyle`),
-safe mode, quality), five destinations (entrance, dance floor, DJ booth, balcony, street) and a **Music** page: a seek
+beams and gobos), SHOW (automatic-show actions plus a five-movement section page), a CROWD page (who is in the club), comfort (locomotion, safe mode, quality, auto quality, credits) with a **ME** sub-page (seated mode, measure height and MY CHARACTER: `setLocalCharacter`, one of the 17 relay people saved as `vrclub.myCharacter`, picked on a two-page grid: DEFAULT plus women `f1`-`f8`, then men `m1`-`m9`; the offline mirror's double via `_mirrorAvatarId()`, and its gender sets `vrclub.avatarStyle`). A page holds at most 12 slots (the HOME page is full in a room, hence ME lives under comfort),
+five destinations (entrance, dance floor, DJ booth, balcony, street) and a **Music** page: a seek
 strip (`vrQuickMenuSeek`, click or drag a ray on it; `_beginVRSeek/_moveVRSeek/_endVRSeek` ride the
-scene pointer observables, the seek happens on release), ±1 min, play/pause, saved-set Previous/Next,
+scene pointer observables and a drag belongs to the pointer that started it (`_dragPointer`), because both hands have a live pointer (`enablePointerSelectionOnAllControllers`); the seek happens on release), ±1 min, play/pause, saved-set Previous/Next,
 Play saved set and ADD LINKS / FILE (in the immersive app: ADD FROM PHONE, see below). `_openQuestPanel()` exits XR for music entry or licences;
 the guest then presses Enter VR to return (not in the immersive app, where it only shows a message). CROWD → CHOOSE DJ offers male/female.
 Its clock redraws from a 500 ms ticker that runs only while that page is open;

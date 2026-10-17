@@ -42,6 +42,9 @@ kept in lockstep with `index.html`, `sw.js` and `serviceworker.js` by
 
 ### Changed
 
+- **The VR comfort page is split, and choosing a character is a real picker.** Comfort now holds only how you move and see (locomotion, safe mode, quality, auto quality,
+  credits) and a new ME page holds who you are (MY CHARACTER, MEASURE HEIGHT, SEATED MODE). MY CHARACTER opens a two-page grid of all 17 people (women, then men),
+  each labelled with the kind and outfit and the current one lit, instead of a button that stepped through them one at a time.
 - **Notices are calm, failures are red.** Every message used to appear as a red error box announced to screen readers as an assertive alert, including "Standing up"
   and "Your character: woman". Now failures keep the red alert, and everything else is a small, dark, low-on-screen status in a polite live region
   (`VRClubUI.toastKind` decides from the wording; `showErrorMessage(message, 'info' | 'error')` can say which).
