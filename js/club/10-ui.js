@@ -2729,37 +2729,59 @@ class VRClubUI extends VRClubAnimationFinish {
         });
     }
 
-    showErrorMessage(message) {
+    /**
+     * Is this message a failure or a notice? Failures (could not, cannot, failed, unavailable, blocked playback, ...) are the red
+     * assertive alerts; everything else ("Standing up", "Joining...", "Your character: woman") is a calm, polite status. Pure, so
+     * the wording that drives it is tested; a caller can always say which with the second argument of showErrorMessage().
+     */
+    static toastKind(message) {
+        return /\b(could not|couldn't|cannot|can't|failed|unavailable|not available|not ready|was blocked|were blocked|interrupted|invalid|context lost|stopped and|error|needs an update|denied|not supported)\b/i
+            .test(String(message || '')) ? 'error' : 'info';
+    }
+
+    /**
+     * Show a message. The method keeps its old name (a hundred callers, and tests stub it) but is the one toast: failures appear
+     * red in an assertive live region, notices appear calm, low on the screen, in a polite one, so a screen reader is not
+     * interrupted by "Standing up". `kind` ('error' | 'info') overrides the wording.
+     */
+    showErrorMessage(message, kind) {
         // QC fixes vs. the previous implementation:
         //  - `document.body.removeChild(el)` threw NotFoundError if the node had
         //    already been removed (e.g. two messages fired inside 3 s).
         //  - Concurrent messages stacked at the exact same fixed position, so only
         //    the last one was legible.
         //  - The toast was invisible to assistive technology.
-        if (!this._toastHost) {
+        const isError = (kind || VRClubUI.toastKind(message)) === 'error';
+        const hostKey = isError ? '_toastHost' : '_statusHost';
+        if (!this[hostKey]) {
             const host = document.createElement('div');
-            host.id = 'vrclubToasts';
-            host.setAttribute('role', 'alert');
-            host.setAttribute('aria-live', 'assertive');
+            host.id = isError ? 'vrclubToasts' : 'vrclubStatus';
+            host.setAttribute('role', isError ? 'alert' : 'status');
+            host.setAttribute('aria-live', isError ? 'assertive' : 'polite');
             host.style.cssText = [
-                'position:fixed', 'top:50%', 'left:50%', 'transform:translate(-50%,-50%)',
+                'position:fixed', isError ? 'top:50%' : 'bottom:96px', 'left:50%',
+                isError ? 'transform:translate(-50%,-50%)' : 'transform:translateX(-50%)',
                 'z-index:10000', 'display:flex', 'flex-direction:column', 'gap:8px',
                 'align-items:center', 'pointer-events:none', 'max-width:90vw'
             ].join(';');
             document.body.appendChild(host);
-            this._toastHost = host;
+            this[hostKey] = host;
         }
 
-        const errorDiv = document.createElement('div');
-        errorDiv.style.cssText = [
+        const toast = document.createElement('div');
+        toast.style.cssText = (isError ? [
             'background:rgba(200,0,0,0.92)', 'color:#fff', 'padding:16px 28px',
             'border-radius:10px', 'font-size:17px', 'font-weight:700',
             'text-align:center', 'box-shadow:0 8px 24px rgba(0,0,0,0.5)'
-        ].join(';');
-        errorDiv.textContent = message; // textContent, never innerHTML — message may echo user input
-        this._toastHost.appendChild(errorDiv);
+        ] : [
+            'background:rgba(16,22,32,0.92)', 'color:#e8fffb', 'padding:10px 20px',
+            'border:1px solid rgba(143,255,238,0.45)', 'border-radius:999px', 'font-size:15px', 'font-weight:600',
+            'text-align:center', 'box-shadow:0 6px 18px rgba(0,0,0,0.45)'
+        ]).join(';');
+        toast.textContent = message; // textContent, never innerHTML — message may echo user input
+        this[hostKey].appendChild(toast);
 
-        setTimeout(() => errorDiv.remove(), 4000);
+        setTimeout(() => toast.remove(), isError ? 4000 : 3000);
     }
 
     /**
@@ -2967,7 +2989,7 @@ class VRClubUI extends VRClubAnimationFinish {
         
         const p = presets[preset];
         if (preset === 'street' && !(this._streetDoor && this._streetDoor.open)) {
-            this.showErrorMessage('The street is not available yet.');
+            this.showErrorMessage('The street is not available yet.', 'info');
             return;
         }
         if (p) {

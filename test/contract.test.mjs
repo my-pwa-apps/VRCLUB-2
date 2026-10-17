@@ -202,7 +202,7 @@ test('every element id looked up in JS exists in index.html', () => {
     // Each one must be produced by an `id = '...'` / `id="..."` assignment in JS,
     // which the loop below verifies - so a typo is still caught.
     const runtimeIds = new Set([
-        'vrclubToasts', 'fpsCounter', 'swUpdatePrompt'
+        'vrclubToasts', 'vrclubStatus', 'fpsCounter', 'swUpdatePrompt'
     ]);
     const allJsSource = jsFiles.map(f => readFileSync(join(ROOT, f), 'utf8')).join('\n');
 

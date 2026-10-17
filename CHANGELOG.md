@@ -38,6 +38,9 @@ kept in lockstep with `index.html`, `sw.js` and `serviceworker.js` by
 
 ### Changed
 
+- **Notices are calm, failures are red.** Every message used to appear as a red error box announced to screen readers as an assertive alert, including "Standing up"
+  and "Your character: woman". Now failures keep the red alert, and everything else is a small, dark, low-on-screen status in a polite live region
+  (`VRClubUI.toastKind` decides from the wording; `showErrorMessage(message, 'info' | 'error')` can say which).
 - **Quest 1, Quest 2 and Quest Pro start on Balanced.** They have roughly half the GPU of a Quest 3, so a visitor with no saved quality choice now gets the
   Balanced tier there (6 dancers, 96 mirror spots). Quest 3 and 3S, and any headset that names no model, still start on Ultra, and a saved or in-menu choice
   always wins. The model comes from the browser's user agent (`VRClubCore.isLegacyQuest`).

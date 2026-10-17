@@ -5604,6 +5604,55 @@ test('the road paint is biased toward the camera so it cannot depth-fight the as
     assert.equal(windows.emissiveIntensity, 1.7);
 });
 
+test('toasts: failures are red assertive alerts, notices are calm polite statuses, and the wording decides', () => {
+    const { window } = loadClassic('js/club/10-ui.js', {
+        VRClubAnimationFinish: class {}, BABYLON: {}, log: { info() {}, warn() {}, error() {} }
+    });
+    const kind = window.VRClubUI.toastKind;
+    // Real messages from the app: notices.
+    for (const text of ['Standing up', 'Your character: woman', 'Joining "party"…', 'Left the room', 'Graphics quality: HIGH',
+        'Auto quality on: graphics step down if frames are missed', 'Only the host (Ann) controls the music. Leave the room to take over.',
+        'Sent: Hello', 'Blocked Ann: you will not see or hear each other', 'Nothing to seek in: a live stream has no position.',
+        'You can no longer see the host, so your music and lights are your own again.', 'No music yet: use ADD LINKS in the Music menu to save your own set.',
+        'Seated mode on: you sit, your avatar stands', 'NOCTURNE auto show resumed', 'Photosensitive Safe Mode blocks strobes.']) {
+        assert.equal(kind(text), 'info', text);
+    }
+    // Failures.
+    for (const text of ['Could not copy. Share the room code instead: 123456', 'The stream stopped and could not be reconnected. Choose another station.',
+        'Audio loaded, but playback was blocked. Press Play again.', 'This audio file cannot be played. Try an MP3, AAC, OGG or WAV file.',
+        'Invalid audio URL. Use http://, https:// or blob: only.', 'VR unavailable. Connect your headset via Link/Air Link.',
+        'Graphics context lost. Reloading the club…', 'The music player is not ready yet.', 'Social action failed: x',
+        'This relay needs an update before it can deliver selected-recipient chat. Nothing was sent.', 'Stream interrupted — reconnecting (attempt 1 of 3)…']) {
+        assert.equal(kind(text), 'error', text);
+    }
+    assert.equal(kind(undefined), 'info');
+
+    const made = [];
+    const documentStub = {
+        createElement: () => { const el = { style: {}, attrs: {}, children: [], setAttribute(k, v) { this.attrs[k] = v; }, appendChild(c) { this.children.push(c); c.parent = this; }, remove() { this.removed = true; } }; made.push(el); return el; },
+        body: { appendChild() {} }
+    };
+    const timers = [];
+    const { window: w2 } = loadClassic('js/club/10-ui.js', {
+        VRClubAnimationFinish: class {}, BABYLON: {}, log: { info() {}, warn() {}, error() {} }, document: documentStub,
+        setTimeout: (fn, ms) => { timers.push(ms); }
+    });
+    const club = Object.create(w2.VRClubUI.prototype);
+    club.showErrorMessage('Standing up');
+    club.showErrorMessage('Could not copy');
+    club.showErrorMessage('Forced red', 'error');
+    club.showErrorMessage('Could not do it, but only a hint', 'info');
+    assert.equal(club._statusHost.attrs.role, 'status');
+    assert.equal(club._statusHost.attrs['aria-live'], 'polite');
+    assert.equal(club._toastHost.attrs.role, 'alert');
+    assert.equal(club._toastHost.attrs['aria-live'], 'assertive');
+    assert.deepEqual(club._statusHost.children.map(c => c.textContent), ['Standing up', 'Could not do it, but only a hint']);
+    assert.deepEqual(club._toastHost.children.map(c => c.textContent), ['Could not copy', 'Forced red']);
+    assert.ok(club._toastHost.children[0].style.cssText.includes('rgba(200,0,0'), 'errors stay red');
+    assert.ok(!club._statusHost.children[0].style.cssText.includes('rgba(200,0,0'), 'notices are not red');
+    assert.deepEqual(timers, [3000, 4000, 4000, 3000]);
+});
+
 test('MY CHARACTER: the player picks one of the 17 people offline, it is saved, and the mirror shows it', () => {
     const store = new Map();
     const localStorage = {
