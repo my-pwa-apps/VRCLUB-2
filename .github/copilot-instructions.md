@@ -638,7 +638,7 @@ SSAO, motion blur or shadows in XR:
 | Crowd / guests | 14 / 8 | 10 / 4 | 6 / 2 |
 | Mirror spots / rays | 280 / 64 | 180 / 52 | 96 / 32 |
 
-Quest browsers auto-detect `ultra` (the owner's Quest 3 runs it; the Quest 3S is unmeasured) and phones/tablets `balanced`; a saved or in-menu
+Quest 3 / 3S browsers auto-detect `ultra` (the owner's Quest 3 runs it; the Quest 3S is unmeasured), Quest 1, Quest 2 and Quest Pro (`VRClubCore.isLegacyQuest`, from the model token in the user agent; they have about half the GPU) and phones/tablets `balanced`; a saved or in-menu
 selection always wins, and the VR menu steps down to `high` or `balanced`. Because the flat (pre-XR) page on a Quest also runs the
 desktop tier path, ultra's SSR, SSAO and motion blur render there until the headset session starts, and are detached on entry.
 High and Ultra remain unmeasured on a Quest 3S.

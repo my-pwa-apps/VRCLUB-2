@@ -1048,6 +1048,8 @@ class VRClubCore {
         } catch (_) { /* private browsing - fall through to detection */ }
 
         const ua = navigator.userAgent.toLowerCase();
+        // Quest 1, Quest 2 and Quest Pro have roughly half the GPU of a Quest 3: start them on Balanced.
+        if (VRClubCore.isLegacyQuest(ua)) return 'balanced';
         if (ua.includes('quest') || ua.includes('oculus')) return 'ultra';
         if (/android|iphone|ipad|mobile/i.test(ua)) return 'balanced';
 
@@ -1315,6 +1317,17 @@ class VRClubCore {
     /** Automatic quality is off for new visitors; only a stored '1' enables it. */
     static resolveAutoQuality(storage) {
         try { return (storage || localStorage).getItem('vrclub.autoQuality') === '1'; } catch (_) { return false; }
+    }
+
+    /**
+     * Quest 1, Quest 2 or Quest Pro, from the model token in the browser's user agent ("...; Quest 2) ..."; a Quest 1 says only
+     * "Quest"). A Quest 3 / 3S, an unknown model or any other browser is not legacy. Pure, so it is tested without a headset.
+     */
+    static isLegacyQuest(userAgent) {
+        const match = /\bquest(?:\s+([a-z0-9]+))?\s*[;)]/i.exec(String(userAgent || ''));
+        if (!match) return false;
+        const model = (match[1] || '').toLowerCase();
+        return model === '' || model === '2' || model === 'pro';
     }
 
     /** Seated mode is off for new visitors; only a stored '1' enables it. */

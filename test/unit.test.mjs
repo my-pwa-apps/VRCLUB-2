@@ -796,6 +796,33 @@ test('automatic quality steps down only after sustained misses, holds, never cli
     assert.equal(slowTail.evaluate({ frames: 300, budgetMs: 13.89, overBudgetShare: 0.1, p95: 25 }, 5, 'high').tier, 'balanced');
 });
 
+test('Quest 1, Quest 2 and Quest Pro start on Balanced; a Quest 3, an unknown headset and a saved choice are left alone', () => {
+    const store = new Map();
+    const run = userAgent => {
+        const { window } = loadClassic('js/club/01-core.js', {
+            BABYLON: {}, log: { info() {}, warn() {}, error() {} },
+            navigator: { userAgent },
+            localStorage: { getItem: key => (store.has(key) ? store.get(key) : null) }
+        });
+        return window.VRClubCore.prototype.detectGraphicsTier.call({ engine: {} });
+    };
+    const ua = model => `Mozilla/5.0 (X11; Linux x86_64${model}) AppleWebKit/537.36 (KHTML, like Gecko) OculusBrowser/33.0.0.1.1 SamsungBrowser/4.0 Chrome/126.0.0.0 VR Safari/537.36`;
+    assert.equal(run(ua('; Quest 2')), 'balanced');
+    assert.equal(run(ua('; Quest Pro')), 'balanced');
+    assert.equal(run(ua('; Quest')), 'balanced', 'a Quest 1 says only "Quest"');
+    assert.equal(run(ua('; Quest 3')), 'ultra');
+    assert.equal(run(ua('; Quest 3S')), 'ultra');
+    assert.equal(run(ua('')), 'ultra', 'a headset that names no model keeps the old default');
+    assert.equal(run('Mozilla/5.0 (Linux; Android 12; Quest 2) AppleWebKit/537.36 Chrome/126 Mobile VR Safari/537.36'), 'balanced');
+    store.set('vrclub.graphicsTier', 'ultra');
+    assert.equal(run(ua('; Quest 2')), 'ultra', 'a saved choice always wins');
+    store.clear();
+    const legacy = loadClassic('js/club/01-core.js', { BABYLON: {}, log: { info() {}, warn() {}, error() {} } }).window.VRClubCore.isLegacyQuest;
+    assert.equal(legacy('Mozilla/5.0 (Windows NT 10.0) Chrome/126 Safari/537.36'), false);
+    assert.equal(legacy(undefined), false);
+    assert.equal(legacy('...; Quest 3) ...'), false);
+});
+
 test('automatic quality is opt-in, session-only and wired into the render loop and both menus', () => {
     const { window } = loadClassic('js/club/01-core.js', { BABYLON: {}, log: { info() {}, warn() {}, error() {} } });
     const store = new Map();

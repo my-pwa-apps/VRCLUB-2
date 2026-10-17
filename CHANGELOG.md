@@ -33,6 +33,9 @@ kept in lockstep with `index.html`, `sw.js` and `serviceworker.js` by
 
 ### Changed
 
+- **Quest 1, Quest 2 and Quest Pro start on Balanced.** They have roughly half the GPU of a Quest 3, so a visitor with no saved quality choice now gets the
+  Balanced tier there (6 dancers, 96 mirror spots). Quest 3 and 3S, and any headset that names no model, still start on Ultra, and a saved or in-menu choice
+  always wins. The model comes from the browser's user agent (`VRClubCore.isLegacyQuest`).
 - **People you cannot see are not animated on your device.** Only the pose is held; where people are and what they are doing stays on the normal clocks, so
   they are in the right place and pose the moment you look. The queue and the bouncer outside are held only when clearly behind you (more than 130 degrees
   off your gaze and over 4 m away) and resume well before they could enter your view, from the frame they stopped on, so nothing is ever seen frozen. A
