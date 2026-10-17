@@ -772,6 +772,7 @@ class VRClubAnimationCore extends VRClubEffects {
         if (typeof this._updateLocalPlayerBody === 'function') this._updateLocalPlayerBody(ctx.dt);
         if (typeof this._updateDJ === 'function') this._updateDJ(ctx.dt, audioData);
         if (typeof this._updateBouncer === 'function') this._updateBouncer(ctx.dt);
+        if (typeof this._updateStreetPeopleActivity === 'function') this._updateStreetPeopleActivity();
         if (typeof this._updateMingler === 'function') this._updateMingler(ctx.dt);
     }
 

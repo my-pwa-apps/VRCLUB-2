@@ -40,6 +40,28 @@ class VRClubAudioCrowd extends VRClubUI {
     }
 
     /**
+     * Pose every finger and thumb joint at the clip's first key and stop animating it: the joints keep that pose, and the
+     * group evaluates a third of the channels. Returns how many channels were removed. Must run before the group starts.
+     */
+    static _freezeFingerChannels(group, prefix = '') {
+        if (!group || !group.targetedAnimations) return 0;
+        const finger = /^(Index|Middle|Ring|Pinky|Thumb)\d\.[LR]$/;
+        const drop = [];
+        for (const targeted of group.targetedAnimations) {
+            const target = targeted.target, animation = targeted.animation;
+            if (!target || !animation || !finger.test(String(target.name).slice(prefix.length))) continue;
+            const key = animation.getKeys && animation.getKeys()[0];
+            const property = animation.targetProperty;
+            if (key && key.value && property && target[property] && typeof target[property].copyFrom === 'function') {
+                target[property].copyFrom(key.value);
+            }
+            drop.push(animation);
+        }
+        for (const animation of drop) group.removeTargetedAnimation(animation);
+        return drop.length;
+    }
+
+    /**
      * Babylon's linear Vector3/Quaternion interpolators return a new object for every
      * animated joint, every frame. Give this crowd clone's Animation objects a private
      * reusable result instead; RuntimeAnimation immediately copies the value into its own
@@ -1270,6 +1292,12 @@ class VRClubAudioCrowd extends VRClubUI {
             groups = [chosen];
         }
 
+        // The pack's raw `Idle` animates every finger (108 channels, 40 without them). Fingers swing 15 degrees at most in that loop, so
+        // a relaxed hand at frame 0 reads the same at queue distance; the other clips this club authors never drove fingers.
+        groups.forEach(group => {
+            if (clipOf(group) === 'Idle') VRClubAudioCrowd._freezeFingerChannels(group, prefix);
+        });
+
         groups.forEach(group => {
             group.start(true);
             group.speedRatio = speedRatio;
@@ -2439,6 +2467,7 @@ class VRClubAudioCrowd extends VRClubUI {
             if (npc && npc.name === name) {
                 npc.homeYaw = null;
                 npc.streetYaw = slot.yaw;
+                npc.street = true;
                 if (name === 'bouncer') npc.ambient = null;
                 placed.push(npc);
             }
@@ -2467,7 +2496,9 @@ class VRClubAudioCrowd extends VRClubUI {
             if (npc.root.isEnabled() !== enabled) changed = true;
             npc.root.setEnabled(enabled);
             if (npc.collider) npc.collider.setEnabled(enabled);
-            VRClubAudioCrowd._setAnimating(npc, enabled);
+            // Re-shown with the street: playing again until the per-frame check (see _updateStreetPeopleActivity) says otherwise.
+            if (!enabled) npc.animPaused = false;
+            VRClubAudioCrowd._setAnimating(npc, enabled && !npc.animPaused);
         }
         if (changed) this._refreshContactShadows();
     }
@@ -3371,6 +3402,37 @@ class VRClubAudioCrowd extends VRClubUI {
         shadows.buffer[base + 13] = npc.root.position.y + 0.02;
         shadows.buffer[base + 14] = npc.root.position.z;
         shadows.mesh.thinInstanceBufferUpdated('matrix');
+    }
+
+    /**
+     * Should a street character keep animating? Only a character clearly BEHIND the viewer is held: more than 130 degrees
+     * off the gaze and farther than 4 m. It resumes at 115 degrees, long before a headset's ~55 degree half field of view
+     * (a quick 300 degree/s turn takes about 0.2 s to cover the gap), and from the exact frame it stopped, so nothing is
+     * ever seen frozen or seen to start moving. Pure; `wasPaused` gives it hysteresis.
+     */
+    static needsAnimation(wasPaused, cx, cy, cz, fx, fy, fz, px, py, pz) {
+        const dx = px - cx, dy = py - cy, dz = pz - cz;
+        const distance = Math.hypot(dx, dy, dz);
+        if (distance < (wasPaused ? 3.5 : 4)) return true;
+        const cos = (dx * fx + dy * fy + dz * fz) / distance;
+        return wasPaused ? cos > -0.4226 : cos > -0.6428;
+    }
+
+    /** Hold the street people who are behind the viewer; see needsAnimation. */
+    _updateStreetPeopleActivity() {
+        const cam = this._playerCamera();
+        const eye = cam && (cam.globalPosition || cam.position);
+        if (!eye || !this.npcAvatars) return;
+        const dir = this._streetGaze || (this._streetGaze = new BABYLON.Vector3());
+        cam.getDirectionToRef(BABYLON.Axis.Z, dir);
+        for (const npc of this.npcAvatars) {
+            if (!npc.street || !npc.root || !npc.root.isEnabled()) continue;
+            const p = npc.root.position;
+            const needs = VRClubAudioCrowd.needsAnimation(!!npc.animPaused, eye.x, eye.y, eye.z, dir.x, dir.y, dir.z, p.x, p.y + 0.9, p.z);
+            if (needs === !npc.animPaused) continue;
+            npc.animPaused = !needs;
+            VRClubAudioCrowd._setAnimating(npc, needs);
+        }
     }
 
     /** The bouncer scans the pavement until somebody comes close, then turns toward them (never more than ~75 degrees). */

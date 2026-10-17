@@ -5459,6 +5459,108 @@ test('MY LOOK: the player\'s man/woman choice is saved, rebuilds the body and re
     assert.equal(proto.setLocalAvatarStyle.call(club, 'anything else'), 'female');
 });
 
+test('street people are held only when clearly behind the viewer, never inside any realistic field of view, and resume early', () => {
+    const BABYLON = { Axis: { Z: 'Z', Y: 'Y' }, Vector3: class {}, Color3: class { constructor(r, g, b) { Object.assign(this, { r, g, b }); } } };
+    const { window } = loadClassic('js/club/11-audio-crowd.js', { VRClubUI: class {}, BABYLON, log: { info() {}, warn() {}, error() {} } });
+    const needs = window.VRClubAudioCrowd.needsAnimation;
+    // The viewer looks along +z from the origin; a character 10 m away at `deg` off the gaze, level with the eyes.
+    const at = (wasPaused, deg, distance = 10) => {
+        const a = deg * Math.PI / 180;
+        return needs(wasPaused, 0, 0, 0, 0, 0, 1, Math.sin(a) * distance, 0, Math.cos(a) * distance);
+    };
+    // Nothing within 100 degrees of the gaze (a 200 degree field of view) is ever held, from either state.
+    for (let deg = 0; deg <= 100; deg++) {
+        assert.equal(at(false, deg), true, `playing at ${deg} deg`);
+        assert.equal(at(true, deg), true, `paused one resumes at ${deg} deg`);
+    }
+    // Held only behind: past 130 degrees. A held one resumes by 115, with hysteresis in between.
+    assert.equal(at(false, 129), true);
+    assert.equal(at(false, 131), false);
+    assert.equal(at(true, 131), false);
+    assert.equal(at(true, 120), false, 'still held between 115 and 130');
+    assert.equal(at(true, 114), true, 'resumed 114 degrees out, 60 degrees before the edge of a headset view');
+    assert.equal(at(false, 120), true, 'one that is playing is not held at 120');
+    // Close characters always animate (an arm's reach, a quick turn), with their own hysteresis.
+    assert.equal(at(false, 180, 3.9), true);
+    assert.equal(at(false, 180, 4.5), false);
+    assert.equal(at(true, 180, 3.0), true);
+    assert.equal(at(true, 180, 3.8), false);
+    // Looking up or down does not hide the people in front: pitch is part of the angle.
+    assert.equal(needs(false, 0, 1.7, 0, 0, 0.7, 0.7, 0, 1.7, 10), true, 'level people stay while looking 45 degrees up');
+});
+
+test('the finger joints of the raw Idle clip are posed once and dropped from the animation, nothing else', () => {
+    const { window } = loadClassic('js/club/11-audio-crowd.js', {
+        VRClubUI: class {}, log: { info() {}, warn() {}, error() {} },
+        BABYLON: { Axis: { Z: 'Z', Y: 'Y' }, Vector3: class {}, Color3: class { constructor(r, g, b) { Object.assign(this, { r, g, b }); } } }
+    });
+    const quat = (x, y, z, w) => ({ x, y, z, w, copyFrom(o) { Object.assign(this, { x: o.x, y: o.y, z: o.z, w: o.w }); } });
+    const make = (name, property, key) => ({
+        target: { name: `queue2_${name}`, [property]: quat(0, 0, 0, 1) },
+        animation: { targetProperty: property, getKeys: () => [{ frame: 0, value: key }, { frame: 30, value: quat(1, 1, 1, 1) }] }
+    });
+    const key = quat(0.1, 0.2, 0.3, 0.9);
+    const animations = [
+        make('Body', 'rotationQuaternion', quat(0, 0, 0, 1)), make('Wrist.L', 'rotationQuaternion', quat(0, 0, 0, 1)),
+        make('Index2.L', 'rotationQuaternion', key), make('Thumb1.R', 'rotationQuaternion', key),
+        make('Pinky4.R', 'rotationQuaternion', key), make('Foot.L', 'rotationQuaternion', quat(0, 0, 0, 1))
+    ];
+    const removed = [];
+    const group = { targetedAnimations: animations.slice(), removeTargetedAnimation(a) { removed.push(a); } };
+    assert.equal(window.VRClubAudioCrowd._freezeFingerChannels(group, 'queue2_'), 3);
+    assert.deepEqual(removed.map(a => animations.find(t => t.animation === a).target.name), ['queue2_Index2.L', 'queue2_Thumb1.R', 'queue2_Pinky4.R']);
+    for (const t of animations.slice(2, 5)) assert.equal(t.target.rotationQuaternion.w, 0.9, 'posed at the first key');
+    assert.equal(animations[0].target.rotationQuaternion.w, 1, 'a body joint is left to the clip');
+    assert.equal(window.VRClubAudioCrowd._freezeFingerChannels(null), 0);
+});
+
+test('a guest out on the street is neither drawn nor animated here while the street is hidden, and returns mid-clip', () => {
+    const { window } = loadClassic('js/avatarManager.js', {
+        BABYLON: {}, performance: { now: () => 0 }, AudioUtils: loadClassic('js/audioUtils.js').window.AudioUtils
+    });
+    window.CityLayout = loadClassic('js/cityDistrict.js', { BABYLON: {} }).window.CityLayout;
+    const proto = window.AvatarManager.prototype;
+    let refreshed = 0;
+    const manager = { club: { _cityVisible: false, _refreshContactShadows() { refreshed++; } }, _applyHidden: proto._applyHidden };
+    const log = [];
+    let playing = true;
+    const group = { get isPlaying() { return playing; }, pause() { playing = false; log.push('pause'); }, restart() { playing = true; log.push('restart'); } };
+    const peer = {
+        hidden: false, culled: false, root: { position: { x: 4, z: 9 }, enabled: true, setEnabled(v) { this.enabled = v; } },
+        person: { current: 'Idle', groups: { Idle: group } }
+    };
+    proto._updateCulling.call(manager, peer);
+    assert.equal(peer.culled, true);
+    assert.equal(peer.root.enabled, false, 'not drawn');
+    assert.equal(playing, false, 'not animated');
+    assert.equal(refreshed, 1);
+    // A clip that starts while they are away is held too.
+    playing = true; proto._updateCulling.call(manager, peer);
+    assert.equal(playing, false);
+    // The street comes back: they return, resumed in place.
+    manager.club._cityVisible = true;
+    proto._updateCulling.call(manager, peer);
+    assert.deepEqual([peer.culled, peer.root.enabled, playing], [false, true, true]);
+    assert.equal(log.at(-1), 'restart');
+    // In the club, or on the stair, or in the doorway, nobody is ever held; and with no street at all nothing is.
+    manager.club._cityVisible = false;
+    for (const [x, z] of [[0, -12], [-8, -3], [1, 3], [0, 5.5]]) {
+        peer.root.position.x = x; peer.root.position.z = z;
+        proto._updateCulling.call(manager, peer);
+        assert.equal(peer.culled, false, `${x},${z} is inside`);
+    }
+    delete manager.club._cityVisible;
+    peer.root.position.x = 4; peer.root.position.z = 9;
+    proto._updateCulling.call(manager, peer);
+    assert.equal(peer.culled, false, 'a club with no street culls nobody');
+    // A guest hidden by the personal-space bubble stays hidden after returning from the street.
+    manager.club._cityVisible = false; peer.hidden = true;
+    proto._updateCulling.call(manager, peer);
+    manager.club._cityVisible = true;
+    proto._updateCulling.call(manager, peer);
+    assert.equal(peer.root.enabled, false);
+});
+
 test('MY CHARACTER: the player picks one of the 17 people offline, it is saved, and the mirror shows it', () => {
     const store = new Map();
     const localStorage = {

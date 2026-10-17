@@ -110,7 +110,7 @@ class AvatarManager {
         peer = {
             id, name: name || 'Guest', pid: info.pid || null, avatarId: null,
             root, body, head, nameplate: null, person: null,
-            muted: false, speaking: false, isHost: false, hidden: false, seated: false,
+            muted: false, speaking: false, isHost: false, hidden: false, culled: false, seated: false,
             eyeHeight: AvatarManager.EYE_HEIGHT,
             pose: null,
             emojiPlane: null, emojiTimer: 0, lastEmojiAt: -Infinity,
@@ -534,7 +534,29 @@ class AvatarManager {
 
     _applyHidden(peer) {
         // Everything of theirs except the voice: the tag, the body, the emoji and the collision capsule.
-        peer.root.setEnabled(!peer.hidden);
+        peer.root.setEnabled(!peer.hidden && !peer.culled);
+    }
+
+    /**
+     * A guest out on the street while this guest is deep inside the club (the street is not drawn, and the walls stand
+     * between them) cannot be seen: neither drawn nor animated here. Their position keeps interpolating, so their voice
+     * stays where they are, and nobody needs to agree on this: it is only what this device spends effort on. They are
+     * back, mid-clip and unmoved, the moment the street is drawn again. A guest in the same room is never touched.
+     */
+    _updateCulling(peer) {
+        const club = this.club, City = window.CityLayout;
+        const away = !!(City && club._cityVisible === false
+            && City.exteriorAmount(peer.root.position.x, peer.root.position.z) > 0.5);
+        const person = peer.person;
+        const group = person && person.groups[person.current];
+        if (away !== !!peer.culled) {
+            peer.culled = away;
+            this._applyHidden(peer);
+            if (group && !away) group.restart();
+            if (club._refreshContactShadows) club._refreshContactShadows();
+        }
+        // A clip that started while they were away (a body that finished loading) is held too.
+        if (away && group && group.isPlaying) group.pause();
     }
 
     _updateBubble(peer) {
@@ -608,6 +630,9 @@ class AvatarManager {
             peer.body.position.y = peer.seated ? 0.62 : 0.9;
             peer.head.position.y = peer.seated ? 1.22 : 1.75;
             this._updateTrackedHands(peer, lerpK);
+            // Out of sight this device skips only the pose: where they are, how fast they move and what they are doing
+            // keep updating below, so on return the right clip starts straight away, in the right place.
+            this._updateCulling(peer);
 
             if (peer.hasState) {
                 // Ground speed, smoothed: it picks idle, walk or run, and the walk's playback rate.
@@ -616,7 +641,7 @@ class AvatarManager {
                     peer.speed += (Math.min(instant, 8) - peer.speed) * (1 - (1 - 0.2) ** (step * 60));
                 }
                 peer.prevX = root.position.x; peer.prevZ = root.position.z;
-                if (peer.person) this._updateClip(peer);
+                if (peer.person && !peer.culled) this._updateClip(peer);
             }
             this._updateBubble(peer);
 

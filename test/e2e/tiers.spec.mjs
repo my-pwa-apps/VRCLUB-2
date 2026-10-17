@@ -9,6 +9,10 @@ useQuestHarness();
  */
 const frozenCharacters = page => page.evaluate(async () => {
     const club = window.vrClub;
+    // The street people outside are (correctly) held while you face away from them, so face the street: nobody is then behind
+    // the viewer, and every enabled character must be moving.
+    club.camera.rotation.y = 0;
+    for (let i = 0; i < 6; i++) await new Promise(resolve => club.scene.onAfterRenderObservable.addOnce(() => resolve()));
     const people = club.npcAvatars.filter(npc => npc.root.isEnabled() && npc.animations.length > 0);
     const pose = () => people.map(npc => npc.root.getChildTransformNodes(false)
         .filter(node => node.rotationQuaternion).slice(0, 12)

@@ -2034,6 +2034,16 @@ protocol only grew, so older clients keep working.
      animation LOD without a measured need (pausing animatables skews playhead time and the beat lock).
    - Empty club: ~388k active triangles. Largest: DJ console 48k, bar bottles 47k, three trusses ~28k each, hoist chains ~13k, side beams 27k. The truss welds and
      chain links are 6-sided; the DJ monitors are capped at 4.5k triangles by `npm run optimize:models` (`simplifyGlbGeometry`, idempotent).
+   - **Seen-only animation (street people and remote guests).** Only the *pose* is ever held; positions, facing, speed and state keep running on
+     their normal clocks (a remote guest's root keeps interpolating toward the last network position, the mingler stays on `MinglerClock`), so
+     whoever you turn to is where everyone else sees them. Street characters (`npc.street`) are held only when more than 130 degrees off the gaze
+     and farther than 4 m, and resume at 115 degrees (`VRClubAudioCrowd.needsAnimation`), so nobody inside any field of view is ever frozen and
+     nobody visibly unfreezes; `test/e2e/street-people.spec.mjs` spins the camera and fails on a frozen character inside the real frustum. A remote
+     guest on the street while the street is hidden (`club._cityVisible === false`, `CityLayout.exteriorAmount > 0.5`) is neither drawn nor
+     animated on this device (`AvatarManager._updateCulling`) and returns with the right clip the same frame. Do not extend this to anyone whose
+     position comes from a shared clock without keeping that clock authoritative. Babylon resumes a paused clip as if it had run through the frame
+     in which it was paused: about 14 ms on a headset, up to ~1 s on the software-GL emulator (the e2e allows for it).
+   - The raw pack `Idle` clip drives 108 channels (every finger); `_freezeFingerChannels` poses the fingers at frame 0 and drops them (40 left).
    - `AdaptiveQuality` (js/frameStats.js) is opt-in (`vrclub.autoQuality`), steps down only (a tier change recompiles materials), never persists the lower
      tier (`setGraphicsTier(tier, { persist: false })`), and is paused around VR entry/exit and hidden tabs.
 
