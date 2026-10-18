@@ -968,6 +968,11 @@ class VRClubLifecycle extends VRClubCore {
             if (this.djFxFlangerLfo) {
                 try { this.djFxFlangerLfo.stop(); } catch (_) { /* already stopped */ }
             }
+            if (this.djFxExtra) {
+                for (const source of this.djFxExtra.sources) {
+                    try { source.stop(); } catch (_) { /* already stopped */ }
+                }
+            }
             if (this.crowdAmbienceSource) {
                 try { this.crowdAmbienceSource.stop(); } catch (_) { /* already stopped */ }
                 this.crowdAmbienceSource = null;
@@ -988,6 +993,8 @@ class VRClubLifecycle extends VRClubCore {
         this.djFxFlangerLfo = null;
         this.djFxChannel = null;
         this.djFxReverb = null;
+        this.djFxGate = null;
+        this.djFxExtra = null;
 
         if (this.vjDirector) this.vjDirector = null;
         if (this.showDirector) this.showDirector = null;

@@ -328,15 +328,14 @@ class VRClubAudioCrowd extends VRClubUI {
         return ir;
     }
 
+    static DJ_EFFECT_DEFAULTS = Object.freeze({
+        lowpass: 0, highpass: 0, echo: 0, flanger: 0, reverb: 0,
+        phaser: 0, sweep: 0, gater: 0, distortion: 0, crusher: 0,
+        channel: 1
+    });
+
     _djEffectsState() {
-        return this._djEffects || (this._djEffects = {
-            lowpass: 0,
-            highpass: 0,
-            echo: 0,
-            flanger: 0,
-            reverb: 0,
-            channel: 1
-        });
+        return this._djEffects || (this._djEffects = { ...VRClubAudioCrowd.DJ_EFFECT_DEFAULTS });
     }
 
     _createDJEffects() {
@@ -349,6 +348,8 @@ class VRClubAudioCrowd extends VRClubUI {
             const highpass = ctx.createBiquadFilter();
             highpass.type = 'highpass';
             highpass.Q.value = 0.7;
+            // The gater sits in series after the filters: it chops the signal every other send listens to.
+            const gate = ctx.createGain();
             const mix = ctx.createGain();
             const echoDelay = ctx.createDelay(1);
             echoDelay.delayTime.value = 0.375;
@@ -368,13 +369,14 @@ class VRClubAudioCrowd extends VRClubUI {
 
             input.connect(lowpass);
             lowpass.connect(highpass);
-            highpass.connect(mix);
-            highpass.connect(echoDelay);
+            highpass.connect(gate);
+            gate.connect(mix);
+            gate.connect(echoDelay);
             echoDelay.connect(echoWet);
             echoWet.connect(mix);
             echoDelay.connect(echoFeedback);
             echoFeedback.connect(echoDelay);
-            highpass.connect(flangerDelay);
+            gate.connect(flangerDelay);
             flangerDelay.connect(flangerWet);
             flangerWet.connect(mix);
             flangerLfo.connect(flangerDepth);
@@ -397,12 +399,130 @@ class VRClubAudioCrowd extends VRClubUI {
             this.djFxFlangerLfo = flangerLfo;
             this.djFxChannel = channel;
             this.djFxReverb = reverb;
+            this.djFxExtra = this._createDJExtraEffects(ctx, gate, mix);
+            this.djFxGate = gate;
             this._writeDJEffects(0);
         } catch (error) {
             this.djFxInput = null;
             this.djFxOutput = null;
             log.warn('🎚️ DJ effects unavailable:', error);
         }
+    }
+
+    /**
+     * Phaser, noise sweep, gater, distortion and bit crusher. Each is a parallel wet send into the mix (the gater is the
+     * series gain stage), so an amount of 0 is silent and costs nothing audible. A failure here leaves the original
+     * five effects working.
+     */
+    _createDJExtraEffects(ctx, gate, mix) {
+        const sources = [];
+        try {
+            const lfo = (type, hz) => {
+                const osc = ctx.createOscillator();
+                osc.type = type;
+                osc.frequency.value = hz;
+                sources.push(osc);
+                return osc;
+            };
+            const send = (...chain) => {
+                gate.connect(chain[0]);
+                for (let i = 0; i < chain.length - 1; i++) chain[i].connect(chain[i + 1]);
+                chain[chain.length - 1].connect(mix);
+            };
+
+            // Gater: a square LFO (smoothed so the edges do not click) moves the gate between 1 and 1 - depth.
+            const gaterLfo = lfo('square', 4);
+            const gaterEdge = ctx.createBiquadFilter();
+            gaterEdge.type = 'lowpass';
+            gaterEdge.frequency.value = 220;
+            const gaterDepth = ctx.createGain();
+            gaterDepth.gain.value = 0;
+            gaterLfo.connect(gaterEdge);
+            gaterEdge.connect(gaterDepth);
+            gaterDepth.connect(gate.gain);
+
+            // Phaser: four all-pass stages swept together by a slow LFO, mixed with the dry signal for the notches.
+            const phaserLfo = lfo('sine', 0.35);
+            const phaserDepth = ctx.createGain();
+            phaserDepth.gain.value = 1500;
+            phaserLfo.connect(phaserDepth);
+            const stages = [350, 700, 1400, 2800].map(hz => {
+                const stage = ctx.createBiquadFilter();
+                stage.type = 'allpass';
+                stage.frequency.value = hz;
+                stage.Q.value = 0.7;
+                phaserDepth.connect(stage.detune);
+                return stage;
+            });
+            const phaserWet = ctx.createGain();
+            send(...stages, phaserWet);
+
+            // Distortion: drive into a soft clipper, tamed above 5.5 kHz.
+            const distortionDrive = ctx.createGain();
+            const distortionShaper = ctx.createWaveShaper();
+            const distortionCurve = new Float32Array(2049);
+            for (let i = 0; i < distortionCurve.length; i++) distortionCurve[i] = Math.tanh(2 * (i / 1024 - 1)) / Math.tanh(2);
+            distortionShaper.curve = distortionCurve;
+            distortionShaper.oversample = '4x';
+            const distortionTone = ctx.createBiquadFilter();
+            distortionTone.type = 'lowpass';
+            distortionTone.frequency.value = 5500;
+            const distortionWet = ctx.createGain();
+            send(distortionDrive, distortionShaper, distortionTone, distortionWet);
+
+            // Bit crusher: a staircase curve with fewer steps as the knob goes up (curves are cached per bit depth).
+            const crusherShaper = ctx.createWaveShaper();
+            const crusherWet = ctx.createGain();
+            send(crusherShaper, crusherWet);
+
+            // Noise sweep: looped white noise through a band that rises with the knob, louder as it climbs.
+            const noiseLength = Math.max(1, Math.floor(ctx.sampleRate * 2));
+            const noiseBuffer = ctx.createBuffer(1, noiseLength, ctx.sampleRate);
+            const noiseData = noiseBuffer.getChannelData(0);
+            for (let i = 0; i < noiseData.length; i++) noiseData[i] = Math.random() * 2 - 1;
+            const noise = ctx.createBufferSource();
+            noise.buffer = noiseBuffer;
+            noise.loop = true;
+            sources.push(noise);
+            const sweepFilter = ctx.createBiquadFilter();
+            sweepFilter.type = 'bandpass';
+            sweepFilter.Q.value = 1.4;
+            const sweepWet = ctx.createGain();
+            noise.connect(sweepFilter);
+            sweepFilter.connect(sweepWet);
+            sweepWet.connect(mix);
+
+            sources.forEach(source => source.start());
+            return {
+                sources, gaterLfo, gaterDepth, phaserWet, distortionDrive, distortionWet,
+                crusherShaper, crusherWet, crusherBits: 0, crusherCurves: new Map(), sweepFilter, sweepWet, gaterHz: 0
+            };
+        } catch (error) {
+            sources.forEach(source => { try { source.stop(); } catch (_) { /* never started */ } });
+            log.warn('🎚️ Extra DJ effects unavailable:', error);
+            return null;
+        }
+    }
+
+    _crusherCurve(extra, bits) {
+        let curve = extra.crusherCurves.get(bits);
+        if (!curve) {
+            const steps = Math.pow(2, bits - 1);
+            curve = new Float32Array(2049);
+            for (let i = 0; i < curve.length; i++) curve[i] = Math.round((i / 1024 - 1) * steps) / steps;
+            extra.crusherCurves.set(bits, curve);
+        }
+        return curve;
+    }
+
+    /** The gater chops in eighth notes of the track's tempo (one square cycle per eighth: a sixteenth on, a sixteenth off). */
+    _syncGaterRate(timeConstant = 0.05) {
+        const extra = this.djFxExtra;
+        if (!extra) return;
+        const hz = Math.min(12, Math.max(1, (Number(this.vjBPM) || 124) / 60 * 2));
+        if (Math.abs(hz - extra.gaterHz) < 0.05) return;
+        extra.gaterHz = hz;
+        this._setDJAudioParam(extra.gaterLfo.frequency, hz, timeConstant);
     }
 
     _setDJAudioParam(param, value, timeConstant) {
@@ -426,6 +546,30 @@ class VRClubAudioCrowd extends VRClubUI {
         this._setDJAudioParam(this.djFxReverb?.gain, state.reverb * 0.7, timeConstant);
         // An audio taper: a straight line in gain sounds like nothing happens until the fader is nearly at the end.
         this._setDJAudioParam(this.djFxChannel?.gain, state.channel * state.channel, timeConstant);
+        this._writeDJExtraEffects(state, timeConstant);
+    }
+
+    _writeDJExtraEffects(state, timeConstant) {
+        const extra = this.djFxExtra;
+        if (!extra) return;
+        const level = name => Math.min(1, Math.max(0, Number(state[name]) || 0));
+        const gater = level('gater'), phaser = level('phaser'), distortion = level('distortion');
+        const crusher = level('crusher'), sweep = level('sweep');
+        // The gate rests at 1 - depth / 2 and the LFO swings it by depth / 2 either way: between 1 - depth and 1.
+        this._setDJAudioParam(this.djFxGate?.gain, 1 - gater * 0.5, timeConstant);
+        this._setDJAudioParam(extra.gaterDepth.gain, gater * 0.5, timeConstant);
+        if (gater > 0.001) this._syncGaterRate();
+        this._setDJAudioParam(extra.phaserWet.gain, phaser * 0.9, timeConstant);
+        this._setDJAudioParam(extra.distortionDrive.gain, 1 + distortion * 30, timeConstant);
+        this._setDJAudioParam(extra.distortionWet.gain, distortion * 0.5, timeConstant);
+        const bits = Math.round(12 - crusher * 9);
+        if (crusher > 0.001 && bits !== extra.crusherBits) {
+            extra.crusherBits = bits;
+            extra.crusherShaper.curve = this._crusherCurve(extra, bits);
+        }
+        this._setDJAudioParam(extra.crusherWet.gain, crusher * 0.85, timeConstant);
+        this._setDJAudioParam(extra.sweepFilter.frequency, 250 * Math.pow(40, sweep), timeConstant);
+        this._setDJAudioParam(extra.sweepWet.gain, sweep * sweep * 0.45, timeConstant);
     }
 
     setDJEffect(name, value) {
@@ -438,13 +582,7 @@ class VRClubAudioCrowd extends VRClubUI {
     }
 
     resetDJEffects() {
-        const state = this._djEffectsState();
-        state.lowpass = 0;
-        state.highpass = 0;
-        state.echo = 0;
-        state.flanger = 0;
-        state.reverb = 0;
-        state.channel = 1;
+        Object.assign(this._djEffectsState(), VRClubAudioCrowd.DJ_EFFECT_DEFAULTS);
         this._writeDJEffects(0.08);
     }
 
@@ -902,6 +1040,7 @@ class VRClubAudioCrowd extends VRClubUI {
         frame.treble = treble;
         frame.average = average;
         frame.hasAudio = hasAudio;
+        if (this.djFxExtra && this._djEffects && this._djEffects.gater > 0.001) this._syncGaterRate();
         this._readKickBand(frame, nowMs);
         return frame;
     }

@@ -2363,7 +2363,12 @@ class VRClubUI extends VRClubAnimationFinish {
         if (!recovery.hasPlayed) return;
         const delays = VRClubUI.STREAM_RETRY_DELAYS_MS;
         if (recovery.attempts >= delays.length) {
-            this.showErrorMessage('The stream stopped and could not be reconnected. Choose another station.');
+            // Rather than leave the club silent, the club's own set takes over (never in someone else's room).
+            const library = this.musicLibrary;
+            const fallback = library && typeof library.fallBackToDefault === 'function' ? library.fallBackToDefault() : Promise.resolve(false);
+            fallback.then(started => {
+                if (!started) this.showErrorMessage('The stream stopped and could not be reconnected. Choose another station.');
+            });
             return;
         }
         const delay = delays[recovery.attempts++];

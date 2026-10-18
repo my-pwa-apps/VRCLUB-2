@@ -24,14 +24,25 @@ test('the FX page has real knobs and a real fader: pointers, resets, ticks and a
         const out = {};
 
         const meshes = scene.meshes.filter(mesh => /^vjDesk(Knob|Fader)/.test(mesh.name));
+        const pageTwo = mesh => /_(phaser|sweep|gater|distortion|crusher|fx2)$/.test(mesh.name);
         out.counts = {
             caps: meshes.filter(mesh => /^vjDeskKnobCap_/.test(mesh.name)).length,
             marks: meshes.filter(mesh => /^vjDeskKnobMark_/.test(mesh.name)).length,
-            collars: meshes.filter(mesh => mesh.name === 'vjDeskKnobCollars').length,
+            collars: meshes.filter(mesh => /^vjDeskKnobCollars/.test(mesh.name)).length,
             faderCap: meshes.filter(mesh => mesh.name === 'vjDeskFaderCap').length
         };
-        out.allEnabled = meshes.every(mesh => mesh.isEnabled());
+        out.allEnabled = meshes.filter(mesh => !pageTwo(mesh)).every(mesh => mesh.isEnabled());
+        out.pageTwoHidden = meshes.filter(pageTwo).every(mesh => !mesh.isEnabled());
         out.pickable = meshes.filter(mesh => mesh.isPickable).map(mesh => mesh.name);
+        club._vjDeskPlayerPage = 'fx2';
+        await frames(3);
+        out.pageTwo = {
+            shown: meshes.filter(pageTwo).every(mesh => mesh.isEnabled()),
+            pageOneHidden: meshes.filter(mesh => /^vjDeskKnobCap_(lowpass|highpass|echo|flanger|reverb)$/.test(mesh.name)).every(mesh => !mesh.isEnabled()),
+            faderShown: meshes.find(mesh => mesh.name === 'vjDeskFaderCap').isEnabled()
+        };
+        club._vjDeskPlayerPage = 'fx';
+        await frames(3);
 
         const toWorld = (button, point) => {
             const px = point ? point.x : button.rect.x + button.rect.w / 2, py = point ? point.y : button.rect.y + button.rect.h / 2;
@@ -134,10 +145,12 @@ test('the FX page has real knobs and a real fader: pointers, resets, ticks and a
         return out;
     });
     console.log('VJ_DESK_3D', JSON.stringify(result));
-    expect(result.counts).toEqual({ caps: 5, marks: 5, collars: 1, faderCap: 1 });
+    expect(result.counts).toEqual({ caps: 10, marks: 10, collars: 2, faderCap: 1 });
     expect(result.allEnabled).toBe(true);
     expect(result.pickable, 'a ray goes through the knobs and the cap to the panel behind').toEqual([]);
     expect(result.rayThroughKnob).toBe('vjDesk_transport');
+    expect(result.pageTwoHidden, 'the second page\u2019s knobs wait for their page').toBe(true);
+    expect(result.pageTwo).toEqual({ shown: true, pageOneHidden: true, faderShown: true });
     // 7:30 is down and left, 12 o'clock straight up, 4:30 down and right.
     expect(result.off.dx).toBeLessThan(-0.005);
     expect(result.off.dy).toBeLessThan(-0.005);

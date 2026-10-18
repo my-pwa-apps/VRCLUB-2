@@ -460,6 +460,44 @@ class MusicLibrary {
     }
 
     async play() {
+        try {
+            return await this._playSelected();
+        } catch (error) {
+            // The guest's own set cannot play: the club's own set fills the silence instead (their saved list is untouched).
+            if (this.current()) await this.fallBackToDefault(error);
+            throw error;
+        }
+    }
+
+    /**
+     * Plays the club's own set because the guest's set (or the stream they were listening to) failed. Unlike
+     * `playDefault()` it runs even when sets are saved, but never in someone else's room (the host owns the music), never
+     * when the club's own set is already playing, and never for an autoplay block, which is retried on the next gesture.
+     * Returns whether the club's set started. It never throws: this is the safety net.
+     */
+    async fallBackToDefault(error) {
+        if (error && error.name === 'NotAllowedError') return false;
+        const club = this.club;
+        try {
+            if (club.isFollowingHost && club.isFollowingHost()) return false;
+            const item = this.defaultItem();
+            const audio = club.audioElement;
+            if (this.isDefaultPlaying() && audio && !audio.paused) return false;
+            this.lastMode = 'analysed';
+            this._defaultUrl = item.url;
+            await club.startAudioStream(item.url, { quietBlock: true });
+            club.nowPlayingLabel = item.name;
+            club.showErrorMessage('That music could not be played, so the club\u2019s own set is playing instead. Anything you saved is still in Music.', 'info');
+            if (this.onChange) this.onChange(item);
+            return true;
+        } catch (fallbackError) {
+            this._defaultUrl = null;
+            console.warn('[Music] The club\u2019s own set could not start either:', fallbackError);
+            return false;
+        }
+    }
+
+    async _playSelected() {
         if (!this.club.guardHostControl('music')) return false;
         const item = this.current();
         if (!item) throw new Error('No saved sets. Add a music link in Music first.');

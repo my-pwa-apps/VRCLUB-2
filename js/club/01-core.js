@@ -317,8 +317,8 @@ class VRClubCore {
         this.djFxFlangerLfo = null;
         this.djFxChannel = null;
         this.djFxReverb = null;
-
-        // === ACCESSIBILITY ===
+        this.djFxGate = null;
+        this.djFxExtra = null;            // phaser, noise sweep, gater, distortion and bit crusher nodes
         // Photosensitive Safe Mode: globally disables all strobe lights and sharp flashes.
         // Persists across sessions so a returning user with photosensitive epilepsy
         // never sees a strobe by accident. Honored at the single strobe render gate

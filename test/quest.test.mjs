@@ -242,6 +242,55 @@ test('an expired signed Podbean link plays through the Resident feed\u2019s stab
     assert.equal(other.plays[0][1], unknown);
 });
 
+test('when a saved set cannot be played the club\u2019s own set takes over, but never for an autoplay block or in someone else\u2019s room', async () => {
+    const fixture = () => {
+        const f = libraryFixture();
+        f.library.save('https://audio.example/broken.mp3', 'Broken');
+        f.club.startAudioStream = async (url, options) => {
+            if (url.endsWith('broken.mp3')) throw new Error('CORS unavailable');
+            f.club._audioStreamUrl = url;
+            f.club.audioElement = { paused: false };
+            f.plays.push(['direct', url, options]);
+        };
+        return f;
+    };
+
+    const f = fixture();
+    await assert.rejects(f.library.play(), /CORS unavailable/, 'the failure is still reported');
+    assert.equal(f.plays.length, 1);
+    assert.equal(f.plays[0][1], 'https://club.example/audio/nocturne-house.mp3');
+    assert.equal(f.library.isDefaultPlaying(), true);
+    assert.equal(f.club.nowPlayingLabel, 'NOCTURNE House (club set)');
+    assert.equal(f.library.items.length, 1, 'the saved set stays in the list');
+    assert.ok(f.messages.some(message => /club.s own set is playing/.test(String(message))), 'the guest is told');
+    // A second failure while the club\u2019s set already plays does not restart it.
+    await assert.rejects(f.library.play(), /CORS unavailable/);
+    assert.equal(f.plays.length, 1);
+
+    const blocked = fixture();
+    blocked.club.startAudioStream = async () => { throw Object.assign(new Error('blocked'), { name: 'NotAllowedError' }); };
+    await assert.rejects(blocked.library.play(), /blocked/);
+    assert.equal(blocked.plays.length, 0, 'autoplay blocked is retried on a gesture, not a failure');
+
+    const guest = fixture();
+    guest.club.isFollowingHost = () => true;
+    await assert.rejects(guest.library.play(), /CORS unavailable/);
+    assert.equal(guest.plays.length, 0, 'the host owns the music in a room');
+
+    const dropped = fixture();
+    assert.equal(await dropped.library.fallBackToDefault(), true, 'a stream that dropped mid-set is replaced too');
+    assert.equal(dropped.library.isDefaultPlaying(), true);
+
+    const nothing = libraryFixture();
+    await assert.rejects(nothing.library.play(), /No saved sets/);
+    assert.equal(nothing.plays.length, 0, 'with nothing saved there is no set to fall back from');
+
+    const bothFail = fixture();
+    bothFail.club.startAudioStream = async () => { throw new Error('offline'); };
+    await assert.rejects(bothFail.library.play(), /offline/);
+    assert.equal(bothFail.library.isDefaultPlaying(), false, 'a failing club set does not loop or leave a stale marker');
+});
+
 test('restarting the same saved stream resumes its last finite playback position', async () => {
     const first = libraryFixture();
     first.library.save('https://audio.example/long-set.mp3', 'Long set');
@@ -391,11 +440,12 @@ test('a SoundCloud track that is not shared for analysis fails clearly and never
     const notShared = libraryFixture(null, () => new Error('HTTP 404 Not Found for relay'));
     notShared.library.save('https://soundcloud.com/some-dj/private-mix', 'My mix');
     await assert.rejects(notShared.library.play(), error => error.code === 'soundcloud-not-published' && /podcast players/.test(error.message));
-    assert.equal(notShared.plays.length, 0, 'no automatic fallback to the embedded player');
+    const defaultOnly = f => f.plays.every(play => play[0] === 'direct' && play[1] === 'https://club.example/audio/nocturne-house.mp3');
+    assert.ok(defaultOnly(notShared) && !notShared.plays.some(play => play[0] === 'soundcloud'), 'no automatic fallback to the embedded player: only the club\u2019s own set steps in');
     assert.equal(notShared.library.current().name, 'My mix', 'the saved set is kept');
     // The embedded player is only ever the guest's explicit choice.
     assert.equal(await notShared.library.playInSoundCloudPlayer(), true);
-    assert.deepEqual(notShared.plays[0].slice(0, 3), ['soundcloud', 'https://soundcloud.com/some-dj/private-mix', 'My mix']);
+    assert.deepEqual(notShared.plays.at(-1).slice(0, 3), ['soundcloud', 'https://soundcloud.com/some-dj/private-mix', 'My mix']);
     assert.equal(notShared.library.lastMode, 'player');
 
     const playlist = libraryFixture(null, () => new Error('HTTP 400 Bad Request for relay'));
@@ -405,7 +455,7 @@ test('a SoundCloud track that is not shared for analysis fails clearly and never
     const offline = libraryFixture(null, () => new Error('network down'));
     offline.library.save('https://soundcloud.com/some-dj/summer-mix');
     await assert.rejects(offline.library.play(), error => error.code === 'soundcloud-relay');
-    assert.equal(offline.plays.length, 0);
+    assert.ok(defaultOnly(offline));
 });
 
 test('a Miss Melera page is found in the relay feed by permalink or by Colourizon number', async () => {
@@ -423,7 +473,7 @@ test('a Miss Melera page is found in the relay feed by permalink or by Colourizo
     const other = libraryFixture(null, url => url.endsWith('feed.xml') ? '<rss/>' : new Error('HTTP 404 Not Found'));
     other.library.save('https://soundcloud.com/missmelera/colourizon-999');
     await assert.rejects(other.library.play(), error => error.code === 'soundcloud-not-published');
-    assert.equal(other.plays.length, 0);
+    assert.ok(other.plays.every(play => play[1] === 'https://club.example/audio/nocturne-house.mp3'), 'only the club\u2019s own set steps in');
 });
 
 test('a Hernan Cattaneo / RSS feed URL is saved and plays its newest episode', async () => {

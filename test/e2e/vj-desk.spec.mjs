@@ -218,7 +218,9 @@ test('the VJ desk: every button is where it is drawn, and presses hand the light
     expect(result.effectsChanged.halfWay, 'it rests where it is put').toBeCloseTo(0.5, 1);
     expect(result.playerHiddenOnReturn, 'returning the DJ must hide the replacement player').toBe(true);
     expect(result.pageOnReturn).toBe('player');
-    expect(result.effectsOnReturn).toEqual({ lowpass: 0, highpass: 0, echo: 0, flanger: 0, reverb: 0, channel: 1 });
+    expect(result.effectsOnReturn).toEqual({
+        lowpass: 0, highpass: 0, echo: 0, flanger: 0, reverb: 0, phaser: 0, sweep: 0, gater: 0, distortion: 0, crusher: 0, channel: 1
+    });
     expect(result.mirrorRaysAfter).toBe(!result.mirrorRaysBefore);
     expect(result.mirrorRaysBack).toBe(result.mirrorRaysBefore);
     expect(result.clearance.left, 'the player overlaps the SHOW panel').toBeGreaterThan(0.02);
@@ -239,7 +241,8 @@ test('the VJ desk: every button is where it is drawn, and presses hand the light
     for (const [name, eyeX, lookX, fx] of [
         ['vj-desk-show', -0.75, -1.28],
         ['vj-desk-player', 0, 0],
-        ['vj-desk-fx', 0, 0, true],
+        ['vj-desk-fx', 0, 0, 'fx'],
+        ['vj-desk-fx2', 0, 0, 'fx2'],
         ['vj-desk-lights', 0.75, 1.28]
     ]) {
         await page.evaluate(({ eyeX, lookX, fx }) => {
@@ -247,8 +250,9 @@ test('the VJ desk: every button is where it is drawn, and presses hand the light
             if (club.isPeopleVisible('dj')) club.togglePeopleVisible('dj');
             club.camera.position.set(eyeX, 2.25, -19.75);
             club.camera.setTarget(new BABYLON.Vector3(lookX, 1.6, -18.65));
-            club._vjDeskPlayerPage = fx ? 'fx' : 'player';
-            if (fx) for (const [effect, value] of [['lowpass', 0.55], ['echo', 0.3], ['reverb', 0.8], ['channel', 0.7]]) club.setDJEffect(effect, value);
+            club._vjDeskPlayerPage = fx || 'player';
+            if (fx === 'fx') for (const [effect, value] of [['lowpass', 0.55], ['echo', 0.3], ['reverb', 0.8], ['channel', 0.7]]) club.setDJEffect(effect, value);
+            if (fx === 'fx2') for (const [effect, value] of [['phaser', 0.4], ['sweep', 0.75], ['gater', 0.5], ['distortion', 0.2], ['crusher', 1]]) club.setDJEffect(effect, value);
             club._vjDesk.dirty = true;
         }, { eyeX, lookX, fx });
         await page.waitForTimeout(3000);

@@ -1569,6 +1569,15 @@ press counts as audio user activation (fallbacks: the Enter VR button and the fi
   so the beat tracker, Show Director and crowd have real structure; keep it under Pages' 25 MiB file limit.
   Historical `vrclub.lastStreamUrl` / `vrclub.podcast` are ignored. A guest's own sets use `{ onDemand: true }`
   (no loop or automatic next track). Blocked playback retries on the next click/key.
+- **When a stream fails, the club's own set takes over.** `MusicLibrary.play()` (every Play button, the VR menu, the desk and
+  entry music) falls through `fallBackToDefault()` when the selected set cannot start, and `_recoverAudioStream()` calls it
+  once a dropped stream has used up its reconnects. It plays the same `nocturne-house.mp3` (looping, never saved, saved list
+  untouched), tells the guest in a calm toast, and still rejects `play()` so callers report the original error. It never
+  runs for an autoplay block (`NotAllowedError`, retried on a gesture), when following a host, when nothing is saved, or when
+  the club's set is already playing, and it never throws or recurses (a failing club set only logs). Direct, feed and
+  SoundCloud sets all use it; local files and the explicit SoundCloud player do not. A signed Podbean storage link
+  (`sNNN.podbean.com/pb/...?pbss=`, which expires within hours and then fails CORS) is first swapped for the Resident feed's
+  stable link for the same episode (`_stablePodbeanUrl`).
 - **Music transport and local folders.** `getPlaybackInfo()`, `seekAudioTo/Fraction/By()`,
   `setAudioPlayback()` / `toggleAudioPlayback()`, `stopAudioPlayback()` and `stepAudioSource()` in
   `js/club/10-ui.js` are the one API for the Audio panel and VR Music page. Previous/next immediately
@@ -1721,8 +1730,19 @@ controller ray therefore use the same path (`pressVJDesk` / `dragVJDesk` / `rele
   position slider. Previous/next enable only when an active local folder or the saved-set library has more than one source and
   delegate to `stepAudioSource`; the other buttons delegate to `setAudioPlayback` and `stopAudioPlayback`. Dragging the slider previews the time and calls
   `seekAudioToFraction()` once on release, never repeatedly while the controller moves. Unavailable/live states are
-  written on the controls, and room guests see HOST ONLY. Its header shows playing/paused, position and set title. FX has
-  five real knobs (low-pass, high-pass, echo, flanger, reverb), a small XFADE crossfader and a CLEAR FX button. A knob
+  written on the controls, and room guests see HOST ONLY. Its header shows playing/paused, position and set title. FX is TWO
+  pages of five real knobs, stepped by the page button (player, then FX, then MORE EFFECTS, then back): low-pass, high-pass,
+  echo, flanger, reverb, then phaser, noise sweep, gater, distortion and bit crusher (`VJ_FX_PAGES`; a button's `page` is a
+  string or an array, and the XFADE crossfader and CLEAR FX stand on both). The second bank (`_createDJExtraEffects`,
+  `_writeDJExtraEffects` in `js/club/11-audio-crowd.js`) is Web Audio only, no AudioWorklet (blob worklets are not allowed by
+  the CSP): the GATER is a series gain stage after the filters (a smoothed square LFO swings it between 1 and 1 - depth, one
+  cycle per eighth note of `vjBPM`, so a sixteenth on and a sixteenth off); the others are parallel wet sends into the mix, so
+  an amount of 0 is silent: PHASER four all-pass stages swept by a 0.35 Hz LFO, DISTORTION drive 1 to 31 into a 4x-oversampled
+  tanh clipper tamed at 5.5 kHz, BIT CRUSHER a staircase WaveShaper from 12 down to 3 bits (cached curves per depth; it
+  reduces bit depth but NOT sample rate, which needs a worklet), NOISE SWEEP looped white noise through a band that rises
+  250 Hz to 10 kHz and gets louder (`sweep^2`). The effect state is `VRClubAudioCrowd.DJ_EFFECT_DEFAULTS`; a failure building
+  the second bank leaves the first five working. All of it sits before the output and after the analyser tap, like the rest.
+  Phaser, distortion, crusher and sweep levels are by ear on desktop only, never heard in a headset. FX has a small XFADE crossfader and a CLEAR FX button. A knob
   sweeps 270 degrees (7:30 to 4:30) and is TURNED, not slid, and is relative to where it was grabbed so it never jumps:
   - **From a controller (VR)** the trigger grabs the knob the controller's ray is on (`_vjDeskControllerAt`), and the
     knob then follows the WRIST: every frame `updateVJDesk()` reads the controller pointer's roll about its pointing
@@ -1737,9 +1757,10 @@ controller ray therefore use the same path (`pressVJDesk` / `dragVJDesk` / `rele
     resets the control and does NOT jump, anywhere else A / X jumps as before; one press is consumed once) or a **right-click**
     on desktop (`resetVJDeskAt`): a knob goes to off, the crossfader to full, and the real cap swings back over a few frames.
     CLEAR FX remains the reset for everything (every knob off, music unmuted, smoothly through `resetDJEffects()`).
-  - **The controls are real meshes** (`_createVJDeskControls`, `VJ_KNOB3D`, `VJ_FADER3D`): five knobs (a fluted metal cap on a
-    dark collar, a coloured top and a white pointer) and the crossfader cap stand out of the transport panel, children of it,
-    shown only on the FX page while the desk player is (`_syncVJDeskControls`, per frame). They are NOT pickable, so a ray
+  - **The controls are real meshes** (`_createVJDeskControls`, `VJ_KNOB3D`, `VJ_FADER3D`): ten knobs (a fluted metal cap on a
+    dark collar, a coloured top and a white pointer, one merged collar mesh per page) and the crossfader cap stand out of the
+    transport panel, children of it,
+    shown only on their FX page while the desk player is (`_syncVJDeskControls`, per frame). They are NOT pickable, so a ray
     goes through them to the panel and pressing, twisting and sliding use exactly the canvas hit logic; the canvas still draws
     the scale arc, the label, the value and the slot (and draws a 2D knob/cap itself if the meshes could not be built). A
     knob's sweep is the mixer standard, 7:30 off to 4:30 full (`VJ_KNOB.start` 0.75 pi), measured in the real scene (12 o'clock

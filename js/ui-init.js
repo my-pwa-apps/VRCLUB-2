@@ -373,6 +373,11 @@ function startEntryMusic(club, pointAtAudioMenu) {
         // guest in a club that looks alive and makes no sound, with no indication that the
         // fix is behind the audio button.
         uiLog.warn(`Saved music unavailable: ${err.message}`);
+        // The club's own set takes over when the saved one fails (see MusicLibrary.fallBackToDefault), so the room is not silent.
+        if (library.isDefaultPlaying()) {
+            announceNowPlaying(library.defaultItem().name);
+            return;
+        }
         entryNowPlaying = 'No audio yet';
         if (nowPlaying) nowPlaying.textContent = entryNowPlaying;
         pointAtAudioMenu();
@@ -1773,7 +1778,8 @@ function initAudioMenu() {
         } else {
             showStatus(`Error: ${err.message}`, 'error');
         }
-        setNowPlaying('No audio yet');
+        // The club's own set may have taken over from the one that failed.
+        setNowPlaying(library.isDefaultPlaying() ? `\u25B6 ${library.defaultItem().name}` : 'No audio yet');
     }
     if (soundCloudFallbackBtn) {
         soundCloudFallbackBtn.addEventListener('click', () => {
