@@ -26,6 +26,10 @@ kept in lockstep with `index.html`, `sw.js` and `serviceworker.js` by
 
 ### Fixed
 
+- **A saved Resident episode no longer fails with a CORS error once its link has lapsed.** A Podbean storage link copied from a browser (`sNNN.podbean.com/pb/…?pbss=`) is signed
+  and expires within hours; the expired link is refused without CORS headers, so the set never started. Playing such a link now swaps in the Resident feed's stable link for the same
+  episode, and tries the link as saved if the feed does not list it.
+- **A collapsed or minimised window no longer floods the console with incomplete-framebuffer errors.** The render loop now waits while the canvas has no size.
 - **Walking, you no longer see the back of your character's face, and looking down no longer shows the inside of the torso.** The character's eyes sit a few centimetres
   in front of its neck, but its body was placed straight under the camera, which put the camera inside the chest, and a walking head sway then flipped the "head hidden"
   check. The character's eyes are now locked to the camera's position every frame (the head is shown or hidden by the distance to its eyes), so you look out of its head.

@@ -213,6 +213,9 @@ class VRClubLifecycle extends VRClubCore {
             // Rendering during ENTERING/EXITING_XR produced hundreds of incomplete-framebuffer
             // warnings and no useful frame, so skip only that transition window.
             if (this._xrTransitioning) return;
+            // A minimised or collapsed window gives the canvas no size, and every post-process target with it: each draw
+            // then fails with an incomplete framebuffer. Wait for the next resize to give it a size back.
+            if (!this.isInVRMode && this.canvas && (!this.canvas.clientWidth || !this.canvas.clientHeight)) return;
             const t0 = performance.now();
             this.updateAnimations();
             const t1 = performance.now();

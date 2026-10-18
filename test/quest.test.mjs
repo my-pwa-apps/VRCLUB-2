@@ -223,6 +223,25 @@ test('saved playback uses the shared audio API, plays once and respects host own
     await assert.rejects(f.library.play(), /CORS unavailable/);
 });
 
+test('an expired signed Podbean link plays through the Resident feed\u2019s stable link for the same episode', async () => {
+    const feed = '<rss><channel><item><title>806</title><enclosure url="https://mcdn.podbean.com/mf/web/aaa/806-HernanCattaneo-2026-10-17.mp3" type="audio/mpeg"/></item>'
+        + '<item><title>805</title><enclosure url="https://mcdn.podbean.com/mf/web/bbb/805-HernanCattaneo-2026-10-10.mp3" type="audio/mpeg"/></item></channel></rss>';
+    const f = libraryFixture(null, feed);
+    const signed = 'https://s363.podbean.com/pb/932877322d9f7fc594f21e7e87325da9/6acf4a58/data1/fs80/274700/uploads/805-HernanCattaneo-2026-10-10.mp3?pbss=38a5f7c3';
+    assert.equal(f.library.constructor.isSignedPodbeanUrl(signed), true);
+    assert.equal(f.library.constructor.isSignedPodbeanUrl('https://mcdn.podbean.com/mf/web/bbb/805-HernanCattaneo-2026-10-10.mp3'), false);
+    f.library.save(signed, 'Hernan 805');
+    await f.library.play();
+    assert.equal(f.plays[0][1], 'https://mcdn.podbean.com/mf/web/bbb/805-HernanCattaneo-2026-10-10.mp3');
+
+    // An episode the feed does not list is attempted as saved.
+    const other = libraryFixture(null, feed);
+    const unknown = 'https://s363.podbean.com/pb/abc/1/uploads/999-Other.mp3?pbss=1';
+    other.library.save(unknown, 'Other');
+    await other.library.play();
+    assert.equal(other.plays[0][1], unknown);
+});
+
 test('restarting the same saved stream resumes its last finite playback position', async () => {
     const first = libraryFixture();
     first.library.save('https://audio.example/long-set.mp3', 'Long set');

@@ -436,6 +436,29 @@ class MusicLibrary {
         this._persist(items, Math.min(this.selected, Math.max(0, items.length - 1)));
     }
 
+    /** A short-lived signed Podbean storage link (`s123.podbean.com/pb/<token>/...mp3?pbss=`). */
+    static isSignedPodbeanUrl(url) {
+        try {
+            const parsed = new URL(url);
+            return /^s\d+\.podbean\.com$/.test(parsed.hostname) && parsed.pathname.startsWith('/pb/') && parsed.searchParams.has('pbss');
+        } catch (_) {
+            return false;
+        }
+    }
+
+    /** The Resident feed's own link for the episode a signed Podbean link names, or null when it is not a Resident episode. */
+    async _stablePodbeanUrl(url) {
+        if (!MusicLibrary.isSignedPodbeanUrl(url)) return null;
+        try {
+            const file = new URL(url).pathname.split('/').pop();
+            const episodes = await this._feedEpisodes({ url: MusicLibrary.RESIDENT_FEED }, { all: true });
+            const match = episodes.find(episode => new URL(episode.url).pathname.split('/').pop() === file);
+            return match ? match.url : null;
+        } catch (_) {
+            return null;
+        }
+    }
+
     async play() {
         if (!this.club.guardHostControl('music')) return false;
         const item = this.current();
@@ -468,8 +491,16 @@ class MusicLibrary {
             });
             label = episode.title || item.name;
         } else {
-            await this.club.startAudioStream(item.url, {
-                onDemand: true, resumeAt: this._resumePosition(item, item.url)
+            // A Podbean storage link copied from a browser carries a signature that lapses within hours, and the expired
+            // link is refused without CORS headers: play the same episode through the feed's stable link instead.
+            let url = item.url;
+            const fresh = await this._stablePodbeanUrl(url);
+            if (fresh) {
+                url = fresh;
+                this.resolvedUrls.set(item.url, fresh);
+            }
+            await this.club.startAudioStream(url, {
+                onDemand: true, resumeAt: this._resumePosition(item, url)
             });
         }
         this.club.nowPlayingLabel = label;
