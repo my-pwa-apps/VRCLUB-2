@@ -2138,12 +2138,7 @@ class VRClubAudioCrowd extends VRClubUI {
         const t = this._bartenderWashTime;
         const bar = window.VenueLayout.bar;
         const counter = this._barGlass ? this._barGlass.counter : null;
-        const washX = bar.bartender.x - 0.42;
-        // Polishing a glass: the right hand holds it up at chest height and turns it, the left hand circles inside it.
-        const polish = t * 2.6;
-        let rightX = washX, rightY = 1.27 + 0.012 * Math.sin(polish + 2), rightZ = bar.bartender.z - 0.07;
-        let leftX = washX + 0.02 + 0.03 * Math.cos(polish), leftY = 1.25 + 0.03 * Math.sin(polish),
-            leftZ = bar.bartender.z + 0.04 + 0.02 * Math.sin(polish + 1);
+        const B = bar.bartender, top = bar.counter.top;
         let activity = service && service.activity === 'talk' ? 'survey' : 'service';
         if (!service) {
             this._bartenderActivityTime -= dt;
@@ -2155,30 +2150,12 @@ class VRClubAudioCrowd extends VRClubUI {
             }
             activity = this._bartenderActivity || 'wash';
         }
-        if (activity === 'wipe') {
-            const sweep = Math.sin(this._bartenderWashTime * 1.15);
-            rightX = bar.counter.xBack - 0.10;
-            rightY = bar.counter.top + 0.055;
-            rightZ = bar.bartender.z - 0.34 + 0.28 * sweep;
-            leftX = bar.counter.xBack - 0.08;
-            leftY = bar.counter.top + 0.06;
-            leftZ = bar.bartender.z - 0.10 + 0.24 * sweep;
-        } else if (activity === 'survey') {
-            rightX = bar.counter.xBack - 0.12;
-            rightY = bar.counter.top + 0.08;
-            rightZ = bar.bartender.z - 0.24;
-            leftX = bar.counter.xBack - 0.10;
-            leftY = bar.counter.top + 0.08;
-            leftZ = bar.bartender.z + 0.24;
-        } else if (activity === 'arrange') {
-            const arrange = 0.5 + 0.5 * Math.sin(this._bartenderWashTime * 1.35);
-            rightX = bar.backBar.xFront - 0.05;
-            rightY = bar.backBar.shelves[0] + 0.02 + 0.42 * arrange;
-            rightZ = bar.bartender.z - 0.20;
-            leftX = bar.backBar.xFront - 0.08;
-            leftY = bar.backBar.shelves[0] + 0.03;
-            leftZ = bar.bartender.z + 0.12;
+        if (activity !== this._bartenderLastActivity) {
+            this._bartenderLastActivity = activity;
+            this._bartenderSettle = 1.2;
         }
+        this._bartenderSettle = Math.max(0, (this._bartenderSettle || 0) - dt);
+
         let reach = 0;
         if (counter && service) {
             const raw = service.duration > 0 ? Math.min(1, Math.max(0, 1 - service.timer / service.duration)) : 1;
@@ -2186,38 +2163,111 @@ class VRClubAudioCrowd extends VRClubUI {
             else if (service.activity === 'served') reach = 1 - raw;
             else if (service.activity === 'clear') reach = raw < 0.5 ? raw * 2 : (1 - raw) * 2;
             reach = reach * reach * (3 - 2 * reach);
-            rightX += (counter.x - rightX) * reach;
-            rightY += (counter.y - rightY) * reach;
-            rightZ += (counter.z - rightZ) * reach;
         }
-        pose.lean = (activity === 'survey' ? 0.06 : activity === 'arrange' ? 0.02 : 0.12) + reach * 0.42;
         // She breathes and shifts her weight from foot to foot while she works; serving takes over the body.
         const idleLife = 1 - reach;
         pose.eyeY = 1.58 + 0.005 * Math.sin(t * 1.9);
-        pose.x = bar.bartender.x - reach * 0.48;
-        pose.z = bar.bartender.z + reach * 0.45 + idleLife * 0.03 * Math.sin(t * 0.37);
-        pose.right.x = rightX;
-        pose.right.y = rightY;
-        pose.right.z = rightZ;
-        if (counter) {
-            leftX += (counter.x - leftX) * reach;
-            leftY += (counter.y - leftY) * reach;
-            leftZ += (counter.z - leftZ) * reach;
+        pose.x = B.x - reach * 0.48;
+        pose.z = B.z + reach * 0.45 + idleLife * 0.03 * Math.sin(t * 0.37);
+
+        // What she does is described in HER frame: which way she faces, and each hand's distance ahead (f), sideways
+        // (l, positive to her right), height (y), finger pitch (p) and how far the palm turns down (in: 0 thumb up,
+        // 1 palm down). The old world-space targets put her right hand on her left side whenever she turned, which
+        // crossed her arms; in her own frame the right hand can never pass the left.
+        const patron = service && service.barPatron && service.barPatron.root ? service.barPatron.root.position : null;
+        const goal = this._bartenderGoal || (this._bartenderGoal = {});
+        const polish = t * 2.6;
+        const facePoint = (x, z) => Math.atan2(x - pose.x, z - pose.z);
+        if (activity === 'wipe') {
+            // Both palms flat on the counter, sweeping along it together; she turns to follow them.
+            const sweep = Math.sin(t * 1.15);
+            const cx = bar.counter.xBack - 0.10, cz = B.z - 0.22 + 0.26 * sweep;
+            goal.yaw = facePoint(cx, cz);
+            const reachAhead = Math.hypot(cx - pose.x, cz - pose.z);
+            goal.rf = goal.lf = reachAhead;
+            goal.rl = 0.11; goal.ll = -0.11;
+            goal.ry = top + 0.055; goal.ly = top + 0.06;
+            goal.rp = goal.lp = -0.18;
+            goal.ri = goal.li = 1;
+        } else if (activity === 'survey') {
+            // Hands resting wide on the counter while she watches the room (or the guest she is talking to).
+            goal.yaw = patron ? facePoint(patron.x, patron.z) : -Math.PI / 2 + 0.3 * Math.sin(t * 0.32);
+            goal.rf = goal.lf = 0.47;
+            goal.rl = 0.24; goal.ll = -0.24;
+            goal.ry = goal.ly = top + 0.08;
+            goal.rp = goal.lp = -0.2;
+            goal.ri = goal.li = 1;
+        } else if (activity === 'arrange') {
+            // Turned to the back bar: the right hand lifts a bottle up and down while the left steadies the shelf.
+            const lift = 0.5 + 0.5 * Math.sin(t * 1.35);
+            goal.yaw = Math.PI / 2;
+            goal.rf = goal.lf = bar.backBar.xFront - 0.06 - B.x;
+            goal.rl = 0.20; goal.ll = -0.12;
+            goal.ry = bar.backBar.shelves[0] + 0.02 + 0.42 * lift;
+            goal.ly = bar.backBar.shelves[0] + 0.03;
+            goal.rp = 0.15; goal.lp = -0.05;
+            goal.ri = 0; goal.li = 0.8;
+        } else {
+            // Polishing a glass (and the start of serving): both hands together at chest height in front of her, thumbs up and
+            // palms toward each other, the right hand turning the glass and the left circling inside it.
+            const wash = idleLife;
+            // Serving, she faces the glass's spot on the counter (her hand must reach it); the head looks at the guest.
+            const faceX = counter ? (B.x - 0.42) + (counter.x - (B.x - 0.42)) * reach : B.x - 0.42;
+            const faceZ = counter ? (B.z - 0.05) + (counter.z - (B.z - 0.05)) * reach : B.z - 0.05;
+            goal.yaw = counter && service ? facePoint(faceX, faceZ) : -Math.PI / 2 - 0.15;
+            goal.rf = 0.42;
+            goal.lf = 0.42 - 0.03 * Math.cos(polish) * wash;
+            goal.rl = 0.055;
+            goal.ll = -0.055 + 0.02 * Math.sin(polish + 1) * wash;
+            goal.ry = 1.27 + 0.012 * Math.sin(polish + 2) * wash;
+            goal.ly = 1.25 + 0.03 * Math.sin(polish) * wash;
+            goal.rp = 0.35; goal.lp = 0.45;
+            goal.ri = goal.li = 0;
         }
-        pose.left.x = leftX;
-        pose.left.y = leftY;
-        pose.left.z = leftZ;
+
+        // She turns at a human pace, and her hands settle into each new job instead of jumping to it.
+        if (!Number.isFinite(this._bartenderYaw)) this._bartenderYaw = goal.yaw;
+        const turn = Math.atan2(Math.sin(goal.yaw - this._bartenderYaw), Math.cos(goal.yaw - this._bartenderYaw));
+        const turnStep = Math.max(-2.4 * dt, Math.min(2.4 * dt, turn * (1 - Math.exp(-6 * dt))));
+        this._bartenderYaw += turnStep;
+        const hands = this._bartenderHands || (this._bartenderHands = { ...goal });
+        const settle = 1 - Math.exp(-dt / (this._bartenderSettle > 0 ? 0.28 : 0.07));
+        for (const key of ['rf', 'rl', 'ry', 'rp', 'ri', 'lf', 'll', 'ly', 'lp', 'li']) hands[key] += (goal[key] - hands[key]) * settle;
+        const bodyYaw = this._bartenderYaw;
+        const sinY = Math.sin(bodyYaw), cosY = Math.cos(bodyYaw);
+        let rightX = pose.x + sinY * hands.rf + cosY * hands.rl, rightY = hands.ry, rightZ = pose.z + cosY * hands.rf - sinY * hands.rl;
+        let leftX = pose.x + sinY * hands.lf + cosY * hands.ll, leftY = hands.ly, leftZ = pose.z + cosY * hands.lf - sinY * hands.ll;
+        if (counter && reach > 0) {
+            // Serving: the right hand carries the glass to the counter point; the left rests beside it, not on top of it.
+            const leftCx = counter.x - cosY * 0.2 - sinY * 0.04, leftCz = counter.z + sinY * 0.2 - cosY * 0.04;
+            rightX += (counter.x - rightX) * reach;
+            rightY += (counter.y - rightY) * reach;
+            rightZ += (counter.z - rightZ) * reach;
+            leftX += (leftCx - leftX) * reach;
+            leftY += (counter.y - 0.02 - leftY) * reach;
+            leftZ += (leftCz - leftZ) * reach;
+        }
+        pose.lean = (activity === 'survey' ? 0.06 : activity === 'arrange' ? 0.02 : 0.12) + reach * 0.42;
+        const aim = (hand, x, y, z, pitch, inward, side) => {
+            hand.x = x; hand.y = y; hand.z = z;
+            const cp = Math.cos(pitch), sp = Math.sin(pitch);
+            hand.fx = sinY * cp; hand.fy = sp; hand.fz = cosY * cp;
+            // The thumb side points up for a grip and toward the middle of her body for a flat palm.
+            const ux = -cosY * side * inward * 0.95, uz = sinY * side * inward * 0.95, uy = 1 - inward * 0.7;
+            const ul = Math.hypot(ux, uy, uz) || 1;
+            hand.ux = ux / ul; hand.uy = uy / ul; hand.uz = uz / ul;
+        };
+        aim(pose.right, rightX, rightY, rightZ, hands.rp, hands.ri, 1);
+        aim(pose.left, leftX, leftY, leftZ, hands.lp, hands.li, -1);
         const patronNpc = this._barPatron;
         const patronState = patronNpc && patronNpc.barPatron;
         const patronDrinking = !!patronState && ['pickup', 'drink', 'return'].includes(patronState.activity);
-        const workYaw = Math.atan2(rightX - bar.bartender.x, rightZ - bar.bartender.z);
-        let bodyYaw = workYaw, headYaw = workYaw, headPitch = -0.28;
-        if (service && service.barPatron && service.barPatron.root) {
-            const patron = service.barPatron.root.position;
-            bodyYaw = headYaw = Math.atan2(patron.x - pose.x, patron.z - pose.z);
+        const workYaw = bodyYaw;
+        let headYaw = workYaw, headPitch = -0.28;
+        if (patron) {
+            headYaw = facePoint(patron.x, patron.z);
             headPitch = 0.02;
         } else if (activity === 'survey') {
-            bodyYaw = headYaw = -Math.PI / 2 + 0.42 * Math.sin(t * 0.32);
             headPitch = 0.03;
         } else if (!service) {
             // Heads down over the work, with a glance up every ~11 s: at the regular while she drinks, otherwise
@@ -2823,7 +2873,10 @@ class VRClubAudioCrowd extends VRClubUI {
 
     _createBartenderGlass(bartender) {
         if (this._barGlass || !bartender || !this.scene || !this.materialFactory || !BABYLON.MeshBuilder) return;
-        const wrist = bartender.root.getChildTransformNodes(false).find(node => /hand_r$/.test(node.name));
+        // The glass lives in her physical RIGHT hand. Which of the skeleton's two hand bones that is depends on how the rig
+        // measured its sides (a mirrored body swaps them), so ask the rig rather than trusting the bone's name.
+        const rightSuffix = bartender.rig && bartender.rig.sideL > 0 ? 'l' : 'r';
+        const wrist = bartender.root.getChildTransformNodes(false).find(node => node.name.endsWith(`hand_${rightSuffix}`));
         if (!wrist) return;
         const cup = BABYLON.MeshBuilder.CreateCylinder('minglerDrink', {
             diameterTop: 0.075, diameterBottom: 0.055, height: 0.12, tessellation: 12
@@ -3763,15 +3816,25 @@ class VRClubAudioCrowd extends VRClubUI {
         const music = this._crowdMusic(audioData);
         this._crowdBeatPresent = music.beatPresent;
         const decision = this._crowdDecision || (this._crowdDecision = {});
+        // Starting a clip builds an animatable for every bone, so only a couple of dancers may change move in one frame; the
+        // rest wait a frame or two (their choreographer state already holds the new move, and the next frame's phase check
+        // finds the old clip out of step and makes the change). Without it a drop or a bar line started a dozen at once.
+        let starts = VRClubAudioCrowd.CROWD_STARTS_PER_FRAME;
         for (const npc of this.npcAvatars) {
             const dance = npc.dance;
             if (!dance || !npc.root.isEnabled()) continue;
             if (!dance.state) dance.state = choreographer.createDancer([...dance.groups.keys()]);
             choreographer.step(dance.state, music, VRClubAudioCrowd._loopFraction(dance.current), decision);
             let group = dance.current;
-            if (decision.switched || decision.snap) {
-                const next = dance.groups.get(decision.move);
-                if (next && next !== group) {
+            const next = dance.groups.get(decision.move);
+            // A dancer whose clip is not the move the choreographer holds is waiting for its turn to start it.
+            const changing = !!next && next !== group;
+            if (changing && starts <= 0) continue;
+            if (decision.switched || decision.snap || changing) {
+                let frac = decision.frac;
+                if (changing) {
+                    starts--;
+                    if (!decision.switched && !decision.snap) frac = Number.isFinite(decision.target) ? decision.target : Math.random();
                     // Start the new move first: it blends from the pose the old one leaves (enableBlending), then the
                     // old one stops where it is.
                     next.start(true, decision.speed, next.from, next.to);
@@ -3779,11 +3842,14 @@ class VRClubAudioCrowd extends VRClubUI {
                     dance.current = group = next;
                     npc.animations = [next];
                 }
-                group.goToFrame(group.from + decision.frac * (group.to - group.from));
+                group.goToFrame(group.from + frac * (group.to - group.from));
             }
             group.speedRatio = decision.speed;
         }
     }
+
+    /** How many dancers may start a new clip in one frame (see _updateCrowdDance). */
+    static get CROWD_STARTS_PER_FRAME() { return 2; }
 
     static _attentionRandom(dance) {
         dance.attentionSeed = (Math.imul(dance.attentionSeed, 1664525) + 1013904223) >>> 0;

@@ -3383,6 +3383,56 @@ test('the bartender rotates through distinct work activities and rests her hands
     assert.ok(Math.abs(pose.eyeY - 1.58) <= 0.006, 'her breathing moves her eyes out of range');
 });
 
+test('the bartender\u2019s right hand never crosses her left, in any job, while talking or while serving', () => {
+    const BABYLON = makeBabylonStub();
+    const { window } = loadClassic('js/club/11-audio-crowd.js', { BABYLON, VRClubUI: class {} });
+    const Crowd = window.VRClubAudioCrowd;
+    window.VenueLayout = {
+        bar: {
+            counter: { xFront: 9.7, xBack: 10.5, top: 1.1 },
+            backBar: { xFront: 11.55, shelves: [1.42, 1.86, 2.3] },
+            bartender: { x: 10.85, z: -9.9 }
+        }
+    };
+    const hand = () => ({ x: 0, y: 0, z: 0, fx: 0, fy: 0, fz: 0, ux: 0, uy: 0, uz: 0 });
+    const pose = { x: 10.85, z: -9.9, lean: 0.12, headYaw: 0, left: hand(), right: hand() };
+    const frames = [];
+    const club = Object.assign(Object.create(Crowd.prototype), {
+        _bartenderRig: { root: { isEnabled: () => true }, update() { frames.push({ left: { ...pose.left }, right: { ...pose.right }, yaw: pose.bodyYaw, x: pose.x, z: pose.z }); } },
+        _bartenderPose: pose, _bartenderWashTime: 0, _bartenderActivity: 'wash', _bartenderActivityTime: 1e6, _bartenderActivityIndex: 0,
+        _barGlass: { counter: { x: 9.85, y: 1.16, z: -10.9 } }
+    });
+    // Positive means to her right, measured in her own frame.
+    const lateral = (h, f) => (h.x - f.x) * Math.cos(f.yaw) - (h.z - f.z) * Math.sin(f.yaw);
+    const checkRun = (label, step) => {
+        frames.length = 0;
+        for (let i = 0; i < 900; i++) step(i);
+        for (const f of frames.slice(30)) {
+            const gap = lateral(f.right, f) - lateral(f.left, f);
+            assert.ok(gap > 0.02, `${label}: her right hand is on her left side of her left hand (${gap.toFixed(3)} m)`);
+        }
+    };
+    for (const activity of Crowd.BARTENDER_ACTIVITIES) {
+        club._bartenderActivity = activity;
+        checkRun(activity, () => club._updateBartender(1 / 60, null));
+    }
+    const patron = { root: { position: { x: 9.08, z: -11.6 } } };
+    checkRun('talking', () => club._updateBartender(1 / 60, { activity: 'talk', timer: 5, duration: 10, barPatron: patron }));
+    for (const stage of ['serve', 'served', 'clear']) {
+        let timer = 3;
+        checkRun(`serving (${stage})`, () => {
+            timer = timer <= 0 ? 3 : timer - 1 / 60;
+            club._updateBartender(1 / 60, { activity: stage, timer, duration: 3, barPatron: patron });
+        });
+    }
+    // Whatever she is doing, the palms are turned the right way: flat for the counter, never edge-on to it.
+    club._bartenderActivity = 'survey';
+    checkRun('survey', () => club._updateBartender(1 / 60, null));
+    const palm = frames.at(-1);
+    assert.ok(pose.right.uy < 0.5 && pose.left.uy < 0.5, 'her hands rest on the counter with the palms down');
+    assert.ok(palm.right.y > 0);
+});
+
 test('the bar regular tips her bottle only while it is at her lips', () => {
     const BABYLON = makeBabylonStub();
     const { window } = loadClassic('js/club/11-audio-crowd.js', { BABYLON, VRClubUI: class {} });
@@ -11408,6 +11458,86 @@ test('with no beat at all most dancers sway, some open their arms wide or reach 
     const old = choreographer.createDancer(ALL_MOVES);
     choreographer.step(old, quiet, null, out);
     assert.equal(out.move, 'Groove_Sway');
+});
+
+test('when the kick drops out each dancer follows in their own moment, not the whole floor on one frame', () => {
+    const { CrowdDance, choreographer } = loadCrowdDance(23);
+    const dancers = Array.from({ length: 14 }, () => choreographer.createDancer(FULL_MOVES));
+    const out = {};
+    const music = { beatPresent: true, rhythm: false, beat: 0, bpm: 124, energy: 0.6, build: false, drop: false, time: 0 };
+    const frames = new Array(dancers.length).fill(null);
+    const changedAt = new Array(dancers.length).fill(null);
+    const LOSS = 20;
+    for (let t = 0; t < LOSS + 3; t += 1 / 60) {
+        music.time = t;
+        music.beat = t * 124 / 60;
+        music.beatPresent = t < LOSS;
+        dancers.forEach((dancer, i) => {
+            const before = dancer.move;
+            const d = choreographer.step(dancer, music, frames[i], out);
+            if (d.switched || d.snap || frames[i] === null) frames[i] = d.frac;
+            else frames[i] = (frames[i] + (1 / 60) * d.speed / (CrowdDance.MOVES[d.move].beats * 0.5)) % 1;
+            if (t >= LOSS && changedAt[i] === null && CrowdDance.MOVES[dancer.move].free && !(before && CrowdDance.MOVES[before].free)) changedAt[i] = t - LOSS;
+        });
+    }
+    assert.ok(changedAt.every(at => at !== null), 'somebody never moved on to the free sway');
+    assert.ok(Math.min(...changedAt) >= 0.09, `somebody reacted before their moment (${Math.min(...changedAt).toFixed(2)} s)`);
+    assert.ok(Math.max(...changedAt) <= 1.1, `somebody took ${Math.max(...changedAt).toFixed(2)} s to notice`);
+    assert.ok(Math.max(...changedAt) - Math.min(...changedAt) > 0.4, 'the whole floor changed on the same moment');
+    const frameOf = at => Math.round(at * 60);
+    const perFrame = new Map();
+    for (const at of changedAt) perFrame.set(frameOf(at), (perFrame.get(frameOf(at)) || 0) + 1);
+    assert.ok(Math.max(...perFrame.values()) <= 3, 'a lot of dancers changed move on the same frame');
+});
+
+test('a drop still reaches every dancer at once, whatever their reaction time', () => {
+    const { choreographer } = loadCrowdDance(5);
+    const dancers = Array.from({ length: 10 }, () => choreographer.createDancer(FULL_MOVES));
+    const out = {};
+    const music = { beatPresent: true, rhythm: false, beat: 8, bpm: 124, energy: 0.8, build: false, drop: false, time: 50 };
+    for (const dancer of dancers) choreographer.step(dancer, music, null, out);
+    music.time = 51;
+    music.drop = true;
+    for (const dancer of dancers) {
+        choreographer.step(dancer, music, 0.2, out);
+        assert.equal(out.switched, true, 'a dancer ignored the drop');
+    }
+});
+
+test('only a couple of dancers start a new clip in one frame, and everyone gets there', () => {
+    const BABYLON = makeBabylonStub();
+    const crowdWindow = loadClassic('js/crowdDance.js').window;
+    const { window } = loadClassic('js/club/11-audio-crowd.js', { BABYLON, VRClubUI: class {}, CrowdDance: crowdWindow.CrowdDance });
+    const Crowd = window.VRClubAudioCrowd;
+    let started = 0;
+    const makeGroup = (name) => ({
+        name, from: 0, to: 120, isPlaying: false, speedRatio: 1, animatables: [{ masterFrame: 0 }],
+        start() { started++; this.isPlaying = true; }, stop() { this.isPlaying = false; }, goToFrame(frame) { this.animatables[0].masterFrame = frame; }
+    });
+    const npcs = Array.from({ length: 14 }, () => {
+        const groups = new Map(['Dance_Loop', 'Groove_Bounce', 'Groove_SideTap', 'Groove_Clap', 'Groove_Twist', 'Groove_Sway'].map(name => [name, makeGroup(name)]));
+        const current = groups.get('Dance_Loop');
+        current.isPlaying = true;
+        return { root: { isEnabled: () => true }, animations: [current], dance: { groups, current, state: null } };
+    });
+    const club = Object.assign(Object.create(Crowd.prototype), {
+        npcAvatars: npcs,
+        _crowdMusic: () => ({ beatPresent: true, rhythm: false, beat: 4, bpm: 124, energy: 0.7, build: false, drop: true, time: 10 })
+    });
+    const perFrame = [];
+    for (let frame = 0; frame < 12; frame++) {
+        started = 0;
+        club._updateCrowdDance(1 / 60, null);
+        perFrame.push(started);
+        if (frame === 0) club._crowdMusic = () => ({ beatPresent: true, rhythm: false, beat: 4.2, bpm: 124, energy: 0.7, build: false, drop: false, time: 10.1 });
+    }
+    assert.ok(Math.max(...perFrame) <= Crowd.CROWD_STARTS_PER_FRAME, `${Math.max(...perFrame)} clips started in one frame`);
+    assert.ok(perFrame.filter(count => count > 0).length >= 3 && perFrame.reduce((a, b) => a + b, 0) >= 5, 'the floor changed move in one go instead of over a few frames');
+    for (const npc of npcs) {
+        const wanted = npc.dance.groups.get(npc.dance.state.move);
+        assert.equal(npc.dance.current, wanted, 'a dancer was left on a clip that is not the move the choreographer holds');
+        assert.ok(npc.animations.length === 1 && npc.animations[0] === wanted);
+    }
 });
 
 test('the free moves never appear while there is a pulse, and the overhead clap is a beat move', () => {

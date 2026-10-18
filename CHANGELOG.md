@@ -26,6 +26,13 @@ kept in lockstep with `index.html`, `sw.js` and `serviceworker.js` by
 
 ### Fixed
 
+- **The bartender's arms no longer cross, and her hands sit naturally.** Her hand targets were fixed points in the room, so whenever she turned (surveying the
+  room, polishing, wiping, talking to the regular) her right hand ended up on her left side: crossed arms, with both palms edge-on. Everything is now placed in her own frame
+  (right hand to her right, left to her left), palms rest flat on the counter or face each other around the glass, she turns at a human pace and settles into each job instead of jumping
+  to it, and when serving the left hand rests beside the glass instead of on it. A test fails if her right hand is ever to the left of her left.
+- **Dancers no longer reset or skip a few frames together.** When the kick dropped out or came back, every dancer changed move on the same frame, and starting that many
+  clips at once (each builds an animatable per bone) was a visible hitch. Each dancer now follows the change after their own short reaction time, at most two clips start in one frame,
+  and a tempo error is caught up by a faster or slower dance instead of a jump to the new position (a jump only happens past nearly a full beat).
 - **A saved Resident episode no longer fails with a CORS error once its link has lapsed.** A Podbean storage link copied from a browser (`sNNN.podbean.com/pb/…?pbss=`) is signed
   and expires within hours; the expired link is refused without CORS headers, so the set never started. Playing such a link now swaps in the Resident feed's stable link for the same
   episode, and tries the link as saved if the feed does not list it.

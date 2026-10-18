@@ -41,6 +41,7 @@ test('the crowd dances varied moves locked to the beat, and keeps swaying when t
         club._crowdMusic = audio => {
             const music = original(audio);
             music.beatPresent = !quiet(clock); music.bpm = bpm; music.beat = beatAt(clock); music.energy = 0.65;
+            music.time = clock / 1000;
             return music;
         };
         const dancers = () => club.npcAvatars.filter(npc => npc.dance && npc.root.isEnabled() && npc.dance.state && npc.dance.state.move);
@@ -57,6 +58,8 @@ test('the crowd dances varied moves locked to the beat, and keeps swaying when t
                 for (const npc of dancers()) {
                     const state = npc.dance.state, meta = CrowdDance.MOVES[state.move];
                     if (meta.free) continue;
+                    // A dancer waiting its turn to start a new clip (a few frames at most) is still on the old one.
+                    if (npc.dance.groups.get(state.move) !== npc.dance.current) continue;
                     const k = state.half ? 0.5 : 1;
                     const anchor = state.half && meta.halfAnchor !== undefined ? meta.halfAnchor : meta.anchor;
                     const target = CrowdDance.wrap01(((beatAt(clock) - (state.lag || 0)) * k + anchor + (state.phaseOffset || 0)) / meta.beats);
@@ -69,8 +72,9 @@ test('the crowd dances varied moves locked to the beat, and keeps swaying when t
             scene.animate();
             for (const npc of dancers()) {
                 const move = npc.dance.state.move;
-                if (!quiet(clock)) stats.presentMoves.add(move);
-                (quiet(clock - 1000) && quiet(clock) ? stats.quietMoves : stats.moves).add(move);
+                // Each dancer takes up to a second to follow a change in the pulse, so judge only once it has held a while.
+                if (clock > 2000 && !quiet(clock) && !quiet(clock - 1300)) stats.presentMoves.add(move);
+                (quiet(clock - 1300) && quiet(clock) ? stats.quietMoves : stats.moves).add(move);
             }
             if (i === 1000) {
                 const camera = scene.activeCamera;

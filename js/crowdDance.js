@@ -80,7 +80,9 @@ class CrowdDance {
             lag: -0.02 + 0.08 * this.rng(),
             // Which whole beat of its phrase the current move starts on, so a floor doing the same eight-beat move is not
             // all stepping the same way at the same moment (the beat itself stays on the beat).
-            phaseOffset: 0
+            phaseOffset: 0,
+            // How long this person takes to follow a change in the pulse (seconds): some pick it up straight away.
+            reactDelay: 0.1 + 0.9 * this.rng()
         };
     }
 
@@ -94,9 +96,25 @@ class CrowdDance {
     step(dancer, music, frac, out = {}) {
         out.switched = false;
         out.snap = false;
+        out.target = undefined;
         const bar = Math.floor(music.beat / 4);
         // Keep confirmed unanalysable playback distinct from a detected musical pulse.
-        const pulse = music.beatPresent ? true : music.rhythm ? 'rhythm' : music.fallback ? 'fallback' : false;
+        let pulse = music.beatPresent ? true : music.rhythm ? 'rhythm' : music.fallback ? 'fallback' : false;
+        // When the pulse changes (the kick drops out, or comes back) nobody on the floor notices on the same frame: each
+        // person takes their own moment (`reactDelay`) to follow, carrying on as they were until then. A whole crowd
+        // changing move at once read as a reset, and started a dozen clips in one frame.
+        if (music.time !== undefined && dancer.hadBeat !== null && dancer.move !== null) {
+            if (pulse === dancer.hadBeat) {
+                dancer.shiftTo = undefined;
+            } else {
+                if (dancer.shiftTo !== pulse) {
+                    dancer.shiftTo = pulse;
+                    dancer.shiftAt = music.time + (dancer.reactDelay || 0);
+                }
+                if (music.time < dancer.shiftAt && !music.drop) pulse = dancer.hadBeat;
+                else dancer.shiftTo = undefined;
+            }
+        }
 
         if (!pulse) {
             // No beat at all: nobody is on the grid. Most just sway, a few open their arms wide or reach up high, and
@@ -155,20 +173,22 @@ class CrowdDance {
         const anchor = dancer.half && meta.halfAnchor !== undefined ? meta.halfAnchor : meta.anchor;
         const target = CrowdDance.wrap01(((music.beat - (dancer.lag || 0)) * k + anchor + (dancer.phaseOffset || 0)) / meta.beats);
         out.move = dancer.move;
+        out.target = target;
         if (out.switched || frac === null || frac === undefined) {
             out.frac = target;
             out.speed = base;
             return out;
         }
-        // Phase lock: the error in beats of the music, closed over about a beat; a big one (a tempo jump) is a jump.
+        // Phase lock: the error in beats of the music, closed over about a beat. A bigger one (a tempo jump) is caught up
+        // faster still, and only nearly a full beat out is a jump, because a jump is a visible pop in the pose.
         const errorBeats = CrowdDance.wrapHalf(target - frac) * meta.beats / k;
-        if (Math.abs(errorBeats) > 0.6) {
+        if (Math.abs(errorBeats) > 0.9) {
             out.snap = true;
             out.frac = target;
             out.speed = base;
             return out;
         }
-        out.speed = base * (1 + Math.max(-0.4, Math.min(0.4, errorBeats * 0.8)));
+        out.speed = base * (1 + Math.max(-0.6, Math.min(0.6, errorBeats * 0.8)));
         return out;
     }
 

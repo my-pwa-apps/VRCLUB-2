@@ -263,7 +263,8 @@ the palm normal on every dancer and fails if a clap's palms stop facing each oth
 - `CrowdDance` is pure (no Babylon). `MOVES` gives each move its `beats`, `anchor` (where a beat lands: `Dance_Loop`
   dips half a beat in), pick `weight`, the `energy` it suits, and `build` / `drop` multipliers; the free `Groove_Sway`
   is what every dancer does without a beat. `step(dancer, music, frac)` returns the move and a speed: `bpm / 120`
-  (halved at half time) corrected by the phase error in beats (x0.8, clamped +-40%; over 0.6 beats it jumps), so knees
+  (halved at half time) corrected by the phase error in beats (x0.8, clamped +-60%; over 0.9 beats it jumps, a visible pop, so
+  only a real tempo jump gets there), so knees
   bend and hands clap ON the club's beat grid (`vjDirector.beatNumber` plus the bar-phase fraction). A half-time clap
   lands on 2 and 4 (`halfAnchor`).
 - Choosing: per-dancer taste and stable response/drop-response personalities, a change only on a bar line after 4-8
@@ -273,6 +274,13 @@ the palm normal on every dancer and fails if a clap's palms stop facing each oth
   returns   after two in a row (`onsetStreak`). A trusted beat remains present for seven kick-less beats (the same threshold at
   which the Show Director declares a breakdown), so a missed onset or render hitch cannot send the floor idle early;
   the analyser's audible state is also held for two beats so one sparse frame cannot flip it.
+- **Nobody changes on the same frame.** When the pulse changes (the kick goes, hats take over, the kick returns) each dancer
+  follows after their own `reactDelay` (0.1-0.9 s, stable per dancer, measured in `music.time`), carrying on as they were
+  until then; a drop is the exception and cuts in at once. And `_updateCrowdDance()` lets at most
+  `CROWD_STARTS_PER_FRAME` (2) dancers START a new clip in a frame: starting one builds an animatable per bone, and a dozen in one frame
+  was a visible hitch (it read as the dancers resetting or skipping). A dancer whose clip is not yet the move the
+  choreographer holds simply waits a frame or two (`next !== group`), then starts it at `decision.target`. The e2e spec
+  drives `music.time` from its virtual clock, and measures phase error only for dancers on the clip of their move.
 - **`step()` takes a three-state pulse, not a boolean.** `music.beatPresent` (the kick) gives `true`; failing that,
   `music.rhythm` (`VJDirector.rhythmPresent`, see `js/vjDirector.js`) gives `'rhythm'` — hats, a snare or a synth
   keeping time through a kick-less breakdown; neither gives `false`. Only `false` drops every Quaternius dancer onto
@@ -1147,7 +1155,15 @@ coordinates from documentation. The bar and vestibule numbers live in `window.Ve
   the source file's idle clip is only the fallback when the rig refuses the skeleton. Between services she is alive: she
   breathes and shifts her weight, polishes a glass at chest height (the left hand circling inside it), keeps her head
   down over her work with a glance up every ~11 s, and looks at the regular for as long as the regular is drinking.
-  Her body faces her work while the head turns separately (`pose.bodyYaw` vs `pose.headYaw`). Serving still takes over
+  Her body faces her work while the head turns separately (`pose.bodyYaw` vs `pose.headYaw`). **Everything is described in
+  HER frame** (`_bartenderGoal`: which way she faces, and each hand's distance ahead, sideways with + to her right, height,
+  finger pitch and palm turn), then converted with her smoothed yaw: the old world-space targets put her right hand on her
+  left side whenever she turned (survey, wash, wipe), which crossed her arms, and a unit test now fails if her right hand is
+  ever left of her left in any job, while talking or while serving. Palms rest flat (thumbs toward her middle) on the counter
+  and face each other around the glass; she turns at most 2.4 rad/s and hands settle into each new job over ~0.3 s instead
+  of jumping (the pose is smoothed in her frame, not in the world, so hands never cut through her body while she turns). The
+  glass is carried by her physical RIGHT hand (`rig.sideL` picks the bone: a mirrored skeleton swaps `hand_l`/`hand_r`), the left
+  steadies beside it. Serving still takes over
   the whole body, and the measured hand/counter/glass contacts are unchanged. The guest slots keep out of the
   bar footprint (tested).
 - **Stools**: Poly Haven *Metal Stool 03* (`ModelLoader` key `bar_stool`) placed once by the loader and instanced four more
