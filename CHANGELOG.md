@@ -26,6 +26,9 @@ kept in lockstep with `index.html`, `sw.js` and `serviceworker.js` by
 
 ### Fixed
 
+- **Walking, you no longer see the back of your character's face, and looking down no longer shows the inside of the torso.** The character's eyes sit a few centimetres
+  in front of its neck, but its body was placed straight under the camera, which put the camera inside the chest, and a walking head sway then flipped the "head hidden"
+  check. The character's eyes are now locked to the camera's position every frame (the head is shown or hidden by the distance to its eyes), so you look out of its head.
 - **Your character no longer stays on the couch when you walk away.** Standing up when you left a seat was part of the old body's update, which stops running while your
   character is your body, so the seat was never released: your body stayed seated on the couch while you walked around (invisible to you, and missing from the mirror).
   Leaving the seat's spot now stands you up whichever body is drawn.

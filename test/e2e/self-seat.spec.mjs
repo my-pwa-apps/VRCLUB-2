@@ -37,7 +37,7 @@ test('the character sits on the couch, stands up again, and is still there after
         const walked = club._mirrorDouble;
         out.walkedAway = {
             seatReleased: club._activeSeat === null, gait: walked.gait,
-            near: Math.hypot(walked.root.position.x - club.camera.position.x, walked.root.position.z - club.camera.position.z) < 0.2
+            near: Math.hypot(walked.eyeNow.x - club.camera.position.x, walked.eyeNow.z - club.camera.position.z) < 0.2
         };
         out.stood = { shown: club._mirrorDouble.shown, visible: club._mirrorDouble.meshes.every(m => m.isVisible && m.isEnabled()), clip: club._mirrorDouble.current };
         out.stool = await sit(stool);

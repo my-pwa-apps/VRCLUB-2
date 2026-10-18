@@ -1228,13 +1228,16 @@ GLBs instanced once more, and `restroomLight` plus `restroomBackLight` are scope
   whenever a character is known and `_syncMirrorDouble()`/`_updateMirrorDouble()` run every frame from `updateRestroomMirror`,
   not only near the restroom. It is drawn in the main view (`isVisible`), and `_updateLocalPlayerBody` hides and idles the
   mannequin (`rig._standsDown`) while it is `shown`, resuming from where the player stands when it goes. It is sized from its
-  EYES: `_characterEyeHeight` reads the mean height of the cast's shared eye colour (`#31251c`, top 15% of the mesh; 93.5% of the
+  EYES: `_characterEyePoint` finds the mean position of the cast's shared eye colour (`#31251c`, top 15% of the mesh; 93.5% of the
   height if none) and the node is scaled so that height equals `_shownBodyEye()` with its feet on the floor, so the camera sits
-  in its head (a woman's `f*` body is therefore taller than the 1.68 m others see, because your eyes are at 1.7 m). The
+  in its head (a woman's `f*` body is therefore taller than the 1.68 m others see, because your eyes are at 1.7 m). The eye point
+  is also stored in the `Neck` node's frame (`eyeLocal`) and, standing, `_updateMirrorDouble` slides the root every frame so that
+  point sits at the camera's x/z (`eyeAligned`): the eyes are forward of the neck, so a root merely under the camera put the
+  camera inside the chest and the walk clips' head sway showed the back of the face. Seated, the body stays on the seat. The
   character is ONE mesh, so its head is hidden from your own camera by collapsing the `Head` bone (`_setSelfHead`, scale 0.0001
-  plus a skeleton re-prepare) only while the camera is inside it (`headWanted`: hidden under 22 cm, shown beyond 34 cm; a
-  seated camera stands in front of the body, so a seated sitter keeps a head); the mirror's before/after render handlers
-  bring it back for the reflection and restore `headWanted` after.
+  plus a skeleton re-prepare) only while the camera is near its eyes (`headWanted`, measured to `eyeNow`: hidden under 22 cm,
+  shown beyond 34 cm; a seated camera stands in front of the body, so a seated sitter keeps a head); the mirror's before/after
+  render handlers bring it back for the reflection and restore `headWanted` after.
   `_updateMirrorDouble` backs the body off up to 18 cm (4 cm in a headset) as you look steeply down, hiding the open neck, and
   low-passes its position (30 ms) and heading (100 ms) so headset tremor does not buzz, snapping on a teleport or seat change,
   with idle/walk/run/seated chosen with hysteresis; in a headset the controllers move its arms (`createTrackedArms`). Limits:

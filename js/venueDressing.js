@@ -1403,12 +1403,24 @@ const VenueDressing = {
         node.computeWorldMatrix(true);
         const bounds = node.getHierarchyBoundingVectors(true);
         const minY = bounds.min.y, raw = bounds.max.y - bounds.min.y;
-        const eyeRaw = this._characterEyeHeight(node, minY) || raw * 0.935;
+        const eyeBind = this._characterEyePoint(node, minY);
+        const eyeRaw = eyeBind ? eyeBind.y - minY : raw * 0.935;
         if (!(raw > 1e-6) || !(eyeRaw > 0.3)) { entry.dispose(); root.dispose(); return; }
         const scale = this._shownBodyEye() / eyeRaw;
         node.scaling.setAll(scale);
         node.position.y = -minY * scale;
         node.computeWorldMatrix(true);
+        // The eye point, remembered in the neck's own frame (the neck is never scaled, the head is): each frame the body is placed
+        // so this point is at the camera, wherever the clip has swayed the head, with the eyes a little forward of the neck.
+        const neck = node.getChildTransformNodes(false).find(item => item.name === `${prefix}Neck`) || null;
+        let eyeLocal = null;
+        const neckChain = [];
+        if (neck && eyeBind) {
+            for (let n = neck; n && n !== root; n = n.parent) neckChain.unshift(n);
+            neckChain.forEach(n => n.computeWorldMatrix(true));
+            const world = new BABYLON.Vector3(eyeBind.x * scale, eyeBind.y * scale + node.position.y, eyeBind.z * scale);
+            eyeLocal = BABYLON.Vector3.TransformCoordinates(world, neck.getWorldMatrix().clone().invert());
+        }
 
         const meshes = node.getChildMeshes();
         // Hidden until it has been placed under the player (one frame), so it never flashes at the origin.
@@ -1430,7 +1442,7 @@ const VenueDressing = {
         const arms = typeof AvatarRig !== 'undefined' ? AvatarRig.createTrackedArms(node, prefix) : null;
         const double = {
             avatarId, entry, root, node, meshes, groups, arms, current: null, speed: 0,
-            eyeRaw, minY, active: true, shown: false, serial: (this._mirrorDoubleSerial = (this._mirrorDoubleSerial || 0) + 1),
+            eyeRaw, minY, active: true, shown: false, neck, neckChain, eyeLocal, eyeNow: new BABYLON.Vector3(), serial: (this._mirrorDoubleSerial = (this._mirrorDoubleSerial || 0) + 1),
             skeletons: Array.from(new Set(meshes.map(mesh => mesh.skeleton).filter(Boolean))),
             hands: { left: null, right: null }, handBuffers: { left: {}, right: {} },
             prevX: NaN, prevZ: NaN, observer: null,
@@ -1453,10 +1465,10 @@ const VenueDressing = {
     },
 
     /**
-     * How high the character's eyes are above its feet, in the character's own (unscaled) units: the mean height of its
-     * eye-coloured vertices (the cast's shared dark-brown eye colour, only in the top 15%), or 0 when none are found.
+     * Where the character's eyes are, in world space at its bind pose (the node unscaled, at the origin): the mean of its
+     * eye-coloured vertices (the cast's shared dark-brown eye colour, only in the top 15%), or null when none are found.
      */
-    _characterEyeHeight(node, minY) {
+    _characterEyePoint(node, minY) {
         const EYE = [0.0307, 0.0185, 0.0116];   // '#31251c' in linear light, what the build script paints the eyes with
         const meshes = node.getChildMeshes();
         let top = -Infinity;
@@ -1464,8 +1476,8 @@ const VenueDressing = {
             const box = mesh.getBoundingInfo && mesh.getBoundingInfo().boundingBox;
             if (box) top = Math.max(top, box.maximumWorld.y);
         }
-        if (!Number.isFinite(top)) return 0;
-        let sum = 0, count = 0;
+        if (!Number.isFinite(top)) return null;
+        let x = 0, y = 0, z = 0, count = 0;
         const point = new BABYLON.Vector3();
         for (const mesh of meshes) {
             const colours = mesh.getVerticesData && mesh.getVerticesData(BABYLON.VertexBuffer.ColorKind);
@@ -1477,10 +1489,10 @@ const VenueDressing = {
                 const c = i * stride;
                 if (Math.abs(colours[c] - EYE[0]) > 0.006 || Math.abs(colours[c + 1] - EYE[1]) > 0.006 || Math.abs(colours[c + 2] - EYE[2]) > 0.006) continue;
                 BABYLON.Vector3.TransformCoordinatesFromFloatsToRef(positions[i * 3], positions[i * 3 + 1], positions[i * 3 + 2], world, point);
-                if (point.y > top - 0.15 * (top - minY)) { sum += point.y; count++; }
+                if (point.y > top - 0.15 * (top - minY)) { x += point.x; y += point.y; z += point.z; count++; }
             }
         }
-        return count >= 4 ? sum / count - minY : 0;
+        return count >= 4 ? new BABYLON.Vector3(x / count, y / count, z / count) : null;
     },
 
     /** Show or collapse the character's head (a bone scale), and re-skin so the change is drawn by the next pass. */
@@ -1556,6 +1568,23 @@ const VenueDressing = {
         }
         double.root.position.set(double.x, seat ? seat.floorY : (this._walkLevel || 0), double.z);
         double.root.rotation.y = double.yaw;
+        // Standing, the character's EYES are put at the camera, whatever the clip has done to its head (a walk sways it a few
+        // centimetres) and with the eyes a little forward of the neck: the camera is then in its head, not inside its chest.
+        // Seated, the body stays on the seat and the camera is where the seat put it.
+        double.eyeAligned = false;
+        if (double.neck && double.eyeLocal) {
+            double.root.computeWorldMatrix(true);
+            for (let i = 0; i < double.neckChain.length; i++) double.neckChain[i].computeWorldMatrix(true);
+            BABYLON.Vector3.TransformCoordinatesToRef(double.eyeLocal, double.neck.getWorldMatrix(), double.eyeNow);
+            if (!seat) {
+                const shiftX = double.eyeNow.x - double.x, shiftZ = double.eyeNow.z - double.z;
+                double.root.position.x -= shiftX;
+                double.root.position.z -= shiftZ;
+                double.eyeNow.x -= shiftX;
+                double.eyeNow.z -= shiftZ;
+                double.eyeAligned = true;
+            }
+        }
         // Looking down puts the neck right under the camera: back the body off a hand's breadth as the head tips forward
         // (less in a headset, where the arms must still reach the controllers).
         const lookDown = Math.min(1, Math.max(0, (-dir.y - 0.7) / 0.3));
@@ -1603,8 +1632,9 @@ const VenueDressing = {
         // The head is hidden only while the camera is inside it. Seated, the camera stands in front of the body (so it cannot
         // be trapped by the furniture) and a headless sitter would be looking back at you: show it whenever the camera is outside.
         if (double.head) {
-            const head = double.head.getAbsolutePosition();
-            const away = Math.hypot(head.x - pos.x, head.y - pos.y, head.z - pos.z);
+            // How far the camera is from the character's eyes (its head bone when the eyes could not be located).
+            const eye = double.eyeLocal ? double.eyeNow : double.head.getAbsolutePosition();
+            const away = Math.hypot(eye.x - pos.x, eye.y - pos.y, eye.z - pos.z);
             if (double.headWanted === undefined) double.headWanted = away > 0.3;
             else if (double.headWanted && away < 0.22) double.headWanted = false;
             else if (!double.headWanted && away > 0.34) double.headWanted = true;

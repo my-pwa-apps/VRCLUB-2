@@ -27,7 +27,10 @@ test('the character you chose is your own body, not only your reflection', async
             rigHidden: club._localRig.meshes.every(m => !m.isEnabled()),
             // The character's eyes at the player's eye: its scale times its eye height above the feet.
             eyes: d.eyeRaw * d.node.scaling.x, eyeShown: club._shownBodyEye(),
-            atCamera: [d.root.position.x - club.camera.position.x, d.root.position.z - club.camera.position.z].map(Math.abs)
+            // The root stands a little behind the camera (the eyes are forward of the body); the EYES are at the camera.
+            atCamera: [d.root.position.x - club.camera.position.x, d.root.position.z - club.camera.position.z].map(Math.abs),
+            eyesAtCamera: [d.eyeNow.x - club.camera.position.x, d.eyeNow.z - club.camera.position.z].map(Math.abs),
+            eyeAligned: d.eyeAligned
         };
         out.body = body;
 
@@ -45,8 +48,9 @@ test('the character you chose is your own body, not only your reflection', async
 
         // Walking somewhere else in the club (far from the restroom): the body comes along.
         club.camera.position.set(4, 1.7, -9);
-        await until(() => Math.hypot(club._mirrorDouble.root.position.x - 4, club._mirrorDouble.root.position.z + 9) < 0.05, 30000);
-        out.followed = Math.hypot(club._mirrorDouble.root.position.x - 4, club._mirrorDouble.root.position.z + 9) < 0.05;
+        const eyeAt = () => Math.hypot(club._mirrorDouble.eyeNow.x - 4, club._mirrorDouble.eyeNow.z + 9);
+        await until(() => eyeAt() < 0.05, 30000);
+        out.followed = eyeAt() < 0.05;
 
         // A taller player: the body grows with them, over a moment.
         club.playerEyeHeight = 1.9;
@@ -69,8 +73,11 @@ test('the character you chose is your own body, not only your reflection', async
     expect(result.body.visible, 'the character is drawn in the main view').toBe(true);
     expect(result.body.rigHidden, 'the mannequin steps aside').toBe(true);
     expect(result.body.eyes).toBeCloseTo(result.body.eyeShown, 2);
-    expect(result.body.atCamera[0]).toBeLessThan(0.15);
-    expect(result.body.atCamera[1]).toBeLessThan(0.15);
+    expect(result.body.eyeAligned, 'standing, the eyes are locked to the camera').toBe(true);
+    expect(result.body.eyesAtCamera[0]).toBeLessThan(0.03);
+    expect(result.body.eyesAtCamera[1]).toBeLessThan(0.03);
+    expect(result.body.atCamera[0]).toBeLessThan(0.3);
+    expect(result.body.atCamera[1]).toBeLessThan(0.3);
     expect(result.head.own, 'your own view has no head round the camera').toBeLessThan(0.01);
     expect(result.head.reflection, 'the mirror pass draws the whole person').toBeGreaterThan(0.5);
     expect(result.head.after, 'and hands the head back to hidden').toBeLessThan(0.01);
