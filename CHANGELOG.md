@@ -52,6 +52,8 @@ kept in lockstep with `index.html`, `sw.js` and `serviceworker.js` by
 
 ### Changed
 
+- **The XFADE crossfader has a much shorter throw.** About 9 cm instead of 22 (roughly a quarter of its old travel), with a wider end stop (the last 8% snaps to cut or full), so
+  one flick goes from cut to full and back for a quick mute. The button is narrower and CLEAR FX takes the space.
 - **Your own body is the character in the mirror.** Looking down used to show a different person (the club's default dancer body) from the one in the restroom mirror. Now the
   character you chose offline, or the one the relay gave you in a room, is your body everywhere in the club: the same instance as the reflection, sized so its eyes sit at
   your eye height, with its head hidden from your own camera and shown only in the mirror. In a headset your controllers move its arms. With no character chosen the default

@@ -9620,7 +9620,7 @@ test('the VJ desk: every button fits its panel, nothing overlaps, and every ligh
             const r = b.rect;
             const minimumY = b.kind === 'playerPage' ? 0 : 130;
             assert.ok(r.x >= 0 && r.y >= minimumY && r.x + r.w <= width && r.y + r.h <= height, `${b.id} is off the panel or under the header`);
-            const minimumWidth = b.kind === 'playerPage' ? 150 : b.kind === 'effect' ? 180 : b.kind === 'crossfader' ? 360
+            const minimumWidth = b.kind === 'playerPage' ? 150 : b.kind === 'effect' ? 180 : b.kind === 'crossfader' ? 280
                 : b.kind === 'effectClear' ? 220 : panel === 'transport' ? 220 : b.kind === 'section' ? 270 : 300;
             const minimumHeight = b.kind === 'crossfader' || b.kind === 'effectClear' ? 48 : 70;
             assert.ok(r.h >= minimumHeight && r.w >= minimumWidth, `${b.id} is too small to hit with a controller ray`);
@@ -9637,7 +9637,7 @@ test('the VJ desk: every button fits its panel, nothing overlaps, and every ligh
             } else if (b.kind === 'crossfader') {
                 const track = VJDeskLayout.crossfaderTrack(r), cap = VJDeskLayout.crossfader.capW;
                 assert.ok(track.left - cap / 2 > r.x + 100 && track.right + cap / 2 <= r.x + r.w, 'the crossfader cap stays inside its button');
-                assert.ok(track.right - track.left >= 150 && track.right - track.left <= 300, 'a crossfader is a short throw');
+                assert.ok(track.right - track.left >= 60 && track.right - track.left <= 110, 'a crossfader is a short throw: about 9 cm, one flick from cut to full');
             } else if (b.kind === 'seek') {
                 const track = VJDeskLayout.seekTrack(r);
                 assert.ok(track.left > r.x && track.right < r.x + r.w && track.right - track.left > 800, `${b.id}'s seek track`);
@@ -9964,9 +9964,9 @@ test('the XFADE crossfader slides the PA level with a short throw, snaps at its 
     assert.equal(calls.at(-1), 'effect channel 0.5');
     club._vjDeskSetCrossfader(fader, track.left - 200);
     assert.equal(calls.at(-1), 'effect channel 0', 'past the left end stop is a full cut');
-    club._vjDeskSetCrossfader(fader, at(0.02));
-    assert.equal(calls.at(-1), 'effect channel 0', 'the last 4% at the bottom snaps to cut');
-    club._vjDeskSetCrossfader(fader, at(0.98));
+    club._vjDeskSetCrossfader(fader, at(0.06));
+    assert.equal(calls.at(-1), 'effect channel 0', 'the last 8% at the bottom snaps to cut');
+    club._vjDeskSetCrossfader(fader, at(0.94));
     assert.equal(calls.at(-1), 'effect channel 1', 'and at the top snaps to full');
     club._vjDeskSetCrossfader(fader, track.right + 500);
     assert.equal(calls.at(-1), 'effect channel 1');

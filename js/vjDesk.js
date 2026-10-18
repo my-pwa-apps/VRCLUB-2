@@ -76,7 +76,7 @@ function vjDeskLayout() {
         rect: { x: Math.round(playerMargin + col * (knobWidth + playerGap)), y: 130, w: Math.round(knobWidth), h: 106 }
     });
     const fxRowWidth = VJ_DESK.transport.canvas.width - playerMargin * 2;
-    const crossfaderWidth = 400;
+    const crossfaderWidth = 300;
     const effectCrossfader = (colour) => ({
         id: 'crossfader', panel: 'transport', page: 'fx', kind: 'crossfader', effect: 'channel', label: 'XFADE', colour,
         rect: { x: playerMargin, y: 244, w: crossfaderWidth, h: 50 }
@@ -164,12 +164,14 @@ function vjDeskSeekTrack(rect) {
 }
 
 /**
- * The crossfader's throw (pixels): where the CENTRE of its cap sits at either end. Short on purpose, like a real
- * mixer's, so a flick of the wrist or a sweep of the ray takes it from cut to full; the cap is wide so it reads as a fader.
+ * The crossfader's throw (pixels, about a millimetre each on the panel): where the CENTRE of its cap sits at either end.
+ * Short on purpose, like a real mixer's (about 9 cm), so one flick of the wrist or sweep of the ray goes from cut to full
+ * and back for a quick mute; the cap is wide so it reads as a fader. The last 8% at each end is the end stop.
  */
-const VJ_CROSSFADER = Object.freeze({ capW: 46, capH: 34, trackLeft: 138, trackRightInset: 38, endSnap: 0.04 });
+const VJ_CROSSFADER = Object.freeze({ capW: 46, capH: 34, trackLeft: 150, throw: 90, endSnap: 0.08 });
 function vjDeskCrossfaderTrack(rect) {
-    return { left: rect.x + VJ_CROSSFADER.trackLeft, right: rect.x + rect.w - VJ_CROSSFADER.trackRightInset, y: rect.y + rect.h / 2 };
+    const left = rect.x + VJ_CROSSFADER.trackLeft;
+    return { left, right: left + VJ_CROSSFADER.throw, y: rect.y + rect.h / 2 };
 }
 
 // An effect knob sweeps 270 degrees like a real mixer pot: from 7:30 (off) clockwise to 4:30 (full).

@@ -173,8 +173,12 @@ test('the FX page picture with the real controls', async ({ page }) => {
         const club = window.vrClub;
         await club.modelLoadPromise;
         if (club.isPeopleVisible('dj')) club.togglePeopleVisible('dj');
-        club.camera.position.set(0, 2.25, -19.75);
-        club.camera.setTarget(new BABYLON.Vector3(0, 1.6, -18.65));
+        club.camera.position.set(0, 2.75, -19.45);
+        club.camera.setTarget(new BABYLON.Vector3(0, 1.55, -18.7));
+        // Nobody stands in the picture: the crowd and the player's own default body are put away.
+        (club.npcAvatars || []).forEach(npc => npc.root.setEnabled(false));
+        if (club._localRig) club._localRig.meshes.forEach(mesh => mesh.setEnabled(false));
+        if (club._djPerformer && club._djPerformer.root) club._djPerformer.root.setEnabled(false);
         club._vjDeskPlayerPage = 'fx';
         for (const [effect, value] of [['lowpass', 0.55], ['echo', 0.3], ['reverb', 0.8], ['channel', 0.6]]) club.setDJEffect(effect, value);
         club._vjDesk.dirty = true;

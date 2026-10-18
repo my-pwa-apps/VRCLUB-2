@@ -1748,8 +1748,8 @@ controller ray therefore use the same path (`pressVJDesk` / `dragVJDesk` / `rele
     lands on the end stop. Letting go of the trigger unlocks it; there is deliberately no sticky latch. Knobs were already
     locked (the wrist twist does not depend on where the ray points). A mouse follows pointer moves over the panel as before.
   - XFADE is a short-throw crossfader on the `channel` effect (0 cut .. 1 full, default full), not a mute button: press or drag
-    anywhere along its ~230 px throw and the cap centre follows the pointer (`_vjDeskSetCrossfader`, `VJ_CROSSFADER`), the last
-    4% at each end snapping to cut / full like end stops. The level goes through an audio taper (`channel^2`, so half-way is
+    anywhere on it and the cap centre follows the pointer along its ~90 px (about 9 cm) throw (`_vjDeskSetCrossfader`, `VJ_CROSSFADER`),
+    the last 8% at each end snapping to cut / full like end stops, so one flick of the wrist goes from cut to full and back. The level goes through an audio taper (`channel^2`, so half-way is
     -12 dB) and the ~25 ms smoothing, so a quick slide is a clean cut or swell. It is slid, so it is host-owned and blocked
     like the knobs (SEND DJ HOME / HOST ONLY / PLAYER AUDIO ONLY). CLEAR FX returns it to full.
   The analyser taps remain before these
