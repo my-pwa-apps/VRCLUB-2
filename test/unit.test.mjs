@@ -9977,6 +9977,133 @@ function fakeController(grip = false) {
     return { controller, pose, state, rollBy };
 }
 
+test('reaching in: a hand near a knob lights it, a NEW squeeze takes hold, the twist turns it 1:1, and letting go lets go', () => {
+    const { club, calls, people } = deskHarness();
+    people.dj = false;
+    class Vec {
+        constructor(x = 0, y = 0, z = 0) { this.x = x; this.y = y; this.z = z; }
+        static TransformCoordinates(p, mt) {
+            const m = mt.m;
+            return new Vec(p.x * m[0] + p.y * m[4] + p.z * m[8] + m[12], p.x * m[1] + p.y * m[5] + p.z * m[9] + m[13], p.x * m[2] + p.y * m[6] + p.z * m[10] + m[14]);
+        }
+        static TransformCoordinatesFromFloatsToRef(x, y, z, mt, ref) {
+            const m = mt.m;
+            ref.x = x * m[0] + y * m[4] + z * m[8] + m[12]; ref.y = x * m[1] + y * m[5] + z * m[9] + m[13]; ref.z = x * m[2] + y * m[6] + z * m[10] + m[14];
+            return ref;
+        }
+    }
+    const { VJDesk, VJDeskLayout: L } = loadClassic('js/vjDesk.js', { BABYLON: { Vector3: Vec }, VRClubUI: class {} }).window;
+    Object.assign(club, VJDesk);
+    const world = { m: [1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0.5, 2, -19, 1], clone() { return { invert: () => ({ m: [1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, -0.5, -2, 19, 1] }) }; } };
+    const panel = {
+        id: 'transport', width: 1, depth: 0.27, canvas: { width: 1024, height: 300 }, buttons: L.buttons.transport,
+        mesh: { getWorldMatrix: () => world, isEnabled: () => true }
+    };
+    club._vjDesk = { panels: [panel], playerVisible: true, dirty: false };
+    club.isInVRMode = true;
+    club._vjDeskPlayerPage = 'fx';
+    const echo = L.buttons.transport.find(b => b.id === 'echo');
+    const fader = L.buttons.transport.find(b => b.id === 'crossfader');
+    const spot = button => {
+        const k = button.kind === 'effect' ? L.knob(button.rect) : null;
+        if (k) return { x: 0.5 + (k.x / 1024 - 0.5), y: 2 + (0.5 - k.y / 300) * 0.27, z: -19 - (L.knob3D.collarH + L.knob3D.capH) };
+        const track = L.crossfaderTrack(button.rect);
+        return { x: 0.5 + (track.left + (track.right - track.left) * 1 / 1024 * 1024) / 1024 - 0.5, y: 2 + (0.5 - track.y / 300) * 0.27, z: -19 - 0.02 };
+    };
+
+    const pulses = [], state = { squeeze: false, trigger: false }, pointer = fakeController();
+    const grip = { x: 0, y: 0, z: 0 };
+    const hand = {
+        inputSource: { handedness: 'right' }, grip: { getAbsolutePosition: () => grip }, pointer: pointer.controller.pointer,
+        motionController: {
+            pulse: (strength, ms) => pulses.push([strength, ms]),
+            getComponent: id => ({ pressed: id === 'xr-standard-squeeze' ? state.squeeze : id === 'xr-standard-trigger' ? state.trigger : false })
+        }
+    };
+    club._xrControllers = [hand];
+    const near = (s, dx = 0.02, dy = 0.01, dz = -0.03) => Object.assign(grip, { x: s.x + dx, y: s.y + dy, z: s.z + dz });
+    const hover = () => club._vjDeskTouch.hover.right && club._vjDeskTouch.hover.right.button.id;
+
+    // Far away: nothing lit. Within reach: the knob lights and the controller ticks once.
+    Object.assign(grip, { x: 0.5, y: 2.3, z: -18.4 });
+    club._updateVJDeskTouch();
+    assert.equal(hover(), null);
+    near(spot(echo));
+    club._updateVJDeskTouch();
+    club._updateVJDeskTouch();
+    assert.equal(hover(), 'echo');
+    assert.deepEqual(pulses, [[0.1, 6]], 'one tick on reaching the knob, not one a frame');
+    assert.equal(club._vjDeskButtonState(echo).hover, true);
+    assert.ok(!club._vjDeskDrag, 'touching alone must not grab');
+
+    // A hand that arrives already squeezing does not grab; a new squeeze does.
+    Object.assign(grip, { x: 0.5, y: 2.3, z: -18.4 });
+    state.squeeze = true;
+    club._updateVJDeskTouch();
+    near(spot(echo));
+    club._updateVJDeskTouch();
+    assert.ok(!club._vjDeskDrag, 'sweeping a squeezed hand across the desk grabbed a knob');
+    state.squeeze = false;
+    club._updateVJDeskTouch();
+    state.squeeze = true;
+    club._updateVJDeskTouch();
+    const drag = club._vjDeskDrag;
+    assert.ok(drag && drag.direct && drag.knob && drag.controller === hand, 'a new squeeze on the knob did not take hold');
+    assert.deepEqual(pulses.at(-1), [0.15, 8]);
+    assert.deepEqual(calls, [], 'taking hold moved the knob');
+
+    // On the knob the twist is 1:1 (the ray's 1.5 is for a distance), and the trigger as well is fine control.
+    pointer.rollBy(90);
+    club._vjDeskTwistKnob();
+    assert.ok(Math.abs(Number(/effect echo (.+)/.exec(calls.at(-1))[1]) - 90 / 270) < 1e-6, 'a quarter turn of the wrist did not turn the dial a quarter turn');
+    state.trigger = true;
+    pointer.rollBy(90);
+    club._vjDeskTwistKnob();
+    assert.ok(Math.abs(Number(/effect echo (.+)/.exec(calls.at(-1))[1]) - (90 / 270 + 0.5 * 90 / 270)) < 1e-6, 'the trigger did not slow the knob');
+    assert.match(club._vjDeskPlayerStatus().detail, /FINE CONTROL/);
+
+    // The trigger going up (a pointer release) does not let go; the squeeze does.
+    club.releaseVJDesk();
+    assert.ok(club._vjDeskDrag, 'the trigger let go of a knob held by touch');
+    club.pressVJDesk({ hit: false });
+    state.squeeze = false;
+    club._updateVJDeskTouch();
+    assert.ok(!club._vjDeskDrag, 'letting go of the squeeze did not let go');
+
+    // The crossfader: take hold of the cap and slide the hand along the slot; the cap does not jump to the hand.
+    club._djEffects.channel = 1;
+    state.trigger = false;
+    const cap = spot(fader);
+    near(cap, 0.01, 0, -0.03);
+    club._updateVJDeskTouch();
+    assert.equal(hover(), 'crossfader');
+    state.squeeze = true;
+    club._updateVJDeskTouch();
+    assert.ok(club._vjDeskDrag && club._vjDeskDrag.direct && club._vjDeskDrag.button.kind === 'crossfader');
+    club._vjDeskFollowHand();
+    assert.equal(club._djEffects.channel, 1, 'the cap jumped when the hand took hold of it');
+    grip.x -= 0.045;
+    club._vjDeskFollowHand();
+    assert.ok(Math.abs(club._djEffects.channel - 0.5) < 0.05, `half a throw of the hand left the fader at ${club._djEffects.channel}`);
+    grip.x -= 0.2;
+    club._vjDeskFollowHand();
+    assert.equal(club._djEffects.channel, 0, 'sliding past the end stop did not cut');
+    state.squeeze = false;
+    club._updateVJDeskTouch();
+    assert.ok(!club._vjDeskDrag);
+
+    // A / X with a hand on a knob resets it (and does not jump).
+    club._djEffects.echo = 0.7;
+    near(spot(echo));
+    club._updateVJDeskTouch();
+    assert.equal(club.resetVJDeskFromController(hand.motionController), true);
+    assert.equal(club._djEffects.echo, 0);
+    // Not in a headset, or on the player page, a hand reaches nothing.
+    club._vjDeskPlayerPage = 'player';
+    club._updateVJDeskTouch();
+    assert.equal(hover(), null);
+});
+
 test('a VJ desk knob turns with the twist of the wrist, relative to the grab, with a fine mode on the grip', () => {
     const { club, calls, people, button, VJDeskLayout } = deskHarness();
     people.dj = false;

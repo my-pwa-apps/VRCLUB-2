@@ -205,11 +205,20 @@ const VJ_FADER3D = Object.freeze({ w: 0.046, d: 0.03, h: 0.02 });
  * passing the fader's centre and a reset are felt; turning or sliding in between is not. Strength 0..1, duration in ms.
  */
 const VJ_HAPTIC = Object.freeze({
+    hover: Object.freeze({ strength: 0.1, ms: 6 }),
     grab: Object.freeze({ strength: 0.15, ms: 8 }),
     stop: Object.freeze({ strength: 0.35, ms: 18 }),
     centre: Object.freeze({ strength: 0.2, ms: 10 }),
     reset: Object.freeze({ strength: 0.5, ms: 25 })
 });
+
+/**
+ * Reaching for a control by hand. `reach` is how close (metres, from the controller's grip to the middle of a knob cap or
+ * the crossfader cap) a hand must be to touch it; a knob cap is only 4 cm across, so it is generous. `gain` is how many
+ * knob degrees one degree of wrist twist makes when the hand is ON the knob: 1, the knob turns exactly as the hand does
+ * (the ray's `VJ_KNOB.wristGain` makes sense only from a distance). The trigger, held as well, is fine control.
+ */
+const VJ_TOUCH = Object.freeze({ reach: 0.07, gain: 1 });
 
 /**
  * Where a ray meets a panel's plane, in the panel's own metres (x along its width, y up its depth), or null when it
@@ -508,6 +517,8 @@ const VJDesk = {
         const hit = this._vjDeskHit(pickResult);
         if (!hit) return false;
         if (!hit.button) return true;
+        // A hand already holds a control by touch: the trigger is its fine control, not a new grab.
+        if (this._vjDeskDrag && this._vjDeskDrag.direct) return true;
         const button = hit.button;
         this._vjDeskPressed = { id: button.id, until: performance.now() + VJ_DESK.pressMs };
         if (button.kind === 'fader') {
@@ -585,7 +596,9 @@ const VJDesk = {
         this._vjDesk.dirty = true;
     },
 
-    releaseVJDesk() {
+    releaseVJDesk(force) {
+        // A hand that holds a control by touch lets go when its squeeze does (see _updateVJDeskTouch), not when a trigger does.
+        if (!force && this._vjDeskDrag && this._vjDeskDrag.direct) return;
         const seek = this._vjDeskSeek;
         this._vjDeskDrag = null;
         this._vjDeskSeek = null;
@@ -673,12 +686,19 @@ const VJDesk = {
         return !!(hit && this._vjDeskResetControl(hit.button));
     },
 
-    /** A / X on a controller whose ray is on a knob or the crossfader: reset it. False when the ray is elsewhere (then A / X jumps). */
+    /** A / X on a controller whose hand is on a knob or the crossfader, or whose ray is on one: reset it. False otherwise (then A / X jumps). */
     resetVJDeskFromController(motionController) {
         const desk = this._vjDesk;
         const panel = desk && desk.panels.find(item => item.id === 'transport');
         if (!panel || !panel.mesh.isEnabled() || (this._vjDeskPlayerPage || 'player') !== 'fx') return false;
         const controller = (this._xrControllers || []).find(item => item.motionController === motionController);
+        // A hand on a control resets that control, as a double tap on a real mixer's knob would.
+        const touch = this._vjDeskTouch && this._vjDeskTouch.hover;
+        const handOn = controller && touch && controller.inputSource && touch[controller.inputSource.handedness];
+        if (handOn && this._vjDeskResetControl(handOn.button)) {
+            this._vjDeskHaptic(controller, 'reset');
+            return true;
+        }
         const node = controller && controller.pointer;
         if (!node || typeof node.getAbsolutePosition !== 'function') return false;
         const ray = new BABYLON.Ray(node.getAbsolutePosition().clone(), node.getDirection(BABYLON.Axis.Z).clone(), 4);
@@ -746,7 +766,8 @@ const VJDesk = {
         const twist = vjDeskWristTwist(drag.pose, now);
         drag.pose = now;
         if (!twist) return false;
-        const gain = VJ_KNOB.wristGain * (this._vjDeskGripHeld(drag.controller) ? VJ_KNOB.fine : 1);
+        const fine = drag.direct ? this._vjDeskPressedComponent(drag.controller, 'xr-standard-trigger') : this._vjDeskGripHeld(drag.controller);
+        const gain = (drag.direct ? VJ_TOUCH.gain : VJ_KNOB.wristGain) * (fine ? VJ_KNOB.fine : 1);
         const before = this._djEffectsState()[drag.button.effect] || 0;
         drag.value = Math.min(1, Math.max(0, drag.value + twist * gain / VJ_KNOB.sweep));
         if (Math.abs(twist) > 0.004) drag.moved = true;
@@ -894,20 +915,19 @@ const VJDesk = {
     },
 
     /**
-     * Where a hand rests on the control it is holding (a knob's cap, the crossfader's cap), in world space, or false when the
-     * drag is not one of those. The hand is drawn there while the trigger is held (see `_updateVJDeskHands`), so it is ON the
-     * control instead of hovering wherever the ray happened to start.
+     * Where a hand rests on a control (a knob's cap, the crossfader's cap where its level puts it), in world space, into
+     * `out`; false when the button is neither. Used to draw the hand ON a held control and to find the control a reaching
+     * hand is near.
      */
-    _vjDeskHandSpot(drag, out) {
-        const panel = drag && drag.panel;
-        if (!panel || !panel.mesh) return false;
+    _vjDeskSpot(panel, button, out) {
+        if (!panel || !panel.mesh || !button) return false;
         let px, py, depth;
-        if (drag.knob && drag.controller) {
-            const knob = vjDeskKnob(drag.button.rect);
+        if (button.kind === 'effect') {
+            const knob = vjDeskKnob(button.rect);
             px = knob.x; py = knob.y;
             depth = -(VJ_KNOB3D.collarH + VJ_KNOB3D.capH);
-        } else if (drag.button && drag.button.kind === 'crossfader' && drag.ray) {
-            const track = vjDeskCrossfaderTrack(drag.button.rect);
+        } else if (button.kind === 'crossfader') {
+            const track = vjDeskCrossfaderTrack(button.rect);
             const value = Math.min(1, Math.max(0, this._djEffectsState().channel));
             px = track.left + value * (track.right - track.left); py = track.y;
             depth = -VJ_FADER3D.h;
@@ -922,6 +942,106 @@ const VJDesk = {
         return true;
     },
 
+    /** The spot of the control a held drag is on (a controller's grab or locked slide), or false. */
+    _vjDeskHandSpot(drag, out) {
+        if (!drag) return false;
+        const held = (drag.knob && drag.controller) || (drag.button && drag.button.kind === 'crossfader' && (drag.ray || drag.hand));
+        return !!held && this._vjDeskSpot(drag.panel, drag.button, out);
+    },
+
+    /** Is this controller component (`xr-standard-trigger`, `xr-standard-squeeze`) pressed? */
+    _vjDeskPressedComponent(controller, id) {
+        const motion = controller && controller.motionController;
+        const component = motion && motion.getComponent ? motion.getComponent(id) : null;
+        return !!(component && component.pressed);
+    },
+
+    /**
+     * Reaching for a control with your hand. Within `VJ_TOUCH.reach` of a knob cap or the crossfader cap the control lights up
+     * and the controller ticks; SQUEEZING there (a new squeeze, not a hand that arrived already squeezing) takes hold, and
+     * letting go of the squeeze lets go. The ray still works as before for anything out of reach; a hand that holds a
+     * control keeps it, so the trigger is free for fine control while it is held.
+     */
+    _updateVJDeskTouch() {
+        const touch = this._vjDeskTouch || (this._vjDeskTouch = {
+            hover: { left: null, right: null }, squeezed: { left: false, right: false }, spot: {}
+        });
+        const drag = this._vjDeskDrag;
+        const desk = this._vjDesk;
+        const panel = desk && desk.panels.find(item => item.id === 'transport');
+        const live = !!panel && this.isInVRMode && !!desk.playerVisible && this._vjDeskPlayerPage === 'fx' && !this._vjDeskEffectBlocked();
+        if (drag && drag.direct) {
+            if (!live || !drag.hand || !this._vjDeskPressedComponent(drag.hand.controller, 'xr-standard-squeeze')) this.releaseVJDesk(true);
+            return;
+        }
+        const controllers = this._xrControllers || [];
+        for (const side of ['left', 'right']) {
+            const before = touch.hover[side];
+            const controller = controllers.find(item => item && item.inputSource && item.inputSource.handedness === side);
+            // The squeeze is tracked everywhere, so a hand that arrives already squeezing is not a new grab.
+            const squeezed = !!controller && this._vjDeskPressedComponent(controller, 'xr-standard-squeeze');
+            const wasSqueezed = touch.squeezed[side];
+            touch.squeezed[side] = squeezed;
+            let found = null;
+            if (live && !drag) {
+                const grip = controller && (controller.grip || controller.pointer);
+                if (grip && typeof grip.getAbsolutePosition === 'function') {
+                    const p = grip.getAbsolutePosition();
+                    let best = VJ_TOUCH.reach;
+                    for (const button of panel.buttons) {
+                        if (button.page !== 'fx' || (button.kind !== 'effect' && button.kind !== 'crossfader')) continue;
+                        if (!this._vjDeskSpot(panel, button, touch.spot)) continue;
+                        const d = Math.hypot(p.x - touch.spot.x, p.y - touch.spot.y, p.z - touch.spot.z);
+                        if (d < best) { best = d; found = { button, controller, panel }; }
+                    }
+                }
+            }
+            if (found && (!before || before.button.id !== found.button.id)) this._vjDeskHaptic(found.controller, 'hover');
+            if (found && squeezed && !wasSqueezed) this._vjDeskTakeHold(found.panel, found.button, found.controller);
+            const changed = (before && before.button.id) !== (found && found.button.id);
+            touch.hover[side] = found;
+            if (changed && desk) desk.dirty = true;
+        }
+    },
+
+    /** A hand takes hold of a knob or the crossfader by touch. */
+    _vjDeskTakeHold(panel, button, controller) {
+        const node = controller.pointer || controller.grip;
+        if (!node) return;
+        if (button.kind === 'effect') {
+            this._vjDeskDrag = {
+                panel, button, knob: true, direct: true, value: this._djEffectsState()[button.effect] || 0, moved: false,
+                controller, node, pose: vjDeskAxes(node), last: null, hand: { controller }
+            };
+        } else {
+            // The cap stays where it is under the hand: the slide is relative to where the hand took hold.
+            const hand = controller.grip || node;
+            const handX = this._vjDeskHandCanvasX(panel, hand);
+            const track = vjDeskCrossfaderTrack(button.rect);
+            const value = Math.min(1, Math.max(0, this._djEffectsState().channel));
+            this._vjDeskDrag = {
+                panel, button, direct: true, hand: { controller, node: hand, offset: track.left + value * (track.right - track.left) - (handX || 0) }
+            };
+        }
+        this._vjDeskHaptic(controller, 'grab');
+        if (this._vjDesk) this._vjDesk.dirty = true;
+    },
+
+    /** Where a node is along a panel's width, in canvas pixels. */
+    _vjDeskHandCanvasX(panel, node) {
+        const p = node.getAbsolutePosition();
+        const local = BABYLON.Vector3.TransformCoordinates(p, panel.mesh.getWorldMatrix().clone().invert());
+        return (local.x / panel.width + 0.5) * panel.canvas.width;
+    },
+
+    /** Per frame while a hand holds the crossfader by touch: the cap goes where the hand goes, along the slot. */
+    _vjDeskFollowHand() {
+        const drag = this._vjDeskDrag;
+        if (!drag || !drag.direct || drag.button.kind !== 'crossfader' || !drag.hand || !drag.hand.node) return false;
+        const x = this._vjDeskHandCanvasX(drag.panel, drag.hand.node) + drag.hand.offset;
+        return this._vjDeskSetCrossfader(drag.button, x, drag.hand.controller);
+    },
+
     /**
      * Per frame: ease each hand onto the control it is holding. `_handPose` reads `_vjDeskHandHold[side]`: the body, the
      * mirror reflection and what other guests see all draw the hand on the knob or the fader cap while the trigger is held,
@@ -932,7 +1052,7 @@ const VJDesk = {
             left: { amount: 0, x: 0, y: 0, z: 0 }, right: { amount: 0, x: 0, y: 0, z: 0 }
         });
         const drag = this._vjDeskDrag;
-        const controller = drag && ((drag.knob && drag.controller) || (drag.ray && drag.ray.controller));
+        const controller = drag && ((drag.knob && drag.controller) || (drag.ray && drag.ray.controller) || (drag.hand && drag.hand.controller));
         const side = controller && controller.inputSource ? controller.inputSource.handedness : null;
         const step = Math.max(0, Math.min(0.1, dt || 1 / 60));
         for (const name of ['left', 'right']) {
@@ -949,8 +1069,10 @@ const VJDesk = {
         if (!desk) return;
         this._applyVJDeskPlayerVisibility();
         // A knob held by a controller follows its wrist every frame, even when the ray itself barely moves.
+        this._updateVJDeskTouch();
         if (this._vjDeskDrag && this._vjDeskDrag.controller && this._vjDeskTwistKnob()) desk.dirty = true;
         if (this._vjDeskDrag && this._vjDeskDrag.ray && this._vjDeskFollowRay()) desk.dirty = true;
+        if (this._vjDeskDrag && this._vjDeskDrag.direct && this._vjDeskFollowHand()) desk.dirty = true;
         this._syncVJDeskControls(ctx && ctx.dt);
         this._updateVJDeskHands(ctx && ctx.dt);
         const now = performance.now();
@@ -1009,18 +1131,18 @@ const VJDesk = {
         if (this._vjDeskPlayerPage === 'fx') {
             const drag = this._vjDeskDrag;
             if (drag && drag.knob) {
-                const grip = drag.controller && this._vjDeskGripHeld(drag.controller);
+                const fine = drag.controller && (drag.direct ? this._vjDeskPressedComponent(drag.controller, 'xr-standard-trigger') : this._vjDeskGripHeld(drag.controller));
                 const level = Math.round((this._djEffectsState()[drag.button.effect] || 0) * 100);
                 return {
                     tone: 'music', title: 'DJ EFFECTS',
-                    detail: `${drag.button.label} ${level}% • ${grip ? 'FINE CONTROL' : drag.controller ? 'GRIP TOO FOR FINE' : 'TURN IT'}`
+                    detail: `${drag.button.label} ${level}% • ${fine ? 'FINE CONTROL' : drag.direct ? 'TRIGGER TOO FOR FINE' : drag.controller ? 'GRIP TOO FOR FINE' : 'TURN IT'}`
                 };
             }
             if (drag && drag.button.kind === 'crossfader') {
                 const level = Math.round((this._djEffectsState().channel || 0) * 100);
                 return { tone: 'music', title: 'DJ EFFECTS', detail: `CROSSFADER ${level}%` };
             }
-            return { tone: 'music', title: 'DJ EFFECTS', detail: this.isInVRMode ? 'TRIGGER + TWIST A KNOB • A / X ON ONE RESETS IT' : 'DRAG ROUND A KNOB • RIGHT-CLICK ONE TO RESET IT' };
+            return { tone: 'music', title: 'DJ EFFECTS', detail: this.isInVRMode ? 'REACH IN, SQUEEZE A KNOB AND TWIST • A / X RESETS IT' : 'DRAG ROUND A KNOB • RIGHT-CLICK ONE TO RESET IT' };
         }
         const info = this.getPlaybackInfo();
         const loaded = !!(this._audioKind || (this.audioElement && this.audioElement.src));
@@ -1198,6 +1320,8 @@ const VJDesk = {
         if (disabled) out.value = disabled;
         out.pressed = !!(this._vjDeskPressed && this._vjDeskPressed.id === button.id);
         out.grabbed = !!(this._vjDeskDrag && this._vjDeskDrag.button.id === button.id);
+        const touch = this._vjDeskTouch && this._vjDeskTouch.hover;
+        out.hover = !out.grabbed && !!touch && ['left', 'right'].some(side => touch[side] && touch[side].button.id === button.id);
         return out;
     },
 
@@ -1211,7 +1335,7 @@ const VJDesk = {
         for (const button of panel.buttons) {
             if (!this._vjDeskButtonOnPage(button)) continue;
             const s = this._vjDeskButtonState(button);
-            signature += `|${s.value}${s.active ? 1 : 0}${s.disabled ? 1 : 0}${s.pressed ? 1 : 0}${s.grabbed ? 1 : 0}${s.swatch || ''}${s.level == null ? '' : s.level.toFixed(3)}`;
+            signature += `|${s.value}${s.active ? 1 : 0}${s.disabled ? 1 : 0}${s.pressed ? 1 : 0}${s.grabbed ? 1 : 0}${s.hover ? 1 : 0}${s.swatch || ''}${s.level == null ? '' : s.level.toFixed(3)}`;
         }
         return signature;
     },
@@ -1333,6 +1457,15 @@ const VJDesk = {
                 ctx.arc(k.x, k.y, k.r + 9, a0, a1);
                 ctx.stroke();
             }
+            if (state.hover && !state.disabled) {
+                // A hand is within reach of this knob: a white halo says it can be taken hold of.
+                ctx.lineWidth = 3;
+                ctx.strokeStyle = '#ffffff';
+                ctx.beginPath();
+                ctx.arc(k.x, k.y, k.r + 17, 0, Math.PI * 2);
+                ctx.stroke();
+                ctx.lineWidth = 8;
+            }
             const has3D = !!(this._vjDesk && this._vjDesk.controls);
             // Without 3D meshes the knob is drawn too: a fluted rim, a darker cap and a pointer.
             if (!has3D) {
@@ -1421,6 +1554,13 @@ const VJDesk = {
             ctx.fillStyle = '#10131a';
             ctx.fillRect(cap - 2, track.y - capH / 2 + 5, 4, capH - 10);
             }
+            if (state.hover && !state.disabled) {
+                // A hand is within reach of the cap: a white frame says it can be taken hold of.
+                deskRoundRect(ctx, cap - capW / 2 - 6, track.y - capH / 2 - 6, capW + 12, capH + 12, 10);
+                ctx.lineWidth = 3;
+                ctx.strokeStyle = '#ffffff';
+                ctx.stroke();
+            }
             // The setting, only while it is not at full: FULL is the normal state and needs no word.
             if (level < 0.999) {
                 ctx.textAlign = 'left';
@@ -1506,5 +1646,6 @@ window.VJDeskLayout = Object.freeze({
     fader3D: VJ_FADER3D,
     wristTwist: vjDeskWristTwist,
     planePoint: vjDeskPlanePoint,
-    haptic: VJ_HAPTIC
+    haptic: VJ_HAPTIC,
+    touch: VJ_TOUCH
 });

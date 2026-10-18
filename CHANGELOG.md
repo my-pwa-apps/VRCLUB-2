@@ -69,8 +69,11 @@ kept in lockstep with `index.html`, `sw.js` and `serviceworker.js` by
 - **Three more effects on the desk's FX panel: phaser, noise sweep and gater.** All eight knobs now fit on ONE panel (the knobs are smaller, about 4 cm across; the label and setting sit
   under each dial). The gater chops in eighth notes of the track's tempo and the noise sweep is a rising band of noise. Both are heard through the PA and leave the light show's
   analyser untouched. Levels were set by ear on desktop only. (A distortion and a bit crusher were tried and removed.)
-- **Your hand is on the knob or the fader while you hold it.** In VR the virtual hand used to hover wherever the ray started, in front of the control. While the trigger is held on a
-  knob or the crossfader the hand now goes onto it (easing on and off), with the palm resting on the cap and the wrist twist still turning the knob. Other guests and the mirror see it too.
+- **Reach in and squeeze a knob or the fader (VR).** Bring a hand within a few centimetres of a knob or the crossfader cap and it lights up and the controller ticks; squeeze to take hold and
+  twist your wrist to turn it (one to one; the trigger as well is fine control), or slide your hand along the slot for the fader. Let go of the squeeze to let go. A / X with a hand on a
+  control resets it. The ray still works for anything out of reach. Not yet tried on a headset.
+- **Your hand is on the knob or the fader while you hold it.** In VR the virtual hand used to hover wherever the ray started, in front of the control. While a knob or the crossfader is held
+  the hand now goes onto it (easing on and off), with the palm resting on the cap and the wrist twist still turning the knob. Other guests and the mirror see it too.
 - **When a stream fails, the club's own set plays instead of silence.** If a saved set cannot start, or a live stream drops and cannot be reconnected, the club's own
   house set takes over with a short notice; the saved set stays in Music. It does not step in for a blocked autoplay, in someone else's room or when nothing is saved.
 - **The XFADE crossfader has a much shorter throw.** About 9 cm instead of 22 (roughly a quarter of its old travel), with a wider end stop (the last 8% snaps to cut or full), so

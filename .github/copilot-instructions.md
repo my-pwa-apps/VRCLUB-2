@@ -1771,7 +1771,15 @@ controller ray therefore use the same path (`pressVJDesk` / `dragVJDesk` / `rele
     resets the control and does NOT jump, anywhere else A / X jumps as before; one press is consumed once) or a **right-click**
     on desktop (`resetVJDeskAt`): a knob goes to off, the crossfader to full, and the real cap swings back over a few frames.
     CLEAR FX remains the reset for everything (every knob off, music unmuted, smoothly through `resetDJEffects()`).
-  - **The hand is on the control while you hold it.** While a controller holds a knob or the crossfader, `_updateVJDeskHands()`
+  - **Reaching in is the natural way to use it (VR).** `_updateVJDeskTouch()` (per frame) finds the knob cap or crossfader cap within
+    `VJ_TOUCH.reach` (7 cm, from the controller's grip): it lights (a white halo / frame on the panel, `state.hover`) and the controller
+    ticks once (`VJ_HAPTIC.hover`). A NEW squeeze there takes hold (`_vjDeskTakeHold`, `drag.direct`; a hand that arrives already
+    squeezing, or sweeps across the desk, grabs nothing) and letting go of the squeeze lets go: a trigger release never does, because
+    the trigger is the fine control while held (`VJ_KNOB.fine`). On the knob the twist is 1:1 (`VJ_TOUCH.gain`; the ray's
+    `VJ_KNOB.wristGain` 1.5 is for a distance). The crossfader cap follows the hand along the slot (`_vjDeskFollowHand`), relative to
+    where it was taken, and past the ends lands on the end stops. A / X with a hand on a control resets it. The ray, below, still works for
+    anything out of reach and for desktop. Reach, squeeze and twist feel are unmeasured on a headset.
+  - **The hand is on the control while you hold it.** While a controller holds a knob or the crossfader (by touch or by ray), `_updateVJDeskHands()`
     eases that hand (`_vjDeskHandHold[side].amount`, 0.07 s on, 0.12 s off) onto the control (`_vjDeskHandSpot`: the top of the knob cap,
     or the crossfader cap where its level puts it), and `_handPose()` draws it there, the palm 7 cm short of the cap with the
     fingers along the controller's own direction so the wrist twist still turns the hand. `_handPose` feeds the first-person body, the mirror
