@@ -356,7 +356,7 @@ class VRClubLifecycle extends VRClubCore {
         // Apply the tier's render scale. Below 1.0 this supersamples: the scene renders
         // above native resolution and is downsampled on present. applyDesktopSettings()
         // only runs when EXITING VR, so the initial desktop load has to set it here.
-        this.engine.setHardwareScalingLevel(this.tierSettings.renderScale);
+        this.engine.setHardwareScalingLevel(this.getDesktopRenderScale());
 
         // The SSR pipeline wants the probe cube map as its miss-fallback. The probe is
         // only available now, so wire it up (or build SSR if the pipeline was created

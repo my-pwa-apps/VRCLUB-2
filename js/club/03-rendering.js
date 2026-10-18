@@ -37,7 +37,7 @@ class VRClubRendering extends VRClubLifecycle {
         // ONLY for desktop mode (too expensive for standalone VR)
         // Adds depth to corners and contact points for hyperrealism
         // Note: Pass camera in constructor - don't call attachCamerasToRenderPipeline again (causes reuse warnings)
-        if (!this.ssaoPipeline) {
+        if (!this.isQuestBrowser && !this.ssaoPipeline) {
             this.ssaoPipeline = new BABYLON.SSAO2RenderingPipeline("ssao", this.scene, 0.75, this.camera ? [this.camera] : []);
             this.ssaoPipeline.radius = 3.5;
             this.ssaoPipeline.totalStrength = 1.2;
@@ -165,10 +165,11 @@ class VRClubRendering extends VRClubLifecycle {
      * which is precisely the content that matters here.
      *
      * SSR reflects the live rendered frame, so every moving light shows up in the floor.
-     * Desktop only, and only above the 'balanced' tier — it requires WebGL2 and costs
-     * real milliseconds.
+     * Desktop only, above the 'balanced' tier and off Quest browsers — it requires
+     * WebGL2 and costs real milliseconds.
      */
     _createScreenSpaceReflections() {
+        if (this.isQuestBrowser) return;
         if (this.ssrPipeline) return;
         if (!this.tierSettings.ssr) return;
         if (!BABYLON.SSRRenderingPipeline) {
@@ -253,6 +254,7 @@ class VRClubRendering extends VRClubLifecycle {
      * and "a light show being filmed". Ultra tier only — it needs a velocity buffer.
      */
     _createMotionBlur() {
+        if (this.isQuestBrowser) return;
         if (this.motionBlur) return;
         if (!this.tierSettings.motionBlur) return;
         if (!BABYLON.MotionBlurPostProcess || !this.camera) return;

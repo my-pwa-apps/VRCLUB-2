@@ -130,7 +130,7 @@ with new evidence or satisfied criteria are updated in place without duplicates.
   **User-visible effect:** Production deployments via GitHub Actions are blocked. On Ultra tier (the default on Quest browsers), loading all 31 crowd/variant/DJ/guest sources downloads and parses ~35 MiB of character GLBs.
   **Immersion impact:** Indirect (blocks delivery of recent realism improvements and increases initial/tier-top-up loading pressure).
   **Desktop impact:** Larger asset footprint and blocked CI deployment.
-  **VR impact:** Quest browsers default to `ultra`, triggering downloads of all required crowd, guest, and street queue GLBs (~35 MiB).
+  **VR impact at the time of this finding:** Fresh Quest browsers selected `ultra`, triggering downloads of all required crowd, guest, and street queue GLBs (~35 MiB); Quest 3S retains Ultra by default, while older Quest models default to Balanced (see the 2026-10-18 rendering-policy resolution below).
   **Performance impact:** High network transfer and IndexedDB/memory footprint for duplicated animation keyframe data across 30 modular character files.
   **Recommended solution:** (1) Share a single animation clip library or generate the 13 `v*` colour-swapped variants at runtime in `11-audio-crowd.js` by cloning the base container's mesh and recolouring its vertex colour buffer by cluster (saving ~13.5 MiB in `dist/` and in Quest downloads), or deduplicate shared animation tracks across the modular cast; (2) encode `audio/nocturne-house.mp3` at 96 kbps Opus/MP3 or trim the loop length to save ~6–8 MiB; (3) wire `ASSET_BUDGET_MB` into `npm run audit:assets` so local checks enforce the same ceiling as CI.
   **Regression considerations:** Preserve the "nobody appears twice" 31-character visual diversity contract, single-draw vertex-coloured meshes, and the 16-bar musical structure of the default house set.
@@ -235,24 +235,31 @@ with new evidence or satisfied criteria are updated in place without duplicates.
   **Product value:** High
   **Technical debt reduction:** Medium
 
-- [ ] **Quest browsers default to `ultra` graphics tier while the flat pre-XR page runs desktop SSR, SSAO and motion blur**
+- [x] **Keep the Quest 3S Ultra default and keep desktop-only post effects off Quest browsers**
+
+  **Implemented 2026-10-18.** Quest 3S retains the Ultra default; this was restored after the owner reported that Ultra
+  works fine on their headset. Quest 3 also defaults to Ultra, legacy Quest models stay Balanced, and a saved choice
+  still wins. Quest browsers no longer construct desktop SSAO, SSR or motion blur and never use desktop
+  supersampling, including after exiting XR. The in-XR rendering pipeline is unchanged.
+  **Important:** the 2026-10-14 capture measured lower frame times on Balanced along its route, but neither that
+  comparison nor the owner's experience establishes 72 Hz performance. Balanced and High remain available as manual
+  choices; no post-change headset capture has been made.
 
   **Priority:** High
   **Category:** VR / Performance
-  **Confidence:** High
+  **Confidence:** High for the selected default and disabled pre-XR passes; medium for their performance impact
   **Area:** Graphics tier auto-detection (`detectGraphicsTier`)
-  **Affected files:** [01-core.js](js/club/01-core.js), [PERFORMANCE_BASELINE.md](docs/PERFORMANCE_BASELINE.md)
-  **Evidence:** In `js/club/01-core.js:833`, `detectGraphicsTier()` returns `'ultra'` whenever `ua.includes('quest') || ua.includes('oculus')`, whereas comments at `01-core.js:183` ("Quest is always `balanced`, so this is the number a headset actually renders") and `docs/PERFORMANCE_BASELINE.md:190` ("the detector defaults Quest to balanced") state that Quest defaults to `balanced`. On `ultra`, before entering XR, the Quest browser runs desktop `renderScale: 0.8` (1.56× pixel supersampling), 24-sample SSAO with expensive blur, high-quality SSR (900 steps), and 24-sample object-based motion blur, and downloads all 31 character GLBs (14 dancers + 8 guests + 8 queue + bouncer); inside XR it runs 14 dancers, 8 guests, 280 mirror spots, and 64 mirror rays on an unmeasured Quest 3S GPU.
-  **Problem:** Defaulting a mobile standalone XR skillset to `ultra` contradicts the performance baseline documentation, causes heavy pre-XR flat-page rendering on the headset browser, and maximizes CPU/GPU/memory load in XR without a measured Quest 3S thermal/frame-time baseline.
-  **User-visible effect:** Sluggish 2D setup/splash-to-VR transition on Quest browser and high risk of reprojection/dropped frames and thermal throttling in XR on Quest 3S.
+  **Affected files:** [01-core.js](js/club/01-core.js), [02-lifecycle.js](js/club/02-lifecycle.js), [03-rendering.js](js/club/03-rendering.js), [unit.test.mjs](test/unit.test.mjs), [PERFORMANCE_BASELINE.md](docs/PERFORMANCE_BASELINE.md)
+  **Evidence:** The 2026-10-14 worn Quest 3S captures measured Ultra at 51.7 ms median / 57.7 ms p95, High at 52.8 / 58.8 ms, and Balanced at 48.4 / 53.3 ms. None met the 13.89 ms 72 Hz budget in that capture; the owner reports that Ultra works fine in practice. Fresh Quest 3S sessions retain Ultra. Quest browsers previously rendered the desktop setup page at 0.8 hardware scale and constructed SSAO, SSR and motion blur; those desktop passes are not part of the XR pipeline.
+  **Problem:** Quest browsers did unnecessary desktop-only rendering work before entering XR.
+  **User-visible effect:** The initial setup page and its transition to XR did unnecessary desktop post-processing on a standalone headset; the XR tier remains the owner's preferred Ultra quality.
   **Immersion impact:** Frame drops and reprojection in VR are immediate comfort and presence breakers.
-  **Desktop impact:** None.
-  **VR impact:** Directly governs initial asset download volume, pre-XR frame rate, and in-XR skeleton/particle/mirror-spot load on Quest.
-  **Performance impact:** `ultra` evaluates 24 indoor skeletons + 9 street skeletons (vs 9 + 5 on `balanced`) and 344 mirror instances (vs 128 on `balanced`).
-  **Recommended solution:** Default Quest browsers in `detectGraphicsTier()` to `'balanced'` (or `'high'` only after a 15-minute Quest 3S capture proves headroom), or skip desktop-only SSR/SSAO/motion-blur/supersampling creation on Quest user-agents even before entering XR. Users on Quest 3 can still select `ULTRA` in the VR menu (which persists in `localStorage`).
-  **Regression considerations:** Update any unit test that asserts `detectGraphicsTier()` for a Quest UA string, and keep `localStorage['vrclub.graphicsTier']` override precedence.
-  **Acceptance criteria:** A fresh Quest browser session without a stored override never attaches desktop SSR, SSAO or motion blur on the pre-XR page and starts at a tier proven to hold 72 Hz on Quest 3S.
-  **Validation:** Unit test in `test/unit.test.mjs` for Quest UA tier detection and pre-XR pipeline state.
+  **Desktop impact:** None outside Quest/Oculus browser user agents.
+  **VR impact:** Quest 3 and 3S retain Ultra by default; older Quest models and explicit saved choices keep their existing behavior. XR post-processing and resolution settings do not change.
+  **Performance impact:** The 2026-10-14 captures measured Balanced 3.3 ms lower median and 4.4 ms lower p95 than Ultra on that route. Time saved by skipping desktop-only passes is unmeasured.
+  **Regression considerations:** Preserve explicit `vrclub.graphicsTier` choices and desktop behavior on non-Quest browsers. Balanced reduces crowd density and headset MSAA to FXAA-only and remains available to owners who prefer lower cost.
+  **Acceptance criteria:** A fresh Quest 3S starts Ultra; Quest 3 remains Ultra; a saved tier wins; no Quest browser constructs desktop SSAO, SSR or motion blur or uses supersampling; existing desktop behavior and the XR render path remain unchanged. A physical 3S capture must still be tracked separately before making frame-rate claims.
+  **Validation:** Focused unit tests cover tier detection, user overrides, desktop scale and post-process construction. Physical headset timing and comfort remain unverified after this change.
   **Estimated effort:** Small
   **Product value:** High
   **Technical debt reduction:** Low
@@ -990,18 +997,19 @@ findings are updated in place rather than duplicated. Historical measurements re
   **Product value:** Medium
   **Technical debt reduction:** Low
 
-- [ ] **Check Ultra, headset heights and the stair on a Quest 3S**
+- [ ] **Measure Balanced, High and Ultra, headset heights and the stair on a Quest 3S**
 
   **Priority:** Medium
   **Category:** Performance / Navigation
-  **Evidence:** Quest browsers now start on Ultra (14 dancers, 8 guests, 280 mirror spots); only a Quest 3 has been tried. The
+  **Evidence:** The 2026-10-14 physical capture measured the Quest 3S on all three tiers; Balanced was fastest at 48.4 ms median
+  / 53.3 ms p95 but is still far from 72 Hz. The owner reports that Ultra works fine; fresh Quest 3S sessions retain Ultra. The
   invisible-wall fix (torso collider) was verified with Babylon's real collision solver and the IWER emulator at 0.9 to 1.85 m
   headset heights, not with a physical headset. The stair's clear corridor is about 0.8 m for the 0.25 m-radius body, so
   approaching it at an angle can still catch a rail.
-  **Recommended solution:** Capture frame time on Ultra standing at the dance floor and the bar; walk to the balcony standing and
-  seated. If the stair is fiddly, widen it past 1.4 m (`MEZZANINE.stairs`) or flare its first rails.
-  **Acceptance criteria:** Ultra holds the headset refresh rate (or the default drops back to High), and a seated and a standing
-  player both reach the deck by thumbstick on the first try.
+  **Recommended solution:** Repeat the three-tier frame capture with the current Quest 3S default and pre-XR pipeline change; walk
+  to the balcony standing and seated. If the stair is fiddly, widen it past 1.4 m (`MEZZANINE.stairs`) or flare its first rails.
+  **Acceptance criteria:** Record frame-time and reprojection behavior on each tier without claiming a tier meets refresh until
+  measured; a seated and a standing player both reach the deck by thumbstick on the first try.
 
 ---
 

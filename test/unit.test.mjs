@@ -835,7 +835,7 @@ test('automatic quality steps down only after sustained misses, holds, never cli
     assert.equal(slowTail.evaluate({ frames: 300, budgetMs: 13.89, overBudgetShare: 0.1, p95: 25 }, 5, 'high').tier, 'balanced');
 });
 
-test('Quest 1, Quest 2 and Quest Pro start on Balanced; a Quest 3, an unknown headset and a saved choice are left alone', () => {
+test('Quest 1, Quest 2 and Quest Pro start on Balanced; Quest 3, Quest 3S and saved choices are preserved', () => {
     const store = new Map();
     const run = userAgent => {
         const { window } = loadClassic('js/club/01-core.js', {
@@ -850,16 +850,52 @@ test('Quest 1, Quest 2 and Quest Pro start on Balanced; a Quest 3, an unknown he
     assert.equal(run(ua('; Quest Pro')), 'balanced');
     assert.equal(run(ua('; Quest')), 'balanced', 'a Quest 1 says only "Quest"');
     assert.equal(run(ua('; Quest 3')), 'ultra');
-    assert.equal(run(ua('; Quest 3S')), 'ultra');
+    assert.equal(run(ua('; Quest 3S')), 'ultra', 'Quest 3S keeps the Ultra default that its owner reports works well');
     assert.equal(run(ua('')), 'ultra', 'a headset that names no model keeps the old default');
     assert.equal(run('Mozilla/5.0 (Linux; Android 12; Quest 2) AppleWebKit/537.36 Chrome/126 Mobile VR Safari/537.36'), 'balanced');
     store.set('vrclub.graphicsTier', 'ultra');
     assert.equal(run(ua('; Quest 2')), 'ultra', 'a saved choice always wins');
+    assert.equal(run(ua('; Quest 3S')), 'ultra', 'a saved choice also wins on Quest 3S');
     store.clear();
-    const legacy = loadClassic('js/club/01-core.js', { BABYLON: {}, log: { info() {}, warn() {}, error() {} } }).window.VRClubCore.isLegacyQuest;
+    const core = loadClassic('js/club/01-core.js', { BABYLON: {}, log: { info() {}, warn() {}, error() {} } }).window.VRClubCore;
+    const legacy = core.isLegacyQuest;
     assert.equal(legacy('Mozilla/5.0 (Windows NT 10.0) Chrome/126 Safari/537.36'), false);
     assert.equal(legacy(undefined), false);
     assert.equal(legacy('...; Quest 3) ...'), false);
+    assert.equal(core.isQuestBrowser('OculusBrowser/33'), true);
+
+    const getScale = core.prototype.getDesktopRenderScale;
+    assert.equal(getScale.call({ isQuestBrowser: true, tierSettings: { renderScale: 0.8 } }), 1.0);
+    assert.equal(getScale.call({ isQuestBrowser: false, tierSettings: { renderScale: 0.8 } }), 0.8);
+});
+
+test('Quest browsers skip desktop-only SSAO, SSR, and motion blur construction', () => {
+    let constructors = 0;
+    const { window } = loadClassic('js/club/03-rendering.js', {
+        BABYLON: {
+            SSAO2RenderingPipeline: class { constructor() { constructors++; } },
+            SSRRenderingPipeline: class { constructor() { constructors++; } },
+            MotionBlurPostProcess: class { constructor() { constructors++; } }
+        },
+        VRClubLifecycle: class {},
+        log: { info() {}, warn() {}, error() {} }
+    });
+    const club = Object.assign(Object.create(window.VRClubRendering.prototype), {
+        isQuestBrowser: true,
+        vrSettings: { desktop: {} },
+        renderPipeline: {},
+        ssaoPipeline: null,
+        ssrPipeline: null,
+        motionBlur: null,
+        tierSettings: { ssr: true, motionBlur: true },
+        scene: {},
+        camera: {}
+    });
+    club.addPostProcessing();
+    assert.equal(constructors, 0);
+    assert.equal(club.ssaoPipeline, null);
+    assert.equal(club.ssrPipeline, null);
+    assert.equal(club.motionBlur, null);
 });
 
 test('automatic quality is opt-in, session-only and wired into the render loop and both menus', () => {

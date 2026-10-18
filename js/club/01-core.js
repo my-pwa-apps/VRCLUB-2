@@ -80,6 +80,7 @@ class VRClubCore {
         // setting that is either too heavy for laptops or too timid for a desktop GPU,
         // the renderer picks a tier and every heavy effect is gated behind it.
         // A user override persists so the choice survives a reload.
+        this.isQuestBrowser = VRClubCore.isQuestBrowser(navigator.userAgent);
         this.graphicsTier = this.detectGraphicsTier();
         log.info(`🎨 Graphics tier: ${this.graphicsTier}`);
 
@@ -189,8 +190,8 @@ class VRClubCore {
                 floorShadows: false,
                 // Skinned characters are the most expensive per-object thing in the
                 // scene (one skeleton + one animation group evaluation each), so the
-                // headcount is the first thing to give on weak GPUs. Quest is always
-                // `balanced`, so this is the number a headset actually renders.
+                // Headcount is the first thing to give on weak GPUs. Quest 3S and
+                // legacy Quest defaults use this count; Quest 3 retains Ultra by default.
                 crowdSize: 6,
                 guestSize: 2,                // the talking pair; headset cost of extra skeletons is unmeasured
                 queueSize: 4,                // outside, and hidden with the street whenever a guest is deep in the club
@@ -978,7 +979,7 @@ class VRClubCore {
         // native resolution and is downsampled on present, which removes shader aliasing
         // that no post-process AA can reach - specular glints on the trusses, the LED
         // wall pixel grid, and the hard edges of every light beam.
-        this.engine.setHardwareScalingLevel(this.tierSettings.renderScale);
+        this.engine.setHardwareScalingLevel(this.getDesktopRenderScale());
         
         // The selective glow layer stays disabled on desktop too (see applyVRSettings).
         if (this.glowLayer) {
@@ -1031,9 +1032,9 @@ class VRClubCore {
      *
      * Detection is deliberately conservative: anything we cannot positively identify
      * as a discrete desktop GPU falls back to 'high', and phones/tablets fall to 'balanced'.
-     * A Quest browser starts on 'ultra' (the owner's Quest 3 runs it; Quest 3S is unmeasured). The headset's
-     * pipeline overrides in `vrSettings` still apply, and the VR menu can step down to High or Balanced.
-     * A stored user override always wins.
+     * Quest 3 and 3S start on Ultra; older Quest models use Balanced. No measured 3S
+     * tier sustains 72 Hz, so the default is a quality preference, not a performance
+     * guarantee. Stored choices always win.
      *
      * @returns {'ultra'|'high'|'balanced'}
      */
@@ -1048,9 +1049,9 @@ class VRClubCore {
         } catch (_) { /* private browsing - fall through to detection */ }
 
         const ua = navigator.userAgent.toLowerCase();
-        // Quest 1, Quest 2 and Quest Pro have roughly half the GPU of a Quest 3: start them on Balanced.
+        // Quest 3S owners report that Ultra works well; keep lower tiers available as an opt-in.
         if (VRClubCore.isLegacyQuest(ua)) return 'balanced';
-        if (ua.includes('quest') || ua.includes('oculus')) return 'ultra';
+        if (VRClubCore.isQuestBrowser(ua)) return 'ultra';
         if (/android|iphone|ipad|mobile/i.test(ua)) return 'balanced';
 
         // 2. WebGL2 is a hard requirement for SSR; without it 'ultra' is pointless.
@@ -1154,6 +1155,10 @@ class VRClubCore {
     /** Current tier's settings object. */
     get tierSettings() {
         return this.qualityTiers[this.graphicsTier] || this.qualityTiers.high;
+    }
+
+    getDesktopRenderScale() {
+        return this.isQuestBrowser ? 1.0 : this.tierSettings.renderScale;
     }
 
     _reportInitProgress(progress, stage) {
@@ -1328,6 +1333,10 @@ class VRClubCore {
         if (!match) return false;
         const model = (match[1] || '').toLowerCase();
         return model === '' || model === '2' || model === 'pro';
+    }
+
+    static isQuestBrowser(userAgent) {
+        return /quest|oculus/i.test(String(userAgent || ''));
     }
 
     /** Seated mode is off for new visitors; only a stored '1' enables it. */
