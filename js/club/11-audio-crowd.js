@@ -1815,9 +1815,20 @@ class VRClubAudioCrowd extends VRClubUI {
         return null;
     }
 
+    /** Walking away from a seat stands you up (the camera leaves the seat's spot): independent of which body is drawn. */
+    _releaseSeatWhenAway() {
+        const seat = this._activeSeat;
+        if (!seat) return;
+        const cam = this._playerCamera();
+        const pos = cam && (cam.globalPosition || cam.position);
+        if (pos && Math.hypot(pos.x - seat.viewX, pos.z - seat.viewZ) > 0.75) this.standFromSeat(false);
+    }
+
     _updateLocalPlayerBody(dt) {
         // The eased body height drives whichever body is shown (the character's scale, or the mannequin's fit).
         const eye = this._easedBodyEyeHeight(dt);
+        // Every body needs this, so it cannot live in the mannequin's own update (a character body used to stay on the couch).
+        this._releaseSeatWhenAway();
         const rig = this._localRig;
         if (!rig || !rig.ok) return;
         // When the player has a character (the one in the mirror), THAT is their body: the procedural mannequin stays hidden
@@ -1845,11 +1856,7 @@ class VRClubAudioCrowd extends VRClubUI {
         cam.getDirectionToRef(BABYLON.Axis.Z, dir);
         pose.headYaw = Math.atan2(dir.x, dir.z);
         pose.headPitch = Math.asin(Math.max(-1, Math.min(1, dir.y)));
-        let seat = this._activeSeat;
-        if (seat && Math.hypot(pos.x - seat.viewX, pos.z - seat.viewZ) > 0.75) {
-            this.standFromSeat(false);
-            seat = null;
-        }
+        const seat = this._activeSeat;
         pose.x = seat ? seat.x : pos.x;
         pose.z = seat ? seat.z : pos.z;
         pose.groundY = seat ? seat.floorY : ((pos.x > -3 && pos.x < 3 && pos.z < -16 && pos.z > -20.5) ? 0.5 : (this._walkLevel || 0));

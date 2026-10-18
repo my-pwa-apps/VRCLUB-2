@@ -26,6 +26,9 @@ kept in lockstep with `index.html`, `sw.js` and `serviceworker.js` by
 
 ### Fixed
 
+- **Your character no longer stays on the couch when you walk away.** Standing up when you left a seat was part of the old body's update, which stops running while your
+  character is your body, so the seat was never released: your body stayed seated on the couch while you walked around (invisible to you, and missing from the mirror).
+  Leaving the seat's spot now stands you up whichever body is drawn.
 - **The crowd's faces and arms are back.** Rebuilding the crowd's dances ran the avatar optimizer a second time, and it halves every character's triangles on each run (about
   3,200 down to 800 each), which took the faces and thickened arms in some poses. The people are restored to full detail, the optimizer now only simplifies a character that
   is still above its target size, and a test fails if a crowd person drops under 2,400 triangles.

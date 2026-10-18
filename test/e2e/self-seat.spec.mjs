@@ -31,8 +31,14 @@ test('the character sits on the couch, stands up again, and is still there after
             };
         };
         const out = { couch: await sit(couch) };
-        club.standFromSeat(false);
+        // Walk away from the couch: you stand up and the character comes with you (it used to stay seated there).
+        club.camera.position.set(couch.viewX + 2.0, 1.7, couch.viewZ - 2.0);
         for (let i = 0; i < 60; i++) await next();
+        const walked = club._mirrorDouble;
+        out.walkedAway = {
+            seatReleased: club._activeSeat === null, gait: walked.gait,
+            near: Math.hypot(walked.root.position.x - club.camera.position.x, walked.root.position.z - club.camera.position.z) < 0.2
+        };
         out.stood = { shown: club._mirrorDouble.shown, visible: club._mirrorDouble.meshes.every(m => m.isVisible && m.isEnabled()), clip: club._mirrorDouble.current };
         out.stool = await sit(stool);
         club.standFromSeat(false);
@@ -56,6 +62,7 @@ test('the character sits on the couch, stands up again, and is still there after
     expect(result.couch.pelvisAboveSeat, 'the pelvis rests on the cushion').toBeGreaterThan(0.04);
     expect(result.couch.pelvisAboveSeat).toBeLessThan(0.2);
     expect(result.couch.headShown, 'the camera sits in front of the sitter, so the head is drawn').toBe(true);
+    expect(result.walkedAway, 'walking away stands you up and the character follows').toEqual({ seatReleased: true, gait: 'idle', near: true });
     expect(result.stood).toEqual({ shown: true, visible: true, clip: 'Idle' });
     expect(result.stool.clip, 'a bar stool keeps the stool posture').toBe('Seated_Loop');
     expect(result.switched).toEqual({ id: 'm4', visible: true, listed: true, rigHidden: true });

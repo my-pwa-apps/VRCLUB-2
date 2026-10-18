@@ -5867,6 +5867,30 @@ test('a loaded avatar source never keeps animating: the loader\'s auto-started c
     assert.equal(club._avatarContainers.length, 1);
 });
 
+test('walking away from a seat stands you up whichever body is drawn, even when there is no mannequin at all', () => {
+    const { window } = loadClassic('js/club/11-audio-crowd.js', { VRClubUI: class {}, BABYLON: { Axis: {}, Vector3: class {} } });
+    const proto = window.VRClubAudioCrowd.prototype;
+    const seat = { id: 'lounge-0', viewX: 6.68, viewZ: -1.29, x: 6.68, z: -0.89, floorY: 0, seatY: 0.4, facing: Math.PI };
+    const camera = { position: { x: 6.68, y: 1.2, z: -1.29 } };
+    const stood = [];
+    const club = {
+        _activeSeat: seat, camera, _playerCamera: () => camera,
+        _easedBodyEyeHeight: () => 1.7, _localRig: null,
+        standFromSeat(notify) { stood.push(notify); this._activeSeat = null; },
+        _releaseSeatWhenAway: proto._releaseSeatWhenAway
+    };
+    // No mannequin (`_localRig` null): the early return used to skip the release, and the character stayed on the couch.
+    proto._updateLocalPlayerBody.call(club, 1 / 60);
+    assert.deepEqual(stood, [], 'still at the seat: stay seated');
+    camera.position.x = 6.68 + 0.5;
+    proto._updateLocalPlayerBody.call(club, 1 / 60);
+    assert.deepEqual(stood, [], 'a short step is not leaving');
+    camera.position.x = 6.68 + 1.0;
+    proto._updateLocalPlayerBody.call(club, 1 / 60);
+    assert.equal(stood.length, 1, 'walking away stands you up');
+    assert.equal(club._activeSeat, null);
+});
+
 test('the local body stays full standing height until a room seat is intentionally selected', () => {
     const BABYLON = {
         Axis: { Z: 'Z', Y: 'Y' },
@@ -5886,7 +5910,7 @@ test('the local body stays full standing height until a room seat is intentional
         isInVRMode: false, camera, _xrControllers: [],
         _localRig: { ok: true, standEye: 1.7, setEyeHeight(h) { calls.push(['eye', h]); }, update(dt, pose) { calls.push(['update', dt, { ...pose }]); } },
         _playerCamera: proto._playerCamera, _handPose: proto._handPose, _bodyEyeHeight: proto._bodyEyeHeight,
-        _easedBodyEyeHeight: proto._easedBodyEyeHeight, _shownBodyEye: proto._shownBodyEye,
+        _easedBodyEyeHeight: proto._easedBodyEyeHeight, _shownBodyEye: proto._shownBodyEye, _releaseSeatWhenAway: proto._releaseSeatWhenAway,
         standFromSeat: () => { club._activeSeat = null; }
     };
     proto._updateLocalPlayerBody.call(club, 1 / 60);
