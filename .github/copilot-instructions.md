@@ -1746,19 +1746,17 @@ controller ray therefore use the same path (`pressVJDesk` / `dragVJDesk` / `rele
   position slider. Previous/next enable only when an active local folder or the saved-set library has more than one source and
   delegate to `stepAudioSource`; the other buttons delegate to `setAudioPlayback` and `stopAudioPlayback`. Dragging the slider previews the time and calls
   `seekAudioToFraction()` once on release, never repeatedly while the controller moves. Unavailable/live states are
-  written on the controls, and room guests see HOST ONLY. Its header shows playing/paused, position and set title. FX is TWO
-  pages of five real knobs, stepped by the page button (player, then FX, then MORE EFFECTS, then back): low-pass, high-pass,
-  echo, flanger, reverb, then phaser, noise sweep, gater, distortion and bit crusher (`VJ_FX_PAGES`; a button's `page` is a
-  string or an array, and the XFADE crossfader and CLEAR FX stand on both). The second bank (`_createDJExtraEffects`,
-  `_writeDJExtraEffects` in `js/club/11-audio-crowd.js`) is Web Audio only, no AudioWorklet (blob worklets are not allowed by
+  written on the controls, and room guests see HOST ONLY. Its header shows playing/paused, position and set title. FX is ONE
+  page of eight real knobs in a row, each about 4 cm across: low-pass, high-pass, echo, flanger, reverb, phaser, noise sweep
+  and gater, with a small XFADE crossfader and a CLEAR FX button under them (an earlier build had a second page with a
+  distortion and a bit crusher; both were removed, and the knobs shrunk to fit one page). The phaser, sweep and gater
+  (`_createDJExtraEffects`, `_writeDJExtraEffects` in `js/club/11-audio-crowd.js`) are Web Audio only, no AudioWorklet (blob worklets are not allowed by
   the CSP): the GATER is a series gain stage after the filters (a smoothed square LFO swings it between 1 and 1 - depth, one
   cycle per eighth note of `vjBPM`, so a sixteenth on and a sixteenth off); the others are parallel wet sends into the mix, so
-  an amount of 0 is silent: PHASER four all-pass stages swept by a 0.35 Hz LFO, DISTORTION drive 1 to 31 into a 4x-oversampled
-  tanh clipper tamed at 5.5 kHz, BIT CRUSHER a staircase WaveShaper from 12 down to 3 bits (cached curves per depth; it
-  reduces bit depth but NOT sample rate, which needs a worklet), NOISE SWEEP looped white noise through a band that rises
+  an amount of 0 is silent: PHASER four all-pass stages swept by a 0.35 Hz LFO, NOISE SWEEP looped white noise through a band that rises
   250 Hz to 10 kHz and gets louder (`sweep^2`). The effect state is `VRClubAudioCrowd.DJ_EFFECT_DEFAULTS`; a failure building
-  the second bank leaves the first five working. All of it sits before the output and after the analyser tap, like the rest.
-  Phaser, distortion, crusher and sweep levels are by ear on desktop only, never heard in a headset. FX has a small XFADE crossfader and a CLEAR FX button. A knob
+  the extra effects leaves the first five working. All of it sits before the output and after the analyser tap, like the rest.
+  Phaser and sweep levels are by ear on desktop only, never heard in a headset. A knob
   sweeps 270 degrees (7:30 to 4:30) and is TURNED, not slid, and is relative to where it was grabbed so it never jumps:
   - **From a controller (VR)** the trigger grabs the knob the controller's ray is on (`_vjDeskControllerAt`), and the
     knob then follows the WRIST: every frame `updateVJDesk()` reads the controller pointer's roll about its pointing
@@ -1773,10 +1771,16 @@ controller ray therefore use the same path (`pressVJDesk` / `dragVJDesk` / `rele
     resets the control and does NOT jump, anywhere else A / X jumps as before; one press is consumed once) or a **right-click**
     on desktop (`resetVJDeskAt`): a knob goes to off, the crossfader to full, and the real cap swings back over a few frames.
     CLEAR FX remains the reset for everything (every knob off, music unmuted, smoothly through `resetDJEffects()`).
-  - **The controls are real meshes** (`_createVJDeskControls`, `VJ_KNOB3D`, `VJ_FADER3D`): ten knobs (a fluted metal cap on a
-    dark collar, a coloured top and a white pointer, one merged collar mesh per page) and the crossfader cap stand out of the
+  - **The hand is on the control while you hold it.** While a controller holds a knob or the crossfader, `_updateVJDeskHands()`
+    eases that hand (`_vjDeskHandHold[side].amount`, 0.07 s on, 0.12 s off) onto the control (`_vjDeskHandSpot`: the top of the knob cap,
+    or the crossfader cap where its level puts it), and `_handPose()` draws it there, the palm 7 cm short of the cap with the
+    fingers along the controller's own direction so the wrist twist still turns the hand. `_handPose` feeds the first-person body, the mirror
+    reflection and the state other guests receive, so all three show the hand on the knob rather than hovering where the ray starts.
+    A mouse holds nothing a hand could rest on. The grab itself is unchanged (the ray). Unmeasured on a headset.
+  - **The controls are real meshes** (`_createVJDeskControls`, `VJ_KNOB3D`, `VJ_FADER3D`): eight knobs (a fluted metal cap on a
+    dark collar, a coloured top and a white pointer, 4.2 cm across) and the crossfader cap stand out of the
     transport panel, children of it,
-    shown only on their FX page while the desk player is (`_syncVJDeskControls`, per frame). They are NOT pickable, so a ray
+    shown only on the FX page while the desk player is (`_syncVJDeskControls`, per frame). They are NOT pickable, so a ray
     goes through them to the panel and pressing, twisting and sliding use exactly the canvas hit logic; the canvas still draws
     the scale arc, the label, the value and the slot (and draws a 2D knob/cap itself if the meshes could not be built). A
     knob's sweep is the mixer standard, 7:30 off to 4:30 full (`VJ_KNOB.start` 0.75 pi), measured in the real scene (12 o'clock

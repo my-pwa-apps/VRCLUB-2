@@ -330,7 +330,7 @@ class VRClubAudioCrowd extends VRClubUI {
 
     static DJ_EFFECT_DEFAULTS = Object.freeze({
         lowpass: 0, highpass: 0, echo: 0, flanger: 0, reverb: 0,
-        phaser: 0, sweep: 0, gater: 0, distortion: 0, crusher: 0,
+        phaser: 0, sweep: 0, gater: 0,
         channel: 1
     });
 
@@ -410,7 +410,7 @@ class VRClubAudioCrowd extends VRClubUI {
     }
 
     /**
-     * Phaser, noise sweep, gater, distortion and bit crusher. Each is a parallel wet send into the mix (the gater is the
+     * Phaser, noise sweep and gater. The phaser and the sweep are parallel wet sends into the mix (the gater is the
      * series gain stage), so an amount of 0 is silent and costs nothing audible. A failure here leaves the original
      * five effects working.
      */
@@ -457,24 +457,6 @@ class VRClubAudioCrowd extends VRClubUI {
             const phaserWet = ctx.createGain();
             send(...stages, phaserWet);
 
-            // Distortion: drive into a soft clipper, tamed above 5.5 kHz.
-            const distortionDrive = ctx.createGain();
-            const distortionShaper = ctx.createWaveShaper();
-            const distortionCurve = new Float32Array(2049);
-            for (let i = 0; i < distortionCurve.length; i++) distortionCurve[i] = Math.tanh(2 * (i / 1024 - 1)) / Math.tanh(2);
-            distortionShaper.curve = distortionCurve;
-            distortionShaper.oversample = '4x';
-            const distortionTone = ctx.createBiquadFilter();
-            distortionTone.type = 'lowpass';
-            distortionTone.frequency.value = 5500;
-            const distortionWet = ctx.createGain();
-            send(distortionDrive, distortionShaper, distortionTone, distortionWet);
-
-            // Bit crusher: a staircase curve with fewer steps as the knob goes up (curves are cached per bit depth).
-            const crusherShaper = ctx.createWaveShaper();
-            const crusherWet = ctx.createGain();
-            send(crusherShaper, crusherWet);
-
             // Noise sweep: looped white noise through a band that rises with the knob, louder as it climbs.
             const noiseLength = Math.max(1, Math.floor(ctx.sampleRate * 2));
             const noiseBuffer = ctx.createBuffer(1, noiseLength, ctx.sampleRate);
@@ -493,26 +475,12 @@ class VRClubAudioCrowd extends VRClubUI {
             sweepWet.connect(mix);
 
             sources.forEach(source => source.start());
-            return {
-                sources, gaterLfo, gaterDepth, phaserWet, distortionDrive, distortionWet,
-                crusherShaper, crusherWet, crusherBits: 0, crusherCurves: new Map(), sweepFilter, sweepWet, gaterHz: 0
-            };
+            return { sources, gaterLfo, gaterDepth, phaserWet, sweepFilter, sweepWet, gaterHz: 0 };
         } catch (error) {
             sources.forEach(source => { try { source.stop(); } catch (_) { /* never started */ } });
             log.warn('🎚️ Extra DJ effects unavailable:', error);
             return null;
         }
-    }
-
-    _crusherCurve(extra, bits) {
-        let curve = extra.crusherCurves.get(bits);
-        if (!curve) {
-            const steps = Math.pow(2, bits - 1);
-            curve = new Float32Array(2049);
-            for (let i = 0; i < curve.length; i++) curve[i] = Math.round((i / 1024 - 1) * steps) / steps;
-            extra.crusherCurves.set(bits, curve);
-        }
-        return curve;
     }
 
     /** The gater chops in eighth notes of the track's tempo (one square cycle per eighth: a sixteenth on, a sixteenth off). */
@@ -553,21 +521,12 @@ class VRClubAudioCrowd extends VRClubUI {
         const extra = this.djFxExtra;
         if (!extra) return;
         const level = name => Math.min(1, Math.max(0, Number(state[name]) || 0));
-        const gater = level('gater'), phaser = level('phaser'), distortion = level('distortion');
-        const crusher = level('crusher'), sweep = level('sweep');
+        const gater = level('gater'), phaser = level('phaser'), sweep = level('sweep');
         // The gate rests at 1 - depth / 2 and the LFO swings it by depth / 2 either way: between 1 - depth and 1.
         this._setDJAudioParam(this.djFxGate?.gain, 1 - gater * 0.5, timeConstant);
         this._setDJAudioParam(extra.gaterDepth.gain, gater * 0.5, timeConstant);
         if (gater > 0.001) this._syncGaterRate();
         this._setDJAudioParam(extra.phaserWet.gain, phaser * 0.9, timeConstant);
-        this._setDJAudioParam(extra.distortionDrive.gain, 1 + distortion * 30, timeConstant);
-        this._setDJAudioParam(extra.distortionWet.gain, distortion * 0.5, timeConstant);
-        const bits = Math.round(12 - crusher * 9);
-        if (crusher > 0.001 && bits !== extra.crusherBits) {
-            extra.crusherBits = bits;
-            extra.crusherShaper.curve = this._crusherCurve(extra, bits);
-        }
-        this._setDJAudioParam(extra.crusherWet.gain, crusher * 0.85, timeConstant);
         this._setDJAudioParam(extra.sweepFilter.frequency, 250 * Math.pow(40, sweep), timeConstant);
         this._setDJAudioParam(extra.sweepWet.gain, sweep * sweep * 0.45, timeConstant);
     }
@@ -1949,6 +1908,14 @@ class VRClubAudioCrowd extends VRClubUI {
             hand.fx = dir.x; hand.fy = dir.y; hand.fz = dir.z;
             aim.getDirectionToRef(BABYLON.Axis.Y, dir);
             hand.ux = dir.x; hand.uy = dir.y; hand.uz = dir.z;
+            // Holding a knob or the crossfader: the hand goes onto it (the palm 7 cm short of the cap, fingers along the
+            // controller's own direction, so the wrist twist still turns the hand), instead of hovering where the ray starts.
+            const held = this._vjDeskHandHold && this._vjDeskHandHold[side];
+            if (held && held.amount > 0) {
+                hand.x += (held.x - hand.fx * 0.07 - hand.x) * held.amount;
+                hand.y += (held.y - hand.fy * 0.07 - hand.y) * held.amount;
+                hand.z += (held.z - hand.fz * 0.07 - hand.z) * held.amount;
+            }
             return hand;
         }
         return null;

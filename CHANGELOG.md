@@ -66,9 +66,11 @@ kept in lockstep with `index.html`, `sw.js` and `serviceworker.js` by
 
 ### Changed
 
-- **Five more effects on the desk's FX panel: phaser, noise sweep, gater, distortion and bit crusher.** They are a second page of real 3D knobs (the page button now steps
-  player, FX, MORE EFFECTS, player; XFADE and CLEAR FX stand on both pages). The gater chops in eighth notes of the track's tempo, the noise sweep is a rising band of
-  noise, and the bit crusher reduces bit depth (not sample rate). All are heard through the PA and leave the light show's analyser untouched. Levels were set by ear on desktop only.
+- **Three more effects on the desk's FX panel: phaser, noise sweep and gater.** All eight knobs now fit on ONE panel (the knobs are smaller, about 4 cm across; the label and setting sit
+  under each dial). The gater chops in eighth notes of the track's tempo and the noise sweep is a rising band of noise. Both are heard through the PA and leave the light show's
+  analyser untouched. Levels were set by ear on desktop only. (A distortion and a bit crusher were tried and removed.)
+- **Your hand is on the knob or the fader while you hold it.** In VR the virtual hand used to hover wherever the ray started, in front of the control. While the trigger is held on a
+  knob or the crossfader the hand now goes onto it (easing on and off), with the palm resting on the cap and the wrist twist still turning the knob. Other guests and the mirror see it too.
 - **When a stream fails, the club's own set plays instead of silence.** If a saved set cannot start, or a live stream drops and cannot be reconnected, the club's own
   house set takes over with a short notice; the saved set stays in Music. It does not step in for a blocked autoplay, in someone else's room or when nothing is saved.
 - **The XFADE crossfader has a much shorter throw.** About 9 cm instead of 22 (roughly a quarter of its old travel), with a wider end stop (the last 8% snaps to cut or full), so

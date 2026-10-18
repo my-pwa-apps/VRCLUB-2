@@ -2083,8 +2083,9 @@ test('the Web Audio graph spatialises the PA, keeps the analyser pre-spatial and
     // and all of it sits after the analyser tap like the rest.
     const extra = club.djFxExtra;
     club.guardHostControl = () => true;
-    assert.ok(extra, 'the phaser, sweep, gater, distortion and crusher exist');
-    for (const wet of [extra.phaserWet, extra.distortionWet, extra.crusherWet, extra.sweepWet]) {
+    assert.ok(extra, 'the phaser, sweep and gater exist');
+    assert.equal(extra.distortionWet, undefined, 'distortion and the bit crusher are gone');
+    for (const wet of [extra.phaserWet, extra.sweepWet]) {
         assert.equal(wet.gain.value, 0 * wet.gain.value, 'a wet send starts silent');
         assert.ok(downstream(wet).has(club.djFxOutput), 'a wet send reaches the effects output');
     }
@@ -2092,7 +2093,7 @@ test('the Web Audio graph spatialises the PA, keeps the analyser pre-spatial and
     assert.ok(started.has(extra.gaterLfo));
     assert.ok(!downstream(club.djFxInput).has(club.audioAnalyser));
     club.resetDJEffects();
-    for (const name of ['phaser', 'sweep', 'gater', 'distortion', 'crusher']) {
+    for (const name of ['phaser', 'sweep', 'gater']) {
         assert.equal(club._djEffects[name], 0);
     }
     assert.equal(extra.phaserWet.gain.value, 0);
@@ -2104,24 +2105,14 @@ test('the Web Audio graph spatialises the PA, keeps the analyser pre-spatial and
     club.vjBPM = 120;
     club._syncGaterRate();
     assert.equal(extra.gaterLfo.frequency.value, 4, 'the gater chops in eighth notes of the track tempo: 120 BPM is 4 Hz');
-    club.setDJEffect('crusher', 1);
-    assert.equal(extra.crusherBits, 3);
-    const steps = new Set(extra.crusherShaper.curve);
-    assert.ok(steps.size <= 2 ** 3 + 1, 'three bits leave at most nine output levels');
-    assert.equal(extra.crusherWet.gain.value, 0.85);
-    club.setDJEffect('crusher', 0.3);
-    assert.equal(extra.crusherBits, 9);
-    assert.ok(new Set(extra.crusherShaper.curve).size > steps.size, 'fewer steps as the knob goes up, more as it comes back');
     club.setDJEffect('sweep', 1);
     assert.equal(extra.sweepFilter.frequency.value, 10000);
     assert.ok(extra.sweepWet.gain.value > 0.4);
-    club.setDJEffect('distortion', 1);
-    assert.equal(extra.distortionDrive.gain.value, 31);
     club.setDJEffect('phaser', 1);
     assert.ok(extra.phaserWet.gain.value > 0.8);
     club.resetDJEffects();
     assert.equal(JSON.stringify(club._djEffects), JSON.stringify({
-        lowpass: 0, highpass: 0, echo: 0, flanger: 0, reverb: 0, phaser: 0, sweep: 0, gater: 0, distortion: 0, crusher: 0, channel: 1
+        lowpass: 0, highpass: 0, echo: 0, flanger: 0, reverb: 0, phaser: 0, sweep: 0, gater: 0, channel: 1
     }));
     assert.equal(club.djFxChannel.gain.value, 1);
 
@@ -9730,7 +9721,7 @@ test('the VJ desk: every button fits its panel, nothing overlaps, and every ligh
             const r = b.rect;
             const minimumY = b.kind === 'playerPage' ? 0 : 130;
             assert.ok(r.x >= 0 && r.y >= minimumY && r.x + r.w <= width && r.y + r.h <= height, `${b.id} is off the panel or under the header`);
-            const minimumWidth = b.kind === 'playerPage' ? 150 : b.kind === 'effect' ? 180 : b.kind === 'crossfader' ? 280
+            const minimumWidth = b.kind === 'playerPage' ? 150 : b.kind === 'effect' ? 100 : b.kind === 'crossfader' ? 280
                 : b.kind === 'effectClear' ? 220 : panel === 'transport' ? 220 : b.kind === 'section' ? 270 : 300;
             const minimumHeight = b.kind === 'crossfader' || b.kind === 'effectClear' ? 48 : 70;
             assert.ok(r.h >= minimumHeight && r.w >= minimumWidth, `${b.id} is too small to hit with a controller ray`);
@@ -9765,10 +9756,10 @@ test('the VJ desk: every button fits its panel, nothing overlaps, and every ligh
     assert.ok(labels.includes('PROJECT GOBO') && labels.includes('GOBO IMAGE'), 'the desk does not explain what the gobo controls do');
     assert.ok(labels.includes('MIRROR BEAMS'), 'the physical desk cannot switch from mirror rays to surface spots only');
     assert.ok(labels.every(label => !/GOBO SHAPE|SPOT PATTERN/.test(label)), 'the desk still has an ambiguous shape/pattern label');
-    const onPage = page => VJDeskLayout.buttons.transport.filter(button => [].concat(button.page || []).includes(page)).map(button => button.label);
+    const onPage = page => VJDeskLayout.buttons.transport.filter(button => button.page === page).map(button => button.label);
     assert.deepEqual([...onPage('player')], ['PREVIOUS', 'PLAY / PAUSE', 'STOP', 'NEXT', 'SET POSITION']);
-    assert.deepEqual([...onPage('fx')], ['LOW PASS', 'HIGH PASS', 'ECHO', 'FLANGER', 'REVERB', 'XFADE', 'CLEAR FX']);
-    assert.deepEqual([...onPage('fx2')], ['PHASER', 'NOISE SWEEP', 'GATER', 'DISTORTION', 'BIT CRUSHER', 'XFADE', 'CLEAR FX']);
+    assert.deepEqual([...onPage('fx')], ['LOW PASS', 'HIGH PASS', 'ECHO', 'FLANGER', 'REVERB', 'PHASER', 'NOISE SWEEP', 'GATER', 'XFADE', 'CLEAR FX']);
+    assert.ok(!VJDeskLayout.buttons.transport.some(button => /DISTORTION|CRUSHER/.test(button.label)), 'distortion and the bit crusher are gone');
     assert.ok(VJDeskLayout.config.transport.width <= 1 && VJDeskLayout.config.transport.depth <= 0.3,
         'the compact player can overlap the mixer or side panels');
     // The desktop panel keeps its own allow-list literal (a test reads it): it must be the same set.
@@ -10214,17 +10205,78 @@ test('A / X or a right-click puts a knob back to off and the crossfader to full,
         && source.indexOf('resetVJDeskFromController(motionController)') < source.indexOf('this._startVRJump(xrCamera)'), 'A / X must try the desk reset before jumping');
 });
 
+test('while a controller holds a knob or the crossfader the hand is drawn ON it, easing on and off', () => {
+    class Vec {
+        constructor(x = 0, y = 0, z = 0) { this.x = x; this.y = y; this.z = z; }
+        static TransformCoordinatesFromFloatsToRef(x, y, z, m, ref) {
+            ref.x = x * m[0] + y * m[4] + z * m[8] + m[12];
+            ref.y = x * m[1] + y * m[5] + z * m[9] + m[13];
+            ref.z = x * m[2] + y * m[6] + z * m[10] + m[14];
+            return ref;
+        }
+    }
+    const B = { Vector3: Vec, Axis: { Y: 'y', Z: 'z' } };
+    const { VJDesk, VJDeskLayout } = loadClassic('js/vjDesk.js', { BABYLON: B, VRClubUI: class {} }).window;
+    const origin = [1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0.5, 2, -19, 1];
+    const panel = { width: 1, depth: 0.27, canvas: { width: 1024, height: 300 }, mesh: { getWorldMatrix: () => origin } };
+    const club = Object.assign({}, VJDesk, { _djEffectsState: () => ({ channel: 0.5 }), _vjDeskDrag: null });
+    const controller = handedness => ({ inputSource: { handedness } });
+    const echo = VJDeskLayout.buttons.transport.find(b => b.id === 'echo');
+    const fader = VJDeskLayout.buttons.transport.find(b => b.id === 'crossfader');
+    const frames = n => { for (let i = 0; i < n; i++) club._updateVJDeskHands(1 / 60); };
+
+    // A knob held by the right controller: that hand goes onto the cap, the other stays free.
+    club._vjDeskDrag = { panel, button: echo, knob: true, controller: controller('right') };
+    frames(40);
+    const hold = club._vjDeskHandHold;
+    const k = VJDeskLayout.knob(echo.rect);
+    assert.ok(hold.right.amount > 0.99 && hold.left.amount === 0);
+    assert.ok(Math.abs(hold.right.x - (0.5 + (k.x / 1024 - 0.5))) < 1e-9 && Math.abs(hold.right.y - (2 + (0.5 - k.y / 300) * 0.27)) < 1e-9);
+    assert.ok(Math.abs(hold.right.z - (-19 - (VJDeskLayout.knob3D.collarH + VJDeskLayout.knob3D.capH))) < 1e-9, 'the spot is the top of the cap');
+
+    // It eases on rather than jumping, and off again when the trigger is let go.
+    club._vjDeskHandHold.right.amount = 0;
+    club._updateVJDeskHands(1 / 60);
+    assert.ok(hold.right.amount > 0 && hold.right.amount < 0.5, 'the hand jumped onto the knob');
+    club._vjDeskDrag = null;
+    frames(90);
+    assert.equal(hold.right.amount, 0, 'the hand stayed on a knob nobody holds');
+
+    // The crossfader's cap is where its level says, and the controller that locked it holds it.
+    club._vjDeskDrag = { panel, button: fader, ray: { controller: controller('left') } };
+    frames(40);
+    const track = VJDeskLayout.crossfaderTrack(fader.rect);
+    assert.ok(hold.left.amount > 0.99 && hold.right.amount === 0);
+    assert.ok(Math.abs(hold.left.x - (0.5 + ((track.left + 0.5 * (track.right - track.left)) / 1024 - 0.5))) < 1e-9, 'the hand is not on the cap');
+
+    // A mouse holds nothing the hand could rest on.
+    club._vjDeskDrag = { panel, button: echo, knob: true, controller: null };
+    frames(90);
+    assert.equal(hold.left.amount + hold.right.amount, 0);
+
+    // The body, the mirror and other guests all read the hand through _handPose.
+    const { window: crowd } = loadClassic('js/club/11-audio-crowd.js', { BABYLON: B, VRClubUI: class {} });
+    const aim = { getDirectionToRef(axis, ref) { if (axis === 'z') { ref.x = 0; ref.y = 0; ref.z = 1; } else { ref.x = 0; ref.y = 1; ref.z = 0; } } };
+    const fake = {
+        _xrControllers: [{ inputSource: { handedness: 'right' }, grip: { getAbsolutePosition: () => ({ x: 0.2, y: 1.3, z: -19.2 }) }, pointer: aim }],
+        _vjDeskHandHold: { left: { amount: 0, x: 0, y: 0, z: 0 }, right: { amount: 0, x: 0.5, y: 1.5, z: -18.9 } }
+    };
+    const head = { x: 0, y: 1.7, z: -19.5 };
+    let hand = crowd.VRClubAudioCrowd.prototype._handPose.call(fake, 'right', head);
+    assert.deepEqual([hand.x, hand.y, hand.z].map(v => +v.toFixed(3)), [0.2, 1.3, -19.2], 'a free hand stays on its controller');
+    fake._vjDeskHandHold.right.amount = 1;
+    hand = crowd.VRClubAudioCrowd.prototype._handPose.call(fake, 'right', head);
+    assert.deepEqual([hand.x, hand.y, hand.z].map(v => +v.toFixed(3)), [0.5, 1.5, -18.97], 'the hand is drawn on the knob, its palm 7 cm short of the cap');
+});
+
 test('the real 3D knobs follow their values (the sweep is 7:30 to 4:30), ease back after a reset, and only show on the FX page', () => {
     const { club, button, VJDeskLayout } = deskHarness();
     const node = () => ({ enabled: null, setEnabled(v) { this.enabled = v; } });
-    const knob = (id, page = 'fx') => ({ id, effect: id, page, cap: { rotation: { y: 0 } }, shown: null });
-    const echo = knob('echo'), gater = knob('gater', 'fx2');
+    const knob = id => ({ id, effect: id, cap: { rotation: { y: 0 } }, shown: null });
+    const echo = knob('echo');
     const fader = { cap: { position: { x: 0 } }, left: -0.1, right: 0.1, shown: null };
-    const a = node(), b = node(), c = node(), d = node();
-    const desk = {
-        controls: { knobs: [echo, gater], nodes: [a], pageNodes: { fx: [b], fx2: [c] }, every: [a, b, c, d], visible: null, page: null, fader },
-        playerVisible: true, dirty: false
-    };
+    const a = node(), b = node();
+    const desk = { controls: { knobs: [echo], nodes: [a, b], visible: null, fader }, playerVisible: true, dirty: false };
     club._vjDesk = desk;
     club._vjDeskDrag = null;
     club._vjDeskPlayerPage = 'player';
@@ -10233,16 +10285,7 @@ test('the real 3D knobs follow their values (the sweep is 7:30 to 4:30), ease ba
     assert.equal(a.enabled, false, 'the controls stay hidden on the player page');
     club._vjDeskPlayerPage = 'fx';
     club._syncVJDeskControls(1 / 60);
-    assert.deepEqual([a.enabled, b.enabled, c.enabled], [true, true, false], 'page one shows its own knobs and the shared fader');
-    club._djEffects.gater = 1;
-    club._syncVJDeskControls(1 / 60);
-    assert.equal(gater.cap.rotation.y, 0, 'a knob on the page that is not showing is left alone');
-    club._vjDeskPlayerPage = 'fx2';
-    club._syncVJDeskControls(1 / 60);
-    assert.deepEqual([a.enabled, b.enabled, c.enabled], [true, false, true], 'page two swaps the knobs, keeping the fader');
-    assert.ok(Math.abs(gater.cap.rotation.y - 0.75 * Math.PI) < 1e-9, 'a second-page knob follows its value');
-    club._vjDeskPlayerPage = 'fx';
-    club._syncVJDeskControls(1 / 60);
+    assert.deepEqual([a.enabled, b.enabled], [true, true]);
     assert.ok(Math.abs(echo.cap.rotation.y - 0.75 * Math.PI) < 1e-9, 'full is 4:30: 135 degrees clockwise of 12 o\'clock');
     assert.ok(Math.abs(fader.cap.position.x) < 1e-9, 'half-way is the middle of the throw');
     club._djEffects.channel = 1;
@@ -10263,7 +10306,7 @@ test('the real 3D knobs follow their values (the sweep is 7:30 to 4:30), ease ba
     club._vjDeskDrag = null;
     club._vjDeskPlayerPage = 'player';
     club._syncVJDeskControls(1 / 60);
-    assert.deepEqual([a.enabled, b.enabled, c.enabled], [false, false, false]);
+    assert.deepEqual([a.enabled, b.enabled], [false, false]);
     assert.ok(VJDeskLayout.knob3D.capR * 2 > 0.04 && VJDeskLayout.knob3D.capR * 2 < 0.07, 'a mixer knob is a few centimetres across');
 });
 
@@ -10282,27 +10325,21 @@ test('the VJ desk set player switches to compact effects and resets to PLAYER wh
     assert.equal(club._vjDesk.playerVisible, true, 'sending the DJ home reveals the player');
     press('playerPage');
     assert.equal(club._vjDeskPlayerPage, 'fx');
-    assert.equal(club._vjDeskButtonState(button('playerPage')).value, 'MORE EFFECTS');
+    assert.equal(club._vjDeskButtonState(button('playerPage')).value, 'SHOW PLAYER');
     assert.match(club._vjDeskPlayerStatus().title, /DJ EFFECTS/);
     const knob = VJDeskLayout.knob(button('echo').rect);
     assert.equal(club._vjDeskGrabKnob(button('echo'), { panel: {}, x: knob.x, y: knob.y - 40 }), true);
     club._vjDeskTurnKnob(club._vjDeskDrag, { panel: {}, x: knob.x + 40, y: knob.y });
     assert.match(calls.at(-1), /^effect echo /);
     club._vjDeskDrag = null;
-    press('playerPage');
-    assert.equal(club._vjDeskPlayerPage, 'fx2', 'the page button steps on to the second page of knobs');
-    assert.equal(club._vjDeskButtonState(button('playerPage')).value, 'SHOW PLAYER');
-    assert.equal(club._vjDeskButtonOnPage(button('gater')), true);
-    assert.equal(club._vjDeskButtonOnPage(button('echo')), false, 'page one knobs are not live on page two');
-    assert.equal(club._vjDeskButtonOnPage(button('crossfader')), true, 'the crossfader is on both knob pages');
-    assert.equal(club._vjDeskButtonOnPage(button('clearFx')), true);
+    // The phaser, noise sweep and gater knobs stand on the same page and count as touched for CLEAR FX.
     const gater = VJDeskLayout.knob(button('gater').rect);
     assert.equal(club._vjDeskGrabKnob(button('gater'), { panel: {}, x: gater.x, y: gater.y - 40 }), true);
     club._vjDeskTurnKnob(club._vjDeskDrag, { panel: {}, x: gater.x + 40, y: gater.y });
     assert.match(calls.at(-1), /^effect gater /);
     club._vjDeskDrag = null;
-    club._djEffects.crusher = 0.4;
-    assert.match(club._vjDeskButtonState(button('clearFx')).value, /ALL KNOBS OFF/, 'a second-page knob counts as touched');
+    club._djEffects.sweep = 0.4;
+    assert.match(club._vjDeskButtonState(button('clearFx')).value, /ALL KNOBS OFF/);
     press('playerPage');
     assert.equal(club._vjDeskPlayerPage, 'player');
     press('playerPage');
