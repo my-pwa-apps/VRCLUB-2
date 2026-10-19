@@ -63,11 +63,45 @@ function loadClassic(relativePath, globals = {}) {
         performance: { now: () => 0 },
         ...globals
     });
+
     window.window = window;
     window.location = { href: 'https://vrclub.example/', protocol: 'https:' };
     vm.runInContext(readFileSync(join(ROOT, relativePath), 'utf8'), context, { filename: relativePath });
     return { window, context };
 }
+
+test('automatic countdowns require a sustained four-bar energy rise; manual DROP remains available', () => {
+        const { window } = loadClassic('js/showDirector.js');
+        const makeAtAscentEnd = (energyBars) => {
+            const director = new window.ShowDirector({
+                vjManualMode: false,
+                photosensitiveSafeMode: false,
+                vjDirector: { paletteMode: 'analogous' }
+            });
+            director._movementName = 'ascent';
+            director._movement = director.movements.ascent;
+            director._cueIndex = director._movement.cues.length - 1;
+            director._barsSinceMovement = 100;
+            for (const energy of energyBars) {
+                director._energy = energy;
+                director._recordBarEnergy();
+            }
+            director._energy = 0.4;
+            return director;
+        };
+
+        const rising = makeAtAscentEnd([0.20, 0.24, 0.29, 0.34, 0.39]);
+        rising._advanceCue();
+        assert.equal(rising._setPiece, rising.setPieces.countdown,
+            'a sustained energy build should earn the automatic countdown');
+
+        const flat = makeAtAscentEnd([0.38, 0.38, 0.39, 0.38, 0.39]);
+        flat._advanceCue();
+        assert.equal(flat._setPiece, null, 'a high but flat energy level should not trigger a countdown');
+        assert.equal(flat._movementName, 'ignition', 'the energy-selected movement should still begin');
+        flat.triggerShowDrop();
+        assert.equal(flat._setPiece, flat.setPieces.countdown, 'the VJ must retain the manual countdown macro');
+});
 
 // ---------------------------------------------------------------------------
 // Security boundary
@@ -2651,6 +2685,8 @@ test('the LED wall is lit for most of the show, and only the deliberate solos go
             `${name}: the wall is lit for only ${(100 * movementOn / movementTotal).toFixed(0)}% of the movement`);
     }
     assert.ok(on / total >= 0.6, `the wall is lit for only ${(100 * on / total).toFixed(0)}% of the show (was 24%)`);
+    assert.equal(movements.pulse.cues.find(cue => cue.look === 'theWave').bars, 38,
+        'the Underground Sequence must have its full 38-bar solo');
 });
 
 test('the LED wall is one mesh whose texels take each panel colour by row and column', () => {
@@ -3280,6 +3316,30 @@ function readGlbJson(relativePath) {
     const buffer = readFileSync(join(ROOT, relativePath));
     const length = buffer.readUInt32LE(12);
     return JSON.parse(buffer.subarray(20, 20 + length).toString('utf8'));
+}
+
+function readGlbVertexColorBytes(relativePath) {
+    const buffer = readFileSync(join(ROOT, relativePath));
+    const jsonLength = buffer.readUInt32LE(12);
+    const json = JSON.parse(buffer.subarray(20, 20 + jsonLength).toString('utf8'));
+    const binaryChunk = 20 + jsonLength;
+    const binary = buffer.subarray(binaryChunk + 8, binaryChunk + 8 + buffer.readUInt32LE(binaryChunk));
+    const colors = [];
+    for (const primitive of json.meshes.flatMap(mesh => mesh.primitives)) {
+        const accessorIndex = primitive.attributes.COLOR_0;
+        if (accessorIndex === undefined) continue;
+        const accessor = json.accessors[accessorIndex];
+        const view = json.bufferViews[accessor.bufferView];
+        assert.equal(accessor.componentType, 5121);
+        assert.equal(accessor.type, 'VEC3');
+        const stride = view.byteStride || 3;
+        const start = (view.byteOffset || 0) + (accessor.byteOffset || 0);
+        for (let index = 0; index < accessor.count; index++) {
+            const offset = start + index * stride;
+            colors.push(binary[offset], binary[offset + 1], binary[offset + 2]);
+        }
+    }
+    return colors;
 }
 
 test('every guest slot asks for a clip its character file carries, inside the room and apart from the others', () => {
@@ -4050,7 +4110,8 @@ test('underground sequence tells all six scenes on bar lines and never flickers'
     assert.ok(worstRate <= 3, `a panel crossed half brightness ${worstRate}x in one second (flash limit is 3)`);
     assert.ok(maxMeanStep < 0.06, `whole-wall brightness jumped ${maxMeanStep.toFixed(3)} in one frame`);
 
-    // The film restarts on DESCENT, so a look that gets the wall always sees its opening.
+    // Start a fresh instance to probe each storyboard scene from DESCENT.
+    club._ug = null;
     club.vjDirector.beatNumber = 400; club.barPhase = 0;
     club.patternUndergroundSequence(colour, 900, audio);
     assert.equal(club._ug.b0, 400, 'a new appearance must begin at the current bar line');
@@ -4069,10 +4130,11 @@ test('underground sequence tells all six scenes on bar lines and never flickers'
     }
     assert.equal(seen.size, 6, 'each scene must look different');
 
-    // A slow frame (or a headset hitch) must not restart the film; a wall that was
-    // handed to another pattern for a while must.
+    // A slow frame and a long interval under another wall pattern both preserve the
+    // film's bar origin, while clearing stale phosphor after the interruption.
     let frame = 1000;
     club.scene = { getFrameId: () => frame };
+    club._ug = null;
     club.vjDirector.beatNumber = 800; club.barPhase = 0;
     club.patternUndergroundSequence(colour, 2000, audio);
     const b0 = club._ug.b0;
@@ -4080,8 +4142,8 @@ test('underground sequence tells all six scenes on bar lines and never flickers'
     club.patternUndergroundSequence(colour, 2003.5, audio);          // 3.5 s later, next frame
     assert.equal(club._ug.b0, b0, 'a slow frame restarted the sequence');
     club.vjDirector.beatNumber = 840; frame += 40;
-    club.patternUndergroundSequence(colour, 2010, audio);            // 40 frames skipped
-    assert.equal(club._ug.b0, 840, 'a skipped stretch must restart the sequence at a bar line');
+    club.patternUndergroundSequence(colour, 2010, audio);            // wall pattern was away
+    assert.equal(club._ug.b0, b0, 'a wall interruption restarted the film instead of preserving its progress');
 });
 
 test('the breathing wall paints the show colour, so a harmony can reach it', () => {
@@ -5187,6 +5249,40 @@ test('strobes are a real part of the show, locked to the grid, and the countdown
     }
     director.setPieces.countdown.onBar(director, 3);
     assert.equal(club.strobesActive, false);
+
+    director._cue = { look: 'whiteChase', bars: 2 };
+    director._applyLook(director.looks.whiteChase);
+    assert.equal(club.ledWallActive, true, 'a strobe-only solo should become a slow aurora in Safe Mode');
+    assert.equal(club.ledPattern, 16);
+    assert.equal(club.ledWallSpeed, 0.35);
+    assert.equal(club.ledWallLevel, 0.45);
+    assert.equal(club.strobesActive, false);
+
+    club.photosensitiveSafeMode = false;
+    director.onPhotosensitiveModeChanged();
+    assert.equal(club.ledWallActive, false, 'leaving Safe Mode should restore the authored solo');
+    assert.equal(club.strobesActive, true, 'leaving Safe Mode should restore the authored strobe');
+
+    director._beginSetPiece('countdown', 'ignition');
+    director._setPieceBar = 2;
+    club.photosensitiveSafeMode = true;
+    director.onPhotosensitiveModeChanged();
+    assert.equal(club.strobesActive, false, 'Safe Mode must immediately silence an active countdown');
+    assert.equal(club.ledWallSpeed, 2.2, 'recomposing the countdown must retain its current bar');
+    club.photosensitiveSafeMode = false;
+    director.onPhotosensitiveModeChanged();
+    assert.equal(club.strobesActive, true);
+    assert.equal(club.strobeSync, 'roll', 'leaving Safe Mode must restore the current countdown rung');
+
+    for (const ownership of ['manual', 'disabled']) {
+        club.vjManualMode = ownership === 'manual';
+        director.enabled = ownership !== 'disabled';
+        club.ledPattern = 7;
+        club.strobesActive = false;
+        director.onPhotosensitiveModeChanged();
+        assert.equal(club.ledPattern, 7, `${ownership}: Safe Mode must not hand the rig to the show`);
+        assert.equal(club.strobesActive, false, `${ownership}: the inactive countdown must not resume`);
+    }
 });
 
 test('VR comfort swaps mutually exclusive movement and teleportation features without changing show ownership', () => {
@@ -11298,6 +11394,11 @@ test('the bouncer stands beside the street door and the queue waits behind the r
     const balancedInside = ids(Crowd.prototype._guestSlots.call({}).slice(0, 2));
     for (const id of ['f1', 'm2', 'vm1', 'm1', 'f3', 'f2']) balancedInside.push(id);
     assert.deepEqual([...balancedQueue.filter(id => balancedInside.includes(id))], [], 'a balanced queue shows someone who is also inside');
+    for (const id of ['vf6', 'vm3', 'vm4', 'vm7', 'vm6']) {
+        const colors = readGlbVertexColorBytes(`js/models/avatars/club-crowd-${id}.glb`);
+        assert.ok(colors.length > 0, `${id} must retain vertex colours`);
+        assert.ok(Math.max(...colors) <= 180, `${id} has an overly bright clothing, hair or skin color`);
+    }
 });
 
 test('every person in the club is a different person: no source file appears in two slots', () => {

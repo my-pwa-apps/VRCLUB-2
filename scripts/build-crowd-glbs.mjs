@@ -1237,16 +1237,16 @@ const VARIANTS = [
     { id: 'vm2', from: 'm9', skin: 'pale', hair: '#b5532a', clothes: ['#1f7a78', '#222a44'] },
     // The queue outside (replace the five who used to repeat dancers inside).
     { id: 'vf2', from: 'f1', skin: 'golden', hair: '#e6dcc0', clothes: ['#d8a23a', '#1d1d22'] },
-    { id: 'vm3', from: 'm3', skin: 'espresso', hair: '#15110f', clothes: ['#d9dbe3', '#2a3342'] },
+    { id: 'vm3', from: 'm3', skin: 'espresso', hair: '#15110f', clothes: ['#28614b', '#2a3342'] },
     { id: 'vf3', from: 'f3', skin: 'pale', hair: '#d8458f', clothes: ['#4a1c5a'] },
-    { id: 'vm4', from: 'm7', skin: 'tan', hair: '#2a1b10', clothes: ['#e8e8ee', '#1c3a5c'] },
-    { id: 'vm7', from: 'm5', skin: 'brown', hair: '#2fb36a', clothes: ['#e8e8ee', '#5a1c1c', '#23262e'] },
+    { id: 'vm4', from: 'm7', skin: 'tan', hair: '#2a1b10', clothes: ['#59354f', '#1c3a5c'] },
+    { id: 'vm7', from: 'm5', skin: 'brown', hair: '#2fb36a', clothes: ['#167b82', '#5a1c1c', '#23262e'] },
     // Guest-clip people (talk, fold arms, phone): the second side guests and the people who chat at the door.
     { id: 'vf5', from: 'f8', skin: 'light', hair: '#7a3a1d', clothes: ['#c24a5a', '#26303f'] },
-    { id: 'vf6', from: 'f7', skin: 'tan', hair: '#2a1b10', clothes: ['#e2e2ea', '#2f3a6a'] },
+    { id: 'vf6', from: 'f7', skin: 'tan', hair: '#2a1b10', clothes: ['#a83e62', '#2f3a6a'] },
     { id: 'vf7', from: 'f8', skin: 'deep', hair: '#15110f', clothes: ['#3aa88c', '#1d1d22'] },
     { id: 'vm5', from: 'm4', skin: 'medium', hair: '#4a2f1a', clothes: ['#2d4f7a', '#222226'] },
-    { id: 'vm6', from: 'm8', skin: 'umber', hair: '#d9d9e0', clothes: ['#d8663a', '#e8dcc0'] }
+    { id: 'vm6', from: 'm8', skin: 'umber', hair: '#7a3a1d', clothes: ['#5c3d3a', '#d8663a'], minClothingVertices: 100 }
 ];
 const VARIANT_SKIN = { pale: '#f3dccb', olive: '#c9a07a', golden: '#d2a26b', umber: '#7d4e34' };
 
@@ -1303,7 +1303,7 @@ async function buildVariant(variant) {
         else if (near(g.rgb, EYES, 0.002)) continue;
         else if (g.yMax >= 0.95 && g.n >= 250) mapping.set(k, newHair);
         else if (g.yMin >= 0.78 && mean >= 0.83 && g.n >= 40) mapping.set(k, newHair.map(v => v * 0.7));
-        else if (g.n >= 270 && mean >= 0.12) clothing.push([k, g, mean]);
+        else if (g.n >= (variant.minClothingVertices || 270) && mean >= 0.12) clothing.push([k, g, mean]);
     }
     clothing.sort((a, b) => b[2] - a[2]);
     clothing.forEach(([k], index) => { if (variant.clothes[index]) mapping.set(k, hexToLinear(variant.clothes[index])); });

@@ -1144,6 +1144,9 @@ class VRClubAudioCrowd extends VRClubUI {
             });
             if (this.strobeFlashLight) this.strobeFlashLight.intensity = 0;
         }
+        if (this.showDirector && typeof this.showDirector.onPhotosensitiveModeChanged === 'function') {
+            this.showDirector.onPhotosensitiveModeChanged();
+        }
         log.info(`♿ Photosensitive Safe Mode: ${this.photosensitiveSafeMode ? 'ON (strobes disabled)' : 'OFF'}`);
         return this.photosensitiveSafeMode;
     }

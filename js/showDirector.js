@@ -69,6 +69,8 @@ class ShowDirector {
     // Musical grid constants.
     static BEATS_PER_BAR = 4;
     static BARS_PER_PHRASE = 4;   // 16 beats
+    static BUILD_TREND_BARS = 4;
+    static BUILD_TREND_MIN_RISE = 0.035;
 
     /** Look keys that describe the cue itself and must never be written onto the club. */
     static META_KEYS = new Set(['intensity', 'palette', 'punch', 'colorLock', 'hue', 'ledHarmony', 'ledLevel']);
@@ -120,6 +122,9 @@ class ShowDirector {
         //     change look mid-phrase; that is what made the old system twitchy).
         this._energy = 0;
         this._barsSinceMovement = 0;
+        this._energyHistory = new Float32Array(ShowDirector.BUILD_TREND_BARS + 1);
+        this._energyHistoryCount = 0;
+        this._energyHistoryIndex = 0;
 
         // --- Continuous modulation
         this._blackoutBeats = 0;       // Counts down in beats
@@ -289,6 +294,7 @@ class ShowDirector {
 
         // A follower never decides: it keeps the grid for the ramps and waits for the host's next frame.
         if (this.follower) return;
+        this._recordBarEnergy();
 
         // A look the guest picked and asked to keep stays exactly as it is: no cue advances and no breakdown is read.
         // Under 'resume' the hold ends by itself after the chosen time, and the show carries on from here.
@@ -323,6 +329,20 @@ class ShowDirector {
         }
     }
 
+    _recordBarEnergy() {
+        this._energyHistory[this._energyHistoryIndex] = this._energy;
+        this._energyHistoryIndex = (this._energyHistoryIndex + 1) % this._energyHistory.length;
+        this._energyHistoryCount = Math.min(this._energyHistoryCount + 1, this._energyHistory.length);
+    }
+
+    _hasBuildMomentum() {
+        if (this._energyHistoryCount < this._energyHistory.length) return false;
+        const history = this._energyHistory;
+        const current = history[(this._energyHistoryIndex - 1 + history.length) % history.length];
+        const baseline = history[this._energyHistoryIndex];
+        return current - baseline >= ShowDirector.BUILD_TREND_MIN_RISE;
+    }
+
     _advanceCue() {
         const atMovementEnd = this._cueIndex + 1 >= this._movement.cues.length;
 
@@ -333,7 +353,7 @@ class ShowDirector {
                 // where a designer earns their fee. Escalating into the drop gets
                 // the countdown; collapsing out of it gets the cut to black.
                 const bridge = this._bridgeFor(this._movementName, next);
-                if (bridge) {
+                if (bridge && (bridge !== 'countdown' || this._hasBuildMomentum())) {
                     this._beginSetPiece(bridge, next);
                     return;
                 }
@@ -453,6 +473,17 @@ class ShowDirector {
             club[key] = value;
         }
 
+        if (safe && look.strobesActive === true &&
+            !look.lightsActive && !look.lasersActive && !look.laserSheetActive &&
+            !look.mirrorBallActive && !look.ledWallActive) {
+            club.ledWallActive = true;
+            club.ledMonochrome = false;
+            club.ledMulti = false;
+            club.ledPattern = 16;
+            club.ledWallSpeed = 0.35;
+            club.ledWallLevel = 0.45;
+        }
+
         if (club.laserSheetActive && typeof club.configureLaserSheetVariant === 'function') {
             club.configureLaserSheetVariant();
         }
@@ -469,6 +500,16 @@ class ShowDirector {
             // is reset here: a look that omits ledHarmony matches the beams, it does not
             // inherit the previous cue's contrast.
             if (typeof vj.setLedHarmony === 'function') vj.setLedHarmony(look.ledHarmony || 'match');
+        }
+    }
+
+    /** Recompose the current cue immediately when Safe Mode changes. */
+    onPhotosensitiveModeChanged() {
+        if (!this.isDriving()) return;
+        const look = this._cue && this.looks[this._cue.look];
+        if (look) this._applyLook(look);
+        if (this._setPiece && this._setPiece.onBar) {
+            this._setPiece.onBar(this, this._setPieceBar);
         }
     }
 
@@ -904,9 +945,8 @@ class ShowDirector {
             // II. PULSE — the groove. Sustained, hypnotic, never peaking.
             // ---------------------------------------------------------------
 
-            // The wall gets a solo with every aerial fixture dark: the Underground
-            // Sequence (pattern 18), a 38-bar basement film that opens on DESCENT.
-            // This makes the wall's later return behind beams read as a deliberate layer.
+            // Give the complete 38-bar Underground Sequence one uninterrupted wall
+            // solo. The pattern keeps its bar origin when another cue later takes over.
             theWave: {
                 intensity: 0.82, punch: 0.22, palette: 'analogous',
                 lightsActive: false, lasersActive: false, strobesActive: false,
@@ -1280,7 +1320,7 @@ class ShowDirector {
                 title: 'II · PULSE',
                 minBars: 24,
                 cues: [
-                    { look: 'theWave',   bars: 8 },
+                    { look: 'theWave',   bars: 38 },
                     { look: 'sideways',  bars: 16 },
                     { look: 'deepBlue',  bars: 8 },
                     { look: 'crossfire', bars: 4 },

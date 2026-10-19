@@ -1047,7 +1047,7 @@ class LEDPatternMethods {
                 traceLo: new Float32Array(cols),
                 traceHi: new Float32Array(cols),
                 mod: new Float32Array(modCols * modRows),
-                traceAcc: 0, sub: 0.2, lastT: -1e9, lastFrame: -1e9, b0: 0,
+                traceAcc: 0, sub: 0.2, lastT: -1e9, lastFrame: -1e9, b0: null,
                 scratch: new BABYLON.Color3(),
                 accent: new BABYLON.Color3(),
                 amber: new BABYLON.Color3(1, 0.52, 0.1)
@@ -1062,13 +1062,16 @@ class LEDPatternMethods {
             ? vj.beatNumber + (this.barPhase || 0) * 4 - Math.floor((this.barPhase || 0) * 4)
             : time / beatLen;
         const dtRaw = time - ug.lastT;
-        // "Another pattern had the wall" is detected from the frame counter skipping,
-        // not from elapsed time: a slow frame or a headset hitch must not restart the film.
+        // A slow frame or an interrupted wall pattern must not restart the film.
         const frameId = (this.scene && typeof this.scene.getFrameId === 'function') ? this.scene.getFrameId() : null;
         const wasAway = frameId !== null ? (frameId - ug.lastFrame > 3) : dtRaw > 0.5;
-        if (wasAway || beats < ug.b0) {
-            // First frame, or another pattern held the wall: start again at a bar line.
+        if (!Number.isFinite(ug.b0) || beats < ug.b0) {
+            // First frame or a reset beat clock: start at a bar line.
             ug.b0 = Math.floor(beats / 4) * 4;
+            ug.level.fill(0); ug.warm.fill(0); ug.trace.fill(0);
+            ug.traceAcc = 0;
+        } else if (wasAway) {
+            // The film clock keeps running while hidden, but stale phosphor does not.
             ug.level.fill(0); ug.warm.fill(0); ug.trace.fill(0);
             ug.traceAcc = 0;
         }
