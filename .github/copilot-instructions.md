@@ -26,12 +26,13 @@ emits one minified, content-hashed production bundle with esbuild.
 6. loaders/factories (`textureLoader`, `modelLoader`, `materialFactory`, `lightFactory`)
 7. `js/vjDirector.js`, then `js/showDirector.js`
 8. `js/ledPatterns.js`, then `js/barProps.js` (bottle geometry and label atlas; no club dependency), then `js/restroomArt.js` (the restroom's painted poster atlas and placement plan; needs `js/nocturneLogo.js` only at paint time), then `js/venueDressing.js` (entrance stair hall, bar, lounge couch and restroom), `js/mezzanine.js` (steel balcony and stair, and the walking-surface follow) and `js/cityDistrict.js` (the street outside, at street level) and `js/vjDesk.js` (the VJ desk's show, lights and set-player touch panels at the DJ table), all mixed into `VRClub.prototype`
-9. `js/playerHeight.js` (pure player-height maths), `js/avatarRig.js` (the local player's procedural body), `js/djPerformer.js` (the DJ's live set, posed through the rig), `js/crowdDance.js` (the crowd's choreographer), `js/minglerClock.js` (the shared room-time round), then `js/networkClient.js`, `js/avatarManager.js` and `js/multiplayer.js` (`ClubMultiplayer`) — optional multiplayer (no instance until a guest connects)
+9. `js/playerHeight.js` (pure player-height maths), `js/avatarRig.js` (the local player's procedural body), `js/djPerformer.js` (the DJ's live set, posed through the rig), `js/crowdDance.js` (the crowd's choreographer), `js/minglerClock.js` (the shared room-time round), then `js/sfuClient.js`, `js/networkClient.js`, `js/avatarManager.js` and `js/multiplayer.js` (`ClubMultiplayer`) — optional multiplayer (no instance until a guest connects)
 10. `js/club/01-core.js` through `js/club/11-audio-crowd.js`, in numeric order
 11. `js/club_hyperrealistic.js` — final public `VRClub` bridge and LED mixin
 12. `js/paymentGate.js` — public `window.VRPayment`, verified access/device management and prepared VR leases
 13. `js/immersiveLaunch.js` — `window.ImmersiveLaunch`, the opt-in (`?immersive=1`) in-headset launch
-14. `js/ui-init.js` — instantiates `new VRClub()`
+14. `js/liveEventConcept.js` — branch-only ADE pitch dressing; opt-in `?liveEvent=demo`, or automatic in the dedicated ADE build; no video screen or live ingest
+15. `js/ui-init.js` — instantiates `new VRClub()`
 
 `npm test` enforces this ordering, plus "every referenced script exists" and "every class
 is exported onto `window`". Run it after touching `index.html` or adding a file.
@@ -40,6 +41,30 @@ Every source asset URL in `index.html` carries a shared `?v=` cache-busting toke
 suite fails if the tokens diverge. Production uses content-hashed app and CSS filenames.
 
 ## Commands
+
+### Live-event exploration branch
+
+`?liveEvent=demo` enables `LiveEventConcept` after `initPromise`. It adds the owner's
+supplied ADE26 anniversary mark on yellow wall signs, the DJ-table fascia and entrance
+signs/flags. The black XXX campaign artwork and video-screen feature were removed.
+It is NOT an ADE partnership, artist likeness, live motion
+capture or synchronised broadcast. Do not imply otherwise. It allocates nothing unless
+explicitly requested (or enabled by the dedicated ADE build). That static branding stays visible
+offline, while joining/in a room and in VR; a room join must never hide it. Ordinary club builds
+do not gain ADE dressing by joining a room. It is disposed by `VRClub.dispose()`.
+No camera, microphone or upload is requested by the concept.
+See `docs/ADE_LIVE_EVENT_FEASIBILITY.md` and `docs/ADE_PITCH.md` for the proposed real pilot,
+rights gates and remaining engineering. Keep the default splash and ordinary club unchanged.
+`npm run ade:assets` pins and resizes the supplied artwork; default builds exclude it.
+`npm run build:ade-pitch` / `VRCLUB_ADE_PITCH=1` includes the logo for opt-in review.
+`npm run build:ade-site` / `VRCLUB_ADE_SITE=1` also enables it at the root and removes
+SEO metadata/sitemap, with noindex/nofollow meta and HTTP headers. `scripts/ade-site.mjs`
+owns that build-only rewrite; default metadata is unchanged. `npm run deploy:ade`
+targets only Pages project `nocturne-ade`, production branch `explore/ade-live-dj`,
+custom host `nocturne-ade.mitwee.nl`. The relay's origins include that exact HTTPS host.
+Non-indexing is not access control. Do not add a video screen or black XXX posters back.
+No public-use licence is assumed; see `licenses/ade-brandpack-notice.txt`. Never
+deploy pitch artwork as an approved ADE collaboration.
 
 ```powershell
 npm start        # dependency-free local server on :8000
@@ -1909,6 +1934,47 @@ back to a font, or if the splash's `stroke-width` stops matching `NocturneLogo.S
 
 ## Multiplayer
 
+### Integrated safety and 32-person rollout
+
+This ADE branch integrates QuestProtect safety (`486d2ae`, `20d8c60`) and QuestDev
+scaling (`8de2fd1`), not their development free-access bypass, deployment routing
+or unrelated changes. `worker/wrangler.toml` targets `ROOM_CAPACITY=32` and
+`MEDIA_TRANSPORT=sfu` for **all** rooms on the shared relay. Unconfigured custom
+relays retain eight-person mesh defaults; a capacity above eight requires SFU.
+The shared production rollout completed on 19 October 2026: D1 migration 0009,
+the dedicated `nocturne-production` SFU app's Worker secrets, the three supported
+Pages frontends and the shared Worker are deployed. See `docs/SCALING.md` for
+versions, verification and rollback. Pages were deployed directly from this
+integrated worktree; production branch labels do not merge its source into
+`Quest` or `SideQuest`. Never republish an older non-SFU client against this relay.
+For a new environment, migrate D1 with `0009_room_capacity.sql`, configure
+`SFU_APP_ID` / `SFU_APP_SECRET` as Worker secrets, update every supported frontend,
+then deploy the Worker.
+Old non-SFU upgrade requests get HTTP 426 rather than joining a silent room.
+
+`SFUClient` owns at most four audio-only PeerConnections (voice/music publish and
+receive); `worker/src/sfu.js` authorizes media through admitted room sockets,
+enforces two-way blocks/audiences/host authority and persists cleanup allocations
+in existing DO KV storage with alarm retries. Never substitute a 32-person mesh
+or expose provider credentials/session locators to clients. SFU ordinary operations
+remain bounded and have deadlines; there is no mesh fallback on failure.
+
+`AvatarManager` uses the nearest detailed bodies within 15 m, with hysteresis,
+6/10/14 on Balanced/High/Ultra; others retain capsules, voice and membership.
+Street culling and personal space still suppress unseen pose work without
+changing shared positions. Batched poses are 20 Hz near and 2 Hz far, without
+distant hands. Stationary sends retain a heartbeat and seat/height changes.
+The 17-look pool can repeat after exhaustion in larger rooms. Do not promise
+unique appearances for 32 guests or measured 32-person headset frame time.
+
+QuestProtect adds the versioned `vrclub.onlineSafety` guide to DOM/VR online
+entry, Report & block, host-only session report notifications and reason
+allow-lists/rate limits. `ClubMultiplayer.canRestrictAudience()` permits selected
+chat/voice recipients only in private rooms; the relay rejects public targeted
+chat and public SFU selected-voice controls too. Personal mutes/blocks remain.
+These are not event-ticket checks, age verification, persistent reporting or
+an independent ADE moderation service. Reports go to the current host.
+
 **Room browser.** `worker/src/roomDirectory.js` exposes opt-in `GET /rooms` (50 public rooms
 per page) and `POST /rooms/status` (up to twelve explicitly supplied names), using D1
 migration `0006_room_directory.sql`. Every case-insensitive `private-` prefix is unlisted:
@@ -1947,7 +2013,9 @@ protocol only grew, so older clients keep working.
   room. It holds sessions, the host id, bans, the lock and the shared music state in memory only. The file
   header documents the JSON protocol. The relay treats every client as hostile. It
   allow-lists browser `Origin`s (`ALLOWED_ORIGINS` in `wrangler.toml`; loopback and
-  private-LAN origins always pass). It caps rooms at 8 (`MAX_ROOM_SIZE`: voice is a full mesh and `AvatarManager` draws 8 people), drops frames over 16 KB, applies
+  private-LAN origins always pass). Configured SFU rooms cap at 32; `MAX_ROOM_SIZE=8`
+  remains the unconfigured mesh baseline. Ordinary frames cap at 16 KB (SFU control
+  frames may reach 64 KB with bounded SDP), and it applies
   per-type token buckets and closes flooders. Close codes: `4003` room full, `4008` flooding, `4010` kicked,
   `4011` banned, `4012` room locked, `4013` no heartbeat (not terminal: the client retries). A client pings every
   10 s (`ClubMultiplayer.PING_MS`, a timer, so it runs in a hidden tab); once a client has pinged, 30 s of silence
@@ -1971,8 +2039,8 @@ protocol only grew, so older clients keep working.
   keeps the lock and the bans. **An empty room starts over** (`_onClose`): lock, bans, music and show are cleared when the
   last guest leaves, because with nobody left to unlock it a locked room refused everyone (its own host included,
   reconnecting after a drop) until the Durable Object happened to be evicted.
-- **Avatars.** The relay assigns each guest a random, room-unique character from `AVATARS` (the 17 Quaternius Modular
-  people `f1`–`f8`, `m1`–`m9`; a test ties the list to `AVATAR_SOURCES`) and a guest may reroll. A guest can restrict the draw to women (`f*`) or men (`m*`) (`vrclub.avatarPool`: `any`/`women`/`men`; `?avatars=` on connect, `pool` on a reroll; `AVATAR_POOLS` in the relay). If a pool is exhausted the relay gives any free person, never a double; choosing a pool in a room rerolls only a look outside it. Others see you as that
+- **Avatars.** The relay assigns each guest a random character, unique while the pool has free looks, from `AVATARS` (the 17 Quaternius Modular
+  people `f1`–`f8`, `m1`–`m9`; a test ties the list to `AVATAR_SOURCES`) and a guest may reroll. A guest can restrict the draw to women (`f*`) or men (`m*`) (`vrclub.avatarPool`: `any`/`women`/`men`; `?avatars=` on connect, `pool` on a reroll; `AVATAR_POOLS` in the relay). If a pool is exhausted the relay gives any free person; once all 17 are used, looks repeat. Choosing a pool in a room rerolls only a look outside it. Others see you as that
   character. **Your own body is that character too**: whenever a character is known (the relay's assignment in a room, the
   one you chose offline) the same instance that fills the mirror is your first-person body (see "The mirror"), so looking down
   shows the outfit and skin you see in the mirror. With no character the UE-mannequin `AvatarRig` is the body as before.
@@ -1995,7 +2063,8 @@ protocol only grew, so older clients keep working.
   connections and audio nodes. STUN-only connectivity, latency and Quest costs remain unmeasured.
 - `js/avatarManager.js` — remote guests as people built from `club._loadCrowdSource(index)` (the same containers the
   crowd uses; one draw each). A clip state machine plays Idle/Walk/Run from the interpolated speed, plus Wave, Yes
-  (nod) and a Dance_Loop toggle. `MAX_PEOPLE` (8) are people; the rest, and any guest still loading, are a capsule +
+  (nod) and a Dance_Loop toggle. Legacy rooms use `MAX_PEOPLE` (8); scaled rooms use
+  tier budgets (6/10/14). The rest, and any guest still loading, are a capsule +
   head (the capsule always remains as the invisible collision body). `state.y` on the wire is the sender's **eye**
   height and `state.eh` (optional, 1.1-2.1 m, clamped by the relay's `sanitizeState`) their standing eye height; the avatar
   root is placed `eh` below the eye (1.7 for older clients) and the person is scaled by `eh / 1.7`, so the default is exactly
@@ -2059,9 +2128,11 @@ protocol only grew, so older clients keep working.
   `ClubMultiplayer.sendChat()` / `chat` (the session's log, last 50, cleared per room) / `chatUnread` /
   `markChatRead()`. A received message shows in a speech bubble over the sender (`AvatarManager.showChat`, one plane per
   guest, `wrapText` to three lines, 5-12 s), which is how a headset user reads it.
-- **Outgoing audiences are independent.** `ClubMultiplayer.chatAudience` / `voiceAudience` are null (Everyone)
+- **Outgoing audiences are independent in private rooms.** Public rooms enforce Everyone.
+  `ClubMultiplayer.chatAudience` / `voiceAudience` are null (Everyone)
   or explicit session-ID arrays. `setAudience()` / `toggleAudiencePeer()` own both DOM and VR selectors.
-  Restricted selections stay restricted when emptied, on departure, reconnect and new rooms; they are never persisted.
+  Restricted selections stay restricted when emptied, on departure, reconnect and new private rooms; they are never persisted.
+  Joining a public room resets both to Everyone.
   The chat box and People/Talk contain the desktop selectors; VR CHAT/CHAT RECIPIENTS and ONLINE/MIC / WHO HEARS ME
   use the same setters. Quick phrases respect the chat audience. Relay `chat.targets` is validated and routed only
   to the selected visible peers (empty/malformed lists fail closed); `restricted` marks the log and bubble.

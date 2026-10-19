@@ -55,6 +55,7 @@ test('room world time is shared with late joiners and survives handover, but res
 
 test('selected chat is delivered only to distinct selected visible guests, with sender fixed by the relay', () => {
     const room = new ClubRoom({});
+    room._roomName = 'private-123456';
     const a = join(room, 'A'), b = join(room, 'B'), c = join(room, 'C'), d = join(room, 'D');
     const e = join(room, 'E');
     assert.equal(a.ws.last('welcome').targetedChat, true);
@@ -73,18 +74,49 @@ test('selected chat is delivered only to distinct selected visible guests, with 
     assert.equal(c.ws.last('chat').text, 'public', 'a departed target never becomes a broadcast');
 });
 
+test('public rooms reject selected-recipient chat while room-visible chat still works', () => {
+    const room = new ClubRoom({});
+    room._roomName = 'lobby';
+    const a = join(room, 'A'), b = join(room, 'B');
+    a.ws.message({ type: 'chat', text: 'hidden', targets: [b.session.id] });
+    assert.equal(b.ws.last('chat'), undefined);
+    a.ws.message({ type: 'chat', text: 'visible' });
+    assert.equal(b.ws.last('chat').text, 'visible');
+});
+
 test('empty and malformed chat target lists never broadcast', () => {
     for (const targets of [[], null, 'everyone', [42], [{}], Array(9).fill('id'), ['x'.repeat(65)]]) {
         const room = new ClubRoom({});
+        room._roomName = 'private-123456';
         const a = join(room), b = join(room);
         a.ws.message({ type: 'chat', text: 'must not leak', targets });
         assert.equal(b.ws.last('chat'), undefined);
     }
     const room = new ClubRoom({});
+    room._roomName = 'private-123456';
     const a = join(room), b = join(room);
     a.session.blocked.add(b.session.pid);
     a.ws.message({ type: 'chat', text: 'blocked', targets: [b.session.id] });
     assert.equal(b.ws.last('chat'), undefined);
+});
+
+test('reports are validated, private to the host, and never broadcast to the room', () => {
+    const room = new ClubRoom({});
+    const host = join(room, 'Host'), reporter = join(room, 'Reporter'), target = join(room, 'Target');
+    reporter.ws.message({ type: 'report', target: target.session.id, reason: 'harassment' });
+    assert.deepEqual(host.ws.last('moderation-report'), {
+        type: 'moderation-report',
+        reporter: { id: reporter.session.id, name: 'Reporter', pid: reporter.session.pid },
+        target: { id: target.session.id, name: 'Target', pid: target.session.pid },
+        reason: 'harassment'
+    });
+    assert.equal(reporter.ws.last('moderation-report'), undefined);
+    assert.equal(target.ws.last('moderation-report'), undefined);
+
+    const before = host.ws.sent.filter(message => message.type === 'moderation-report').length;
+    reporter.ws.message({ type: 'report', target: target.session.id, reason: 'not-a-reason' });
+    reporter.ws.message({ type: 'report', target: 'missing', reason: 'grooming' });
+    assert.equal(host.ws.sent.filter(message => message.type === 'moderation-report').length, before);
 });
 
 test('relay welcomes, announces joins, and hands host to the next guest on leave', () => {

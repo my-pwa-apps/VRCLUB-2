@@ -3,10 +3,13 @@ import { createHash } from 'node:crypto';
 import { cp, mkdir, readFile, readdir, rm, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { prepareADESite } from './ade-site.mjs';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const dist = path.join(root, 'dist');
 const emitSourceMap = process.env.VRCLUB_SOURCEMAP === '1';
+const adeSite = process.argv.includes('--ade-site') || process.env.VRCLUB_ADE_SITE === '1';
+const includeADEPitch = adeSite || process.argv.includes('--ade-pitch') || process.env.VRCLUB_ADE_PITCH === '1';
 
 const digest = content => createHash('sha256').update(content).digest('hex').slice(0, 12);
 
@@ -61,12 +64,17 @@ const css = (await transform(cssSource, {
 const cssName = `styles-${digest(css)}.css`;
 await writeFile(path.join(dist, 'assets', cssName), css);
 
-const html = indexHtml
+let html = indexHtml
     .replace(/<link rel="stylesheet" href="css\/styles\.css\?v=[^"]+">/, `<link rel="stylesheet" href="assets/${cssName}">`)
     .replace(/(js\/vendor\/[^"?]+)\?v=[^"]+/g, '$1')
     .replace(/manifest\.json\?v=[^"]+/g, 'manifest.json')
     .replace(/<script\s+src="js\/(?!vendor\/)[^"]+"\s*><\/script>/g, '')
     .replace('</body>', `    <script src="assets/${jsName}"></script>\n</body>`);
+let adeOutput;
+if (adeSite) {
+    adeOutput = prepareADESite(html, await readFile(path.join(root, '_headers'), 'utf8'));
+    html = adeOutput.html;
+}
 await writeFile(path.join(dist, 'index.html'), html);
 
 // Fail loudly rather than shipping a 404 + CSP console noise: the tag-stripping
@@ -84,7 +92,7 @@ if (remainingFirstParty.length) {
 // HTML uses, and VERSION is derived from the bundle so a deploy always invalidates
 // the previous cache.
 const swSource = await readFile(path.join(root, 'sw.js'), 'utf8');
-const swVersion = `vrclub-v${digest(result.code + css)}`;
+const swVersion = `vrclub-v${digest(result.code + css + html)}`;
 const distPrecache = [
     './',
     './index.html',
@@ -132,7 +140,12 @@ for (const reference of modelReferences) {
     }
 }
 
+if (includeADEPitch) await mkdir(path.join(dist, 'concept-assets', 'ade'), { recursive: true });
 await Promise.all([
+    ...(includeADEPitch ? [
+        cp(path.join(root, 'concept-assets', 'ade', 'ade26-30y-black.png'),
+            path.join(dist, 'concept-assets', 'ade', 'ade26-30y-black.png'))
+    ] : []),
     cp(path.join(root, 'js/vendor'), path.join(dist, 'js/vendor'), { recursive: true }),
     cp(path.join(root, 'textures'), path.join(dist, 'textures'), { recursive: true }),
     cp(path.join(root, 'icons'), path.join(dist, 'icons'), { recursive: true }),
@@ -141,14 +154,19 @@ await Promise.all([
     cp(path.join(root, 'link'), path.join(dist, 'link'), { recursive: true }),
     cp(path.join(root, 'audio'), path.join(dist, 'audio'), { recursive: true }),
     cp(path.join(root, 'manifest.json'), path.join(dist, 'manifest.json')),
-    cp(path.join(root, 'robots.txt'), path.join(dist, 'robots.txt')),
-    cp(path.join(root, 'sitemap.xml'), path.join(dist, 'sitemap.xml')),
-    cp(path.join(root, 'googledd48f5e8f45ab4e2.html'), path.join(dist, 'googledd48f5e8f45ab4e2.html')),
+    ...(adeSite ? [
+        writeFile(path.join(dist, 'robots.txt'), adeOutput.robots)
+    ] : [
+        cp(path.join(root, 'robots.txt'), path.join(dist, 'robots.txt')),
+        cp(path.join(root, 'sitemap.xml'), path.join(dist, 'sitemap.xml')),
+        cp(path.join(root, 'googledd48f5e8f45ab4e2.html'), path.join(dist, 'googledd48f5e8f45ab4e2.html'))
+    ]),
     cp(path.join(root, 'licenses'), path.join(dist, 'licenses'), { recursive: true }),
     cp(path.join(root, 'LICENSE'), path.join(dist, 'LICENSE')),
     cp(path.join(root, 'ASSETS.md'), path.join(dist, 'ASSETS.md')),
     // Security headers for static hosts, which send no frame-ancestors of their own.
-    cp(path.join(root, '_headers'), path.join(dist, '_headers')),
+    adeSite ? writeFile(path.join(dist, '_headers'), adeOutput.headers) :
+        cp(path.join(root, '_headers'), path.join(dist, '_headers')),
     ...[...modelReferences].map(rel =>
         cp(path.join(root, rel), path.join(dist, rel), { recursive: true }).catch(err => {
             throw new Error(`build: referenced model asset is missing: ${rel} (${err.message})`);
@@ -179,6 +197,9 @@ const collectDistFiles = async directory => {
     }
 };
 await collectDistFiles(dist);
+if (!includeADEPitch && distFiles.some(file => file.startsWith('concept-assets/'))) {
+    throw new Error('build: ADE review artwork must not enter the default distribution');
+}
 if (!emitSourceMap && distFiles.some(file => file.endsWith('.map'))) {
     throw new Error('build: production dist must not contain source maps');
 }

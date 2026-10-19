@@ -1,5 +1,10 @@
 NOCTURNE Quest distribution
 
+Optional ADE independent-pitch build: the supplied ADE26 anniversary mark
+is not a MIT/CC asset and does not enter default builds. The black campaign
+key visual is no longer included in the built site.
+See ade-brandpack-notice.txt for provenance and public-use permission gates.
+
 Babylon.js 9.28.0, glTF loaders and procedural textures
 Copyright (c) Microsoft Corporation and contributors.
 Apache License, Version 2.0.

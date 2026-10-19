@@ -32,9 +32,11 @@ class ClubMultiplayer {
         duckForVoice: 'vrclub.duckForVoice',
         autoNod: 'vrclub.autoNod',
         avatarPool: 'vrclub.avatarPool',
-        privateRooms: 'vrclub.privateRooms'
+        privateRooms: 'vrclub.privateRooms',
+        onlineSafety: 'vrclub.onlineSafety'
     });
 
+    static ONLINE_SAFETY_VERSION = '1';
     static HOSTED_RELAY = 'wss://vrclub-network.garfieldapp.workers.dev';
     static EMOJI = Object.freeze(['🎉', '🔥', '❤️', '😂', '👋', '🙌', '💃', '🕺']);
     /** What each reaction means, for buttons and screen readers. */
@@ -42,6 +44,15 @@ class ClubMultiplayer {
     /** One-tap messages for the headset, where there is no keyboard. */
     static QUICK_PHRASES = Object.freeze(['Hi!', 'Great track!', 'Let\'s dance', 'Come over here', 'Can you hear me?', 'Brb', 'Thanks!', 'Bye!']);
     static MAX_CHAT_LOG = 50;
+    static REPORT_REASONS = Object.freeze({
+        harassment: 'Harassment',
+        grooming: 'Grooming or pressure for private contact',
+        'sexual-content': 'Sexual content',
+        hate: 'Hate or abusive language',
+        'unwanted-contact': 'Repeated unwanted contact',
+        impersonation: 'Impersonation',
+        other: 'Something else'
+    });
     /** The music stays down this long after the last word, so it does not pump between sentences. */
     static DUCK_HOLD_MS = 1500;
     /** What each random character looks like, for the "you appear as" line (the ids are the relay's AVATARS). */
@@ -141,11 +152,13 @@ class ClubMultiplayer {
         this.listeners = new Set();
         this.lastError = '';
         this.notice = '';
+        this.moderationReports = [];
         this.selfAvatar = null;
         this.locked = false;
         this.dancing = false;
         this._danceFrom = null;
         this.muteAll = false;
+        this._onlineSafetyAccepted = this._read(ClubMultiplayer.PREFS.onlineSafety) === ClubMultiplayer.ONLINE_SAFETY_VERSION;
         this.autoNod = this._read(ClubMultiplayer.PREFS.autoNod) !== '0';
         /** Which random people this guest may appear as: 'any', 'women' or 'men'. */
         this.avatarPool = ClubMultiplayer.cleanPool(this._read(ClubMultiplayer.PREFS.avatarPool));
@@ -186,9 +199,29 @@ class ClubMultiplayer {
     // ───────────────────────── preferences ─────────────────────────
 
     _read(key) { try { return this.storage ? this.storage.getItem(key) : null; } catch (_) { return null; } }
-    _write(key, value) { try { if (this.storage) this.storage.setItem(key, value); } catch (_) { /* private browsing */ } }
+    _write(key, value) {
+        try {
+            if (!this.storage) return false;
+            this.storage.setItem(key, value);
+            return true;
+        } catch (_) { return false; }
+    }
 
     get serverUrl() { return ClubMultiplayer.defaultServerUrl(this.storage); }
+
+    hasAcceptedOnlineSafety() {
+        return this._onlineSafetyAccepted ||
+            this._read(ClubMultiplayer.PREFS.onlineSafety) === ClubMultiplayer.ONLINE_SAFETY_VERSION;
+    }
+
+    acceptOnlineSafety() {
+        this._onlineSafetyAccepted = true;
+        if (!this._write(ClubMultiplayer.PREFS.onlineSafety, ClubMultiplayer.ONLINE_SAFETY_VERSION)) {
+            this.club.showErrorMessage?.('Online safety guidance accepted for this visit, but this browser could not remember the choice.');
+        }
+        this.notice = '';
+        this._emit();
+    }
 
     get room() {
         const invited = ClubMultiplayer.inviteRoomFromLocation();
@@ -250,6 +283,8 @@ class ClubMultiplayer {
         return url.href;
     }
     get currentRoom() { return this.client ? this.client.room : this.room; }
+    isPrivateRoom(room = this.currentRoom) { return /^private-/i.test(room || ''); }
+    canRestrictAudience() { return this.connected && this.isPrivateRoom(); }
 
     /** The room as a person would say it: a private room by its code, any other by its name. */
     roomLabel(room = this.currentRoom) {
@@ -262,7 +297,8 @@ class ClubMultiplayer {
         if (this.connected) {
             const n = this.client.peerCount;
             const others = n === 0 ? 'nobody else yet' : `${n} other ${n === 1 ? 'person' : 'people'}`;
-            return `In ${this.roomLabel(room)} \u00B7 ${others}${this.isHost() ? ' \u00B7 you are the host' : (this.hostName() ? ` \u00B7 host: ${this.hostName()}` : '')}${this.locked ? ' \u00B7 locked' : ''}`;
+            const notice = this.notice ? ` \u00B7 ${this.notice}` : '';
+            return `In ${this.roomLabel(room)} \u00B7 ${others}${this.isHost() ? ' \u00B7 you are the host' : (this.hostName() ? ` \u00B7 host: ${this.hostName()}` : '')}${this.locked ? ' \u00B7 locked' : ''}${notice}`;
         }
         if (this.connecting) return `Joining ${this.roomLabel(room)}\u2026`;
         if (this.status === 'error') return this.lastError || 'Could not join the room';
@@ -332,8 +368,13 @@ class ClubMultiplayer {
         // A new room starts a new conversation.
         this.chat = [];
         this.chatUnread = 0;
+        this.moderationReports = [];
         this.chatAudience = this.chatAudience === null ? null : [];
         this.voiceAudience = this.voiceAudience === null ? null : [];
+        if (!this.isPrivateRoom(room)) {
+            this.chatAudience = null;
+            this.voiceAudience = null;
+        }
 
         const club = this.club;
         const client = new NetworkClient({ serverUrl, room, name, uid: this.uid, avatarPool: this.avatarPool, blocked: this.blockedList().map(item => item.pid) });
@@ -469,8 +510,9 @@ class ClubMultiplayer {
                 if (!response.ok) throw new Error(data.message || 'Room lookup failed (' + response.status + ').');
                 if (!Array.isArray(data.rooms) || data.rooms.some(item => !item || typeof item.room !== 'string' ||
                     !item.room.length || item.room.length > 64 || item.room !== item.room.trim() || /[\u0000-\u001f\u007f]/.test(item.room) ||
-                    !Number.isInteger(item.people) || item.people < 0 || item.people > 8 ||
-                    item.capacity !== 8 || typeof item.locked !== 'boolean' || typeof item.active !== 'boolean')) {
+                    !Number.isInteger(item.capacity) || item.capacity < 8 || item.capacity > 32 ||
+                    !Number.isInteger(item.people) || item.people < 0 || item.people > item.capacity ||
+                    typeof item.locked !== 'boolean' || typeof item.active !== 'boolean')) {
                     throw new Error('The relay returned invalid room information.');
                 }
                 return data;
@@ -567,6 +609,15 @@ class ClubMultiplayer {
             this._logChat({ id, name: peer ? peer.name : 'Guest', text, self: false, restricted });
             manager.showChat(id, restricted ? `[Selected recipients] ${text}` : text);
         };
+        client.onModerationReport = report => {
+            const reporter = report.reporter?.name || 'Guest';
+            const target = report.target?.name || 'guest';
+            this.moderationReports.unshift({ ...report, at: Date.now() });
+            this.moderationReports.splice(12);
+            this.notice = `Safety report: ${reporter} reported ${target} for ${ClubMultiplayer.REPORT_REASONS[report.reason] || 'a safety concern'}. Open People to remove or ban them.`;
+            if (typeof club.showErrorMessage === 'function') club.showErrorMessage(this.notice);
+            this._emit();
+        };
         client.onGesture = (id, gesture) => manager.playGesture(id, gesture);
         client.onHostChange = (hostId) => {
             for (const id of client.peers.keys()) manager.setHost(id, id === hostId);
@@ -595,7 +646,7 @@ class ClubMultiplayer {
         client.onDoors = (doors) => { if (typeof club.setSharedDoors === 'function') club.setSharedDoors(doors); };
         client.onDoor = (door, shut) => { if (typeof club.setSharedDoor === 'function') club.setSharedDoor(door, shut); };
         client.musicDecorator = (music) => this._decorateMusic(music);
-        client.onRemoteStream = (id, stream) => manager.attachVoice(id, stream);
+        client.onRemoteStream = (id, stream) => stream ? manager.attachVoice(id, stream) : manager.detachVoice(id);
         client.onError = (err) => {
             this.lastError = `Error: ${err.message}`;
             if (err.code) this.notice = err.message;
@@ -640,6 +691,10 @@ class ClubMultiplayer {
     setAudience(scope, ids) {
         if (!['chat', 'voice'].includes(scope) || (ids !== null && !Array.isArray(ids))) {
             this.club.showErrorMessage('Choose a chat or microphone audience.');
+            return false;
+        }
+        if (ids !== null && !this.canRestrictAudience()) {
+            this.club.showErrorMessage('Selected recipients are available only in private rooms. Public-room chat and voice stay visible to the room so the host can moderate them.');
             return false;
         }
         this[`${scope}Audience`] = ids === null ? null : [...new Set(ids)].filter(id => this.client?.peers.has(id));
@@ -813,6 +868,32 @@ class ClubMultiplayer {
         const done = client.blockPeer(peer.pid);
         this._emit();
         return done;
+    }
+
+    reportPeer(id, reason) {
+        if (!this.client || !this.connected || !this.client.peers.has(id) ||
+            !Object.prototype.hasOwnProperty.call(ClubMultiplayer.REPORT_REASONS, reason)) return false;
+        if (!this.client.sendReport(id, reason)) return false;
+        this.notice = 'Report sent to the room host.';
+        this._emit();
+        return true;
+    }
+
+    reportAndBlockPeer(id, reason) {
+        const peer = this.client?.peers.get(id);
+        if (!peer || !peer.pid || !this.reportPeer(id, reason)) return false;
+        if (!this.blockPeer(id)) return false;
+        this.notice = `${peer.name || 'Guest'} was reported and blocked. You cannot see, hear or contact each other.`;
+        this._emit();
+        return true;
+    }
+
+    dismissModerationReport(at) {
+        const before = this.moderationReports.length;
+        this.moderationReports = this.moderationReports.filter(report => report.at !== at);
+        if (this.moderationReports.length === before) return false;
+        this._emit();
+        return true;
     }
 
     unblock(pid) {

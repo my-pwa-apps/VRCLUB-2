@@ -20,6 +20,11 @@ test('room browser is opt-in on desktop, remembers only known private codes and 
     await enterClub(page);
     expect(calls).toHaveLength(0);
     await page.locator('#networkToggle').click();
+    await expect(page.locator('#networkSafetyGate')).toBeVisible();
+    await expect(page.locator('#networkRoomBrowser')).toBeHidden();
+    await page.locator('#networkSafetyContinue').click();
+    expect(await page.evaluate(() => localStorage.getItem('vrclub.onlineSafety'))).toBe('1');
+    await expect(page.locator('#networkSafetyGate')).toBeHidden();
     await expect(page.locator('#networkMoreRooms')).toBeHidden();
     await page.locator('#networkBrowseRooms').click();
     await expect(page.locator('#networkRoomsList')).toContainText('lobby — 3/8 people');
@@ -32,8 +37,24 @@ test('room browser is opt-in on desktop, remembers only known private codes and 
     expect(await page.evaluate(() => JSON.parse(localStorage.getItem('vrclub.privateRooms'))[0].room)).toBe('private-123456');
     await page.getByRole('button', { name: 'Forget private-123456', exact: true }).click();
     await expect(page.locator('#networkRoomsList')).not.toContainText('123456');
+    await page.locator('#networkClose').click();
     await page.locator('#networkToggle').click();
+    await expect(page.locator('#networkSafetyGate')).toBeHidden();
+    await page.locator('#networkClose').click();
     await enterVR(page);
+    const safety = await page.evaluate(async () => {
+        const club = window.vrClub;
+        const mp = club.multiplayer;
+        localStorage.removeItem('vrclub.onlineSafety');
+        mp._onlineSafetyAccepted = false;
+        club.toggleVRQuickMenu(true);
+        club._showVRQuickMenuPage('online');
+        const guide = club._vrQuickMenuPage;
+        const accept = club._vrQuickMenuButtons.find(button => button.op === 'safetyAccept');
+        await club._runVRNetworkAction(accept);
+        return { guide, after: club._vrQuickMenuPage, accepted: mp.hasAcceptedOnlineSafety() };
+    });
+    expect(safety).toEqual({ guide: 'onlineSafety', after: 'online', accepted: true });
     const menu = await page.evaluate(() => {
         const club = window.vrClub;
         const mp = club.multiplayer;
@@ -60,6 +81,7 @@ test('desktop and VR host handover use the real relay without either guest leavi
     await context.addInitScript(() => {
         localStorage.setItem('vrclub.graphicsTier', 'balanced');
         localStorage.setItem('vrclub.networkServerUrl', 'wss://vrclub-network.garfieldapp.workers.dev');
+        localStorage.setItem('vrclub.onlineSafety', '1');
         window.NOCTURNE_PAYMENT_API = window.location.origin;
     });
     await context.route('**/payments/**', route => route.fulfill({
@@ -97,6 +119,19 @@ test('desktop and VR host handover use the real relay without either guest leavi
         });
         await guest.waitForFunction(() => window.transferGuest.connected);
         await expect(page.locator('#networkPeopleList')).toContainText('Guest');
+        await page.getByRole('button', { name: 'Report Guest to the room host and immediately block contact both ways', exact: true }).click();
+        await page.getByRole('combobox', { name: 'Reason for reporting Guest', exact: true }).selectOption('unwanted-contact');
+        await page.getByRole('button', { name: 'Report and block Guest', exact: true }).click();
+        await expect(page.locator('#networkModerationReports')).toContainText('Host reported Guest: Repeated unwanted contact');
+        await guest.waitForFunction(() => window.transferGuest.peerCount === 0);
+        expect(await page.evaluate(() => window.vrClub.multiplayer.blockedList().length)).toBe(1);
+        await page.evaluate(() => {
+            const mp = window.vrClub.multiplayer;
+            mp.unblock(mp.blockedList()[0].pid);
+        });
+        await expect(page.locator('#networkPeopleList')).toContainText('Guest');
+        await page.locator('#networkModerationReports').getByRole('button', { name: 'Dismiss this safety report' }).click();
+        await expect(page.locator('#networkModerationReports')).toContainText('No safety reports.');
         await page.locator('#networkLockRoom').click();
         await expect.poll(() => room.locked).toBe(true);
         const makeGuestHost = page.getByRole('button', { name: /^Make Guest host:/ });
@@ -110,7 +145,7 @@ test('desktop and VR host handover use the real relay without either guest leavi
         expect(room.locked).toBe(true);
         expect(await guest.evaluate(() => window.transferGuest.transferHost([...window.transferGuest.peers.keys()][0]))).toBe(true);
         await page.waitForFunction(() => window.vrClub.multiplayer.isHost());
-        await page.locator('#networkToggle').click();
+        await page.locator('#networkClose').click();
         await enterVR(page);
         const transfer = await page.evaluate(async () => {
             const club = window.vrClub;

@@ -770,6 +770,53 @@ body:has(.panel:not(.hidden)) .payment-toggle,
     margin: 6px 0 8px;
 }
 
+.network-safety-gate {
+    border: 1px solid rgba(143, 255, 238, 0.55);
+    border-radius: 10px;
+    background: linear-gradient(145deg, rgba(17, 51, 66, 0.82), rgba(20, 20, 31, 0.94));
+    padding: 14px;
+}
+
+.network-safety-lead {
+    margin: 7px 0;
+    font-size: 14px;
+    font-weight: 700;
+    line-height: 1.4;
+}
+
+.network-safety-rules {
+    margin: 8px 0;
+    padding-left: 20px;
+    font-size: 12px;
+    line-height: 1.45;
+}
+
+.network-safety-rules li + li {
+    margin-top: 6px;
+}
+
+#networkSafetyPrivate {
+    display: flex;
+    flex-direction: column;
+    gap: 3px;
+}
+
+#networkSafetyPrivate small {
+    font-size: 11px;
+    font-weight: 500;
+    opacity: 0.82;
+}
+
+.network-report-reason {
+    flex: 1 1 100%;
+    min-height: 38px;
+    border: 1px solid #657080;
+    border-radius: 6px;
+    background: #171b24;
+    color: #fff;
+    padding: 6px 8px;
+}
+
 .network-people {
     list-style: none;
     margin: 6px 0 0;
@@ -2425,3 +2472,65 @@ button:active,
 .payment-close:focus-visible { outline: 2px solid #00ffff; outline-offset: 3px; }
 .payment-status { min-height: 1.25em; color: #9fe9d0; }
 .payment-status.error { color: #ff9e9e; }
+/* Opt-in event research; no layout or scene changes without ?liveEvent=demo. */
+.event-concept-toggle {
+    position: fixed;
+    top: 18px;
+    left: 50%;
+    transform: translateX(-50%);
+    z-index: 103;
+    border: 1px solid #ffff00;
+    border-radius: 18px;
+    padding: 10px 18px;
+    background: #000;
+    color: #ffff00;
+    font: 600 14px sans-serif;
+    cursor: pointer;
+}
+.event-concept-panel {
+    position: fixed;
+    left: 20px;
+    top: 80px;
+    width: min(360px, calc(100vw - 40px));
+    max-height: calc(100dvh - 170px);
+    overflow-y: auto;
+    box-sizing: border-box;
+    z-index: 103;
+    padding: 22px;
+    border: 1px solid #ffff00;
+    border-radius: 16px;
+    background: rgba(0, 0, 0, 0.97);
+    color: #e1e3e8;
+    font: 14px/1.5 sans-serif;
+}
+.event-concept-panel h2 { font-size: 25px; line-height: 1.2; margin: 10px 0; }
+.event-concept-header {
+    position: sticky;
+    top: -22px;
+    z-index: 1;
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 16px;
+    margin: -22px -22px 0;
+    padding: 18px 22px 10px;
+    background: #000;
+}
+.event-concept-logo { display: block; width: 110px; height: auto; padding: 10px; background: #ffff00; }
+.event-concept-panel p { margin: 12px 0; }
+.event-concept-kicker { color: #ffff00; letter-spacing: 0.1em; font-size: 11px; font-weight: 900; }
+.event-concept-panel button {
+    border: 1px solid #777f8e;
+    border-radius: 8px;
+    padding: 9px;
+    background: #242934;
+    color: #fff;
+    cursor: pointer;
+}
+.event-concept-panel .event-concept-close { min-width: 64px; min-height: 44px; }
+.event-concept-panel summary { font-weight: 600; }
+.event-concept-panel summary { cursor: pointer; }
+.event-concept-panel :focus-visible, .event-concept-toggle:focus-visible { outline: 3px solid #ffff00; outline-offset: 3px; }
+.event-concept-footnote { font-size: 12px; color: #b9c0cd; }
+.event-concept-toggle[hidden], .event-concept-panel[hidden] { display: none; }
+.event-concept-toggle:active { transform: translateX(-50%) scale(0.97); }

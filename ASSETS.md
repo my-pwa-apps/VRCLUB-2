@@ -30,6 +30,30 @@ in `index.html`).
 
 ---
 
+## ADE pitch-only brandpack (not default distribution)
+
+The owner supplied the [ADE26 30Y BRANDPACK](https://drive.google.com/drive/folders/1_kLgnuYqK_YJOsKUDLJXJxj7qXJWUDlZ)
+on 18 October 2026 for this independent pitch. ADE names and campaign artwork retain
+their owners' rights; **no general redistribution licence or usage guidance was
+found in the inspected folders**. These are not MIT/CC0 assets. Written permission
+and brand guidance are required before public deployment or distribution.
+
+| Source retained under `design/ade-brandpack/` | Pitch derivative under `concept-assets/ade/` | Treatment |
+|---|---|---|
+| `ade26-30y-black.svg` (Logo / ADE26 30Y BLACK.svg) | `ade26-30y-black.png` | Proportional 512 px rasterisation, transparency retained |
+| `ade26-keyvisual-black-landscape.png` (Key Visuals / ADE_2026_KeyVisual_Black_V2_Landscape.png) | `ade26-keyvisual-black-landscape.webp` | 2560x1440 to 1024x576, no crop or recolour |
+
+`npm run ade:assets` verifies the original SHA-256 hashes and rebuilds those two
+derivatives. Source files never enter `dist/`. Default builds exclude
+`concept-assets/`; explicit ADE builds include only the logo. The black XXX campaign
+image was removed from the environment and is not copied to `dist/`.
+The owner requested a public non-indexed pitch at `nocturne-ade.mitwee.nl`;
+`npm run build:ade-site` prepares that separate site. This request does not establish
+an ADE endorsement or grant a general redistribution licence.
+No brandpack fonts, animated idents or artist footage are included.
+The concept panel and [ADE brandpack notice](licenses/ade-brandpack-notice.txt)
+state the source and independent status.
+
 ## 3D models
 
 | File | Title | Creator | Licence | Attribution shown in-app |

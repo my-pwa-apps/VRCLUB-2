@@ -154,15 +154,21 @@ test('script load order honours the dependency contract', () => {
         assert.ok(idx(dep) > -1 && idx(dep) < main, `${dep} must load before club_hyperrealistic.js`);
     }
     // ShowDirector reads the beat grid VJDirector publishes.
+    assert.ok(idx('js/sfuClient.js') > -1 && idx('js/sfuClient.js') < idx('js/networkClient.js'),
+        'sfuClient must precede networkClient');
     assert.ok(idx('js/vjDirector.js') < idx('js/showDirector.js'), 'vjDirector must precede showDirector');
     // ui-init drives the splash screen and instantiates VRClub.
     assert.ok(idx('js/ui-init.js') > main, 'ui-init.js must load after club_hyperrealistic.js');
+    assert.ok(idx('js/liveEventConcept.js') > main &&
+        idx('js/liveEventConcept.js') < idx('js/ui-init.js'),
+    'the opt-in live event concept must load between the public club and UI initialization');
 });
 
 test('every class used across files is exported onto window', () => {
     const required = {
         'js/assetCache.js': ['IndexedDBAssetCache', 'InFlightRegistry'],
         'js/audioUtils.js': ['AudioUtils'],
+        'js/liveEventConcept.js': ['LiveEventConcept'],
         'js/textureLoader.js': ['TextureLoader'],
         'js/modelLoader.js': ['ModelLoader'],
         'js/materialFactory.js': ['MaterialFactory'],
@@ -179,6 +185,7 @@ test('every class used across files is exported onto window', () => {
         'js/avatarRig.js': ['AvatarRig'],
     'js/djPerformer.js': ['DJPerformer'],
     'js/crowdDance.js': ['CrowdDance'],
+        'js/sfuClient.js': ['SFUClient'],
         'js/networkClient.js': ['NetworkClient'],
         'js/avatarManager.js': ['AvatarManager'],
         'js/multiplayer.js': ['ClubMultiplayer']

@@ -224,9 +224,9 @@ function makeController(options = {}) {
     return { ...env, club, storage, mp };
 }
 
-function connectedController(peers = [{ id: 'p1', pid: PID_B, name: 'Bo', avatar: 'm1' }], welcome = {}) {
+function connectedController(peers = [{ id: 'p1', pid: PID_B, name: 'Bo', avatar: 'm1' }], welcome = {}, room = 'r') {
     const env = makeController();
-    env.mp.connect({ serverUrl: 'wss://relay.example', room: 'r' });
+    env.mp.connect({ serverUrl: 'wss://relay.example', room });
     const socket = FakeSocket.instances.at(-1);
     socket.receive({ type: 'welcome', id: 'me', pid: PID_A, avatar: 'f3', hostId: 'me', locked: false, peers, ...welcome });
     return { ...env, socket };
@@ -241,6 +241,17 @@ test('a guest gets a stable secret uid and a name, saved on first use', () => {
     assert.match(mp.name, /^Guest\d{4}$/);
     storage.setItem(ClubMultiplayer.PREFS.uid, 'bad');
     assert.notEqual(mp.uid, 'bad');
+});
+
+test('online safety acceptance is versioned, persisted and announced to every surface', () => {
+    const { mp, storage, ClubMultiplayer } = makeController();
+    let changes = 0;
+    mp.onChange(() => { changes++; });
+    assert.equal(mp.hasAcceptedOnlineSafety(), false);
+    mp.acceptOnlineSafety();
+    assert.equal(mp.hasAcceptedOnlineSafety(), true);
+    assert.equal(storage.getItem(ClubMultiplayer.PREFS.onlineSafety), ClubMultiplayer.ONLINE_SAFETY_VERSION);
+    assert.equal(changes, 1);
 });
 
 test('connecting is opt-in, one at a time, and joins with uid, room and the saved block list', () => {
@@ -276,6 +287,19 @@ test('blocking from the controller persists the guest, removes them and survives
     assert.equal(mp.unblock(PID_B), true);
     assert.deepEqual(plain(mp.blockedList()), []);
     assert.equal(mp.unblock(PID_B), false);
+});
+
+test('report and block sends the report before removing the peer and stores the block', () => {
+    const { mp, socket, storage, ClubMultiplayer } = connectedController();
+    assert.equal(mp.reportAndBlockPeer('p1', 'harassment'), true);
+    const safetyFrames = socket.sent.filter(frame => frame.type === 'report' || frame.type === 'block');
+    assert.deepEqual(plain(safetyFrames), [
+        { type: 'report', target: 'p1', reason: 'harassment' },
+        { type: 'block', pid: PID_B }
+    ]);
+    assert.equal(mp.people().length, 0);
+    assert.equal(JSON.parse(storage.getItem(ClubMultiplayer.PREFS.blocked))[0].pid, PID_B);
+    assert.match(mp.notice, /reported and blocked/i);
 });
 
 test('unblockAll lifts every block and tells the relay about each', () => {
@@ -1207,7 +1231,7 @@ test('typed chat: sent cleaned, logged for both sides, counted as unread only wh
 test('chat and microphone audiences are independent and restricted chat fails closed on old relays', () => {
     const { mp, socket, club } = connectedController([
         { id: 'p1', pid: PID_B, name: 'Bo' }, { id: 'p2', pid: 'c'.repeat(16), name: 'Cy' }
-    ], { targetedChat: true });
+    ], { targetedChat: true }, 'private-123456');
     const errors = [];
     club.showErrorMessage = message => errors.push(message);
     mp.setAudience('chat', ['p1', 'p1', 'missing']);
@@ -1235,8 +1259,20 @@ test('chat and microphone audiences are independent and restricted chat fails cl
     assert.deepEqual(plain(mp.voiceAudience), ['p2']);
 });
 
+test('public rooms reject selected chat and voice audiences without changing the room-wide defaults', () => {
+    const { mp, club } = connectedController();
+    const errors = [];
+    club.showErrorMessage = message => errors.push(message);
+    assert.equal(mp.canRestrictAudience(), false);
+    assert.equal(mp.setAudience('chat', ['p1']), false);
+    assert.equal(mp.setAudience('voice', []), false);
+    assert.equal(mp.chatAudience, null);
+    assert.equal(mp.voiceAudience, null);
+    assert.match(errors.at(-1), /private rooms/i);
+});
+
 test('departure, reconnect and room changes never broaden a restricted audience', () => {
-    const { mp, socket, club } = connectedController(undefined, { targetedChat: true });
+    const { mp, socket, club } = connectedController(undefined, { targetedChat: true }, 'private-654321');
     club.showErrorMessage = () => {};
     mp.setAudience('chat', ['p1']);
     mp.setAudience('voice', ['p1']);
@@ -1253,8 +1289,9 @@ test('departure, reconnect and room changes never broaden a restricted audience'
     assert.equal(mp.voiceAudience.length, 0);
     mp.disconnect();
     mp.connect({ room: 'another' });
-    assert.equal(mp.chatAudience.length, 0);
-    assert.equal(mp.client.voiceAudience.size, 0);
+    assert.equal(mp.chatAudience, null, 'public rooms reset chat to the room-visible default');
+    assert.equal(mp.voiceAudience, null, 'public rooms reset voice to the room-visible default');
+    assert.equal(mp.client.voiceAudience, null);
 });
 
 test('a failed microphone restriction closes that voice connection and reports the error without touching music', async () => {

@@ -33,6 +33,18 @@ sequence before another peak is possible. The groove emphasizes moving heads and
 mirror-ball looks, with shorter dedicated laser moments and fewer blackout cuts.
 Safe Mode continues to suppress strobes, and manual fixture controls remain available.
 
+### Musical Builds and Safe Mode
+
+- Automatic countdowns require energy to rise by at least 0.035 across the last
+  four bars; a high but flat level can still enter the peak movement without a
+  countdown. The manual DROP action remains available without that condition.
+- The groove's Underground Sequence wall solo lasts 38 bars, giving its six-scene
+  film a complete run. Switching away clears old phosphor trails but preserves
+  the film's beat origin; a reset beat clock starts a new run.
+- In Safe Mode, a strobe-only solo becomes a slow aurora wall instead of an
+  empty room. Changing Safe Mode immediately recomposes the current automatic
+  cue and countdown rung, without taking control from manual lighting.
+
 The VJ control console is located on the **right side of the DJ platform** (x=3.5, z=-24.4). It features **9 interactive 3D buttons** arranged in 3 rows.
 
 ## Button Layout (3 Rows)

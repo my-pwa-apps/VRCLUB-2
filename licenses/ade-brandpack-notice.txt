@@ -1,0 +1,36 @@
+ADE26 30Y BRANDPACK - supplied independent-pitch artwork
+
+Source supplied by the repository owner on 18 October 2026:
+https://drive.google.com/drive/folders/1_kLgnuYqK_YJOsKUDLJXJxj7qXJWUDlZ
+
+Original source files:
+- Logo/ADE26 30Y BLACK.svg
+  https://drive.google.com/file/d/1-ww_9-chBGlWPOx3h4H0thB1jEVsQjjv/view
+- Key Visuals/ADE_2026_KeyVisual_Black_V2_Landscape.png
+  https://drive.google.com/file/d/1ASeLx6EBhoe2MKDkzJ067kFcd9YyrKLS/view
+
+Rights in ADE names, logos and artwork belong to their respective owners.
+These materials are NOT covered by this repository's MIT or Creative Commons
+licences. No general redistribution licence or brand usage guidance was found
+in the inspected folders. Availability through a shared Drive link is not
+treated as public-use permission or endorsement.
+
+Included at the owner's request for the independent ADE pitch concept.
+Obtain written permission and the applicable brand guidance before publishing,
+selling, distributing a store build or claiming an official collaboration.
+No licensed font, motion ident or artist footage is included.
+
+Changes: lossless SVG rasterisation to a 512 px PNG; campaign image resized
+proportionally from 2560x1440 to 1024x576 and encoded as WebP, without cropping,
+recolouring or changing its composition. The logo is placed unaltered on a
+yellow signs, entrance flags and DJ-table fascia, with a separate independent-concept
+disclosure. The black campaign image is retained as a source reference but is no
+longer displayed or included in the built site.
+Source checksums and a deterministic recipe are in scripts/build-ade-brandpack.mjs.
+
+Default production builds exclude concept-assets/. Only an explicit
+npm run build:ade-pitch (or VRCLUB_ADE_PITCH=1) includes the logo for review.
+The owner requested a public, non-indexed independent pitch site at
+nocturne-ade.mitwee.nl on 18 October 2026. npm run build:ade-site prepares that
+site. Non-indexing does not make a public website private, clear third-party
+rights or imply an approved ADE collaboration.

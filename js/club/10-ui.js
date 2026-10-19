@@ -671,6 +671,8 @@ class VRClubUI extends VRClubAnimationFinish {
         if (!mp) return true;
         if (button.op === 'joinListedRoom') return !!(button.locked || button.full || mp.roomDirectory.loading || mp.connecting);
         if (button.op === 'browseRooms' || button.op === 'moreRooms') return mp.roomDirectory.loading;
+        if (button.op === 'safetyInfo') return true;
+        if (['audienceClear', 'audiencePeer'].includes(button.op) && !mp.canRestrictAudience()) return true;
         const needsRoom = ['mic', 'avatar', 'gesture', 'emoji', 'phrase', 'muteAll', 'leave'];
         if (needsRoom.includes(button.op) && !mp.connected) return true;
         if (button.op === 'lock' && !mp.isHost()) return true;
@@ -994,6 +996,10 @@ class VRClubUI extends VRClubAnimationFinish {
     }
 
     _showVRQuickMenuPage(page) {
+        const multiplayer = this._multiplayer();
+        if (page === 'online' && multiplayer && !multiplayer.connected && !multiplayer.hasAcceptedOnlineSafety()) {
+            page = 'onlineSafety';
+        }
         this._vrQuickMenuPage = page;
         if (page === 'chat' && this.multiplayer) this.multiplayer.markChatRead();
         const definitions = this._vrQuickMenuPageDefinitions(page);
@@ -1022,6 +1028,8 @@ class VRClubUI extends VRClubAnimationFinish {
             button.full = false;
             button.inactive = false;
             button.scope = null;
+            button.reason = null;
+            button.info = null;
             button.danger = false;
             button.character = undefined;
             button.detail = '';
@@ -1043,7 +1051,7 @@ class VRClubUI extends VRClubAnimationFinish {
             context.font = 'bold 66px sans-serif';
             context.textAlign = 'left';
             context.textBaseline = 'middle';
-            const titles = { home: 'VR CLUB', room: 'JOIN ROOM', look: 'RANDOM LOOK', gestures: 'REACT', chat: 'CHAT', crowd: 'WHO IS HERE',
+            const titles = { home: 'VR CLUB', onlineSafety: 'BEFORE YOU GO ONLINE', room: 'JOIN ROOM', look: 'RANDOM LOOK', gestures: 'REACT', chat: 'CHAT', crowd: 'WHO IS HERE',
                 me: 'ME', character: 'YOUR CHARACTER',
                 voiceAudience: 'MICROPHONE AUDIENCE', chatAudience: 'CHAT RECIPIENTS', welcome: 'WELCOME', access: 'LINK YOUR ACCOUNT', musicPhone: 'MUSIC FROM YOUR PHONE' };
             // Immersive launch pages draw their own words: the pairing code is the title, so it is read at arm's length.
@@ -1065,7 +1073,8 @@ class VRClubUI extends VRClubAnimationFinish {
                 crowd: 'SEND THE DANCERS, GUESTS OR DJ HOME',
                 travel: 'POINT AT A PLACE TO JUMP THERE',
                 music: 'CONTROL THE CURRENT TRACK OR CHANGE SOURCE',
-                musicSources: 'SAVED LINKS AND THIS SESSION\u2019S LOCAL FOLDER'
+                musicSources: 'SAVED LINKS AND THIS SESSION\u2019S LOCAL FOLDER',
+                onlineSafety: 'KEEP DETAILS PRIVATE \u2022 LEAVE \u2022 REPORT + BLOCK'
             };
             const subtitle = immersiveText ? immersiveText.subtitle : hostOwned
                 ? `${host} IS THE HOST: THEIR MUSIC AND LIGHTS`
@@ -1309,7 +1318,7 @@ class VRClubUI extends VRClubAnimationFinish {
         return typeof ClubMultiplayer !== 'undefined' ? new ClubMultiplayer(this) : null;
     }
 
-    static get VR_NET_PAGES() { return ['online', 'rooms', 'gestures', 'chat', 'people', 'person', 'safety', 'room', 'look', 'voiceAudience', 'chatAudience']; }
+    static get VR_NET_PAGES() { return ['onlineSafety', 'online', 'rooms', 'gestures', 'chat', 'people', 'person', 'report', 'safety', 'room', 'look', 'voiceAudience', 'chatAudience']; }
 
     /** Babylon's default layer mask plus one extra bit: the quick menu is on both, the world only on the first. */
     static get MENU_LAYER_MASK() { return 0x1FFFFFFF; }
@@ -1320,6 +1329,18 @@ class VRClubUI extends VRClubAnimationFinish {
         const back = (target) => ({ ...common.back, target });
         const net = (label, op, extra = {}) => ({ label, action: 'net', op, ...extra });
         if (!mp) return [common.back, common.close];
+        if (page === 'onlineSafety') {
+            const accepted = mp.hasAcceptedOnlineSafety();
+            return [
+                net('KEEP DETAILS PRIVATE', 'safetyInfo', { info: 'NO LOCATION / CONTACT ACCOUNTS' }),
+                net('LEAVE IF PRESSURED', 'safetyInfo', { info: 'DO NOT MOVE CHAT ELSEWHERE' }),
+                net('REPORT + BLOCK ABUSE', 'safetyInfo', { info: 'CONTACT STOPS BOTH WAYS' }),
+                net('START PRIVATE ROOM', 'safetyPrivate', { info: 'RECOMMENDED' }),
+                net(accepted ? 'RETURN TO ONLINE' : 'SHOW ONLINE OPTIONS', 'safetyAccept', { info: accepted ? 'GUIDE ACCEPTED' : 'I UNDERSTAND' }),
+                net('STAY OFFLINE', 'safetyOffline'),
+                common.close
+            ];
+        }
         if (page === 'online') {
             return [
                 net('NETWORK', 'connection'),
@@ -1399,6 +1420,7 @@ class VRClubUI extends VRClubAnimationFinish {
                 net('LOCK ROOM', 'lock'),
                 net('NOD TO NOD', 'autoNod'),
                 net('UNBLOCK ALL', 'unblockAll'),
+                net('REVIEW SAFETY GUIDE', 'reviewSafety'),
                 net('LEAVE ROOM', 'leave', { danger: true }),
                 back('online'),
                 common.close
@@ -1413,13 +1435,21 @@ class VRClubUI extends VRClubAnimationFinish {
             if (people.length > per) rows.push({ label: 'MORE \u25B8', action: 'net', op: 'morePeople' });
             return [...rows, back('online'), common.close];
         }
+        if (page === 'report') {
+            const person = mp.people().find(item => item.id === this._vrReportPeer);
+            if (!person) return [back('people'), common.close];
+            const reasons = Object.entries(ClubMultiplayer.REPORT_REASONS).map(([reason, label]) =>
+                net(label.toUpperCase(), 'reportReason', { reason }));
+            return [...reasons, back('person'), common.close];
+        }
         // person: one guest, chosen from the list
         const person = mp.people().find(item => item.id === this._vrPerson);
         if (!person) return [back('people'), common.close];
         const armedFor = (op) => this._vrArmed && this._vrArmed.key === `${op}:${person.id}` && this._vrArmed.until > Date.now();
         const rows = [
             net(person.muted ? 'UNMUTE' : 'MUTE', 'peerMute', { peer: person.id }),
-            net('BLOCK', 'peerBlock', { peer: person.id })
+            net('BLOCK', 'peerBlock', { peer: person.id }),
+            net('REPORT + BLOCK', 'peerReport', { peer: person.id, danger: true })
         ];
         if (mp.isHost()) {
             rows.push(net(armedFor('host') ? 'SURE? MAKE HOST' : 'MAKE HOST', 'peerHost', { peer: person.id }));
@@ -1500,7 +1530,10 @@ class VRClubUI extends VRClubAnimationFinish {
             case 'browseRooms': return mp.roomDirectory.loading ? 'CHECKING...' : 'PUBLIC + SAVED PRIVATE';
             case 'audienceAll': return active ? 'SELECTED' : '';
             case 'audienceClear': return 'SEND TO NOBODY';
-            case 'audiencePeer': return active ? 'SELECTED' : 'NOT SELECTED';
+            case 'audiencePeer': return !mp.canRestrictAudience() ? 'PRIVATE ROOMS ONLY' : active ? 'SELECTED' : 'NOT SELECTED';
+            case 'safetyInfo': return button.info || '';
+            case 'safetyPrivate': return 'RECOMMENDED';
+            case 'safetyAccept': return 'I UNDERSTAND';
             case 'connection': return mp.connected ? 'CONNECTED' : mp.connecting ? 'CONNECTING' : 'OFFLINE';
             case 'mic': return !mp.connected ? 'JOIN A ROOM FIRST' : active ? (mp.voiceAudience === null ? 'ON: EVERYONE' : 'ON: SELECTED') : 'MIC OFF';
             case 'chatUnread': return mp.chatUnread ? ` NEW` : '';
@@ -1532,6 +1565,22 @@ class VRClubUI extends VRClubAnimationFinish {
             return true;
         };
         switch (button.op) {
+            case 'safetyAccept':
+                mp.acceptOnlineSafety();
+                this._showVRQuickMenuPage('online');
+                return;
+            case 'safetyPrivate':
+                mp.acceptOnlineSafety();
+                mp.joinNewPrivateRoom();
+                this.showErrorMessage(`Private room ${mp.currentRoom.replace('private-', '')}: share this code only with people you trust`);
+                this._showVRQuickMenuPage('online');
+                return;
+            case 'reviewSafety':
+                this._showVRQuickMenuPage('onlineSafety');
+                return;
+            case 'safetyOffline':
+                this._showVRQuickMenuPage('home');
+                return;
             case 'browseRooms':
             case 'moreRooms':
                 this._showVRQuickMenuPage('rooms');
@@ -1624,6 +1673,20 @@ class VRClubUI extends VRClubAnimationFinish {
                 const person = mp.people().find(item => item.id === button.peer);
                 if (mp.blockPeer(button.peer)) this.showErrorMessage(`Blocked ${person ? person.name : 'guest'}: you will not see or hear each other`);
                 this._vrPerson = null;
+                this._showVRQuickMenuPage('people');
+                return;
+            }
+            case 'peerReport':
+                this._vrReportPeer = button.peer;
+                this._showVRQuickMenuPage('report');
+                return;
+            case 'reportReason': {
+                const person = mp.people().find(item => item.id === this._vrReportPeer);
+                const reason = button.reason;
+                if (person && mp.reportAndBlockPeer(person.id, reason)) {
+                    this.showErrorMessage('Reported and blocked: you cannot see, hear or contact each other.');
+                }
+                this._vrReportPeer = null;
                 this._showVRQuickMenuPage('people');
                 return;
             }

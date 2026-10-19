@@ -4,6 +4,49 @@ Hyperrealistic WebXR nightclub built with Babylon.js for compatible VR headsets 
 
 ## Quick Start
 
+### Live-event / ADE exploration
+
+This branch contains an **independent pitch concept**, not a working venue broadcast
+or an ADE partnership. `js/liveEventConcept.js` owns its optional event dressing.
+Start the pitch preview below, open `http://127.0.0.1:4186/?liveEvent=demo`
+and press ENTER as usual. Yellow signs use the supplied official ADE26 anniversary
+mark, with an independent-pitch disclosure in the information panel.
+Close the panel with its Close button or Escape; Event concept
+reopens it. Signs sit on the side/front walls, the DJ table carries a
+branded fascia, and signs and two hanging flags flank the street entrance. The LED
+wall is left clear. The black XXX key visuals and the video-screen feature have
+been removed. The resident DJ remains fictional; no live capture is connected.
+
+Without the query parameter the normal club is unchanged. Concept dressing turns
+off in multiplayer rooms because this preview is not shared event state.
+Read the [feasibility study](docs/ADE_LIVE_EVENT_FEASIBILITY.md) and
+[draft ADE pitch](docs/ADE_PITCH.md) before presenting it as more than a concept.
+
+For an explicit **private pitch build** with the artwork included:
+
+```powershell
+npm run build:ade-pitch
+$env:PORT = '4186'
+$env:HOST = '127.0.0.1'
+node scripts\serve.mjs --dist
+```
+
+Default `npm run build` deliberately excludes the supplied artwork.
+The owner requested a separate public, non-indexed pitch site at
+`https://nocturne-ade.mitwee.nl/`. `npm run build:ade-site` enables the dressing at
+the root, emits noindex/nofollow meta and HTTP directives, and omits canonical,
+social, structured-data, sitemap and Search Console metadata. Crawling is allowed
+so search engines can read noindex. This is not an access restriction or a licence
+grant. Do not present the site as an approved ADE collaboration.
+`npm run deploy:ade` publishes only the separate `nocturne-ade` Pages project,
+with production branch `explore/ade-live-dj`; the main club is untouched.
+Its custom domain needs a CNAME to `nocturne-ade.pages.dev`. The relay configuration
+allow-lists the new HTTPS origin for access recovery, music and multiplayer.
+
+For browser tests, set `$env:VRCLUB_ADE_PITCH = '1'` for the opt-in preview, or
+`$env:VRCLUB_ADE_SITE = '1'` for the dedicated non-indexed site, then run
+`npx playwright test live-event-concept.spec.mjs`.
+
 ### Quest branch
 
 This branch is a **Quest distribution candidate**, not an uploaded or signed store release.
@@ -75,7 +118,8 @@ js/playerHeight.js         Pure player-height maths: standing eye-height estimat
 js/djPerformer.js          The DJ's live set as a pose for AvatarRig: mixing, cueing, knobs, crowd, hands up on a drop, waves at visitors, on the beat
 js/crowdDance.js           The crowd's choreographer: who dances which move, on the beat; claps in a build, hands up on a drop, sway or stand when the kick goes
 js/minglerClock.js         Shared room-time mingler round: deterministic positions, activities and clip phase, independent of host, startup and graphics tier
-js/networkClient.js        Multiplayer WebSocket/WebRTC client (presence, voice, emoji, shared music)
+js/sfuClient.js            Room-authorised SFU audio transport; loaded before networkClient
+js/networkClient.js        Multiplayer WebSocket/WebRTC client (presence, mesh/SFU voice, emoji, shared music)
 js/avatarManager.js        Remote guests as clip-driven Quaternius people: idle/walk/run, wave, nod, dance; name tags, spatial voice, mute and the personal-space bubble
 js/multiplayer.js          One multiplayer session for the whole club (DOM panel and VR menu): connect, mic, gestures, block, mute, kick/ban/lock, shared music
 js/club/01-core.js         VRClub constructor, shared state, and device settings
@@ -157,10 +201,31 @@ entirely opt-in: nobody connects until a guest presses **Join room**. In a room,
 **Mic**, **React** and **Chat** (keys **M** and **T**), and the music is lowered while anyone talks (switchable). In VR the quick menu's first row in a room is **TALK**, **REACT** and **CHAT** (one-tap ready-made messages).
 For faster access, click the **right thumbstick** while in a room to open the social wheel, tilt toward Chat,
 Reactions or Microphone, click to choose, and center the stick before choosing again. Microphone and chat
-can target Everyone, nobody, or selected guests. Right-stick turning pauses while the wheel is open; the
+can target Everyone, nobody, or selected guests in private rooms; public-room audiences stay room-wide
+(with personal mutes and two-way blocks still available). Right-stick turning pauses while the wheel is open; the
 left-stick click and grips still sprint, and `Y`/`B` still opens the complete quick menu.
 Both local testing and the deployed site default to the hosted relay:
 `wss://vrclub-network.garfieldapp.workers.dev`. No local Worker is required.
+
+**QuestProtect safety.** The desktop Online panel and VR ONLINE page first show a
+versioned **Before you go online** guide: keep personal/contact details private,
+leave if pressured, and use **Report & block**. Acceptance is remembered on this
+device; Safety can reopen it. Report & block sends a reason to the room host before
+blocking contact both ways. Hosts receive a bounded, session-only report list with
+remove/ban controls. Reports are not a staffed ADE reporting service, evidence
+archive, age verification or guaranteed protection against abuse. An official
+event still needs appointed moderators, escalation procedures and an admission policy.
+
+**Larger rooms.** This branch integrates QuestDev's SFU/presence experiment and
+configures the shared relay for **32 connected guests per room**, public or private.
+The coordinated production rollout completed on 19 October 2026: migration 0009,
+dedicated production SFU credentials, all three supported frontends and the shared
+Worker are deployed. Old open tabs need reloading. SFU audio avoids a 32-person browser-to-browser
+mesh; detailed remote bodies are bounded to the nearest 6/10/14 on
+Balanced/High/Ultra, with capsule fallbacks for the rest. The 17-character pool can
+repeat once exhausted. Admission is tested, not a claim of 32-person headset
+performance or festival broadcast delivery. See [SCALING.md](docs/SCALING.md)
+for setup, compatibility, safety enforcement, tests and rollout.
 
 ### Immersive VR access
 
@@ -285,7 +350,9 @@ never a private room code or a participant's name.
 
 The relay accepts browser connections only from origins listed in `ALLOWED_ORIGINS`
 (`worker/wrangler.toml`); loopback and private-LAN origins always pass. Add your own site's
-origin before deploying a relay for it. Rooms hold up to 8 guests (voice is a full mesh, and eight is how many are drawn as characters), and per-connection
+origin before deploying a relay for it. The shared relay configuration targets 32 guests using SFU
+audio; unconfigured custom relays retain eight-person mesh rooms. Rooms above eight require SFU.
+Detailed character counts are independent of room capacity, and per-connection
 rate limits disconnect clients that flood the room.
 For a custom relay's room browser, also add its HTTP(S) origin to `connect-src` in
 `index.html`; the shipped policy permits the hosted relay and API without allowing
