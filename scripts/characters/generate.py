@@ -449,8 +449,8 @@ for character in CAST:
         "materials": 2, "textureSizes": [1024, 512],
         "bytes": (OUTPUT / f"{character['id']}.glb").stat().st_size,
         "bones": len(rig.data.bones),
-        "hairAlpha": "MASK required; production loader forces OPAQUE and needs adaptation",
-        "animation": "Prototype_Breathing only; club animation retargeting not implemented",
+        "hairAlpha": "MASK; production hair is alpha-tested and writes depth",
+        "animation": "Base breathing reference; scripts/characters/build.mjs authors production role/player clips and procedural DJ rigs",
     }
     print("CHARACTER_COMPLETE", json.dumps(existing[character["id"]]), flush=True)
 manifest_path.write_text(json.dumps([existing[character["id"]] for character in CAST], indent=2))
