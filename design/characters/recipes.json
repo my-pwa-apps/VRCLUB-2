@@ -113,8 +113,8 @@
     ],
     "bytes": 1543908,
     "bones": 53,
-    "hairAlpha": "MASK required; production loader forces OPAQUE and needs adaptation",
-    "animation": "Prototype_Breathing only; club animation retargeting not implemented"
+    "hairAlpha": "MASK; production hair is alpha-tested and writes depth",
+    "animation": "Base breathing reference; scripts/characters/build.mjs authors production role/player clips and procedural DJ rigs"
   },
   {
     "id": "ellis",
@@ -1115,8 +1115,8 @@
     ],
     "bytes": 1599648,
     "bones": 53,
-    "hairAlpha": "MASK required; production loader forces OPAQUE and needs adaptation",
-    "animation": "Prototype_Breathing only; club animation retargeting not implemented"
+    "hairAlpha": "MASK; production hair is alpha-tested and writes depth",
+    "animation": "Base breathing reference; scripts/characters/build.mjs authors production role/player clips and procedural DJ rigs"
   },
   {
     "id": "iris",
