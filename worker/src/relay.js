@@ -14,7 +14,7 @@
  *     { type: 'emoji', emoji: '🎉' }                  - one-shot reaction (allow-listed)
  *     { type: 'gesture', gesture: 'wave'|'nod'|'dance'|'stop' } - body language (allow-listed; 'dance' runs until 'stop')
  *     { type: 'chat', text, targets? }                - typed message; targets are private-room-only recipient IDs (empty/invalid never broadcasts)
- *     { type: 'avatar', pool?, avatar? }              - select an exact allow-listed ID, otherwise reroll from 'women', 'men' or 'any'
+ *     { type: 'avatar', pool?, avatar?, appearance? } - exact character and optional wardrobe (null clears), otherwise reroll
  *     { type: 'music', url, playing, position, podcast?, title? } - host only; shared track state (http(s) only)
  *     { type: 'show', m, mv, cue, ... }               - host only; the light show (see sanitizeShow)
  *     { type: 'door', door: 0|1, shut: bool }         - any guest; push a restroom stall door shut or ajar by hand (shared room state)
@@ -29,9 +29,9 @@
  *     { type: 'host-transfer', target }              - host only; give another visible guest control without disconnecting
  *     { type: 'ping', time? }                         - heartbeat every 10 s; optional monotonic timestamp for clock compensation; silence for 30 s closes a pinger (4013)
  *   server -> client
- *     { type: 'welcome', id, pid, avatar, avatarSelection:true, hostId, locked, serverTime, world:{v:1,startedAt,seed}, targetedChat:true, hostTransfer:true, capacity, mediaTransport, poseBatch:true, peers:[{id,pid,name,avatar,state}], music, show, doors:[bool,bool] }
+ *     { type: 'welcome', id, pid, avatar, appearance, avatarSelection:true, appearanceSelection:true, hostId, locked, serverTime, world:{v:1,startedAt,seed}, targetedChat:true, hostTransfer:true, capacity, mediaTransport, poseBatch:true, peers:[{id,pid,name,avatar,appearance,state}], music, show, doors:[bool,bool] }
  *     { type: 'pong', time, serverTime }              - a timestamped ping reply to its sender only
- *     { type: 'join', id, pid, name, avatar }
+ *     { type: 'join', id, pid, name, avatar, appearance }
  *     { type: 'leave', id }
  *     { type: 'state', id, state }
  *     { type: 'states', states:[{id,state}] }        - coalesced, distance-tiered poses for capable clients
@@ -41,8 +41,8 @@
  *     { type: 'emoji', id, emoji }
  *     { type: 'gesture', id, gesture }
  *     { type: 'chat', id, text, restricted? }
- *     { type: 'avatar', id, avatar }
- *     { type: 'avatar-error', reason:'rate-limit'|'unknown-character' } - the current appearance is unchanged
+ *     { type: 'avatar', id, avatar, appearance }
+ *     { type: 'avatar-error', reason:'rate-limit'|'unknown-character'|'invalid-appearance' } - unchanged
  *     { type: 'music', url, playing, position, updatedAt, podcast, title }
  *     { type: 'show', ... }
  *     { type: 'door', id, door, shut }
@@ -61,6 +61,10 @@
  * random look, unique while the pool has unused people, and may ask for another. The pool must match
  * js/club/11-audio-crowd.js. Baseline mesh rooms hold eight guests; explicitly configured
  * SFU rooms may admit up to 32. Admission does not claim that a headset can render 32 full characters.
+ * `appearance` is optional bounded JSON in the join URL (at most 512 decoded characters), or a field on an avatar
+ * frame: exactly {v:1,base,hair,outfit,skin,hairColor,top,bottom}. Base must match the selected avatar, hair is
+ * original/short/long, outfit original/casual/smart, and all four colours are six-digit hex (stored lowercase).
+ * Null clears it. An old avatar-only selection/reroll also clears it; pose frames never carry wardrobes.
  *
  * The host owns the room's music and lights. `music` carries the track and where it is; `show` carries the light show
  * (which cue the Show Director is on, the master colour, or, under manual control, the fixture settings). The relay
@@ -125,6 +129,24 @@ export const AVATAR_POOLS = Object.freeze({
 });
 export function sanitizePool(value) {
     return value === 'women' || value === 'men' ? value : 'any';
+}
+export const MAX_APPEARANCE_LENGTH = 512;
+const APPEARANCE_KEYS = Object.freeze(['v', 'base', 'hair', 'outfit', 'skin', 'hairColor', 'top', 'bottom']);
+/** Null explicitly clears a wardrobe; undefined means invalid, never a partial/default wardrobe. */
+export function sanitizeAppearance(value, avatar) {
+    if (value === null) return null;
+    if (!value || typeof value !== 'object' || Array.isArray(value) ||
+        Object.keys(value).length !== APPEARANCE_KEYS.length ||
+        APPEARANCE_KEYS.some(key => !Object.hasOwn(value, key)) ||
+        value.v !== 1 || !AVATARS.includes(value.base) || value.base !== avatar ||
+        !['original', 'short', 'long'].includes(value.hair) ||
+        !['original', 'casual', 'smart'].includes(value.outfit)) return undefined;
+    const result = { v: 1, base: value.base, hair: value.hair, outfit: value.outfit };
+    for (const key of ['skin', 'hairColor', 'top', 'bottom']) {
+        if (typeof value[key] !== 'string' || value[key].length !== 7 || !/^#[0-9a-f]{6}$/i.test(value[key])) return undefined;
+        result[key] = value[key].toLowerCase();
+    }
+    return result;
 }
 export const MAX_CHAT_LENGTH = 200;
 /**
@@ -417,6 +439,13 @@ export class ClubRoom {
         const name = sanitizeName(url.searchParams.get('name'));
         const avatar = url.searchParams.get('avatar');
         if (avatar !== null && !AVATARS.includes(avatar)) return new Response('unknown character', { status: 400 });
+        let appearance = null;
+        if (url.searchParams.has('appearance')) {
+            const encoded = url.searchParams.get('appearance');
+            if (encoded.length > MAX_APPEARANCE_LENGTH) return new Response('invalid appearance', { status: 400 });
+            try { appearance = sanitizeAppearance(JSON.parse(encoded), avatar); } catch { appearance = undefined; }
+            if (appearance === undefined) return new Response('invalid appearance', { status: 400 });
+        }
         // A secret per browser, kept in its localStorage. Without one (an old client) the guest is simply anonymous
         // for this connection: it can neither be blocked nor banned across reconnects.
         const uid = url.searchParams.get('uid');
@@ -424,7 +453,7 @@ export class ClubRoom {
 
         const pair = new WebSocketPair();
         const [client, server] = Object.values(pair);
-        this._acceptSession(server, name, pid, sanitizePool(url.searchParams.get('avatars')), url.searchParams.get('poseBatch') === '1', null, avatar);
+        this._acceptSession(server, name, pid, sanitizePool(url.searchParams.get('avatars')), url.searchParams.get('poseBatch') === '1', null, avatar, appearance);
         return new Response(null, { status: 101, webSocket: client });
     }
 
@@ -460,10 +489,11 @@ export class ClubRoom {
 
     _peerInfo(session) {
         return { id: session.id, pid: session.pid, name: session.name, avatar: session.avatar,
+            appearance: session.appearance,
             ...(session.simulated ? { simulated: true } : {}) };
     }
 
-    _acceptSession(ws, name, pid = null, avatarPool = 'any', poseBatch = false, simulation = null, avatar = null) {
+    _acceptSession(ws, name, pid = null, avatarPool = 'any', poseBatch = false, simulation = null, avatar = null, appearance = null) {
         const simulated = simulation !== null;
         if (!simulated) ws.accept();
         pid = PID_PATTERN.test(pid || '') ? pid : Array.from(crypto.getRandomValues(new Uint8Array(8)), b => b.toString(16).padStart(2, '0')).join('');
@@ -493,6 +523,7 @@ export class ClubRoom {
         for (const [type, limit] of Object.entries(RATE_LIMITS)) buckets[type] = new TokenBucket(limit, now);
         const session = { id, pid, name, avatar: AVATARS.includes(avatar) ? avatar : this._pickAvatar(null, avatarPool), avatarPool, blocked: new Set(), lastState: null, buckets, dropped: 0, lastSeen: now, pinger: false,
             poseBatch, poseSent: new Map() };
+        session.appearance = sanitizeAppearance(appearance, session.avatar) || null;
         if (simulated) {
             session.simulated = true;
             session.simulatedIndex = simulation.index;
@@ -520,6 +551,8 @@ export class ClubRoom {
             pid,
             avatar: session.avatar,
             avatarSelection: true,
+            appearance: session.appearance,
+            appearanceSelection: true,
             hostId: this.hostId,
             locked: this.locked,
             serverTime: now,
@@ -534,7 +567,7 @@ export class ClubRoom {
             show: this.showState,
             doors: this.doors
         });
-        this._relay(session, { type: 'join', id, pid, name, avatar: session.avatar }, ws);
+        this._relay(session, { type: 'join', ...this._peerInfo(session) }, ws);
         if (this.media) this.media.add(session);
         if ((poseBatch || this._roomName === DEV_ROOM) && !this._poseTimer) {
             this._poseTimer = setInterval(() => this._flushPoses(), 50);
@@ -693,10 +726,19 @@ export class ClubRoom {
                     this._send(ws, { type: 'avatar-error', reason: 'unknown-character' });
                     break;
                 }
+                let appearance = null;
+                if (Object.hasOwn(msg, 'appearance')) {
+                    appearance = sanitizeAppearance(msg.appearance, msg.avatar || session.avatar);
+                    if (appearance === undefined) {
+                        this._send(ws, { type: 'avatar-error', reason: 'invalid-appearance' });
+                        break;
+                    }
+                }
                 if (msg.pool !== undefined) session.avatarPool = sanitizePool(msg.pool);
                 // An explicit personal choice may repeat; random picks still prefer unused characters.
-                session.avatar = msg.avatar || this._pickAvatar(session, session.avatarPool);
-                const note = { type: 'avatar', id: session.id, avatar: session.avatar };
+                session.avatar = msg.avatar || (Object.hasOwn(msg, 'appearance') ? session.avatar : this._pickAvatar(session, session.avatarPool));
+                session.appearance = appearance;
+                const note = { type: 'avatar', id: session.id, avatar: session.avatar, appearance };
                 this._send(ws, note);
                 this._relay(session, note, ws);
                 break;

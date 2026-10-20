@@ -4,6 +4,30 @@ Hyperrealistic WebXR nightclub built with Babylon.js for compatible VR headsets 
 
 ## Quick Start
 
+### Edit your personal character
+
+Open **Show → Club → Edit my character** on a computer or phone, or
+**Comfort → Me → Edit my character** in VR. Choose one of 17 adult bases,
+original/short/long hair, an original/casual/smart fitted outfit, and skin,
+hair, top and bottom colours. Rotate the 3D preview before saving; Cancel
+leaves your character unchanged. Reset removes customization and keeps the
+chosen base. This is a wardrobe editor, not a body/face sculpting tool.
+
+Your choice is saved on this device and shared with guests in rooms. Sharing
+requires the updated relay; an older relay gives an explicit error rather than
+pretending others can see it. Custom personal bodies use detailed models even
+in a lightweight room; other people's colours and NPC outfits are not changed.
+Only a selected wardrobe is downloaded (about 2.4–3.0 MiB), not all 17 at entry.
+The complete optional wardrobe payload is about 45 MiB.
+No camera, upload, account sync or external avatar service is involved.
+Controller comfort, clothing fit in every pose and frame cost on a physical
+headset still require headset review.
+
+`js/wardrobeCatalog.js` lists the on-demand wardrobe assets;
+`js/avatarAppearance.js` owns validation, shared-texture instantiation, device
+preferences and authoritative room updates; `js/avatarEditor.js` owns the
+desktop/phone modal and the VR preview.
+
 ### Live-event / ADE exploration
 
 This branch contains an **independent pitch concept**, not a working venue broadcast

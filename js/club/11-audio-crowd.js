@@ -1516,6 +1516,8 @@ class VRClubAudioCrowd extends VRClubUI {
 
     /** The character this player chose for themselves (saved), or null for the default body. Offline, it is the mirror's reflection. */
     getLocalCharacter() {
+        const appearance = this.getPersonalAppearance?.();
+        if (appearance) return appearance.base;
         try {
             const id = localStorage.getItem('vrclub.myCharacter');
             return VRClubAudioCrowd.MY_CHARACTERS.includes(id) ? id : null;
@@ -1533,12 +1535,18 @@ class VRClubAudioCrowd extends VRClubUI {
         try {
             if (next) localStorage.setItem('vrclub.myCharacter', next);
             else localStorage.removeItem('vrclub.myCharacter');
+            localStorage.removeItem('vrclub.personalAppearance');
         } catch (error) {
             log.warn('Your character could not be saved:', error);
             this.showErrorMessage('Your character could not be saved on this device.');
             return false;
         }
-        if (mp && mp.client) mp.client.preferredAvatar = next;
+        this._personalAppearanceLoaded = true;
+        this._personalAppearance = null;
+        if (mp && mp.client) {
+            mp.client.preferredAvatar = next;
+            mp.client.setPreferredAppearance?.(null);
+        }
         if (mp && mp.connected && mp.selectAvatar(next) === false) return false;
         if (next) this.setLocalAvatarStyle(next[0] === 'm' ? 'male' : 'female');
         this._mirrorSignature = -1;

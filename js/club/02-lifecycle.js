@@ -661,6 +661,7 @@ class VRClubLifecycle extends VRClubCore {
                     }
                 } else if (state === BABYLON.WebXRState.NOT_IN_XR) {
                     this._closeVRSocialWheel(true);
+                    this.avatarEditor?.closeVR();
                     // CRITICAL: Re-enable frame-skip optimizations on desktop
                     this.isInVRMode = false;
 
@@ -854,6 +855,11 @@ class VRClubLifecycle extends VRClubCore {
      */
     dispose() {
         if (this._disposed) return;
+        this.avatarEditor?.dispose();
+        this._appearancePending?.reject('The club has closed.');
+        if (this._wardrobeCleanupTimer) clearTimeout(this._wardrobeCleanupTimer);
+        this._wardrobeCleanupTimer = null;
+        this._wardrobeSources?.clear();
         this._disposed = true;
         this._cancelDevSeatWait();
         this._liveEventConcept?.dispose();

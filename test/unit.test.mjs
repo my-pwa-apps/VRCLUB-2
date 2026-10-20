@@ -2645,16 +2645,19 @@ test('disposing the club releases VR access, stops every audio source and closes
     const ctx = club.audioContext;
     assert.ok(started.size >= 5, 'the crowd ambience, flanger, gater, phaser and noise sweep should be running');
 
+    const clearedTimers = [];
     const { window } = loadClassic('js/club/02-lifecycle.js', {
         VRClubCore: class {}, log: { info() {}, warn() {} }, URL: { revokeObjectURL() {} },
-        document: { removeEventListener() {} }
+        document: { removeEventListener() {} }, clearTimeout: timer => clearedTimers.push(timer)
     });
     const xrStates = [];
     club._cancelDevSeatWait = () => {};
+    club._wardrobeCleanupTimer = 42;
     window.VRPayment = { onXRStateChange: active => xrStates.push(active) };
     window.VRClubLifecycle.prototype.dispose.call(club);
     window.VRClubLifecycle.prototype.dispose.call(club);
     assert.deepEqual(xrStates, [false], 'teardown must stop lease renewal exactly once');
+    assert.deepEqual(clearedTimers, [42], 'teardown must cancel wardrobe cleanup exactly once');
     assert.equal(started.size, 0, 'an audio source or DJ-effect oscillator is still running after dispose');
     assert.equal(ctx.state, 'closed');
     assert.equal(club.audioContext, null);
@@ -6432,7 +6435,7 @@ test('the VR menu: COMFORT holds how you move, ME holds who you are, and the cha
     const same = (a, b, message) => assert.equal(JSON.stringify(a), JSON.stringify(b), message);
     const comfort = labels('comfort');
     same(comfort, ['LOCOMOTION', 'SAFE MODE', 'QUALITY', 'AUTO QUALITY', 'ME', 'CREDITS / LICENCES', '\u2190 BACK', 'CLOSE']);
-    same(labels('me'), ['MY CHARACTER', 'MEASURE HEIGHT', 'SEATED MODE', '\u2190 BACK', 'CLOSE']);
+    same(labels('me'), ['MY CHARACTER', 'EDIT MY CHARACTER', 'MEASURE HEIGHT', 'SEATED MODE', '\u2190 BACK', 'CLOSE']);
     for (const page of ['comfort', 'me', 'character']) assert.ok(labels(page).length <= 12, `${page} fits the twelve slots`);
 
     // Page one: the default and the eight women; page two: the nine men. Each names the kind of person and what they wear.

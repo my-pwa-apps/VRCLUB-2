@@ -9,6 +9,7 @@
     "dev": "node scripts/serve.mjs",
     "build": "node scripts/build.mjs",
     "build:characters": "node scripts/characters/build.mjs",
+    "build:wardrobe": "node scripts/characters/build.mjs --wardrobe",
     "ade:assets": "node scripts/build-ade-brandpack.mjs",
     "build:ade-pitch": "npm run ade:assets && node scripts/build.mjs --ade-pitch",
     "build:ade-site": "npm run ade:assets && node scripts/build.mjs --ade-site",

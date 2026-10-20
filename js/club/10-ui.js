@@ -648,7 +648,16 @@ class VRClubUI extends VRClubAnimationFinish {
         context.textAlign = 'center';
         context.textBaseline = 'middle';
         const value = this._vrQuickMenuButtonValue(button, active);
-        context.fillText(button.label, 256, value ? 66 : 96, 480);
+        if (button.swatch) {
+            context.fillText(button.label, 218, value ? 66 : 96, 392);
+            context.fillStyle = button.swatch;
+            context.fillRect(438, 51, 46, 82);
+            context.strokeStyle = '#ffffff';
+            context.lineWidth = 4;
+            context.strokeRect(438, 51, 46, 82);
+        } else {
+            context.fillText(button.label, 256, value ? 66 : 96, 480);
+        }
         if (value) {
             context.fillStyle = disabled ? '#8a919e' : active ? '#d2fff9' : '#d5dae3';
             // The second line (ON / OFF, the current value, why a button is unavailable) is what a guest checks most: it was
@@ -916,6 +925,7 @@ class VRClubUI extends VRClubAnimationFinish {
             ],
             me: [
                 { label: 'MY CHARACTER', action: 'page', target: 'character' },
+                { label: 'EDIT MY CHARACTER', action: 'page', target: 'appearanceEditor' },
                 { label: 'MEASURE HEIGHT', action: 'measureHeight' },
                 { label: 'SEATED MODE', control: 'vrSeatedMode' },
                 common.back,
@@ -1003,6 +1013,12 @@ class VRClubUI extends VRClubAnimationFinish {
                 common.close
             ]
         };
+        if (page.startsWith('appearance')) {
+            return this.avatarEditor?.getVRDefinitions(page) || [
+                { label: 'BACK', action: 'back', target: 'me' },
+                { label: 'CANCEL', action: 'appearanceCancel' }
+            ];
+        }
         // The panel has twelve button slots: in a room the extra ACCESS row would push CLOSE off the end.
         if (pages.home.length > 12) pages.home = [...pages.home.slice(0, 11), common.close];
         return pages[page] || pages.home;
@@ -1016,6 +1032,7 @@ class VRClubUI extends VRClubAnimationFinish {
         this._vrQuickMenuPage = page;
         if (page === 'chat' && this.multiplayer) this.multiplayer.markChatRead();
         const definitions = this._vrQuickMenuPageDefinitions(page);
+        this._syncVRWardrobe(page);
         this._vrQuickMenuButtons.forEach((button, index) => {
             const definition = definitions[index];
             button.mesh.setEnabled(!!definition);
@@ -1046,6 +1063,9 @@ class VRClubUI extends VRClubAnimationFinish {
             button.danger = false;
             button.character = undefined;
             button.detail = '';
+            button.field = null;
+            button.value = null;
+            button.swatch = null;
             Object.assign(button, definition);
             this._drawVRQuickMenuButton(button);
         });
@@ -1066,6 +1086,9 @@ class VRClubUI extends VRClubAnimationFinish {
             context.textBaseline = 'middle';
             const titles = { home: 'VR CLUB', onlineSafety: 'BEFORE YOU GO ONLINE', room: 'JOIN ROOM', look: 'RANDOM LOOK', gestures: 'REACT', chat: 'CHAT', crowd: 'WHO IS HERE',
                 me: 'ME', character: 'YOUR CHARACTER',
+                appearanceEditor: 'PERSONAL WARDROBE', appearanceBase: 'BASE CHARACTER', appearanceHair: 'HAIR STYLE',
+                appearanceOutfit: 'OUTFIT STYLE', appearanceSkin: 'SKIN COLOR', appearanceHairColor: 'HAIR COLOR',
+                appearanceTop: 'TOP COLOR', appearanceBottom: 'BOTTOM COLOR',
                 voiceAudience: 'MICROPHONE AUDIENCE', chatAudience: 'CHAT RECIPIENTS', welcome: 'WELCOME', access: 'LINK YOUR ACCOUNT', musicPhone: 'MUSIC FROM YOUR PHONE' };
             // Immersive launch pages draw their own words: the pairing code is the title, so it is read at arm's length.
             const immersiveText = (page === 'welcome' || page === 'access' || page === 'musicPhone') && this._immersive ? this._immersive.pageText(page) : null;
@@ -1083,6 +1106,14 @@ class VRClubUI extends VRClubAnimationFinish {
                 comfort: 'HOW YOU MOVE, WHAT YOU SEE AND FEEL',
                 me: 'YOUR CHARACTER, YOUR HEIGHT AND SITTING',
                 character: 'YOUR BODY, MIRROR AND ONLINE APPEARANCE',
+                appearanceEditor: 'YOUR DETAILED PERSONAL AVATAR; NO PHOTO OR ACCOUNT UPLOAD',
+                appearanceBase: 'CHOOSE YOUR PERSONAL AVATAR BASE',
+                appearanceHair: 'CHOOSE YOUR PERSONAL HAIR STYLE',
+                appearanceOutfit: 'CHOOSE YOUR PERSONAL OUTFIT',
+                appearanceSkin: 'CHOOSE A SKIN COLOR',
+                appearanceHairColor: 'CHOOSE A HAIR COLOR',
+                appearanceTop: 'CHOOSE A TOP COLOR',
+                appearanceBottom: 'CHOOSE A BOTTOM COLOR',
                 crowd: 'HOST CHOOSES STYLE; LIGHTWEIGHT FOR ME IS PERSONAL',
                 travel: 'POINT AT A PLACE TO JUMP THERE',
                 music: 'CONTROL THE CURRENT TRACK OR CHANGE SOURCE',
@@ -1319,6 +1350,18 @@ class VRClubUI extends VRClubAnimationFinish {
     _refreshVRQuickMenu() {
         if (!this._vrQuickMenuButtons) return;
         this._showVRQuickMenuPage(this._vrQuickMenuPage || 'home');
+    }
+
+    _getAvatarEditor() {
+        if (this.avatarEditor) return this.avatarEditor;
+        if (typeof window.AvatarEditor !== 'function') return null;
+        this.avatarEditor = new window.AvatarEditor(this);
+        return this.avatarEditor;
+    }
+
+    _syncVRWardrobe(page) {
+        if (!this.avatarEditor) return;
+        this.avatarEditor.syncVR(page, this._vrQuickMenuRoot, !!this._vrQuickMenuRoot?.isEnabled());
     }
 
     // ---- ONLINE: the VR face of js/multiplayer.js ----------------------------------------------------------------
@@ -1762,6 +1805,14 @@ class VRClubUI extends VRClubAnimationFinish {
             return;
         }
         if (button.action === 'page') {
+            if (button.target === 'appearanceEditor') {
+                const editor = this._getAvatarEditor();
+                if (!editor) {
+                    this.showErrorMessage('Personal wardrobe is unavailable in this build.');
+                    return;
+                }
+                if (!editor.openVR()) return;
+            }
             // Remember where this page was opened from, so its BACK returns there (REACT is reached from HOME and ONLINE).
             this._vrPageParent = { ...(this._vrPageParent || {}), [button.target]: this._vrQuickMenuPage || 'home' };
             // The picker opens on the page that holds the current character: women and the default, or men.
@@ -1772,6 +1823,52 @@ class VRClubUI extends VRClubAnimationFinish {
         if (button.action === 'back') {
             const parent = this._vrPageParent && this._vrPageParent[this._vrQuickMenuPage];
             this._showVRQuickMenuPage(parent || button.target || 'home');
+            return;
+        }
+        if (button.action === 'appearanceSet') {
+            this.avatarEditor?.setDraftValue(button.field, button.value);
+            this._refreshVRQuickMenu();
+            return;
+        }
+        if (button.action === 'appearanceBasePage') {
+            const editor = this.avatarEditor;
+            if (!editor) return;
+            editor.vrBasePage = Math.max(0, Math.min(2, editor.vrBasePage + button.delta));
+            this._refreshVRQuickMenu();
+            return;
+        }
+        if (button.action === 'appearanceColorPage') {
+            const editor = this.avatarEditor;
+            if (!editor) return;
+            const maxPage = Math.ceil(window.AvatarEditor.COLORS.length / 8) - 1;
+            editor.vrColorPage[button.field] = Math.max(0, Math.min(maxPage,
+                (editor.vrColorPage[button.field] || 0) + button.delta));
+            this._refreshVRQuickMenu();
+            return;
+        }
+        if (button.action === 'appearanceRotate') {
+            this.avatarEditor?.rotateVR(button.delta);
+            return;
+        }
+        if (button.action === 'appearanceSave') {
+            void (async () => {
+                if (!await this.avatarEditor?.saveVR()) return;
+                this._showVRQuickMenuPage('me');
+                this.showErrorMessage('Personal appearance saved.');
+            })();
+            return;
+        }
+        if (button.action === 'appearanceReset') {
+            void (async () => {
+                if (!await this.avatarEditor?.resetVR()) return;
+                this._showVRQuickMenuPage('me');
+                this.showErrorMessage('Personal appearance reset.');
+            })();
+            return;
+        }
+        if (button.action === 'appearanceCancel') {
+            this.avatarEditor?.cancelVR();
+            this._showVRQuickMenuPage('me');
             return;
         }
         if (button.action === 'net' || button.action === 'person') {
@@ -2027,6 +2124,9 @@ class VRClubUI extends VRClubAnimationFinish {
         this._showVRQuickMenuPage('home');
         root.setEnabled(false);
         this._vrQuickMenuRoot = root;
+        this.scene.onDisposeObservable.add(() => {
+            try { this.avatarEditor?.closeVR(); } catch (_) { /* scene teardown */ }
+        });
         // The menu stays visible when immersive launch hides the world (see ImmersiveLaunch.setVeil): it also lives on
         // the extra layer the veil camera looks at.
         for (const mesh of root.getChildMeshes()) mesh.layerMask = VRClubUI.MENU_LAYER_MASK;
@@ -2061,6 +2161,8 @@ class VRClubUI extends VRClubAnimationFinish {
         if (next) this._refreshVRQuickMenu();
         if (!next) this._stopVRMusicTicker();
         this._vrQuickMenuRoot.setEnabled(next);
+        if (!next) this.avatarEditor?.closeVR();
+        else this._syncVRWardrobe(this._vrQuickMenuPage);
         return next;
     }
 

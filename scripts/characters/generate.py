@@ -11,7 +11,8 @@ from mathutils import Quaternion, Vector
 ROOT = Path(__file__).resolve().parents[2]
 TOOLS = Path(os.environ["VRCLUB_CHARACTER_TOOLS"])
 ASSETS = TOOLS / "assets"
-OUTPUT = ROOT / "design" / "characters" / "base"
+WARDROBE = os.environ.get("AVATAR_WARDROBE") == "1"
+OUTPUT = ROOT / "design" / "characters" / ("wardrobe" if WARDROBE else "base")
 OUTPUT.mkdir(parents=True, exist_ok=True)
 
 bpy.context.preferences.extensions.repos.new(
@@ -244,7 +245,7 @@ def material_pixels(material, size, tint=None):
     return pixels
 
 
-def atlas_material(objects, name, transparent=False, tint=None):
+def atlas_material(objects, name, transparent=False, tint=None, neutral=False):
     slots = []
     for obj in objects:
         for index, slot in enumerate(obj.material_slots):
@@ -259,6 +260,10 @@ def atlas_material(objects, name, transparent=False, tint=None):
         x, y = (tile % grid) * cell, (tile // grid) * cell
         # Padding plus inset UVs prevents neighbouring atlas cells bleeding at seams.
         content = material_pixels(material, cell - 8, tint=obj.get("experiment_tint", tint))
+        if neutral:
+            grey = content[:, :, :3].mean(axis=2)
+            reference = max(0.05, float(np.percentile(grey, 85)))
+            content[:, :, :3] = np.minimum(1.0, grey[:, :, None] / reference)
         pixels[y:y + cell, x:x + cell] = np.pad(
             content, ((4, 4), (4, 4), (0, 0)), mode="edge")
         uv = obj.data.uv_layers.active
@@ -319,6 +324,99 @@ def relax_arms(rig):
             bpy.context.view_layer.update()
 
 
+def generate_wardrobe(character, body, rig):
+    parts = [body]
+    eyes = HumanService.add_mhclo_asset(asset_path("eyes", "low-poly", "mhclo"), body,
+                                      asset_type="Eyes", material_type="GAMEENGINE", subdiv_levels=0)
+    shoes = HumanService.add_mhclo_asset(asset_path("clothes", character["shoes"], "mhclo"), body,
+                                       asset_type="Clothes", material_type="GAMEENGINE", subdiv_levels=0)
+    parts.extend([eyes, shoes])
+    variants = []
+    outfits = {
+        "original": character["clothes"],
+        "casual": "male_casualsuit04" if character["clothes"] == "male_casualsuit06" else "male_casualsuit06",
+        "smart": "male_elegantsuit01" if character["clothes"] == "male_casualsuit01" else "male_casualsuit01",
+    }
+    for kind, choices in (
+        ("hair", dict(original=character["hair"],
+                      short="short02" if character["hair"] == "short03" else "short03",
+                      long="ponytail01" if character["hair"] == "long01" else "long01")),
+        ("outfit", outfits),
+    ):
+        for option, name in choices.items():
+            if name not in license_manifest or license_manifest[name]["license"] != "CC0":
+                raise RuntimeError(f"Unverified wardrobe asset: {name}")
+            obj = HumanService.add_mhclo_asset(
+                asset_path("hair" if kind == "hair" else "clothes", name, "mhclo"), body,
+                asset_type="Hair" if kind == "hair" else "Clothes",
+                material_type="GAMEENGINE", subdiv_levels=0)
+            obj.name = f"wardrobe_{kind}_{option}"
+            variants.append((kind, option, obj))
+            parts.append(obj)
+    set_active(body)
+    if body.data.shape_keys:
+        bpy.ops.object.shape_key_remove(all=True, apply_mix=True)
+    atlas_material([body], "wardrobe_skin", neutral=True)
+    skins = []
+    for option, outfit in outfits.items():
+        skin = body.copy()
+        skin.data = body.data.copy()
+        bpy.context.collection.objects.link(skin)
+        skin.name = f"wardrobe_skin_{option}"
+        keep = {f"Delete.{outfit}", f"Delete.{character['shoes']}", "body"}
+        for modifier in list(skin.modifiers):
+            if modifier.type == "SUBSURF" or modifier.type == "MASK" and modifier.vertex_group not in keep:
+                skin.modifiers.remove(modifier)
+        set_active(skin)
+        ExportService.bake_modifiers_remove_helpers(skin, bake_masks=True, bake_subdiv=False, also_proxy=False)
+        skins.append(skin)
+    parts.remove(body)
+    bpy.data.objects.remove(body, do_unlink=True)
+    for obj in parts:
+        for modifier in list(obj.modifiers):
+            if modifier.type in ("MASK", "SUBSURF"):
+                obj.modifiers.remove(modifier)
+    parts.extend(skins)
+    atlas_material([eyes, shoes], "wardrobe_accessories")
+    for kind, option, obj in variants:
+        material = atlas_material([obj], f"wardrobe_{kind}_{option}", transparent=kind == "hair", neutral=True)
+        if kind == "outfit":
+            bottom = material.copy()
+            bottom.name = f"wardrobe_bottom_{option}"
+            material.name = f"wardrobe_top_{option}"
+            obj.data.materials.append(bottom)
+            height = max(vertex.co.z for vertex in skins[0].data.vertices)
+            for face in obj.data.polygons:
+                z = sum(obj.data.vertices[index].co.z for index in face.vertices) / len(face.vertices)
+                face.material_index = int(z < height * 0.52)
+    for obj in parts:
+        set_active(obj)
+        target = 4500 if obj in skins else 900 if obj in (eyes, shoes) or "hair" in obj.name else 2600
+        triangles = sum(len(face.vertices) - 2 for face in obj.data.polygons)
+        modifier = obj.modifiers.new("Wardrobe triangle budget", "DECIMATE")
+        modifier.ratio = min(1.0, target / max(1, triangles))
+        bpy.ops.object.modifier_apply(modifier=modifier.name)
+        for face in obj.data.polygons:
+            face.use_smooth = True
+    set_active(eyes)
+    shoes.select_set(True)
+    bpy.ops.object.join()
+    bpy.context.object.name = "wardrobe_accessories"
+    relax_arms(rig)
+    bpy.context.view_layer.update()
+    bpy.ops.object.select_all(action="DESELECT")
+    rig.select_set(True)
+    for obj in rig.children:
+        if obj.type == "MESH":
+            obj.select_set(True)
+    bpy.context.view_layer.objects.active = rig
+    bpy.ops.export_scene.gltf(filepath=str(OUTPUT / f"{character['id']}.glb"),
+                              export_format="GLB", use_selection=True, export_animations=False,
+                              export_morph=False, export_skins=True, export_def_bones=True,
+                              export_image_format="AUTO", export_extras=False, export_materials="EXPORT")
+    print("WARDROBE_COMPLETE", character["id"], flush=True)
+
+
 manifest_path = ROOT / "design" / "characters" / "recipes.json"
 existing = {item["id"]: item for item in json.loads(manifest_path.read_text())} if manifest_path.exists() else {}
 only = set(filter(None, os.environ.get("AVATAR_ONLY", "").split(",")))
@@ -328,6 +426,11 @@ license_manifest = {}
 for pack in ("makehuman_system_assets", "dress01"):
     license_manifest.update(json.loads((ASSETS / "packs" / f"{pack}.json").read_text()))
 for character in CAST:
+    if WARDROBE and character["id"] not in {
+        "nia", "asha", "sofia", "iris", "leila", "amara", "mei", "rosa",
+        "tao", "luca", "diego", "ellis", "felix", "malik", "ren", "samir", "idris"
+    }:
+        continue
     if only and character["id"] not in only:
         if character["id"] not in existing:
             raise ValueError(f"Missing unselected character: {character['id']}")
@@ -346,6 +449,9 @@ for character in CAST:
     if rig is None:
         raise RuntimeError("MPFB game_engine rig could not be created")
     body.name = f"{character['id']}_skin"
+    if WARDROBE:
+        generate_wardrobe(character, body, rig)
+        continue
     parts = [body]
     sources = [character["skin"]]
     hair = None
@@ -454,5 +560,6 @@ for character in CAST:
         "animation": "Base breathing reference; scripts/characters/build.mjs authors production role/player clips and procedural DJ rigs",
     }
     print("CHARACTER_COMPLETE", json.dumps(existing[character["id"]]), flush=True)
-manifest_path.write_text(json.dumps([existing[character["id"]] for character in CAST], indent=2))
+if not WARDROBE:
+    manifest_path.write_text(json.dumps([existing[character["id"]] for character in CAST], indent=2))
 print("EXPERIMENT_COMPLETE", flush=True)
