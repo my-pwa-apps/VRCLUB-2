@@ -822,7 +822,8 @@ class VRClubUI extends VRClubAnimationFinish {
         };
         const buttons = second
             ? ids.filter(id => id[0] === 'm').map(entry)
-            : [{ label: 'DEFAULT', detail: 'YOUR OWN BODY', action: 'pickCharacter', character: null }, ...ids.filter(id => id[0] === 'f').map(entry)];
+            : [{ label: 'DEFAULT', detail: this.multiplayer?.connected ? 'RANDOM ROOM CHARACTER' : 'YOUR OWN BODY',
+                action: 'pickCharacter', character: null }, ...ids.filter(id => id[0] === 'f').map(entry)];
         while (buttons.length < 9) buttons.push(null);
         return [
             ...buttons.slice(0, 9),
@@ -1081,7 +1082,7 @@ class VRClubUI extends VRClubAnimationFinish {
                 showSections: 'JUMP TO A MOVEMENT AND KEEP IT BY YOUR HOLD RULE',
                 comfort: 'HOW YOU MOVE, WHAT YOU SEE AND FEEL',
                 me: 'YOUR CHARACTER, YOUR HEIGHT AND SITTING',
-                character: 'WHO YOU ARE IN THE RESTROOM MIRROR OFFLINE',
+                character: 'YOUR BODY, MIRROR AND ONLINE APPEARANCE',
                 crowd: 'HOST CHOOSES STYLE; LIGHTWEIGHT FOR ME IS PERSONAL',
                 travel: 'POINT AT A PLACE TO JUMP THERE',
                 music: 'CONTROL THE CURRENT TRACK OR CHANGE SOURCE',
@@ -1861,9 +1862,10 @@ class VRClubUI extends VRClubAnimationFinish {
             return;
         }
         if (button.action === 'pickCharacter') {
-            // Personal and saved: who you are offline, i.e. your reflection in the restroom mirror (and the body's man/woman).
             const id = this.setLocalCharacter(button.character);
-            this.showErrorMessage(id ? `Your character: ${button.label.toLowerCase()}, ${button.detail.toLowerCase()}` : 'Your character: your own body');
+            if (id === false) return;
+            this.showErrorMessage(id ? `Your character: ${button.label.toLowerCase()}, ${button.detail.toLowerCase()}`
+                : this.multiplayer?.connected ? 'Choosing a random room character\u2026' : 'Your character: your own body');
             return;
         }
         if (button.action === 'characterPage') {

@@ -1522,16 +1522,28 @@ class VRClubAudioCrowd extends VRClubUI {
         } catch (_) { return null; }
     }
 
-    /** Choose a character (or null for the default) and save it; the first-person body follows its gender. */
+    /** Save an exact character for both offline and online use; the relay confirms the shared appearance. */
     setLocalCharacter(id) {
         const next = VRClubAudioCrowd.MY_CHARACTERS.includes(id) ? id : null;
+        const mp = this.multiplayer;
+        if (next && mp && mp.connected && !mp.client.avatarSelectionSupported) {
+            this.showErrorMessage('The relay needs an update before you can choose an exact character in a room.');
+            return false;
+        }
         try {
             if (next) localStorage.setItem('vrclub.myCharacter', next);
             else localStorage.removeItem('vrclub.myCharacter');
-        } catch (_) { /* private browsing */ }
+        } catch (error) {
+            log.warn('Your character could not be saved:', error);
+            this.showErrorMessage('Your character could not be saved on this device.');
+            return false;
+        }
+        if (mp && mp.client) mp.client.preferredAvatar = next;
+        if (mp && mp.connected && mp.selectAvatar(next) === false) return false;
         if (next) this.setLocalAvatarStyle(next[0] === 'm' ? 'male' : 'female');
         this._mirrorSignature = -1;
         if (typeof this._refreshVRQuickMenu === 'function') this._refreshVRQuickMenu();
+        if (typeof window.dispatchEvent === 'function') window.dispatchEvent(new CustomEvent('localcharacterchange'));
         return next;
     }
 
@@ -1541,11 +1553,11 @@ class VRClubAudioCrowd extends VRClubUI {
             this._djLooks = Object.freeze({
                 male: Object.freeze({
                     url: './js/models/avatars/club-dj-male.glb', height: 1.78,
-                    garment: new BABYLON.Color3(0.10, 0.10, 0.12), hair: new BABYLON.Color3(0.20, 0.12, 0.07)
+                    garment: new BABYLON.Color3(0.10, 0.10, 0.12), hair: new BABYLON.Color3(0.12, 0.09, 0.07)
                 }),
                 female: Object.freeze({
                     url: './js/models/avatars/club-dj-female.glb', height: 1.68,
-                    garment: new BABYLON.Color3(0.42, 0.42, 0.45), hair: new BABYLON.Color3(1.0, 0.88, 0.62)
+                    garment: new BABYLON.Color3(0.13, 0.13, 0.15), hair: new BABYLON.Color3(0.85, 0.72, 0.48)
                 })
             });
         }

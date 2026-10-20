@@ -54,6 +54,7 @@ class NetworkClient {
     /** Restroom stall doors the room shares (the relay's MAX_DOORS). */
     static MAX_DOORS = 2;
     static AVATAR_POOLS = Object.freeze(['any', 'women', 'men']);
+    static isAvatar(value) { return typeof value === 'string' && value.length === 2 && /^(?:f[1-8]|m[1-9])$/.test(value); }
     /** What the relay will keep of a message (it applies the same rule): no control characters, at most 200 code points. */
     static cleanChat(value) {
         if (typeof value !== 'string') return '';
@@ -75,12 +76,14 @@ class NetworkClient {
      * @param {'any'|'women'|'men'} [options.avatarPool] which of the random people this guest may be
      * @param {string[]} [options.blocked] public ids to keep invisible, from the user's saved block list
      */
-    constructor({ serverUrl, room = 'lobby', name = 'Guest', uid = null, blocked = [], avatarPool = 'any' } = {}) {
+    constructor({ serverUrl, room = 'lobby', name = 'Guest', uid = null, blocked = [], avatarPool = 'any', avatar = null } = {}) {
         this.serverUrl = serverUrl;
         this.room = String(room || 'lobby').slice(0, 64);
         this.name = String(name || 'Guest').slice(0, 32);
         /** Which people this guest may be handed: 'any', 'women' or 'men'. */
         this.avatarPool = NetworkClient.AVATAR_POOLS.includes(avatarPool) ? avatarPool : 'any';
+        this.preferredAvatar = NetworkClient.isAvatar(avatar) ? avatar : null;
+        this.avatarSelectionSupported = false;
         this.uid = typeof uid === 'string' && /^[A-Za-z0-9_-]{16,64}$/.test(uid) ? uid : null;
         /** @type {Set<string>} */
         this.blockedPids = new Set((blocked || []).filter(pid => NetworkClient.PID.test(pid)).slice(0, NetworkClient.MAX_BLOCKED));
@@ -215,6 +218,9 @@ class NetworkClient {
         url.searchParams.set('name', this.name);
         if (this.uid) url.searchParams.set('uid', this.uid);
         if (this.avatarPool !== 'any') url.searchParams.set('avatars', this.avatarPool);
+        this._joiningAvatar = this.preferredAvatar;
+        if (this.preferredAvatar) url.searchParams.set('avatar', this.preferredAvatar);
+        else url.searchParams.delete('avatar');
         url.searchParams.set('poseBatch', '1');
         url.searchParams.set('sfu', '1');
 
@@ -293,8 +299,19 @@ class NetworkClient {
 
     _send(obj) {
         if (this.ws && this.ws.readyState === WebSocket.OPEN) {
-            try { this.ws.send(JSON.stringify(obj)); } catch { /* ignore */ }
+            try { this.ws.send(JSON.stringify(obj)); return true; } catch { return false; }
         }
+        return false;
+    }
+
+    _reportAvatarError(reason) {
+        const messages = {
+            unsupported: 'This relay needs an update to use your selected character online. Your saved choice is kept.',
+            'rate-limit': 'Please wait a moment, then select your character again.',
+            'unknown-character': 'That character is not supported by this relay.',
+            disconnected: 'Your character is saved, but the room connection was lost. Reconnect to apply it online.'
+        };
+        this.onError(Object.assign(new Error(messages[reason]), { code: `avatar-${reason}` }));
     }
 
     _onMessage(evt) {
@@ -309,6 +326,7 @@ class NetworkClient {
                 this.selfId = msg.id;
                 this.selfPid = NetworkClient.PID.test(msg.pid) ? msg.pid : null;
                 this.avatar = typeof msg.avatar === 'string' ? msg.avatar : null;
+                this.avatarSelectionSupported = msg.avatarSelection === true;
                 this.hostId = msg.hostId;
                 this.capacity = Number.isInteger(msg.capacity) && msg.capacity >= 8 && msg.capacity <= 32 ? msg.capacity : 8;
                 this.mediaTransport = msg.mediaTransport === 'sfu' ? 'sfu' : 'mesh';
@@ -335,6 +353,12 @@ class NetworkClient {
                 // Tell the relay who to keep invisible before anything else happens; it hides them again with a `leave`.
                 if (this.blockedPids.size) this._send({ type: 'blocklist', pids: [...this.blockedPids] });
                 if (this.avatar) this.onSelfAvatar(this.avatar);
+                if (this.preferredAvatar && !this.avatarSelectionSupported) {
+                    this._reportAvatarError('unsupported');
+                } else if (this.avatarSelectionSupported &&
+                    ((this.preferredAvatar && this.preferredAvatar !== this.avatar) || this.preferredAvatar !== this._joiningAvatar)) {
+                    this.requestAvatar(this.avatarPool, this.preferredAvatar);
+                }
                 for (const peer of msg.peers || []) this._addPeer(peer);
                 if (msg.music) this.onMusic(msg.music);
                 if (msg.show) this.onShow(msg.show);
@@ -428,6 +452,12 @@ class NetworkClient {
                 }
                 break;
 
+            case 'avatar-error':
+                if (msg.reason === 'rate-limit' || msg.reason === 'unknown-character') {
+                    this._reportAvatarError(msg.reason);
+                }
+                break;
+
             case 'music':
                 this.onMusic(msg);
                 break;
@@ -508,9 +538,21 @@ class NetworkClient {
         if (NetworkClient.GESTURES.includes(gesture)) this._send({ type: 'gesture', gesture });
     }
     /** Ask the relay for a different random avatar; the answer arrives as `avatar` for this guest's own id. */
-    requestAvatar(pool) {
+    requestAvatar(pool, avatar = null) {
+        if (avatar !== null && (!NetworkClient.isAvatar(avatar) || !this.avatarSelectionSupported)) {
+            this._reportAvatarError(NetworkClient.isAvatar(avatar) ? 'unsupported' : 'unknown-character');
+            return false;
+        }
+        if (!this.connected) return false;
         if (NetworkClient.AVATAR_POOLS.includes(pool)) this.avatarPool = pool;
-        this._send({ type: 'avatar', pool: this.avatarPool });
+        this.preferredAvatar = avatar;
+        const frame = { type: 'avatar', pool: this.avatarPool };
+        if (avatar) frame.avatar = avatar;
+        if (!this._send(frame)) {
+            this._reportAvatarError('disconnected');
+            return false;
+        }
+        return true;
     }
 
     /** Make a guest invisible and inaudible to this one, and this one to them. Idempotent. */

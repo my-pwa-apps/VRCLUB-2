@@ -1707,13 +1707,17 @@ function initAudioMenu() {
         }
         myCharacter.value = vrClubInstance.getLocalCharacter() || '';
         myCharacter.addEventListener('change', () => {
-            myCharacter.value = vrClubInstance.setLocalCharacter(myCharacter.value || null) || '';
+            vrClubInstance.setLocalCharacter(myCharacter.value || null);
+            myCharacter.value = vrClubInstance.getLocalCharacter() || '';
         });
         const refreshCharacterLabels = () => {
+            myCharacter.value = vrClubInstance.getLocalCharacter() || '';
             for (const option of myCharacter.options) if (option.value) option.textContent = vrClubInstance.characterLabel(option.value);
         };
         window.addEventListener('characterstylechange', refreshCharacterLabels);
+        window.addEventListener('localcharacterchange', refreshCharacterLabels);
         teardowns.push(() => window.removeEventListener('characterstylechange', refreshCharacterLabels));
+        teardowns.push(() => window.removeEventListener('localcharacterchange', refreshCharacterLabels));
     }
     const djStyle = document.getElementById('djStyle');
     djStyle.value = vrClubInstance._initialDJId();

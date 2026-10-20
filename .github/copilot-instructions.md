@@ -220,8 +220,9 @@ set-piece starting or the movement entering `ignition`) and the visitors (this g
 - Activities: `mix` (a deliberate jog-wheel nudge plus a turn-hold-release mixer gesture), `cue` (a headphone cup held
   to the ear, PALM on the cup: the thumb side points back, so the back of the hand faces outward; a unit test fails if
   it reverts), `tweak` (alternating hands on knobs rather than mirrored wrist loops),
-  `crowd` (looking out, with an occasional every-other-beat fist accent at high energy), `handsUp` (a one-bar,
-  alternating-arm drop accent, palms facing the crowd) and `wave` (a slower finite gesture, palm toward the visitor, at a visitor who walks into  the zone in front of the booth, once per `WAVE_COOLDOWN` = 45 s each). Activities change ONLY on bar lines, except the
+  `crowd` (looking out with both hands resting on the console), `handsUp` (one staggered raise, hold and return on a
+  drop, palms facing the crowd, never repeated beat pumping; at most once per `CELEBRATION_COOLDOWN` = 24 s,
+  never from sustained loudness alone) and `wave` (a slower finite gesture, palm toward the visitor, at a visitor who walks into  the zone in front of the booth, once per `WAVE_COOLDOWN` = 45 s each). Activities change ONLY on bar lines, except the
   drop and the wave, which cut in. Simultaneous arrivals are ranked by distance with a small centre-line salience
   tie-break, not array order; a wave locks attention to that visitor and tracks them until the gesture ends. With no
   music it keeps its own 118 BPM and never throws its hands up.
@@ -1301,7 +1302,8 @@ GLBs instanced once more, and `restroomLight` plus `restroomBackLight` are scope
   character (the relay's assignment online, `getLocalCharacter()` offline; none = the mannequin shows in both): it is built
   whenever a character is known and `_syncMirrorDouble()`/`_updateMirrorDouble()` run every frame from `updateRestroomMirror`,
   not only near the restroom. It is drawn in the main view (`isVisible`), and `_updateLocalPlayerBody` hides and idles the
-  mannequin (`rig._standsDown`) while it is `shown`, resuming from where the player stands when it goes. It is sized from its
+  mannequin (`rig._standsDown`) while it is `shown`, hiding it in the same frame that a newly chosen character appears
+  and resuming from where the player stands when it goes. It is sized from its
   EYES: `_characterEyePoint` finds the mean position of the cast's shared eye colour (`#31251c`, top 15% of the mesh; 93.5% of the
   height if none) and the node is scaled so that height equals `_shownBodyEye()` with its feet on the floor, so the camera sits
   in its head (a woman's `f*` body is therefore taller than the 1.68 m others see, because your eyes are at 1.7 m). The eye point
@@ -1740,7 +1742,7 @@ inside instead. Desktop initial position and the existing travel presets are unc
 `moveCameraToPreset()` routes to the XR camera when active,
 preserving head orientation and measured seated height with a booth floor offset.
 The paged quick menu separates LIGHTS (fixtures, colours and movement), EFFECTS (LED wall, strobes, smoke, mirror
-beams and gobos), SHOW (automatic-show actions plus a five-movement section page), a CROWD page (who is in the club), comfort (locomotion, safe mode, quality, auto quality, credits) with a **ME** sub-page (seated mode, measure height and MY CHARACTER: `setLocalCharacter`, one of the 17 relay people saved as `vrclub.myCharacter`, picked on a two-page grid: DEFAULT plus women `f1`-`f8`, then men `m1`-`m9`; the offline mirror's double via `_mirrorAvatarId()`, and its gender sets `vrclub.avatarStyle`). A page holds at most 12 slots (the HOME page is full in a room, hence ME lives under comfort),
+beams and gobos), SHOW (automatic-show actions plus a five-movement section page), a CROWD page (who is in the club), comfort (locomotion, safe mode, quality, auto quality, credits) with a **ME** sub-page (seated mode, measure height and MY CHARACTER: `setLocalCharacter`, one of the 17 relay people saved as `vrclub.myCharacter`, picked on a two-page grid: DEFAULT plus women `f1`-`f8`, then men `m1`-`m9`; the same saved choice is requested on room joins/reconnects and its gender sets `vrclub.avatarStyle`). A page holds at most 12 slots (the HOME page is full in a room, hence ME lives under comfort),
 five destinations (entrance, dance floor, DJ booth, balcony, street) and a **Music** page: a seek
 strip (`vrQuickMenuSeek`, click or drag a ray on it; `_beginVRSeek/_moveVRSeek/_endVRSeek` ride the
 scene pointer observables and a drag belongs to the pointer that started it (`_dragPointer`), because both hands have a live pointer (`enablePointerSelectionOnAllControllers`); the seek happens on release), ±1 min, play/pause, saved-set Previous/Next,
@@ -2122,7 +2124,13 @@ protocol only grew, so older clients keep working.
   keeps the lock and the bans. **An empty room starts over** (`_onClose`): lock, bans, music and show are cleared when the
   last guest leaves, because with nobody left to unlock it a locked room refused everyone (its own host included,
   reconnecting after a drop) until the Durable Object happened to be evicted.
-- **Avatars.** The relay assigns each guest a random character, unique while the pool has free looks, from `AVATARS` (the 17 Quaternius Modular
+- **Avatars.** MY CHARACTER saves an exact ID for offline and online use. `NetworkClient` sends optional `avatar` on
+  joining and in the existing `avatar` frame; `welcome.avatarSelection` advertises support. Only allow-listed IDs
+  are accepted. Explicit choices may repeat and override the random gender pool; random/default choices clear
+  the exact preference and still prefer unused looks. Relay acknowledgements own `selfAvatar`, the local body,
+  mirror and remote replacement: never show a local-only chosen body in a room. Old relays, persistence failures,
+  malformed choices and rate limits surface errors; `avatar-error` preserves the current appearance. Both client
+  and Worker must be deployed. Without an exact choice the relay assigns each guest a random character, unique while the pool has free looks, from `AVATARS` (the 17 Quaternius Modular
   people `f1`–`f8`, `m1`–`m9`; a test ties the list to `AVATAR_SOURCES`) and a guest may reroll. A guest can restrict the draw to women (`f*`) or men (`m*`) (`vrclub.avatarPool`: `any`/`women`/`men`; `?avatars=` on connect, `pool` on a reroll; `AVATAR_POOLS` in the relay). If a pool is exhausted the relay gives any free person; once all 17 are used, looks repeat. Choosing a pool in a room rerolls only a look outside it. Others see you as that
   character. **Your own body is that character too**: whenever a character is known (the relay's assignment in a room, the
   one you chose offline) the same instance that fills the mirror is your first-person body (see "The mirror"), so looking down

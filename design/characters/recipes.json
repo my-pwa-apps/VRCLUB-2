@@ -70,70 +70,51 @@
   {
     "id": "jin",
     "label": "Jin",
-    "description": "Middle-aged man, broad build, short hair",
-    "gender": 1,
-    "age": 0.7,
-    "weight": 0.65,
-    "muscle": 0.68,
-    "height": 0.48,
-    "heightMetres": 1.77,
+    "description": "Mature fictional male DJ, lean build, ear-length dark hair, charcoal crew-neck tee and jeans",
+    "gender": 1.0,
+    "age": 0.78,
+    "weight": 0.43,
+    "muscle": 0.45,
+    "height": 0.5,
+    "heightMetres": 1.78,
     "race": {
-      "african": 0.05,
-      "asian": 0.85,
-      "caucasian": 0.1
+      "african": 0.08,
+      "asian": 0.12,
+      "caucasian": 0.8
     },
-    "skin": "middleage_asian_male",
-    "hair": "short02",
-    "clothes": "male_casualsuit03",
+    "skin": "middleage_caucasian_male",
+    "hair": "short03",
+    "clothes": "male_casualsuit06",
     "shoes": "shoes01",
+    "hairTint": [
+      0.08,
+      0.06,
+      0.045
+    ],
+    "clothingTint": [
+      0.055,
+      0.06,
+      0.07
+    ],
     "sources": [
-      "middleage_asian_male",
+      "middleage_caucasian_male",
       "low-poly",
       "eyebrow001",
-      "short02",
-      "male_casualsuit03",
+      "short03",
+      "male_casualsuit06",
       "shoes01"
     ],
     "license": "CC0-1.0",
-    "triangles": 9495,
+    "triangles": 9496,
     "materials": 2,
     "textureSizes": [
       1024,
       512
     ],
-    "bytes": 563056,
+    "bytes": 1543908,
     "bones": 53,
     "hairAlpha": "MASK required; production loader forces OPAQUE and needs adaptation",
-    "animation": "Base GLB: original breathing test. Separate dance GLB: eleven retargeted club crowd moves.",
-    "textures": [
-      {
-        "width": 1024,
-        "height": 1024,
-        "bytes": 115954
-      },
-      {
-        "width": 512,
-        "height": 512,
-        "bytes": 37150
-      }
-    ],
-    "draws": 2,
-    "animationChannels": 2,
-    "danceUrl": "/models/jin-dance.glb",
-    "danceClips": [
-      "Dance_Loop",
-      "Groove_Bounce",
-      "Groove_SideTap",
-      "Groove_Clap",
-      "Groove_ClapUp",
-      "Groove_Pump",
-      "Groove_Twist",
-      "Groove_HandsUp",
-      "Groove_ArmsWide",
-      "Groove_ArmsUp",
-      "Groove_Sway"
-    ],
-    "danceBytes": 898196
+    "animation": "Prototype_Breathing only; club animation retargeting not implemented"
   },
   {
     "id": "ellis",
@@ -1091,33 +1072,38 @@
   {
     "id": "zara",
     "label": "Zara",
-    "description": "Middle-aged woman, tall athletic build, emerald cropped tee and trousers",
-    "gender": 0,
-    "age": 0.78,
-    "weight": 0.51,
-    "muscle": 0.7,
-    "height": 0.57,
-    "heightMetres": 1.8,
+    "description": "Adult fictional female DJ, slender build, long side-parted blonde hair, charcoal tee and jeans",
+    "gender": 0.0,
+    "age": 0.6,
+    "weight": 0.4,
+    "muscle": 0.4,
+    "height": 0.46,
+    "heightMetres": 1.68,
     "race": {
-      "african": 0.8,
-      "asian": 0.08,
-      "caucasian": 0.12
+      "african": 0.08,
+      "asian": 0.07,
+      "caucasian": 0.85
     },
-    "skin": "middleage_african_female",
-    "hair": "short01",
-    "clothes": "female_sportsuit01",
+    "skin": "middleage_caucasian_female",
+    "hair": "long01",
+    "clothes": "male_casualsuit06",
     "shoes": "shoes05",
+    "hairTint": [
+      0.65,
+      0.51,
+      0.3
+    ],
     "clothingTint": [
-      0.03,
-      0.3,
-      0.2
+      0.055,
+      0.06,
+      0.07
     ],
     "sources": [
-      "middleage_african_female",
+      "middleage_caucasian_female",
       "low-poly",
       "eyebrow001",
-      "short01",
-      "female_sportsuit01",
+      "long01",
+      "male_casualsuit06",
       "shoes05"
     ],
     "license": "CC0-1.0",
@@ -1127,39 +1113,10 @@
       1024,
       512
     ],
-    "bytes": 661764,
+    "bytes": 1599648,
     "bones": 53,
     "hairAlpha": "MASK required; production loader forces OPAQUE and needs adaptation",
-    "animation": "Base GLB: original breathing test. Separate dance GLB: eleven retargeted club crowd moves.",
-    "textures": [
-      {
-        "width": 1024,
-        "height": 1024,
-        "bytes": 68908
-      },
-      {
-        "width": 512,
-        "height": 512,
-        "bytes": 114304
-      }
-    ],
-    "draws": 2,
-    "animationChannels": 2,
-    "danceUrl": "/models/zara-dance.glb",
-    "danceClips": [
-      "Dance_Loop",
-      "Groove_Bounce",
-      "Groove_SideTap",
-      "Groove_Clap",
-      "Groove_ClapUp",
-      "Groove_Pump",
-      "Groove_Twist",
-      "Groove_HandsUp",
-      "Groove_ArmsWide",
-      "Groove_ArmsUp",
-      "Groove_Sway"
-    ],
-    "danceBytes": 981052
+    "animation": "Prototype_Breathing only; club animation retargeting not implemented"
   },
   {
     "id": "iris",

@@ -6342,6 +6342,41 @@ test('MY CHARACTER: the player picks one of the 17 people offline, it is saved, 
     assert.match(html, /<select[^>]*id="myCharacter"/);
 });
 
+test('MY CHARACTER: a saved online choice asks the relay, and storage and old-relay failures are visible', () => {
+    const store = new Map(), errors = [], requests = [];
+    let storageFails = false;
+    const localStorage = {
+        getItem: key => store.get(key) || null,
+        setItem(key, value) { if (storageFails) throw new Error('quota'); store.set(key, value); },
+        removeItem(key) { if (storageFails) throw new Error('quota'); store.delete(key); }
+    };
+    const { window } = loadClassic('js/club/11-audio-crowd.js', {
+        VRClubUI: class {}, BABYLON: {}, localStorage, log: { warn() {} }
+    });
+    const club = Object.create(window.VRClubAudioCrowd.prototype);
+    club.setLocalAvatarStyle = () => {};
+    club.showErrorMessage = text => errors.push(text);
+    club.multiplayer = { connected: true, selfAvatar: 'f1', client: { avatarSelectionSupported: true },
+        selectAvatar: id => requests.push(id) };
+    assert.equal(club.setLocalCharacter('m9'), 'm9');
+    assert.deepEqual(requests, ['m9']);
+    assert.equal(club.multiplayer.selfAvatar, 'f1', 'the acknowledged body remains authoritative');
+    assert.equal(club.multiplayer.client.preferredAvatar, 'm9');
+    storageFails = true;
+    assert.equal(club.setLocalCharacter('f2'), false);
+    assert.equal(club.getLocalCharacter(), 'm9');
+    assert.equal(requests.length, 1);
+    assert.match(errors.at(-1), /could not be saved/);
+    storageFails = false;
+    club.multiplayer.client.avatarSelectionSupported = false;
+    assert.equal(club.setLocalCharacter('f2'), false);
+    assert.equal(club.getLocalCharacter(), 'm9');
+    assert.match(errors.at(-1), /relay needs an update/i);
+    assert.equal(club.setLocalCharacter(null), null);
+    assert.deepEqual(requests, ['m9', null]);
+    assert.equal(club.getLocalCharacter(), null);
+});
+
 test('a drag belongs to the pointer that started it: the other hand cannot steer or end it', () => {
     const { window } = loadClassic('js/club/10-ui.js', { VRClubAnimationFinish: class {}, BABYLON: {}, log: { info() {}, warn() {}, error() {} } });
     const club = Object.create(window.VRClubUI.prototype);
@@ -8766,8 +8801,10 @@ test('the mirror reflection does not buzz with headset tremor, keeps its walk cl
     const club = Object.assign({
         isInVRMode: false, _walkLevel: 0, _activeSeat: null, camera, _playerCamera: () => camera, _bodyEyeHeight: () => 1.7, _shownBodyEye: () => 1.7
     }, venueWindow.VenueDressing);
+    const mannequin = { enabled: true, setEnabled(value) { this.enabled = value; } };
+    club._localRig = { meshes: [mannequin] };
     const double = {
-        root: { position: new BABYLON.Vector3(), rotation: new BABYLON.Vector3() },
+        root: { position: new BABYLON.Vector3(), rotation: new BABYLON.Vector3(), setEnabled() {} },
         groups: { Idle: makeGroup('Idle'), Walk: makeGroup('Walk'), Run: makeGroup('Run'), Seated_Loop: makeGroup('Seated_Loop') },
         hands: { left: null, right: null }, handBuffers: { left: {}, right: {} }, current: null, speed: 0,
         prevX: NaN, prevZ: NaN, x: 0, z: 0, yaw: 0, placed: false, gait: 'idle', seatKey: null
@@ -8783,6 +8820,11 @@ test('the mirror reflection does not buzz with headset tremor, keeps its walk cl
         camera.globalPosition.z = -3.6 + noise() * 0.005;
         camera.yaw = Math.PI / 2 + noise() * 0.0105;
         club._updateMirrorDouble(dt);
+        if (i === 0) {
+            assert.equal(double.shown, true);
+            assert.equal(mannequin.enabled, false, 'the old body is hidden in the same frame the chosen character appears');
+            assert.equal(club._localRig._standsDown, true);
+        }
         if (i < 72) continue;
         n++;
         inputYaw += (camera.yaw - Math.PI / 2) ** 2; outputYaw += (double.root.rotation.y - Math.PI / 2) ** 2;
@@ -9776,7 +9818,7 @@ test('generic DJs: one load per DJ, a clean swap, queued switches and safe ids',
     assert.ok(hair('female').r > 0.8 && hair('female').g > 0.7 && hair('female').b > 0.45 && hair('female').r > hair('female').b);
     assert.ok(Crowd.DJ_LOOKS.male.garment.r < 0.15);
     const tee = Crowd.DJ_LOOKS.female.garment;
-    assert.ok(tee.r > 0.3 && tee.r < 0.6, 'Miss Melera wears a mid-grey tee');
+    assert.ok(tee.r >= 0.1 && tee.r < 0.2, 'the fictional female DJ wears a charcoal tee inspired by the supplied reference');
 
     const spawned = [], disposed = [], loads = [];
     let initDone;
@@ -11660,6 +11702,37 @@ test('the DJ puts their hands up on the drop, and works the controller while mix
     const { dj: quiet } = loadDJPerformer();
     perform(quiet, 2, { hasAudio: false, each: (music) => { music.drop = true; } });
     assert.notEqual(quiet.activity, 'handsUp');
+});
+
+test('the DJ never beat-pumps a crowd arm and uses only one finite lift on a real drop', () => {
+    const { dj, desk, DJPerformer } = loadDJPerformer();
+    dj._begin('crowd', 99);
+    const crowd = perform(dj, 12, { energy: 1 });
+    for (const frame of crowd.slice(60)) {
+        assert.ok(Math.abs(frame.leftY - desk.top - 0.035) < 0.002);
+        assert.ok(Math.abs(frame.rightY - desk.top - 0.035) < 0.002, 'no alternating-beat fist pump');
+    }
+    const calm = loadDJPerformer().dj;
+    assert.ok(!perform(calm, 120, { energy: 1 }).some(frame => frame.activity === 'handsUp'),
+        'sustained loud music never starts a hands-up loop');
+    const celebrate = loadDJPerformer().dj;
+    celebrate._begin('handsUp', 99);
+    const frames = perform(celebrate, 4, { energy: 1 });
+    for (const key of ['leftY', 'rightY']) {
+        let peaks = 0, rising = true;
+        for (let i = 1; i < frames.length; i++) {
+            if (rising && frames[i][key] < frames[i - 1][key] - 0.00001) { peaks++; rising = false; }
+            if (!rising) assert.ok(frames[i][key] <= frames[i - 1][key] + 0.00001, 'a lowering hand cannot pump back up');
+        }
+        assert.equal(peaks, 1, 'one raise, hold and lower per arm');
+        assert.ok(Math.abs(frames.at(-1)[key] - desk.top - 0.035) < 0.002, 'hands return to the desk');
+    }
+    const held = loadDJPerformer().dj;
+    perform(held, DJPerformer.CELEBRATION_COOLDOWN + 4, { each: music => { music.drop = true; } });
+    assert.notEqual(held.activity, 'handsUp', 'a held drop flag cannot continually restart the gesture');
+    const repeated = loadDJPerformer().dj;
+    perform(repeated, 8, { each: (music, t) => { music.drop = t < 0.02 || (t > 4 && t < 4.02); } });
+    assert.ok(repeated._lastCelebrationAt < 0.1, 'nearby drop edges do not repeat the lift');
 });
 
 test('the DJ waves at someone who walks up to the booth, once, and looks their way', () => {

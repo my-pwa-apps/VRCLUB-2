@@ -377,7 +377,9 @@ class ClubMultiplayer {
         }
 
         const club = this.club;
-        const client = new NetworkClient({ serverUrl, room, name, uid: this.uid, avatarPool: this.avatarPool, blocked: this.blockedList().map(item => item.pid) });
+        const client = new NetworkClient({ serverUrl, room, name, uid: this.uid, avatarPool: this.avatarPool,
+            avatar: typeof club.getLocalCharacter === 'function' ? club.getLocalCharacter() : null,
+            blocked: this.blockedList().map(item => item.pid) });
         if (!club.avatarManager) club.avatarManager = new AvatarManager(club);
         this.manager = club.avatarManager;
         this.manager.setPersonalSpace(this.personalSpace);
@@ -650,6 +652,7 @@ class ClubMultiplayer {
         client.onError = (err) => {
             this.lastError = `Error: ${err.message}`;
             if (err.code) this.notice = err.message;
+            if (typeof err.code === 'string' && err.code.startsWith('avatar-') && typeof club.showErrorMessage === 'function') club.showErrorMessage(err.message);
             this._emit();
         };
     }
@@ -793,8 +796,13 @@ class ClubMultiplayer {
     /** Ask the relay for a different random character (from the chosen pool). */
     rerollAvatar() {
         if (!this.connected) return false;
-        this.client.requestAvatar(this.avatarPool);
-        return true;
+        if (typeof this.club.setLocalCharacter === 'function') return this.club.setLocalCharacter(null) !== false;
+        return this.client.requestAvatar(this.avatarPool);
+    }
+
+    selectAvatar(avatar) {
+        if (!this.connected) return false;
+        return this.client.requestAvatar(this.avatarPool, avatar);
     }
 
     static cleanPool(value) {
@@ -817,7 +825,7 @@ class ClubMultiplayer {
         this._write(ClubMultiplayer.PREFS.avatarPool, this.avatarPool);
         if (this.client) {
             this.client.avatarPool = this.avatarPool;
-            if (this.connected && !ClubMultiplayer.inPool(this.selfAvatar, this.avatarPool)) this.client.requestAvatar(this.avatarPool);
+            if (this.connected && !ClubMultiplayer.inPool(this.selfAvatar, this.avatarPool)) this.rerollAvatar();
         }
         this._emit();
     }
