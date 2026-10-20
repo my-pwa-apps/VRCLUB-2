@@ -1246,6 +1246,63 @@ test('the avatar pool is a remembered preference, sent on joining, and a pool ch
     assert.ok(ClubMultiplayer.inPool('f1', 'women') && !ClubMultiplayer.inPool('f1', 'men') && ClubMultiplayer.inPool('m9', 'men'));
 });
 
+test('exact character requests survive joining and reconnecting, but self appearance changes only on acknowledgement', () => {
+    const { NetworkClient } = load();
+    const client = new NetworkClient({ serverUrl: 'wss://relay.example', avatar: 'f8', avatarPool: 'men' });
+    for (const id of ['f1', 'f8', 'm1', 'm9']) assert.equal(NetworkClient.isAvatar(id), true);
+    for (const id of ['f0', 'f9', 'm0', 'm10', 'F1', 'f1\n', '__proto__', null]) assert.equal(NetworkClient.isAvatar(id), false);
+    const errors = [], seen = [];
+    client.onError = error => errors.push(error);
+    client.onSelfAvatar = avatar => seen.push(avatar);
+    const socket = welcomed(client, { avatar: 'f8', avatarSelection: true });
+    assert.equal(new URL(socket.url).searchParams.get('avatar'), 'f8');
+    assert.equal(client.requestAvatar('men', 'm9'), true);
+    assert.deepEqual(socket.last('avatar'), { type: 'avatar', pool: 'men', avatar: 'm9' });
+    assert.equal(client.avatar, 'f8', 'do not show a local-only body before the relay agrees');
+    socket.receive({ type: 'avatar', id: 'me', avatar: 'm9' });
+    assert.equal(client.avatar, 'm9');
+    assert.deepEqual(seen, ['f8', 'm9']);
+    socket.receive({ type: 'avatar-error', reason: 'rate-limit' });
+    assert.equal(errors.at(-1).code, 'avatar-rate-limit');
+    assert.equal(client.avatar, 'm9');
+    assert.equal(client.requestAvatar('any', '__proto__'), false);
+    assert.equal(errors.at(-1).code, 'avatar-unknown-character');
+    client.disconnect();
+    const again = welcomed(client, { avatar: 'm9', avatarSelection: true });
+    assert.equal(new URL(again.url).searchParams.get('avatar'), 'm9');
+    client.requestAvatar('any');
+    assert.equal(client.preferredAvatar, null);
+    assert.equal(again.last('avatar').avatar, undefined, 'random choices clear the exact preference');
+    client.disconnect();
+});
+
+test('older relays report unsupported exact selection without pretending to change the body', () => {
+    const { NetworkClient } = load();
+    const client = new NetworkClient({ serverUrl: 'wss://relay.example', avatar: 'm9' });
+    const errors = [];
+    client.onError = error => errors.push(error);
+    const socket = welcomed(client, { avatar: 'f3' });
+    assert.equal(errors.at(-1).code, 'avatar-unsupported');
+    assert.equal(client.avatar, 'f3');
+    assert.equal(client.preferredAvatar, 'm9', 'keep the preference for an updated relay');
+    assert.equal(client.requestAvatar('any', 'f1'), false);
+    assert.equal(socket.last('avatar'), undefined);
+    client.disconnect();
+});
+
+test('a character changed or cleared while connecting is reconciled after welcome', () => {
+    const { NetworkClient } = load();
+    for (const next of ['m9', null]) {
+        const client = new NetworkClient({ serverUrl: 'wss://relay.example', avatar: 'f3' });
+        client.connect();
+        const socket = FakeSocket.instances.at(-1);
+        client.preferredAvatar = next;
+        socket.receive({ type: 'welcome', id: 'me', avatar: 'f3', avatarSelection: true, peers: [] });
+        assert.equal(socket.last('avatar').avatar || null, next);
+        client.disconnect();
+    }
+});
+
 test('a default pool adds nothing to the join URL (older relays see the same request as before)', () => {
     const { mp, storage } = makeController();
     storage.setItem('vrclub.networkServerUrl', 'wss://relay.example');

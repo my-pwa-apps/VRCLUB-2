@@ -1549,7 +1549,15 @@ const VenueDressing = {
                 if (double.arms) double.arms.invalidateLimbs();
             }
         }
-        if (!double.shown && double.root.setEnabled) { double.shown = true; double.root.setEnabled(true); }
+        if (!double.shown && double.root.setEnabled) {
+            const rig = this._localRig;
+            if (rig && !rig._standsDown) {
+                rig._standsDown = true;
+                rig.meshes.forEach(mesh => mesh.setEnabled(false));
+            }
+            double.shown = true;
+            double.root.setEnabled(true);
+        }
         const seat = this._activeSeat;
         const dir = this._mirrorDir || (this._mirrorDir = new BABYLON.Vector3());
         cam.getDirectionToRef(BABYLON.Axis.Z, dir);

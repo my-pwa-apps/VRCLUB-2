@@ -117,6 +117,17 @@ No proprietary scans, branded outfits or externally hosted avatar service.
 | `js/models/characters/jin.glb` | Jin | Male DJ |
 | `js/models/characters/zara.glb` | Zara | Female DJ |
 
+The two fictional DJs' current styling takes broad hair, wardrobe and build cues
+from reference photographs supplied by the owner: mature, lean, ear-length dark
+hair and a charcoal crew-neck tee for the male; long side-parted blonde hair and a
+charcoal tee for the female. They remain Jin and Zara, not representations of
+Hernan Cattaneo or Miss Melera and not an endorsement. The photographs and their
+printed clothing artwork are not bundled or copied. Both recipes reuse only the
+verified CC0 system assets above, including `short03` / `long01` hair and a
+plain `male_casualsuit06` tee/jeans mesh fitted to each body. The lightweight DJs
+retain their existing CC0 silhouettes with matching dark-shirt/hair tints.
+Reference provenance is recorded in `design/characters/provenance.json`.
+
 All table entries are **CC0-1.0**, credited in-app as a courtesy. Quaternius
 remains the default; the detailed cast is opt-in and has a personal lightweight
 override. Existing room identity IDs and capacities are unchanged.

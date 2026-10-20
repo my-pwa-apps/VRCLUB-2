@@ -160,6 +160,23 @@ test('An old-style source completing late cannot populate the new crowd source a
     assert.equal(club._crowdSourceContainers[3], undefined);
 });
 
+test('The fictional DJ recipes retain reference-inspired hair and plain dark clothing, without replacing any player identity', () => {
+    const { window } = fixture(), catalog = window.CharacterCatalog;
+    const recipes = JSON.parse(readFileSync(join(root, 'design', 'characters', 'recipes.json')));
+    const male = recipes.find(recipe => recipe.id === catalog.npcs['dj-male']);
+    const female = recipes.find(recipe => recipe.id === catalog.npcs['dj-female']);
+    assert.equal(male.id, 'jin'); assert.equal(female.id, 'zara');
+    assert.equal(male.hair, 'short03'); assert.equal(female.hair, 'long01');
+    assert.ok(male.hairTint.every(value => value < 0.1));
+    assert.ok(female.hairTint[0] > female.hairTint[1] && female.hairTint[1] > female.hairTint[2]);
+    for (const recipe of [male, female]) {
+        assert.equal(recipe.clothes, 'male_casualsuit06', 'a plain crew-neck tee, not copied printed artwork');
+        assert.ok(recipe.clothingTint.every(value => value < 0.1));
+        assert.equal(recipe.license, 'CC0-1.0');
+        assert.ok(!Object.values(catalog.players).includes(recipe.id), 'DJ restyling never changes a chosen player look');
+    }
+});
+
 test('All 34 distinct CC0 adults have bounded geometry, measured eyes and complete role/player clips', async () => {
     const { window } = fixture(), catalog = window.CharacterCatalog;
     const recipes = JSON.parse(readFileSync(join(root, 'design', 'characters', 'recipes.json')));

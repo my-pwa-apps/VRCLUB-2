@@ -27,6 +27,14 @@
     "reusedFrom": "Existing production club-dj-female.glb derivative, documented in repository ASSETS.md",
     "changes": "Fit each experimental DJ's measured head bounds; skin to Head joint"
   },
+  "djStyling": {
+    "scope": "Broad wardrobe, hair and build cues only; Jin and Zara remain fictional adults, not artist likenesses or endorsements.",
+    "maleReference": "https://cms.piknicelectronik.com/uploads/NEWS/OFF-PIKNIC25_OUTILS-COMM_SITE-WEB_VISUELS-ARTISTES_08-23_HERNAN-CATTANEO.png",
+    "femaleReference": "https://wearesoundspace.com/wp-content/uploads/2016/01/MISS-MELERA-HEADER.jpg",
+    "male": "Mature lean build, clean-shaven face, ear-length dark hair, plain charcoal crew-neck tee and jeans.",
+    "female": "Slender adult build, long side-parted blonde hair, plain charcoal tee and jeans.",
+    "rights": "Reference photographs and printed clothing graphics are not copied, embedded or distributed. All generated geometry and textures remain derived from verified CC0 assets."
+  },
   "generator": {
     "name": "MPFB",
     "version": "2.0.18 source",

@@ -388,24 +388,24 @@ window.CharacterCatalog = {
         },
         "jin": {
             "label": "Jin",
-            "description": "Middle-aged man, broad build, short hair",
-            "height": 1.77,
+            "description": "Mature fictional male DJ, lean build, ear-length dark hair, charcoal crew-neck tee and jeans",
+            "height": 1.78,
             "eye": [
-                0.000438804571063088,
-                1.632346929647984,
-                0.13652522385120391
+                0.0007051047239754687,
+                1.6556611157752377,
+                0.13913952827453613
             ],
             "procedural": true,
             "url": "./js/models/characters/jin.glb"
         },
         "zara": {
             "label": "Zara",
-            "description": "Middle-aged woman, tall athletic build, emerald cropped tee and trousers",
-            "height": 1.8,
+            "description": "Adult fictional female DJ, slender build, long side-parted blonde hair, charcoal tee and jeans",
+            "height": 1.68,
             "eye": [
-                -0.0002124550213154989,
-                1.6572816685626375,
-                0.14715374529361724
+                0.0012978981107924917,
+                1.5489163290370598,
+                0.13372894644737243
             ],
             "procedural": true,
             "url": "./js/models/characters/zara.glb"

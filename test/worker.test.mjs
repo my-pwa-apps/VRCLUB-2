@@ -1277,6 +1277,41 @@ test('a guest can ask for women or men only: on joining, and when rerolling, and
     }
 });
 
+test('exact character choices are authoritative, may repeat, reach late joiners and respect blocks and rate limits', () => {
+    const room = new ClubRoom({});
+    const first = joinAs(room, 'Observer', 901);
+    const socket = new FakeSocket();
+    const selected = room._acceptSession(socket, 'Chooser', pidOf(902), 'men', false, null, 'f8');
+    assert.equal(selected.avatar, 'f8', 'an exact choice overrides the random pool');
+    assert.equal(socket.sent.find(msg => msg.type === 'welcome').avatarSelection, true);
+    const duplicate = room._acceptSession(new FakeSocket(), 'Same choice', pidOf(903), 'any', false, null, 'f8');
+    assert.equal(duplicate.avatar, 'f8', 'explicit choices are never silently substituted');
+    socket.message({ type: 'avatar', avatar: 'm9' });
+    assert.equal(selected.avatar, 'm9');
+    assert.equal(socket.sent.at(-1).avatar, 'm9', 'self acknowledgement');
+    assert.equal(first.ws.sent.at(-1).avatar, 'm9', 'the visible room sees the same choice');
+    const late = joinAs(room, 'Late', 904);
+    assert.equal(late.ws.sent.find(msg => msg.type === 'welcome').peers.find(p => p.id === selected.id).avatar, 'm9');
+    first.session.blocked.add(selected.pid);
+    const seen = first.ws.sent.length;
+    socket.message({ type: 'avatar', avatar: 'f2' });
+    assert.equal(selected.avatar, 'f2');
+    assert.equal(first.ws.sent.length, seen, 'blocks still hide appearance changes');
+    socket.message({ type: 'avatar', avatar: 'm4' });
+    assert.equal(selected.avatar, 'f2', 'rate-limited requests cannot change appearance');
+    assert.deepEqual(socket.sent.at(-1), { type: 'avatar-error', reason: 'rate-limit' });
+    const invalid = joinAs(room, 'Invalid', 905);
+    const original = invalid.session.avatar;
+    invalid.ws.message({ type: 'avatar', avatar: '__proto__' });
+    invalid.ws.message({ type: 'avatar', avatar: null });
+    assert.equal(invalid.session.avatar, original, 'malformed exact choices never fall back to a random look');
+    assert.deepEqual(invalid.ws.sent.at(-1), { type: 'avatar-error', reason: 'unknown-character' });
+    socket.emit('close');
+    const back = room._acceptSession(new FakeSocket(), 'Reconnected', pidOf(902), 'any', false, null, 'f2');
+    assert.equal(back.avatar, 'f2', 'a reconnect honors the saved ID');
+    for (const ws of [...room.sessions.keys()]) ws.emit('close');
+});
+
 test('a pool that is full gives a free person from the other pool rather than a double', () => {
     const room = new ClubRoom({});
     // Joined straight into the pool: a join excludes only the others' looks, so eight women-seekers get the eight women.

@@ -1,7 +1,85 @@
 import { test, expect } from '@playwright/test';
 import { enterClub, expectHealthyRuntime, useQuestHarness } from './support.mjs';
+import { ClubRoom } from '../../worker/src/relay.js';
+import { fileURLToPath } from 'node:url';
 
 useQuestHarness();
+
+test('an exact character replaces the online body, reaches other guests and persists across reconnects', async ({ page, context }) => {
+    test.setTimeout(900_000);
+    const room = new ClubRoom({});
+    await context.routeWebSocket(/vrclub-network\.garfieldapp\.workers\.dev/, route => {
+        const params = new URL(route.url()).searchParams;
+        const socket = {
+            accept() {}, addEventListener() {},
+            send: data => route.send(data), close: (code, reason) => route.close({ code, reason })
+        };
+        const session = room._acceptSession(socket, params.get('name'), null, params.get('avatars') || 'any',
+            params.get('poseBatch') === '1', null, params.get('avatar'));
+        route.onMessage(data => room._onMessage(socket, session, { data }));
+        route.onClose(() => room._onClose(socket, session));
+    });
+    const observer = await context.newPage();
+    try {
+        await observer.route('**/character-observer-test', route => route.fulfill({
+            contentType: 'text/html', body: '<p>Appearance observer</p>'
+        }));
+        await observer.goto('/character-observer-test');
+        await observer.addScriptTag({ path: fileURLToPath(new URL('../../js/networkClient.js', import.meta.url)) });
+        await observer.evaluate(() => {
+            window.characterObserver = new window.NetworkClient({
+                serverUrl: 'wss://vrclub-network.garfieldapp.workers.dev', room: 'private-appearance', name: 'Observer', avatar: 'm9'
+            });
+            window.characterObserver.connect();
+        });
+        await observer.waitForFunction(() => window.characterObserver.connected);
+        await enterClub(page);
+        await page.evaluate(() => window.vrClub.modelLoadPromise);
+        await page.locator('#vjToggle').click();
+        await page.locator('#vjTabClub').click();
+        await page.locator('#myCharacter').selectOption('f3');
+        await page.evaluate(() => window.vrClub.multiplayer.connect({ room: 'private-appearance', name: 'Chooser' }));
+        const bodyIs = id => page.waitForFunction(id => {
+            const club = window.vrClub;
+            return club.multiplayer.selfAvatar === id && club._mirrorDouble?.avatarId === id && club._mirrorDouble.shown;
+        }, id, { timeout: 180_000 });
+        const observerSees = id => observer.waitForFunction(id =>
+            [...window.characterObserver.peers.values()].some(peer => peer.name === 'Chooser' && peer.avatar === id), id);
+        await bodyIs('f3');
+        await observerSees('f3');
+        await page.locator('#myCharacter').selectOption('m7');
+        await bodyIs('m7');
+        await observerSees('m7');
+        expect(await page.evaluate(() => localStorage.getItem('vrclub.myCharacter'))).toBe('m7');
+
+        // The receiver replaces a real remote body too, not only its protocol record.
+        await observer.evaluate(() => window.characterObserver.requestAvatar('any', 'f2'));
+        await page.waitForFunction(() => [...window.vrClub.multiplayer.manager.remotes.values()]
+            .some(peer => peer.name === 'Observer' && peer.avatarId === 'f2' && peer.person), null, { timeout: 180_000 });
+        expect(await page.evaluate(() => window.vrClub._localRig.meshes.every(mesh => !mesh.isEnabled()))).toBe(true);
+        await page.evaluate(() => window.vrClub.multiplayer.disconnect());
+        await page.evaluate(() => window.vrClub.multiplayer.connect({ room: 'private-appearance', name: 'Chooser' }));
+        await bodyIs('m7');
+        await observerSees('m7');
+        // New page startup reads the persisted selection, not the previous club instance.
+        await page.evaluate(() => window.vrClub.multiplayer.disconnect());
+        await enterClub(page);
+        await page.evaluate(() => window.vrClub.multiplayer.connect({ room: 'private-appearance', name: 'Chooser' }));
+        await bodyIs('m7');
+        await observerSees('m7');
+        await page.evaluate(() => window.vrClub.multiplayer.rerollAvatar());
+        await page.waitForFunction(() => {
+            const club = window.vrClub;
+            return club.multiplayer.selfAvatar !== 'm7' && club._mirrorDouble?.avatarId === club.multiplayer.selfAvatar;
+        }, null, { timeout: 180_000 });
+        expect(await page.evaluate(() => localStorage.getItem('vrclub.myCharacter'))).toBeNull();
+        await expectHealthyRuntime(page);
+    } finally {
+        await page.evaluate(() => window.vrClub?.multiplayer?.disconnect());
+        await observer.close();
+        clearInterval(room._sweeper);
+    }
+});
 
 /**
  * Your own body is the character in the mirror: one instance, everywhere in the club, sized from its eyes to your eye

@@ -54,18 +54,35 @@ test('Detailed characters replace every role and player live; lightweight restor
     expect(detailed.unique).toBe(detailed.people);
     expect(detailed.remote).toContain('Leila');
     expect(detailed.eyeRaw).toBeGreaterThan(1.4);
+    const djView = await page.evaluate(() => {
+        const camera = window.vrClub.camera;
+        const saved = { position: camera.position.asArray(), rotation: camera.rotation.asArray() };
+        camera.position.set(0.7, 2.1, -16.7);
+        camera.setTarget(new window.BABYLON.Vector3(0, 1.65, -19.05));
+        return saved;
+    });
     const djs = await page.evaluate(async () => {
         const club = window.vrClub;
         await club.chooseDJ('female');
         const female = club.npcAvatars.find(npc => npc.name === 'djPerformer').character.label;
+        return { female };
+    });
+    await page.screenshot({ path: 'test-results/dj-styling-female-diverse.png' });
+    const maleDJ = await page.evaluate(async () => {
+        const club = window.vrClub;
         await club.chooseDJ('male');
         window.__characterActors.set('djPerformer', club.npcAvatars.find(npc => npc.name === 'djPerformer'));
-        return { female, male: club.npcAvatars.find(npc => npc.name === 'djPerformer').character.label,
+        return { male: club.npcAvatars.find(npc => npc.name === 'djPerformer').character.label,
             eye: club._djPerformer.eye, fitted: club._characterDJLook('male').height * 0.93 };
     });
     expect(djs.female).toContain('Zara');
-    expect(djs.male).toContain('Jin');
-    expect(djs.eye).toBeCloseTo(djs.fitted, 5);
+    expect(maleDJ.male).toContain('Jin');
+    expect(maleDJ.eye).toBeCloseTo(maleDJ.fitted, 5);
+    await page.screenshot({ path: 'test-results/dj-styling-male-diverse.png' });
+    await page.evaluate(saved => {
+        window.vrClub.camera.position.fromArray(saved.position);
+        window.vrClub.camera.rotation.fromArray(saved.rotation);
+    }, djView);
     await page.screenshot({ path: 'test-results/character-styles-diverse-street.png' });
     expect(await page.evaluate(() => window.vrClub.setLightweightCharacters(true))).toBe(true);
     await page.waitForFunction(() => Array.from(window.vrClub.avatarManager.remotes.values()).every(peer => !!peer.person && !peer.person.character));
