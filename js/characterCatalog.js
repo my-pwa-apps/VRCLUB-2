@@ -124,12 +124,12 @@ window.CharacterCatalog = {
         },
         "felix": {
             "label": "Felix",
-            "description": "Older man, lean build, silver hair, casual light T-shirt and jeans",
+            "description": "Older man, lean build, silver hair, olive button shirt and trousers",
             "height": 1.76,
             "eye": [
-                -0.0017500785179436185,
-                1.6342924927410325,
-                0.13640106737613678
+                0.001586910307167041,
+                1.63422901399674,
+                0.13660199463367462
             ],
             "procedural": false,
             "url": "./js/models/characters/felix.glb"
@@ -148,7 +148,7 @@ window.CharacterCatalog = {
         },
         "jonas": {
             "label": "Jonas",
-            "description": "Older man, shorter stocky build, silver hair, rust T-shirt and jeans",
+            "description": "Older man, shorter stocky build, silver hair, indigo T-shirt and jeans",
             "height": 1.71,
             "eye": [
                 0.0003917371036439429,
@@ -160,7 +160,7 @@ window.CharacterCatalog = {
         },
         "mara": {
             "label": "Mara",
-            "description": "Adult woman, tall broad build, copper braid, plum blouse and skirt",
+            "description": "Adult woman, tall broad build, copper braid, rose blouse and skirt",
             "height": 1.79,
             "eye": [
                 -0.002498946928729614,
@@ -256,7 +256,7 @@ window.CharacterCatalog = {
         },
         "ari": {
             "label": "Ari",
-            "description": "Adult man, soft medium build, long hair, slate blouse and skirt",
+            "description": "Adult man, soft medium build, long hair, silver-grey blouse and skirt",
             "height": 1.88,
             "eye": [
                 0.0007758505038312939,
@@ -340,7 +340,7 @@ window.CharacterCatalog = {
         },
         "noah": {
             "label": "Noah",
-            "description": "Adult man, short fuller build, white T-shirt and jeans",
+            "description": "Adult man, short fuller build, teal T-shirt and jeans",
             "height": 1.64,
             "eye": [
                 0.0013836419158097758,

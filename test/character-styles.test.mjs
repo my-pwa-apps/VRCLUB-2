@@ -160,6 +160,26 @@ test('An old-style source completing late cannot populate the new crowd source a
     assert.equal(club._crowdSourceContainers[3], undefined);
 });
 
+test('Replacing a resident re-registers scoped accents through the light-order resynchronization helper', () => {
+    const { club, window } = fixture();
+    const oldMesh = {}, newMesh = {}, otherMesh = {};
+    const light = { includedOnlyMeshes: [otherMesh, oldMesh] };
+    const npc = { root: { isEnabled: () => true }, meshes: [oldMesh], animations: [] };
+    const next = { root: { setEnabled() {} }, meshes: [newMesh], animations: [] };
+    const registrations = [];
+    club.scene = { lights: [light] };
+    club._disposeCharacterNPC = () => {};
+    club._extendAccentLight = (accent, meshes) => {
+        assert.ok(!accent.includedOnlyMeshes.includes(oldMesh), 'the old disposed mesh is removed first');
+        accent.includedOnlyMeshes.push(...meshes);
+        registrations.push(...meshes);
+    };
+    window.VRClubAudioCrowd = { _setAnimating() {} };
+    club._replaceCharacterNPC(npc, next);
+    assert.deepEqual(registrations, [newMesh]);
+    assert.deepEqual(light.includedOnlyMeshes, [otherMesh, newMesh]);
+});
+
 test('The fictional DJ recipes retain reference-inspired hair and plain dark clothing, without replacing any player identity', () => {
     const { window } = fixture(), catalog = window.CharacterCatalog;
     const recipes = JSON.parse(readFileSync(join(root, 'design', 'characters', 'recipes.json')));

@@ -247,7 +247,7 @@
   },
   {
     "id": "felix",
-    "bytes": 2031116,
+    "bytes": 1899028,
     "clips": [
       "Dance_Loop",
       "Groove_Bounce",
@@ -292,7 +292,7 @@
   },
   {
     "id": "jonas",
-    "bytes": 1020288,
+    "bytes": 1045168,
     "clips": [
       "Dance_Loop",
       "Groove_Bounce",
@@ -311,7 +311,7 @@
   },
   {
     "id": "mara",
-    "bytes": 1008948,
+    "bytes": 1033788,
     "clips": [
       "Dance_Loop",
       "Groove_Bounce",
@@ -440,7 +440,7 @@
   },
   {
     "id": "ari",
-    "bytes": 808400,
+    "bytes": 694364,
     "clips": [
       "Idle_Loop",
       "Idle_Talking_Loop"
@@ -510,7 +510,7 @@
   },
   {
     "id": "noah",
-    "bytes": 830856,
+    "bytes": 723600,
     "clips": [
       "Idle_Loop",
       "Idle_Talking_Loop",
