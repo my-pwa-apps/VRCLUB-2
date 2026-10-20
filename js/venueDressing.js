@@ -1120,6 +1120,7 @@ const VenueDressing = {
             this.standFromSeat(true);
             return true;
         }
+        if (this._requestDevSeatYield?.(door.seatId)) return true;
         this.pushStallDoor(index);
         return true;
     },
@@ -1363,28 +1364,35 @@ const VenueDressing = {
     _mirrorAvatarId() {
         const mp = this.multiplayer;
         if (mp && mp.connected) return mp.selfAvatar || null;
-        return typeof this.getLocalCharacter === 'function' ? this.getLocalCharacter() : null;
+        const selected = typeof this.getLocalCharacter === 'function' ? this.getLocalCharacter() : null;
+        return selected || (this.getCharacterStyle && this.getCharacterStyle() === 'diverse'
+            ? this.getLocalAvatarStyle() === 'male' ? 'm1' : 'f1' : null);
     },
 
     /** Follow the relay's assignment in a room, or the player's own choice offline. */
     _syncMirrorDouble() {
         const avatarId = this._mirrorAvatarId();
+        const style = this.getCharacterStyle ? this.getCharacterStyle() : 'quaternius';
+        const key = `${style}:${this._characterStyles?.generation || 0}:${avatarId}`;
         const double = this._mirrorDouble;
-        if (double && double.avatarId === avatarId) return;
+        if (double && double.avatarId === avatarId && (double.characterStyle || 'quaternius') === style) return;
         if (double) this._disposeMirrorDouble();
-        if (!avatarId || this._mirrorDoubleLoading === avatarId) return;
-        this._mirrorDoubleLoading = avatarId;
+        if (!avatarId || this._mirrorDoubleLoading === key) return;
+        this._mirrorDoubleLoading = key;
         this._buildMirrorDouble(avatarId)
             .catch(err => log.warn('Could not build the mirror reflection of your character:', err))
-            .finally(() => { if (this._mirrorDoubleLoading === avatarId) this._mirrorDoubleLoading = null; });
+            .finally(() => { if (this._mirrorDoubleLoading === key) this._mirrorDoubleLoading = null; });
     },
 
     async _buildMirrorDouble(avatarId) {
         const Crowd = window.VRClubAudioCrowd;
         const index = Crowd ? Crowd.sourceIndex(avatarId) : -1;
         if (index < 0 || typeof this._loadCrowdSource !== 'function' || !this._crowdSourceContainers) return;
-        const container = await this._loadCrowdSource(index);
+        const characterStyle = this.getCharacterStyle ? this.getCharacterStyle() : 'quaternius';
+        const generation = this._characterStyles?.generation || 0;
+        const container = this._loadPlayerSource ? await this._loadPlayerSource(avatarId) : await this._loadCrowdSource(index);
         if (!container || this._disposed || !this.scene || this._mirrorDouble || this._mirrorAvatarId() !== avatarId) return;
+        if ((this._characterStyles?.generation || 0) !== generation) return;
 
         const prefix = 'mirrorSelf_';
         const entry = container.instantiateModelsToScene(name => `${prefix}${name}`, false, { doNotInstantiate: true });
@@ -1403,7 +1411,7 @@ const VenueDressing = {
         node.computeWorldMatrix(true);
         const bounds = node.getHierarchyBoundingVectors(true);
         const minY = bounds.min.y, raw = bounds.max.y - bounds.min.y;
-        const eyeBind = this._characterEyePoint(node, minY);
+        const eyeBind = container.character ? BABYLON.Vector3.FromArray(container.character.eye) : this._characterEyePoint(node, minY);
         const eyeRaw = eyeBind ? eyeBind.y - minY : raw * 0.935;
         if (!(raw > 1e-6) || !(eyeRaw > 0.3)) { entry.dispose(); root.dispose(); return; }
         const scale = this._shownBodyEye() / eyeRaw;
@@ -1441,7 +1449,7 @@ const VenueDressing = {
         if (!groups.Idle) { entry.dispose(); root.dispose(); return; }
         const arms = typeof AvatarRig !== 'undefined' ? AvatarRig.createTrackedArms(node, prefix) : null;
         const double = {
-            avatarId, entry, root, node, meshes, groups, arms, current: null, speed: 0,
+            avatarId, characterStyle, entry, root, node, meshes, groups, arms, current: null, speed: 0,
             eyeRaw, minY, active: true, shown: false, neck, neckChain, eyeLocal, eyeNow: new BABYLON.Vector3(), serial: (this._mirrorDoubleSerial = (this._mirrorDoubleSerial || 0) + 1),
             skeletons: Array.from(new Set(meshes.map(mesh => mesh.skeleton).filter(Boolean))),
             hands: { left: null, right: null }, handBuffers: { left: {}, right: {} },

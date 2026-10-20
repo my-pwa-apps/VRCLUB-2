@@ -56,6 +56,71 @@ state the source and independent status.
 
 ## 3D models
 
+### Optional detailed adult cast (ADE)
+
+The following 34 fictional adults are generated from MakeHuman/MPFB's **CC0
+assets**, with individually verified CC0 system clothing, hair, shoes and
+MargaretToigo's CC0 `dress01` dresses. Sources:
+[MPFB](https://github.com/makehumancommunity/mpfb2),
+[system asset pack](https://static.makehumancommunity.org/assets/assetpacks/makehuman_system_assets.html),
+[dress01](https://static.makehumancommunity.org/assets/assetpacks/dress01.html).
+The per-person selected assets, authors, URLs and recipes are in
+`design/characters/recipes.json`; exact pack hashes and upstream tool revision
+are in `design/characters/provenance.json`. MPFB software is GPL-3.0-or-later;
+these generated assets are **CC0-1.0**, not GPL source code.
+
+Changes: adult body/face recipes, fitted clothing and hair, hidden-body removal,
+decimation below 10,000 triangles, 1024 px body/512 px hair WebP atlases,
+53-joint skinning, and offline world-space retargeting of the club's existing
+CC0 Quaternius dances, locomotion, gestures, seating and social clips. Hand
+contacts are fitted to anatomy and role props; knee planes follow each person's
+own anatomy. Non-skin metacarpal helpers support the existing tracked-arm driver.
+Measured eye landmarks place the self body. Both DJs reuse
+[Headphones by nisu](https://opengameart.org/content/headphones), CC0, fitted to
+each head and skinned to its Head joint (3,324 extra triangles).
+No proprietary scans, branded outfits or externally hosted avatar service.
+
+| File | Fictional adult | Role |
+|------|------------------|------|
+| `js/models/characters/nia.glb` | Nia | Dancer/player |
+| `js/models/characters/luca.glb` | Luca | Dancer/player |
+| `js/models/characters/robin.glb` | Robin | Dancer |
+| `js/models/characters/tao.glb` | Tao | Dancer/player |
+| `js/models/characters/sofia.glb` | Sofia | Dancer/player |
+| `js/models/characters/asha.glb` | Asha | Dancer/player |
+| `js/models/characters/diego.glb` | Diego | Dancer/player |
+| `js/models/characters/iris.glb` | Iris | Dancer/player |
+| `js/models/characters/eden.glb` | Eden | Dancer |
+| `js/models/characters/ren.glb` | Ren | Dancer/player |
+| `js/models/characters/felix.glb` | Felix | Dancer/player |
+| `js/models/characters/kai.glb` | Kai | Dancer |
+| `js/models/characters/jonas.glb` | Jonas | Dancer |
+| `js/models/characters/mara.glb` | Mara | Dancer |
+| `js/models/characters/ellis.glb` | Ellis | Indoor guest/player |
+| `js/models/characters/amara.glb` | Amara | Seated bar guest/player |
+| `js/models/characters/malik.glb` | Malik | Mingler/player |
+| `js/models/characters/mei.glb` | Mei | Balcony guest/player |
+| `js/models/characters/rosa.glb` | Rosa | Indoor guest/player |
+| `js/models/characters/samir.glb` | Samir | Indoor guest/player |
+| `js/models/characters/luz.glb` | Luz | Indoor guest |
+| `js/models/characters/ari.glb` | Ari | Indoor guest |
+| `js/models/characters/leila.glb` | Leila | Queue/player |
+| `js/models/characters/kwame.glb` | Kwame | Queue |
+| `js/models/characters/hana.glb` | Hana | Queue |
+| `js/models/characters/owen.glb` | Owen | Queue |
+| `js/models/characters/alex.glb` | Alex | Queue |
+| `js/models/characters/vera.glb` | Vera | Queue, phone |
+| `js/models/characters/noah.glb` | Noah | Queue |
+| `js/models/characters/river.glb` | River | Queue |
+| `js/models/characters/sana.glb` | Sana | Bartender |
+| `js/models/characters/idris.glb` | Idris | Bouncer/player |
+| `js/models/characters/jin.glb` | Jin | Male DJ |
+| `js/models/characters/zara.glb` | Zara | Female DJ |
+
+All table entries are **CC0-1.0**, credited in-app as a courtesy. Quaternius
+remains the default; the detailed cast is opt-in and has a personal lightweight
+override. Existing room identity IDs and capacities are unchanged.
+
 | File | Title | Creator | Licence | Attribution shown in-app |
 |------|-------|---------|---------|--------------------------|
 | `js/models/djgear/source/pioneer_DJ_console.glb` | [Pioneer DJ Console](https://sketchfab.com/3d-models/pioneer-dj-console-0ba527fa6b164c34aa050dcecbaa2ffb) | TwoPixels.studio (<https://sketchfab.com/twopixels.studio>) | CC BY 4.0 | Yes, with source and modification notice |

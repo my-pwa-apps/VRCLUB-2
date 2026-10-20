@@ -48,6 +48,7 @@ const CITY_LAYOUT = Object.freeze({
 
 const CityLayout = {
     ...CITY_LAYOUT,
+    vrEntry: Object.freeze({ x: 0, z: (CITY_LAYOUT.roadTo + CITY_LAYOUT.farFront) / 2 }),
 
     /**
      * How far outdoors a position is: 0 inside the club or its vestibule, 1 on the street, easing across the

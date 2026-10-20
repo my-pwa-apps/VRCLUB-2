@@ -61,14 +61,243 @@ function loadClassic(relativePath, globals = {}) {
         Number,
         String,
         performance: { now: () => 0 },
+        localStorage: { getItem: () => null, setItem() {} },
+        log: { info() {}, warn() {}, error() {} },
         ...globals
     });
 
     window.window = window;
     window.location = { href: 'https://vrclub.example/', protocol: 'https:' };
     vm.runInContext(readFileSync(join(ROOT, relativePath), 'utf8'), context, { filename: relativePath });
+    if (relativePath === 'js/club/11-audio-crowd.js') {
+        for (const file of ['js/characterCatalog.js', 'js/characterStyles.js']) {
+            vm.runInContext(readFileSync(join(ROOT, file), 'utf8'), context, { filename: file });
+        }
+        Object.assign(window.VRClubAudioCrowd.prototype, window.CharacterStyles);
+    }
     return { window, context };
 }
+
+test('DEV activities follow actual surfaces, clear fixed people and use the real furniture', async () => {
+    const { DevAttendees, DEV_DESTINATIONS, DANCE_SPOTS } = await import('../worker/src/devAttendees.js');
+    const venue = loadClassic('js/venueDressing.js').window.VenueLayout;
+    const mezz = loadClassic('js/mezzanine.js').window.MezzanineLayout;
+    const { window } = loadClassic('js/club/11-audio-crowd.js', {
+        BABYLON: makeBabylonStub(), VRClubUI: class {}, log: { info() {}, warn() {}, error() {} }
+    });
+    const Crowd = window.VRClubAudioCrowd;
+    const floor = Object.assign(Object.create(Crowd.prototype), {
+        tierSettings: { crowdSize: 14, guestSize: 8 }, npcAvatars: [], _loadCrowdSources: async () => {},
+        _applyDJ: async () => true, _initialDJId: () => 'male', _spawnCrowdTo() {}, _spawnLocalPlayerBody() {},
+        _applyCrowdSize() {}, _refreshShadowCasters() {}, _spawnAvatar() {}
+    });
+    await floor.createDancingNPCs();
+    const fixedPeople = [...floor._crowdSlots, ...floor._guestSlots().filter(slot => !slot.mingles && !slot.y)];
+    for (const spot of DANCE_SPOTS) for (const npc of floor._crowdSlots) {
+        assert.ok(Math.hypot(spot.x - npc.x, spot.z - npc.z) >= 0.8, 'dance destination overlaps a floor dancer');
+    }
+    for (const seat of DEV_DESTINATIONS.filter(place => place.id.startsWith('bar-'))) {
+        assert.equal(seat.x, venue.bar.stoolX);
+        assert.ok(venue.bar.stoolZ.includes(seat.z) && seat.z !== -11.6);
+        assert.equal(seat.seatH, 0.76);
+    }
+    for (const [i, z] of venue.restroom.toiletZ.entries()) {
+        const seat = DEV_DESTINATIONS.find(place => place.id === `toilet-${i}`);
+        assert.equal(seat.x, venue.restroom.toiletSeatX);
+        assert.equal(seat.z, z);
+        assert.equal(seat.seatH, venue.restroom.toiletSeatY);
+    }
+    for (const [i, offset] of venue.lounge.seats.entries()) {
+        const seat = DEV_DESTINATIONS.find(place => place.id === `lounge-${i}`);
+        assert.equal(seat.x, venue.lounge.x + offset);
+        assert.equal(seat.z, venue.lounge.seatZ);
+        assert.equal(seat.seatH, venue.lounge.seatY);
+    }
+    for (const [i, stool] of mezz.stools.entries()) {
+        const seat = DEV_DESTINATIONS.find(place => place.id === `balcony-${i}`);
+        assert.equal(seat.x, stool.x);
+        assert.equal(seat.z, stool.z);
+        assert.equal(seat.floorY, mezz.deck.top);
+    }
+    const seen = new Set();
+    for (let index = 0; index < 31; index++) {
+        const simulation = new DevAttendees(123, 0), bot = simulation.add(index);
+        let previous = bot.state;
+        for (let step = 1; step <= 7000; step++) {
+            simulation.step(step * 100);
+            const state = bot.state;
+            const actual = venue.vestibule.walkLevel(state.x, state.z) ??
+                mezz.walkLevel(state.x, state.z, state.floorY);
+            assert.ok(Math.abs(state.floorY - actual) < 0.1, `bot ${index} left its surface at ${state.x}, ${state.z}: ${state.floorY} vs ${actual}`);
+            assert.ok(Math.hypot(state.x - previous.x, state.z - previous.z) <= 0.14, 'a normal walk must not jump after a turn or loop');
+            if (state.floorY < 0.1) for (const npc of fixedPeople) {
+                assert.ok(Math.hypot(state.x - npc.x, state.z - npc.z) >= 0.6,
+                    `bot ${index} at ${state.x},${state.z} walked into fixed person ${npc.x},${npc.z}`);
+            }
+            assert.ok(Object.entries(state).every(([key, value]) => key === 'seat'
+                ? DEV_DESTINATIONS.some(place => place.id === value) : typeof value === 'boolean' || Number.isFinite(value)));
+            if (state.dancing) seen.add('dance');
+            if (state.seated) seen.add('seat');
+            if (state.floorY === 3) seen.add('balcony');
+            if (state.z > 6.6) seen.add('street');
+            previous = state;
+        }
+    }
+    assert.deepEqual([...seen].sort(), ['balcony', 'dance', 'seat', 'street']);
+});
+
+test('DEV activity decisions are frame-rate independent and never walk into a real guest', async () => {
+    const { DevAttendees } = await import('../worker/src/devAttendees.js');
+    const a = new DevAttendees(456, 0), b = new DevAttendees(456, 0);
+    const first = a.add(2), second = b.add(2);
+    for (let i = 1; i <= 2000; i++) a.step(i * 50);
+    for (let i = 1; i <= 1000; i++) b.step(i * 100);
+    assert.ok(Math.hypot(first.state.x - second.state.x, first.state.z - second.state.z) < 1e-6);
+    const waiting = new DevAttendees(456, 0), guest = waiting.add(2);
+    guest.departAt = guest.chooseAt = 0;
+    waiting.step(50);
+    assert.ok(guest.path);
+    const old = { ...guest.state };
+    const next = guest.path[guest.waypoint];
+    const dx = next.x - guest.position.x, dz = next.z - guest.position.z, length = Math.hypot(dx, dz);
+    const obstruction = { x: old.x + dx / length * 0.1, z: old.z + dz / length * 0.1, floorY: old.floorY };
+    waiting.step(100, [obstruction]);
+    assert.deepEqual(guest.state, old);
+    const arrival = new DevAttendees(456, 0).add(2, [old]);
+    assert.ok(Math.hypot(arrival.state.x - old.x, arrival.state.floorY - old.floorY, arrival.state.z - old.z) >= 1.25,
+        'a replacement attendee must not spawn inside a real guest');
+});
+
+test('DEV furniture yields safely to real guests, including reservations made while somebody is approaching', async () => {
+    const { DevAttendees } = await import('../worker/src/devAttendees.js');
+    const simulation = new DevAttendees(456, 0);
+    for (let index = 0; index < 31; index++) simulation.add(index);
+    const occupant = [...simulation.guests.values()].find(bot => bot.state.seat?.startsWith('toilet-'));
+    assert.ok(occupant);
+    const seat = { ...occupant.position, seated: true };
+    assert.equal(simulation.yieldSeat('missing-seat'), false);
+    assert.equal(simulation.yieldSeat(occupant.destination.id), true);
+    assert.equal(occupant.state.seated, false, 'the toilet door opens before the guest walks out');
+    const start = { ...occupant.position };
+    simulation.step(250, [seat]);
+    assert.deepEqual(occupant.position, start, 'wait for the physical door to open');
+    for (let now = 500; now <= 15000; now += 250) simulation.step(now, [seat]);
+    assert.ok(Math.hypot(occupant.position.x - seat.x, occupant.position.z - seat.z) > 0.85);
+    assert.ok(![...simulation.guests.values()].some(bot => bot.state.seated &&
+        Math.hypot(bot.state.x - seat.x, bot.state.z - seat.z) < 1));
+
+    const approaching = new DevAttendees(789, 0), walker = approaching.add(0);
+    walker.departAt = walker.chooseAt = 0;
+    approaching.step(50);
+    assert.ok(walker.path);
+    const destination = { ...walker.destination, seated: true };
+    const origin = walker.origin.id, previous = { ...walker.position };
+    approaching.step(100, [destination]);
+    assert.equal(walker.destination.id, origin, 'a newly occupied destination cancels the approach');
+    assert.ok(walker.returning || !walker.path);
+    assert.ok(Math.hypot(walker.position.x - previous.x, walker.position.z - previous.z) < 0.1, 'backtracking never teleports');
+});
+
+test('DEV attendees mingle for an hour without walking queues, overlaps, jumps or mandatory circuits', async () => {
+    const { DevAttendees } = await import('../worker/src/devAttendees.js');
+    for (const [seed, stepMs] of [[123, 100], [456, 50], [789, 250], [0, 100], [0xffffffff, 100]]) {
+        const simulation = new DevAttendees(seed, 0);
+        const guests = Array.from({ length: 31 }, (_, index) => {
+            const bot = simulation.add(index);
+            return { bot, travelled: bot.travelled, previous: bot.state, waitMs: 0 };
+        });
+        let minimumGap = Infinity, maximumStep = 0, movingSamples = 0, longestWait = 0;
+        const activities = new Set(), furniture = new Set();
+        for (let now = stepMs; now <= 3_600_000; now += stepMs) {
+            simulation.step(now);
+            assert.ok([...simulation.guests.values()].filter(bot => bot.path).length <= 3,
+                'the simultaneous walking limit applies on every update, not just on average');
+            for (const guest of guests) {
+                const state = guest.bot.state;
+                maximumStep = Math.max(maximumStep, Math.hypot(state.x - guest.previous.x, state.z - guest.previous.z));
+                guest.previous = state;
+                activities.add(guest.bot.destination.activity);
+                if (state.seated) furniture.add(state.seat.split('-')[0]);
+                if (guest.bot.path) movingSamples++;
+                if (guest.bot.path && guest.bot.travelled === guest.travelled) {
+                    guest.waitMs += stepMs;
+                    longestWait = Math.max(longestWait, guest.waitMs);
+                } else guest.waitMs = 0;
+                guest.travelled = guest.bot.travelled;
+            }
+            for (let i = 0; i < guests.length; i++) for (let j = i + 1; j < guests.length; j++) {
+                const a = guests[i].bot.state, b = guests[j].bot.state;
+                minimumGap = Math.min(minimumGap, Math.hypot(a.x - b.x, a.floorY - b.floorY, a.z - b.z));
+            }
+        }
+        assert.ok(minimumGap >= 0.6 - 1e-7, `seed ${seed} overlapped bodies: ${minimumGap}`);
+        assert.ok(maximumStep <= 1.15 * stepMs / 1000 + 1e-7, `seed ${seed} jumped: ${maximumStep}`);
+        assert.ok(movingSamples / (3_600_000 / stepMs) <= 3, 'most guests should be doing an activity, not circulating');
+        assert.ok(longestWait <= 1200, `seed ${seed} leaves a walking guest queued for ${longestWait} ms`);
+        for (const guest of guests) {
+            assert.ok(guest.bot.completed >= 3, `seed ${seed}, bot ${guest.bot.index} never changed activities`);
+            assert.ok(guest.bot.visits.size >= 2, 'guests choose different kinds of activity');
+        }
+        assert.deepEqual([...activities].sort(), ['air', 'dance', 'seat', 'talk', 'toilet', 'watch']);
+        assert.deepEqual([...furniture].sort(), ['balcony', 'bar', 'lounge', 'toilet']);
+        for (const guest of guests) simulation.remove(guest.bot.index);
+        assert.equal(simulation.resources.size, 0, 'departing attendees must release every corridor and dance spot');
+    }
+});
+
+test('DEV guests have distinct names and exchange scripted conversation turns only with present partners', async () => {
+    const { DevAttendees, ATTENDEE_NAMES } = await import('../worker/src/devAttendees.js');
+    const { ALLOWED_EMOJI, ALLOWED_GESTURES, sanitizeName } = await import('../worker/src/relay.js');
+    assert.equal(ATTENDEE_NAMES.length, 31);
+    assert.equal(new Set(ATTENDEE_NAMES).size, 31);
+    for (const name of ATTENDEE_NAMES) assert.equal(sanitizeName(name), name);
+    const simulation = new DevAttendees(456, 0);
+    for (let index = 0; index < 31; index++) {
+        const bot = simulation.add(index);
+        assert.equal(bot.name, ATTENDEE_NAMES[index]);
+    }
+    let conversations = 0, djReactions = 0, chats = 0, groupOfThree = false;
+    const speakers = new Map();
+    const firstConversation = [];
+    const lastEvent = new Map();
+    for (let now = 100; now <= 600000; now += 100) {
+        simulation.step(now);
+        for (const bot of simulation.guests.values()) {
+            if (bot.state.talking && [...simulation.guests.values()].filter(other =>
+                !other.path && other.destination.group === bot.destination.group).length >= 3) groupOfThree = true;
+            if (bot.chat) {
+                chats++;
+                if (firstConversation.length < 3) firstConversation.push({ group: bot.destination.group, speaker: bot.index });
+                assert.ok(!bot.path && bot.partnerIndex !== null && !bot.state.dancing);
+                assert.ok(bot.chat.length <= 200);
+                if (!speakers.has(bot.destination.group)) speakers.set(bot.destination.group, new Set());
+                speakers.get(bot.destination.group).add(bot.index);
+            }
+            if (!bot.gesture && !bot.emoji) continue;
+            if (bot.gesture) assert.ok(ALLOWED_GESTURES.includes(bot.gesture));
+            if (bot.emoji) assert.ok(ALLOWED_EMOJI.includes(bot.emoji));
+            assert.ok(now - (lastEvent.get(bot.index) ?? -Infinity) >= 23000, 'social events must not spam');
+            lastEvent.set(bot.index, now);
+            assert.equal(!!bot.path, false, 'never wave instead of walking along a corridor');
+            if (bot.state.dancing) {
+                djReactions++;
+                assert.ok(Math.abs(bot.state.rotY - Math.atan2(-bot.state.x, -18 - bot.state.z)) < 1e-7);
+            } else {
+                conversations++;
+                const partner = simulation.guests.get(bot.partnerIndex);
+                assert.ok(partner, 'a social gesture must have a nearby conversation partner');
+                assert.ok(Math.hypot(partner.state.x - bot.state.x, partner.state.z - bot.state.z) < 3);
+            }
+        }
+    }
+    assert.ok(conversations > 10, 'guests should visibly greet and acknowledge one another');
+    assert.ok(djReactions > 10, 'dancers should occasionally cheer the resident DJ');
+    assert.ok(chats > 20 && chats <= 120, 'conversation balloons are occasional, not a flood');
+    assert.ok(groupOfThree, 'three guests can mingle together');
+    assert.ok([...speakers.values()].some(group => group.size >= 2), 'partners take turns rather than one guest monologuing');
+    assert.equal(new Set(firstConversation.map(line => line.group)).size, 1, 'finish a short exchange before cutting to another group');
+    assert.notEqual(firstConversation[0].speaker, firstConversation[1].speaker);
+});
 
 test('automatic countdowns require a sustained four-bar energy rise; manual DROP remains available', () => {
         const { window } = loadClassic('js/showDirector.js');
@@ -2180,6 +2409,33 @@ test('the Web Audio graph spatialises the PA, keeps the analyser pre-spatial and
     assert.ok(extra.sweepWet.gain.value > 0.4);
     club.setDJEffect('phaser', 1);
     assert.ok(extra.phaserWet.gain.value > 0.8);
+    const hostEffects = club.djEffectsSnapshot();
+    club._networkMusic = {};
+    club._writeDJEffects(0);
+    assert.equal(club.djFxLowpass.frequency.value, 20000);
+    assert.equal(club.djFxHighpass.frequency.value, 20);
+    assert.equal(club.djFxEchoWet.gain.value, 0);
+    assert.equal(club.djFxFlangerWet.gain.value, 0);
+    assert.equal(club.djFxReverb.gain.value, 0);
+    assert.equal(club.djFxChannel.gain.value, 1);
+    assert.equal(extra.phaserWet.gain.value, 0);
+    assert.equal(extra.sweepWet.gain.value, 0, 'a processed broadcast must not add a second noise sweep');
+    assert.equal(extra.gaterDepth.gain.value, 0);
+    assert.equal(club.djFxGate.gain.value, 1);
+    assert.deepEqual(club.djEffectsSnapshot(), hostEffects, 'readouts retain the host controls without applying them twice');
+    club._applySharedDJEffects({ lowpass: 0.75, echo: 0.5, channel: 0.2, sweep: 0.6 });
+    assert.equal(club._djEffects.channel, 0.2);
+    assert.equal(club.djFxChannel.gain.value, 1, 'further remote snapshots cannot attenuate an already processed broadcast twice');
+    club._networkMusic = null;
+    club._writeDJEffects(0);
+    assert.equal(club.djFxChannel.gain.value, 0.2 * 0.2, 'switching back to a URL reapplies the controls once');
+    assert.equal(club.djFxEchoWet.gain.value, 0.5 * 0.65);
+    club._applySharedDJEffects({ lowpass: 9, highpass: -5, echo: '1', channel: NaN, arbitrary: 1 });
+    assert.equal(club._djEffects.lowpass, 1);
+    assert.equal(club._djEffects.highpass, 0);
+    assert.equal(club._djEffects.echo, 0.5);
+    assert.equal(club._djEffects.channel, 0.2);
+    assert.equal(Object.hasOwn(club._djEffects, 'arbitrary'), false);
     club.resetDJEffects();
     assert.equal(JSON.stringify(club._djEffects), JSON.stringify({
         lowpass: 0, highpass: 0, echo: 0, flanger: 0, reverb: 0, phaser: 0, sweep: 0, gater: 0, channel: 1
@@ -2394,6 +2650,7 @@ test('disposing the club releases VR access, stops every audio source and closes
         document: { removeEventListener() {} }
     });
     const xrStates = [];
+    club._cancelDevSeatWait = () => {};
     window.VRPayment = { onXRStateChange: active => xrStates.push(active) };
     window.VRClubLifecycle.prototype.dispose.call(club);
     window.VRClubLifecycle.prototype.dispose.call(club);
@@ -5459,6 +5716,51 @@ test('social wheel maps stick directions, paginates, and restores turning only a
     assert.equal(club._socialWheelItems().at(-2).target, 'chat', 'recipient selection returns to the chat phrases');
 });
 
+test('VR entry starts on the opposite pavement facing the club, preserves tracked height and discards old motion', () => {
+    const B = require('../js/vendor/babylon.js');
+    const layout = loadClassic('js/cityDistrict.js').window.CityLayout;
+    const { window } = loadClassic('js/club/02-lifecycle.js', { VRClubCore: class {}, BABYLON: B });
+    window.CityLayout = layout;
+    assert.ok(layout.vrEntry.z > layout.roadTo + 0.5);
+    assert.ok(layout.vrEntry.z < layout.farFront - 0.5);
+    assert.ok(layout.vrEntry.z - layout.doorZ > 15, 'the entrance needs a wide establishing view');
+    for (const available of [true, false]) {
+        const initialPose = new B.Observable();
+        const notices = [];
+        const club = Object.assign(Object.create(window.VRClubLifecycle.prototype), {
+            _streetDoor: { open: available }, _xrHeadHeight() {},
+            _activeSeat: { id: 'old-seat' }, standFromSeat() { this._activeSeat = null; },
+            jumpState: { active: true }, _vrFallSpeed: 9,
+            showErrorMessage: text => notices.push(text)
+        });
+        club._setupXRSession({ baseExperience: {
+            onInitialXRPoseSetObservable: initialPose, onStateChangedObservable: new B.Observable()
+        } });
+        for (const height of [1.6, 1.1, 0]) {
+            const camera = {
+                position: new B.Vector3(8, 99, -19), rotationQuaternion: B.Quaternion.Identity(),
+                cameraDirection: new B.Vector3(1, 2, 3), cameraRotation: new B.Vector2(1, 2),
+                _deferredUpdated: true
+            };
+            initialPose.notifyObservers(camera);
+            assert.deepEqual(camera.position.asArray(), available ? [layout.vrEntry.x, layout.groundY, layout.vrEntry.z] : [0, 0, -12]);
+            camera.position.y += height; // Babylon's first-frame height compensation.
+            assert.equal(camera.position.y, height + (available ? layout.groundY : 0));
+            const forward = new B.Vector3();
+            B.Vector3.Forward().rotateByQuaternionToRef(camera.rotationQuaternion, forward);
+            assert.ok(Math.abs(forward.x) < 1e-9 && forward.z < -0.99, 'face the club, not the copied desktop heading');
+            assert.deepEqual(camera.cameraDirection.asArray(), [0, 0, 0]);
+            assert.deepEqual(camera.cameraRotation.asArray(), [0, 0]);
+            assert.equal(camera._deferredUpdated, false, 'a previous session must not overwrite the arrival');
+            assert.equal(club._walkLevel, available ? layout.groundY : 0);
+            assert.equal(club._vrFallSpeed, 0);
+            assert.equal(club.jumpState.active, false);
+            assert.equal(club._activeSeat, null);
+        }
+        assert.equal(notices.length, available ? 0 : 3, 'an unavailable street must give an explicit indoor fallback notice');
+    }
+});
+
 test('Enter VR waits for background model loading, with a ceiling', async () => {
     const run = async ({ settleModels, supported = true }) => {
         const timers = [];
@@ -5888,6 +6190,51 @@ test('a guest out on the street is neither drawn nor animated here while the str
     assert.equal(peer.root.enabled, false);
 });
 
+test('remote pose work pauses only clearly behind the view, retaining the same body and clip, with mirror and close-range exceptions', () => {
+    const BABYLON = require('../js/vendor/babylon.js');
+    const { window } = loadClassic('js/avatarManager.js', { BABYLON });
+    window.VRClubAudioCrowd = loadClassic('js/club/11-audio-crowd.js', {
+        BABYLON, VRClubUI: class {}, log: { info() {}, warn() {}, error() {} }
+    }).window.VRClubAudioCrowd;
+    const direction = new BABYLON.Vector3(0, -0.15, 1).normalize();
+    const camera = { position: new BABYLON.Vector3(0, 4.7, 0), getDirectionToRef(_axis, out) { out.copyFrom(direction); } };
+    const manager = Object.assign(Object.create(window.AvatarManager.prototype), {
+        club: {}, scene: { activeCamera: camera }
+    });
+    let playing = true;
+    const group = { get isPlaying() { return playing; }, pause() { playing = false; }, restart() { playing = true; } };
+    const person = { current: 'Dance_Loop', groups: { Dance_Loop: group } };
+    const peer = {
+        hidden: false, culled: false, animPaused: false, person,
+        root: { position: new BABYLON.Vector3(0, 0, 25), enabled: true, setEnabled(value) { this.enabled = value; } }
+    };
+    manager._updateCulling(peer);
+    assert.equal(playing, true, 'distant dancer viewed from balcony must keep dancing');
+    direction.z = -1;
+    manager._updateCulling(peer);
+    assert.equal(playing, false, 'a clearly unseen pose can be held');
+    assert.equal(peer.root.enabled, true, 'position, collision and membership remain enabled');
+    assert.equal(peer.person, person);
+    assert.equal(person.current, 'Dance_Loop');
+    direction.set(Math.sin(110 * Math.PI / 180), 0, Math.cos(110 * Math.PI / 180));
+    manager._updateCulling(peer);
+    assert.equal(playing, true, 'resume well before entering the headset field of view');
+    direction.set(0, 0, -1);
+    manager._updateCulling(peer);
+    assert.equal(playing, false);
+    manager.club.restroomMirrorTexture = { refreshRate: 1 };
+    manager._updateCulling(peer);
+    assert.equal(playing, true, 'a guest behind the viewer may be visible in the mirror');
+    manager.club.restroomMirrorTexture.refreshRate = 0;
+    peer.root.position.set(0, 3, 2);
+    manager._updateCulling(peer);
+    assert.equal(playing, true, 'nearby guests never visibly unfreeze');
+    peer.hidden = true;
+    manager._applyHidden(peer);
+    assert.equal(peer.root.enabled, false, 'personal-space safety still wins');
+    assert.equal(playing, false);
+});
+
 test('the road paint is biased toward the camera so it cannot depth-fight the asphalt it lies on', () => {
     const BABYLON = {
         PBRMaterial: { PBRMATERIAL_ALPHATEST: 1, PBRMATERIAL_OPAQUE: 0 }, Material: { AllDirtyFlag: 0xff },
@@ -6208,6 +6555,68 @@ test('the local body stays full standing height until a room seat is intentional
     assert.equal(pose.eyeY, 4.7, 'the rig retains full standing calibration while applying a separate seat pose');
 });
 
+test('DEV seat selection waits for authoritative and rendered clearance, and cleans up pending requests', () => {
+    let now = 0;
+    const { window } = loadClassic('js/club/10-ui.js', {
+        VRClubAnimationFinish: class {}, performance: { now: () => now }
+    });
+    const club = Object.create(window.VRClubUI.prototype), observers = new Set(), notes = [], requests = [];
+    const seat = { id: 'bar-0', label: 'a bar stool', x: 9.2, z: -12.9, floorY: 0 };
+    const remote = { simulated: true, state: { seat: seat.id, seated: true } };
+    const rendered = { root: { position: { x: seat.x, z: seat.z } } };
+    club.scene = { onBeforeRenderObservable: {
+        add(callback) { observers.add(callback); return callback; }, remove(callback) { observers.delete(callback); }
+    } };
+    club.networkManager = { connected: true, room: 'private-000032', peers: new Map([['bot', remote]]),
+        requestDevSeat(id) { requests.push(id); return true; } };
+    club.avatarManager = { remotes: new Map([['bot', rendered]]) };
+    club._playerCamera = () => null;
+    club.showErrorMessage = message => notes.push(message);
+    const tick = () => { for (const observer of [...observers]) observer(); };
+    assert.equal(club.sitAtSeat(seat), false);
+    assert.equal(club._activeSeat, undefined);
+    assert.deepEqual(requests, [seat.id]);
+    tick();
+    assert.equal(requests.length, 1, 'do not repeatedly request an already pending seat');
+    remote.state = { seated: false };
+    tick();
+    assert.equal(club._activeSeat, undefined, 'standing up does not yet clear the physical body');
+    rendered.root.position.x += 1;
+    tick();
+    assert.equal(club._activeSeat, seat);
+    assert.equal(observers.size, 0);
+    club.standFromSeat(false);
+    remote.state = { seated: true, seat: seat.id };
+    club.sitAtSeat(seat);
+    now = 16000;
+    tick();
+    assert.equal(observers.size, 0);
+    assert.equal(club._activeSeat, null);
+    assert.ok(notes.at(-1).includes('try another seat'));
+    club.sitAtSeat(seat);
+    club.networkManager.connected = false;
+    tick();
+    assert.equal(observers.size, 0);
+    remote.simulated = false;
+    club.networkManager.connected = true;
+    assert.equal(club._simulatedSeatOccupant(seat.id), null, 'real guests are never automatically evicted');
+});
+
+test('DEV seat transport is restricted to the reserved room and known unoccupied furniture', () => {
+    const { window } = loadClassic('js/networkClient.js');
+    const messages = [], client = { connected: true, room: 'private-000032', _send: frame => messages.push(frame) };
+    const send = window.NetworkClient.prototype.requestDevSeat;
+    assert.equal(send.call(client, 'bar-1'), false);
+    assert.equal(send.call(client, 'toilet-0'), true);
+    assert.equal(messages[0].type, 'dev-seat');
+    client.room = 'lobby';
+    assert.equal(send.call(client, 'toilet-0'), false);
+    client.room = 'private-000032';
+    client.connected = false;
+    assert.equal(send.call(client, 'lounge-0'), false);
+    assert.equal(messages.length, 1);
+});
+
 test('seat picks choose the nearest cushion and preserve tracked VR height', () => {
     const BABYLON = { Vector3: class {
         constructor() { this.x = 0; this.y = 0; this.z = 0; }
@@ -6227,6 +6636,8 @@ test('seat picks choose the nearest cushion and preserve tracked VR height', () 
         _xrHeadHeight: () => 1.05,
         showErrorMessage: message => notes.push(message),
         _seatFromPick: proto._seatFromPick,
+        _simulatedSeatOccupant: proto._simulatedSeatOccupant,
+        _cancelDevSeatWait: proto._cancelDevSeatWait,
         sitAtSeat: proto.sitAtSeat,
         standFromSeat: proto.standFromSeat
     };
@@ -6649,7 +7060,7 @@ test('spinning lasers run at quarter speed, independently of frame rate, with th
                 lasers: [laser], lasersActive: true, laserSpeed: speed, vjManualMode: true,
                 vecPool: { laserDir: new BABYLON.Vector3() },
                 _laserColor: () => BABYLON.Color3.White(), _laserView: () => ({}),
-                laserBeamBatch: { mesh, hitMesh: mesh, material, hitMaterial: material }
+                laserBeamBatch: { mesh, material }
             };
             for (let i = 0; i < hz; i++) update.call(club, { time: i / hz, dtScale: 60 / hz });
             assert.ok(Math.abs(laser.rotation - 0.225 * speed) < 1e-9, `${hz} Hz rotation at ${speed}x`);
@@ -6678,13 +7089,12 @@ test('headset laser geometry follows the tier cadence without slowing motion', (
         _laserColor: () => BABYLON.Color3.White(),
         _laserView: () => ({ cam: BABYLON.Vector3.Zero(), pixelAngle: 0.001 }),
         laserBeamBatch: {
-            mesh, hitMesh: mesh, material, hitMaterial: material,
-            positions: [], colors: [], hitPositions: [], hitColors: []
+            mesh, material, positions: [], colors: []
         }
     };
     for (let i = 0; i < 90; i++) update.call(club, { time: i / 90, dt: 1 / 90, dtScale: 2 / 3 });
     assert.ok(Math.abs(laser.rotation - 0.225) < 1e-9, 'motion must still integrate every display frame');
-    assert.ok(uploads >= 4 * 43 && uploads <= 4 * 46, `expected about 45 geometry uploads, got ${uploads / 4}`);
+    assert.ok(uploads >= 2 * 43 && uploads <= 2 * 46, `expected about 45 geometry uploads, got ${uploads / 2}`);
 });
 
 test('moving-head photometry uses one bounded distance and incidence model', () => {
@@ -7014,11 +7424,9 @@ test('master dimming scales moving heads, ceiling lasers and the laser sheet con
         const mesh = () => ({ enabled: false, isEnabled() { return this.enabled; }, setEnabled(v) { this.enabled = v; }, updateVerticesData() {} });
         return {
             count,
-            mesh: mesh(), hitMesh: mesh(),
+            mesh: mesh(),
             material: { emissiveColor: new BABYLON.Color3() },
-            hitMaterial: { emissiveColor: new BABYLON.Color3() },
             positions: new Float32Array(count * 12), colors: new Float32Array(count * 16),
-            hitPositions: new Float32Array(count * 12), hitColors: new Float32Array(count * 16),
             hit: {}
         };
     };
@@ -7061,7 +7469,6 @@ test('master dimming scales moving heads, ceiling lasers and the laser sheet con
         const batch = club.laserBeamBatch;
         return {
             beamAlpha: Math.max(...Array.from({ length: 20 }, (_, i) => batch.colors[i * 4 + 3])),
-            dotAlpha: Math.max(...Array.from({ length: 20 }, (_, i) => batch.hitColors[i * 4 + 3])),
             enabled: batch.mesh.enabled,
             emitter: laser.emitterMat.emissiveColor.r
         };
@@ -7072,9 +7479,8 @@ test('master dimming scales moving heads, ceiling lasers and the laser sheet con
     const offLaser = renderLasers(0);
     assert.equal(offLaser.enabled, false, 'zero master left the ceiling laser beams drawn');
     assert.equal(offLaser.emitter, 0, 'zero master left the ceiling laser emitter glowing');
-    assert.ok(fullLaser.beamAlpha > 0 && fullLaser.dotAlpha > 0);
+    assert.ok(fullLaser.beamAlpha > 0);
     assert.ok(Math.abs(halfLaser.beamAlpha / fullLaser.beamAlpha - 0.5) < 0.02, 'half master did not halve the ceiling laser beam');
-    assert.ok(Math.abs(halfLaser.dotAlpha / fullLaser.dotAlpha - 0.5) < 0.02, 'half master did not halve the ceiling laser dots');
     assert.ok(Math.abs(halfLaser.emitter / fullLaser.emitter - 0.5) < 0.02, 'half master did not halve the ceiling laser emitter');
 
     const renderSheet = (master) => {
@@ -9421,7 +9827,8 @@ test('generic DJs: one load per DJ, a clean swap, queued switches and safe ids',
     // Refused ids leave the DJ alone; a failed load keeps the current one; a disposed club does nothing.
     assert.equal(await club.setDJ('__proto__'), false);
     assert.equal(club._djId, 'female');
-    club._djContainers.male = null;
+    delete club._djContainers['quaternius:male'];
+    club._characterStyles.sources.delete(Crowd.DJ_LOOKS.male.url);
     club._loadAvatarSource = async () => null;
     assert.equal(await club.setDJ('male'), false, 'a DJ whose file cannot load never replaces the working one');
     assert.equal(club._djId, 'female');

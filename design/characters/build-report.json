@@ -1,0 +1,560 @@
+[
+  {
+    "id": "nia",
+    "bytes": 2040908,
+    "clips": [
+      "Dance_Loop",
+      "Groove_Bounce",
+      "Groove_SideTap",
+      "Groove_Clap",
+      "Groove_ClapUp",
+      "Groove_Pump",
+      "Groove_Twist",
+      "Groove_HandsUp",
+      "Groove_ArmsWide",
+      "Groove_ArmsUp",
+      "Groove_Sway",
+      "Idle",
+      "Walk",
+      "Run",
+      "Wave",
+      "Yes",
+      "Seated_Loop",
+      "Seated_Low_Loop",
+      "Idle_Talking_Loop",
+      "Idle_Loop"
+    ]
+  },
+  {
+    "id": "luca",
+    "bytes": 1939888,
+    "clips": [
+      "Dance_Loop",
+      "Groove_Bounce",
+      "Groove_SideTap",
+      "Groove_Clap",
+      "Groove_ClapUp",
+      "Groove_Pump",
+      "Groove_Twist",
+      "Groove_HandsUp",
+      "Groove_ArmsWide",
+      "Groove_ArmsUp",
+      "Groove_Sway",
+      "Idle",
+      "Walk",
+      "Run",
+      "Wave",
+      "Yes",
+      "Seated_Loop",
+      "Seated_Low_Loop",
+      "Idle_Talking_Loop",
+      "Idle_Loop"
+    ]
+  },
+  {
+    "id": "robin",
+    "bytes": 1160240,
+    "clips": [
+      "Dance_Loop",
+      "Groove_Bounce",
+      "Groove_SideTap",
+      "Groove_Clap",
+      "Groove_ClapUp",
+      "Groove_Pump",
+      "Groove_Twist",
+      "Groove_HandsUp",
+      "Groove_ArmsWide",
+      "Groove_ArmsUp",
+      "Groove_Sway",
+      "Idle_Loop",
+      "Idle_Talking_Loop"
+    ]
+  },
+  {
+    "id": "tao",
+    "bytes": 2050368,
+    "clips": [
+      "Dance_Loop",
+      "Groove_Bounce",
+      "Groove_SideTap",
+      "Groove_Clap",
+      "Groove_ClapUp",
+      "Groove_Pump",
+      "Groove_Twist",
+      "Groove_HandsUp",
+      "Groove_ArmsWide",
+      "Groove_ArmsUp",
+      "Groove_Sway",
+      "Idle",
+      "Walk",
+      "Run",
+      "Wave",
+      "Yes",
+      "Seated_Loop",
+      "Seated_Low_Loop",
+      "Idle_Talking_Loop",
+      "Idle_Loop"
+    ]
+  },
+  {
+    "id": "sofia",
+    "bytes": 1982004,
+    "clips": [
+      "Dance_Loop",
+      "Groove_Bounce",
+      "Groove_SideTap",
+      "Groove_Clap",
+      "Groove_ClapUp",
+      "Groove_Pump",
+      "Groove_Twist",
+      "Groove_HandsUp",
+      "Groove_ArmsWide",
+      "Groove_ArmsUp",
+      "Groove_Sway",
+      "Idle",
+      "Walk",
+      "Run",
+      "Wave",
+      "Yes",
+      "Seated_Loop",
+      "Seated_Low_Loop",
+      "Idle_Talking_Loop",
+      "Idle_Loop"
+    ]
+  },
+  {
+    "id": "asha",
+    "bytes": 1988820,
+    "clips": [
+      "Dance_Loop",
+      "Groove_Bounce",
+      "Groove_SideTap",
+      "Groove_Clap",
+      "Groove_ClapUp",
+      "Groove_Pump",
+      "Groove_Twist",
+      "Groove_HandsUp",
+      "Groove_ArmsWide",
+      "Groove_ArmsUp",
+      "Groove_Sway",
+      "Idle",
+      "Walk",
+      "Run",
+      "Wave",
+      "Yes",
+      "Seated_Loop",
+      "Seated_Low_Loop",
+      "Idle_Talking_Loop",
+      "Idle_Loop"
+    ]
+  },
+  {
+    "id": "diego",
+    "bytes": 1964348,
+    "clips": [
+      "Dance_Loop",
+      "Groove_Bounce",
+      "Groove_SideTap",
+      "Groove_Clap",
+      "Groove_ClapUp",
+      "Groove_Pump",
+      "Groove_Twist",
+      "Groove_HandsUp",
+      "Groove_ArmsWide",
+      "Groove_ArmsUp",
+      "Groove_Sway",
+      "Idle",
+      "Walk",
+      "Run",
+      "Wave",
+      "Yes",
+      "Seated_Loop",
+      "Seated_Low_Loop",
+      "Idle_Talking_Loop",
+      "Idle_Loop"
+    ]
+  },
+  {
+    "id": "iris",
+    "bytes": 1948084,
+    "clips": [
+      "Dance_Loop",
+      "Groove_Bounce",
+      "Groove_SideTap",
+      "Groove_Clap",
+      "Groove_ClapUp",
+      "Groove_Pump",
+      "Groove_Twist",
+      "Groove_HandsUp",
+      "Groove_ArmsWide",
+      "Groove_ArmsUp",
+      "Groove_Sway",
+      "Idle",
+      "Walk",
+      "Run",
+      "Wave",
+      "Yes",
+      "Seated_Loop",
+      "Seated_Low_Loop",
+      "Idle_Talking_Loop",
+      "Idle_Loop"
+    ]
+  },
+  {
+    "id": "eden",
+    "bytes": 1101124,
+    "clips": [
+      "Dance_Loop",
+      "Groove_Bounce",
+      "Groove_SideTap",
+      "Groove_Clap",
+      "Groove_ClapUp",
+      "Groove_Pump",
+      "Groove_Twist",
+      "Groove_HandsUp",
+      "Groove_ArmsWide",
+      "Groove_ArmsUp",
+      "Groove_Sway",
+      "Idle_Loop",
+      "Idle_Talking_Loop"
+    ]
+  },
+  {
+    "id": "ren",
+    "bytes": 2026584,
+    "clips": [
+      "Dance_Loop",
+      "Groove_Bounce",
+      "Groove_SideTap",
+      "Groove_Clap",
+      "Groove_ClapUp",
+      "Groove_Pump",
+      "Groove_Twist",
+      "Groove_HandsUp",
+      "Groove_ArmsWide",
+      "Groove_ArmsUp",
+      "Groove_Sway",
+      "Idle",
+      "Walk",
+      "Run",
+      "Wave",
+      "Yes",
+      "Seated_Loop",
+      "Seated_Low_Loop",
+      "Idle_Talking_Loop",
+      "Idle_Loop"
+    ]
+  },
+  {
+    "id": "felix",
+    "bytes": 2031116,
+    "clips": [
+      "Dance_Loop",
+      "Groove_Bounce",
+      "Groove_SideTap",
+      "Groove_Clap",
+      "Groove_ClapUp",
+      "Groove_Pump",
+      "Groove_Twist",
+      "Groove_HandsUp",
+      "Groove_ArmsWide",
+      "Groove_ArmsUp",
+      "Groove_Sway",
+      "Idle",
+      "Walk",
+      "Run",
+      "Wave",
+      "Yes",
+      "Seated_Loop",
+      "Seated_Low_Loop",
+      "Idle_Talking_Loop",
+      "Idle_Loop"
+    ]
+  },
+  {
+    "id": "kai",
+    "bytes": 1171044,
+    "clips": [
+      "Dance_Loop",
+      "Groove_Bounce",
+      "Groove_SideTap",
+      "Groove_Clap",
+      "Groove_ClapUp",
+      "Groove_Pump",
+      "Groove_Twist",
+      "Groove_HandsUp",
+      "Groove_ArmsWide",
+      "Groove_ArmsUp",
+      "Groove_Sway",
+      "Idle_Loop",
+      "Idle_Talking_Loop"
+    ]
+  },
+  {
+    "id": "jonas",
+    "bytes": 1020288,
+    "clips": [
+      "Dance_Loop",
+      "Groove_Bounce",
+      "Groove_SideTap",
+      "Groove_Clap",
+      "Groove_ClapUp",
+      "Groove_Pump",
+      "Groove_Twist",
+      "Groove_HandsUp",
+      "Groove_ArmsWide",
+      "Groove_ArmsUp",
+      "Groove_Sway",
+      "Idle_Loop",
+      "Idle_Talking_Loop"
+    ]
+  },
+  {
+    "id": "mara",
+    "bytes": 1008948,
+    "clips": [
+      "Dance_Loop",
+      "Groove_Bounce",
+      "Groove_SideTap",
+      "Groove_Clap",
+      "Groove_ClapUp",
+      "Groove_Pump",
+      "Groove_Twist",
+      "Groove_HandsUp",
+      "Groove_ArmsWide",
+      "Groove_ArmsUp",
+      "Groove_Sway",
+      "Idle_Loop",
+      "Idle_Talking_Loop"
+    ]
+  },
+  {
+    "id": "ellis",
+    "bytes": 1587332,
+    "clips": [
+      "Idle",
+      "Walk",
+      "Run",
+      "Wave",
+      "Yes",
+      "Dance_Loop",
+      "Seated_Loop",
+      "Seated_Low_Loop",
+      "Idle_Talking_Loop",
+      "Idle_Loop"
+    ]
+  },
+  {
+    "id": "amara",
+    "bytes": 2115352,
+    "clips": [
+      "Idle",
+      "Walk",
+      "Run",
+      "Wave",
+      "Yes",
+      "Dance_Loop",
+      "Seated_Loop",
+      "Seated_Low_Loop",
+      "Idle_Talking_Loop",
+      "Idle_Loop",
+      "Seated_Bar_Idle_Loop",
+      "Seated_Bar_Drink_Loop"
+    ]
+  },
+  {
+    "id": "malik",
+    "bytes": 2520112,
+    "clips": [
+      "Idle",
+      "Walk",
+      "Run",
+      "Wave",
+      "Yes",
+      "Dance_Loop",
+      "Seated_Loop",
+      "Seated_Low_Loop",
+      "Idle_Talking_Loop",
+      "Idle_Loop",
+      "Drink_Loop",
+      "Smoke_Loop",
+      "Idle_Railing_Loop"
+    ]
+  },
+  {
+    "id": "mei",
+    "bytes": 1997064,
+    "clips": [
+      "Idle",
+      "Walk",
+      "Run",
+      "Wave",
+      "Yes",
+      "Dance_Loop",
+      "Seated_Loop",
+      "Seated_Low_Loop",
+      "Idle_Talking_Loop",
+      "Idle_Loop",
+      "Idle_Railing_Loop"
+    ]
+  },
+  {
+    "id": "rosa",
+    "bytes": 1611020,
+    "clips": [
+      "Idle",
+      "Walk",
+      "Run",
+      "Wave",
+      "Yes",
+      "Dance_Loop",
+      "Seated_Loop",
+      "Seated_Low_Loop",
+      "Idle_Talking_Loop",
+      "Idle_Loop"
+    ]
+  },
+  {
+    "id": "samir",
+    "bytes": 1789500,
+    "clips": [
+      "Idle",
+      "Walk",
+      "Run",
+      "Wave",
+      "Yes",
+      "Dance_Loop",
+      "Seated_Loop",
+      "Seated_Low_Loop",
+      "Idle_Talking_Loop",
+      "Idle_Loop"
+    ]
+  },
+  {
+    "id": "luz",
+    "bytes": 795600,
+    "clips": [
+      "Idle_Loop",
+      "Idle_Talking_Loop"
+    ]
+  },
+  {
+    "id": "ari",
+    "bytes": 808400,
+    "clips": [
+      "Idle_Loop",
+      "Idle_Talking_Loop"
+    ]
+  },
+  {
+    "id": "leila",
+    "bytes": 1595092,
+    "clips": [
+      "Idle",
+      "Walk",
+      "Run",
+      "Wave",
+      "Yes",
+      "Dance_Loop",
+      "Seated_Loop",
+      "Seated_Low_Loop",
+      "Idle_Talking_Loop",
+      "Idle_Loop"
+    ]
+  },
+  {
+    "id": "kwame",
+    "bytes": 810644,
+    "clips": [
+      "Idle_Loop",
+      "Idle_Talking_Loop",
+      "Idle"
+    ]
+  },
+  {
+    "id": "hana",
+    "bytes": 746808,
+    "clips": [
+      "Idle_Loop",
+      "Idle_Talking_Loop",
+      "Idle"
+    ]
+  },
+  {
+    "id": "owen",
+    "bytes": 766500,
+    "clips": [
+      "Idle_Loop",
+      "Idle_Talking_Loop",
+      "Idle"
+    ]
+  },
+  {
+    "id": "alex",
+    "bytes": 804572,
+    "clips": [
+      "Idle_Loop",
+      "Idle_Talking_Loop",
+      "Idle"
+    ]
+  },
+  {
+    "id": "vera",
+    "bytes": 815000,
+    "clips": [
+      "Idle_Loop",
+      "Idle_Talking_Loop",
+      "Idle_TalkingPhone_Loop",
+      "Idle"
+    ]
+  },
+  {
+    "id": "noah",
+    "bytes": 830856,
+    "clips": [
+      "Idle_Loop",
+      "Idle_Talking_Loop",
+      "Idle"
+    ]
+  },
+  {
+    "id": "river",
+    "bytes": 823132,
+    "clips": [
+      "Idle_Loop",
+      "Idle_Talking_Loop",
+      "Idle"
+    ]
+  },
+  {
+    "id": "sana",
+    "bytes": 577780,
+    "clips": []
+  },
+  {
+    "id": "idris",
+    "bytes": 1662408,
+    "clips": [
+      "Idle",
+      "Walk",
+      "Run",
+      "Wave",
+      "Yes",
+      "Dance_Loop",
+      "Seated_Loop",
+      "Seated_Low_Loop",
+      "Idle_Talking_Loop",
+      "Idle_Loop"
+    ]
+  },
+  {
+    "id": "jin",
+    "bytes": 732828,
+    "clips": []
+  },
+  {
+    "id": "zara",
+    "bytes": 815676,
+    "clips": []
+  }
+]

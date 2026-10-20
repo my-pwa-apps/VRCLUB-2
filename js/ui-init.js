@@ -1068,11 +1068,36 @@ function initVJMenu() {
     // Every action lives on VRClub (setPeopleVisible / togglePeopleVisible); this surface only presses and renders,
     // exactly like the VR quick menu's COMFORT page.
     const peopleButtons = [...document.querySelectorAll('.vj-button[data-people]')];
+    const characterStyle = document.getElementById('characterStyle');
+    const lightweightCharacters = document.getElementById('lightweightCharacters');
+    const characterStyleStatus = document.getElementById('characterStyleStatus');
+    const retryCharacterStyle = document.getElementById('retryCharacterStyle');
+    if (retryCharacterStyle) retryCharacterStyle.addEventListener('click', () => vrClubInstance.retryCharacterStyle());
+    if (characterStyle) characterStyle.addEventListener('change', () => vrClubInstance.setCharacterStyle(characterStyle.value));
+    if (lightweightCharacters) lightweightCharacters.addEventListener('click', () => {
+        vrClubInstance.setLightweightCharacters(!vrClubInstance.characterStyleStatus().lightweight);
+    });
     function renderPeopleButtons() {
+        if (characterStyle) {
+            const state = vrClubInstance.characterStyleStatus();
+            characterStyle.value = state.selected;
+            characterStyle.disabled = vrClubInstance.isFollowingHost() || !!state.loading;
+            lightweightCharacters.disabled = false;
+            retryCharacterStyle.hidden = !state.error;
+            retryCharacterStyle.disabled = !!state.loading;
+            setToggleState(lightweightCharacters, state.lightweight);
+            characterStyleStatus.textContent = state.error ? `Could not change characters: ${state.error}. Retry loading or use lightweight characters.`
+                : state.loading ? 'Loading characters. The current cast stays until every replacement is ready.'
+                    : `Showing ${state.style === 'diverse' ? 'diverse adults' : 'Quaternius'}. ${state.lightweight ? 'Your lightweight override is on.' : "Your override never changes the host's room choice."}`;
+        }
         for (const button of peopleButtons) {
             const category = button.getAttribute('data-people');
             const names = category === 'all' ? ['dancers', 'bystanders', 'dj'] : [category];
             setToggleState(button, names.every(name => vrClubInstance.isPeopleVisible(name)));
+            if (category === 'dj' && vrClubInstance._roomDJVisible === false) {
+                const state = button.querySelector('.button-state');
+                if (state) state.textContent = 'HOST SENT HOME';
+            }
         }
     }
     for (const button of peopleButtons) {
@@ -1080,11 +1105,15 @@ function initVJMenu() {
             const category = button.getAttribute('data-people');
             const here = vrClubInstance.togglePeopleVisible(category);
             renderPeopleButtons();
+            window.addEventListener('characterstylechange', renderPeopleButtons);
+            teardowns.push(() => window.removeEventListener('characterstylechange', renderPeopleButtons));
             flashButton(button);
             if (vrClubInstance.showErrorMessage) {
                 const who = category === 'all' ? 'Everyone' : button.textContent.trim().toLowerCase();
                 const label = who.charAt(0).toUpperCase() + who.slice(1);
-                vrClubInstance.showErrorMessage(here ? `${label}: back in the club` : `${label}: sent home`);
+                vrClubInstance.showErrorMessage(category === 'dj' && vrClubInstance._roomDJVisible === false
+                    ? 'The host has sent the room DJ home. Your own DJ preference is saved.'
+                    : here ? `${label}: back in the club` : `${label}: sent home`);
             }
         });
     }
@@ -1689,13 +1718,18 @@ function initAudioMenu() {
         for (const id of window.VRClubAudioCrowd.MY_CHARACTERS) {
             const option = document.createElement('option');
             option.value = id;
-            option.textContent = labels[id] || id;
+            option.textContent = vrClubInstance.characterLabel ? vrClubInstance.characterLabel(id) : labels[id] || id;
             myCharacter.appendChild(option);
         }
         myCharacter.value = vrClubInstance.getLocalCharacter() || '';
         myCharacter.addEventListener('change', () => {
             myCharacter.value = vrClubInstance.setLocalCharacter(myCharacter.value || null) || '';
         });
+        const refreshCharacterLabels = () => {
+            for (const option of myCharacter.options) if (option.value) option.textContent = vrClubInstance.characterLabel(option.value);
+        };
+        window.addEventListener('characterstylechange', refreshCharacterLabels);
+        teardowns.push(() => window.removeEventListener('characterstylechange', refreshCharacterLabels));
     }
     const djStyle = document.getElementById('djStyle');
     djStyle.value = vrClubInstance._initialDJId();
@@ -1927,7 +1961,7 @@ function initAudioMenu() {
 function initRoomGuestLock(mp) {
     const club = vrClubInstance;
     const panels = [
-        { id: 'vjMenu', what: 'show controls', keep: '#vjSafeModeBtn, #vjVRComfortBtn, #vjMinimize, #vjClose, [data-open-panel], [data-vj-tab-target], [data-control="cycleGraphicsQuality"], [data-people], [data-hold], #vjHoldTiming, #djStyle, #myCharacter, #vjAutoQualityBtn' },
+        { id: 'vjMenu', what: 'show controls', keep: '#vjSafeModeBtn, #vjVRComfortBtn, #vjMinimize, #vjClose, [data-open-panel], [data-vj-tab-target], [data-control="cycleGraphicsQuality"], [data-people], [data-hold], #vjHoldTiming, #djStyle, #myCharacter, #vjAutoQualityBtn, #lightweightCharacters, #retryCharacterStyle' },
         { id: 'audioMenu', what: 'music', keep: '#audioMinimize, #audioClose, #audioVolume, #crowdAmbience, [data-open-panel]' }
     ];
     const renders = [];
@@ -2296,7 +2330,7 @@ function initNetworkMenu() {
         button.setAttribute('aria-pressed', String(!!on));
         button.classList.toggle('active', !!on);
     };
-    const label = (id) => (ClubMultiplayer.AVATAR_LABELS[id] || id || 'Guest');
+    const label = (id) => (vrClubInstance.characterLabel ? vrClubInstance.characterLabel(id) : ClubMultiplayer.AVATAR_LABELS[id]) || id || 'Guest';
     /** A small button inside a list row. Built with the DOM API: first-party code never builds markup from strings. */
     const rowButton = (text, title, onClick, danger = false) => {
         const button = document.createElement('button');

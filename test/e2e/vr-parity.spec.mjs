@@ -4,7 +4,7 @@ import { captureImage, pearson, renderFrames, snapshotRenderState } from './xr-m
 
 useQuestHarness();
 
-/** The headset spawns here, facing the stage; the desktop camera is parked on the same pose. */
+/** Compare the two render modes at this indoor pose, independently of the street arrival. */
 const SPAWN = { position: [0, 1.6, -12], target: [0, 1.6, -13], vfov: Math.PI / 2 };
 
 /**
@@ -127,7 +127,7 @@ test('VR keeps the desktop rendering features and image structure at the same gr
     const desktopImages = await sampleImages(page);
     await showOwnBody(page, true);
 
-    await enterVR(page);
+    await enterVR(page, { floorPosition: [SPAWN.position[0], 0, SPAWN.position[2]] });
     await pinShow(page);
     await renderFrames(page, 20);
     const vrState = await snapshotRenderState(page);

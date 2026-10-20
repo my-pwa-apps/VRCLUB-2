@@ -30,6 +30,17 @@
         return body;
     }
     const post = (path, body, options) => api(path, { method: 'POST', body: JSON.stringify(body), ...options });
+    async function prepareDevRoom(serverUrl) {
+        const endpoint = new URL(apiOrigin);
+        endpoint.protocol = endpoint.protocol === 'https:' ? 'wss:' : 'ws:';
+        const relay = new URL(serverUrl);
+        if (relay.origin !== endpoint.origin && relay.origin !== 'wss://vrclub-network.garfieldapp.workers.dev') {
+            throw new Error('DEV room 000032 is available only on the shared NOCTURNE relay.');
+        }
+        await post('/dev-room', {}, { signal: window.AbortSignal.timeout(15000) });
+        // The API-host HttpOnly cookie accompanies this socket; no account credential enters a URL.
+        return endpoint.toString();
+    }
     /**
      * The music links the owner keeps on their phone (worker/src/musicSync.js). Resolves { items } where items is the list or
      * null when the account never saved one; { items: null, signedIn: false } when this device has no session yet.
@@ -719,7 +730,7 @@
     window.VRPayment = Object.freeze({
         apiOrigin, hasEntitlement: () => access.entitled,
         canEnterVR: () => !!ready() && leaseExpires > performance.now(),
-        refreshEntitlement, showGate, onXRStateChange, holdLeaseForSetup, autoPrepare, linkStart, linkPoll, fetchMusic,
+        refreshEntitlement, showGate, onXRStateChange, holdLeaseForSetup, autoPrepare, linkStart, linkPoll, fetchMusic, prepareDevRoom,
         setPreview, upgradeToMember,
         setXRHandlers(exit, showReason) { exitXR = exit; notify = showReason; },
         releaseLease, dispose

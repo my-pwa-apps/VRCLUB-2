@@ -704,14 +704,23 @@ class VRClubUI extends VRClubAnimationFinish {
 
     /** Buttons that change the room's music or lights: in someone else's room they belong to the host. */
     _isHostOwnedVRButton(button) {
+        if (button.action === 'characterStyle') return true;
         if (['seek', 'playPause', 'play', 'pause', 'stop', 'sourceStep', 'folderMode', 'savedSet', 'setStep',
             'musicSetup', 'autoShow', 'reset', 'cycle', 'nextSection', 'showDrop', 'showSection'].includes(button.action)) return true;
         return !!button.control && !button.action && !['vrComfortMode', 'vrSeatedMode', 'autoQuality', 'photosensitiveSafeMode'].includes(button.control);
     }
 
     _vrQuickMenuButtonValue(button, active) {
+        if (button.action === 'lightweightCharacters') return this.characterStyleStatus().lightweight ? 'ON: QUATERNIUS FOR ME' : 'OFF: FOLLOW ROOM STYLE';
+        if (button.action === 'characterStyle') {
+            const state = this.characterStyleStatus();
+            return this.isFollowingHost() ? 'HOST CHOOSES' : state.loading ? 'LOADING...' : state.selected === 'diverse' ? 'DIVERSE: MORE CPU/GPU' : 'QUATERNIUS: LIGHTWEIGHT';
+        }
         if (button.op || button.action === 'person') return this._vrNetValue(button, active);
-        if (button.action === 'people') return active ? 'HERE' : 'SENT HOME';
+        if (button.action === 'people') {
+            if (button.people === 'dj' && this._roomDJVisible === false) return 'HOST SENT DJ HOME';
+            return active ? 'HERE' : 'SENT HOME';
+        }
         if (button.action === 'welcomeSafe') return 'NO STROBES';
         if (button.action === 'welcomeFull') return 'STROBES ON';
         if (button.action === 'accessNewCode') return 'IF THIS ONE FAILED';
@@ -742,8 +751,7 @@ class VRClubUI extends VRClubAnimationFinish {
         if (button.action === 'pickCharacter') return button.detail || '';
         if (button.action === 'page' && button.target === 'character') {
             const id = this.getLocalCharacter();
-            const labels = (window.ClubMultiplayer && window.ClubMultiplayer.AVATAR_LABELS) || {};
-            return id ? String(labels[id] || id).toUpperCase().slice(0, 28) : (this.getLocalAvatarStyle() === 'male' ? 'DEFAULT MAN' : 'DEFAULT WOMAN');
+            return id ? String(this.characterLabel(id)).toUpperCase().slice(0, 28) : (this.getLocalAvatarStyle() === 'male' ? 'DEFAULT MAN' : 'DEFAULT WOMAN');
         }
         if (button.control === 'autoQuality') return this.autoQuality ? 'ON \u2022 STEPS DOWN IF SLOW' : 'OFF';
         if (button.control === 'vrSeatedMode') return this.vrSeatedMode ? 'ON \u2022 AVATAR STANDS' : 'OFF';
@@ -809,7 +817,7 @@ class VRClubUI extends VRClubAnimationFinish {
         const ids = Crowd ? Crowd.MY_CHARACTERS : [];
         const second = this._vrCharacterPage === 1;
         const entry = id => {
-            const [kind, ...rest] = String(labels[id] || id).split(',').map(part => part.trim());
+            const [kind, ...rest] = String(this.characterLabel ? this.characterLabel(id) : labels[id] || id).split(',').map(part => part.trim());
             return { label: kind.toUpperCase(), detail: rest.join(', ').toUpperCase(), action: 'pickCharacter', character: id };
         };
         const buttons = second
@@ -920,6 +928,10 @@ class VRClubUI extends VRClubAnimationFinish {
                 { label: 'DJ', action: 'people', people: 'dj' },
                 { label: 'CHOOSE DJ', action: 'page', target: 'dj' },
                 { label: 'EVERYONE', action: 'people', people: 'all' },
+                { label: 'CHARACTER STYLE', action: 'characterStyle' },
+                { label: 'LIGHTWEIGHT FOR ME', action: 'lightweightCharacters' },
+                ...(this.characterStyleStatus && this.characterStyleStatus().error
+                    ? [{ label: 'RETRY CHARACTERS', action: 'retryCharacters' }] : []),
                 common.back,
                 common.close
             ],
@@ -1070,7 +1082,7 @@ class VRClubUI extends VRClubAnimationFinish {
                 comfort: 'HOW YOU MOVE, WHAT YOU SEE AND FEEL',
                 me: 'YOUR CHARACTER, YOUR HEIGHT AND SITTING',
                 character: 'WHO YOU ARE IN THE RESTROOM MIRROR OFFLINE',
-                crowd: 'SEND THE DANCERS, GUESTS OR DJ HOME',
+                crowd: 'HOST CHOOSES STYLE; LIGHTWEIGHT FOR ME IS PERSONAL',
                 travel: 'POINT AT A PLACE TO JUMP THERE',
                 music: 'CONTROL THE CURRENT TRACK OR CHANGE SOURCE',
                 musicSources: 'SAVED LINKS AND THIS SESSION\u2019S LOCAL FOLDER',
@@ -1869,13 +1881,27 @@ class VRClubUI extends VRClubAnimationFinish {
             this._refreshVRQuickMenu();
             return;
         }
+        if (button.action === 'characterStyle') {
+            this.setCharacterStyle(this.getRoomCharacterStyle() === 'diverse' ? 'quaternius' : 'diverse');
+            return;
+        }
+        if (button.action === 'lightweightCharacters') {
+            this.setLightweightCharacters(!this.characterStyleStatus().lightweight);
+            return;
+        }
+        if (button.action === 'retryCharacters') {
+            this.retryCharacterStyle();
+            return;
+        }
         if (button.action === 'people') {
             // Who is in the club: personal and local, so it is never gated on the host.
             const here = this.togglePeopleVisible(button.people);
             const who = button.people === 'all' ? 'Everyone'
                 : button.people === 'dj' ? 'The DJ'
                 : button.people === 'dancers' ? 'The dancers' : 'The bystanders';
-            this.showErrorMessage(here ? `${who}: back in the club` : `${who}: sent home`);
+            this.showErrorMessage(button.people === 'dj' && this._roomDJVisible === false
+                ? 'The host has sent the room DJ home. Your own DJ preference is saved.'
+                : here ? `${who}: back in the club` : `${who}: sent home`);
             this._refreshVRQuickMenu();
             return;
         }
@@ -2278,8 +2304,53 @@ class VRClubUI extends VRClubAnimationFinish {
         return true;
     }
 
+    _simulatedSeatOccupant(id) {
+        const client = this.networkManager;
+        if (!client?.connected || client.room !== 'private-000032') return null;
+        for (const [peerId, peer] of client.peers) {
+            if (peer.simulated && peer.state?.seat === id && peer.state.seated) return { id: peerId, peer };
+        }
+        return null;
+    }
+
+    _cancelDevSeatWait() {
+        if (this._devSeatWaitObserver) this.scene.onBeforeRenderObservable.remove(this._devSeatWaitObserver);
+        this._devSeatWaitObserver = null;
+        this._devSeatWait = null;
+    }
+
+    _requestDevSeatYield(id) {
+        if (!this._simulatedSeatOccupant(id)) return false;
+        if (!this.networkManager.requestDevSeat(id)) return false;
+        this.showErrorMessage('The simulated guest is making room for you.');
+        return true;
+    }
+
     sitAtSeat(seat) {
         if (!seat || !Number.isFinite(seat.x) || !Number.isFinite(seat.z)) return false;
+        const occupant = this._simulatedSeatOccupant(seat.id);
+        if (occupant) {
+            this._cancelDevSeatWait();
+            if (!this._requestDevSeatYield(seat.id)) return false;
+            const request = this._devSeatWait = { seat, id: occupant.id, client: this.networkManager, at: performance.now() };
+            this._devSeatWaitObserver = this.scene.onBeforeRenderObservable.add(() => {
+                if (this._disposed || !this.networkManager?.connected || this.networkManager !== request.client) {
+                    this._cancelDevSeatWait(); return;
+                }
+                if (performance.now() - request.at > 15000) {
+                    this._cancelDevSeatWait();
+                    this.showErrorMessage('That guest cannot move clear yet. Please try another seat.');
+                    return;
+                }
+                if (this._simulatedSeatOccupant(seat.id)) return;
+                const peer = this.avatarManager?.remotes.get(request.id);
+                if (peer && Math.hypot(peer.root.position.x - seat.x, peer.root.position.z - seat.z) < 0.85) return;
+                this._cancelDevSeatWait();
+                this.sitAtSeat(seat);
+            });
+            return false;
+        }
+        this._cancelDevSeatWait();
         this._activeSeat = seat;
         // A seat in the room has its own seated pose: Seated mode's lift would double the height.
         if (this._seatLift) this._seatLift.update(0, 0, false, 0, true);
@@ -2306,6 +2377,7 @@ class VRClubUI extends VRClubAnimationFinish {
     }
 
     standFromSeat(notify = true) {
+        this._cancelDevSeatWait();
         const seat = this._activeSeat;
         if (!seat) return false;
         this._activeSeat = null;

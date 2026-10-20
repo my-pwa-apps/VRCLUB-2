@@ -380,7 +380,7 @@ test('audience changes while subscription API is in flight cannot authorize the 
     await settle(room);
 });
 
-test('pose batches coalesce latest, near 20Hz/far 2Hz includes vertical distance, blocks cancel stale frames', () => {
+test('pose batches coalesce latest at 20Hz including distant bodies and hands; blocks cancel stale frames', () => {
     const room = new ClubRoom({}, env), source = join(room), near = join(room, true), far = join(room, true), legacy = join(room);
     const pose = (x, y = 1.6, hands = undefined) => ({ x, y, z: 0, rotY: 0, ...(hands ? { hands } : {}) });
     message(room, near, { type: 'state', state: pose(1) });
@@ -393,14 +393,16 @@ test('pose batches coalesce latest, near 20Hz/far 2Hz includes vertical distance
     const selected = guest => guest.ws.last('states').states.find(entry => entry.id === source.session.id);
     assert.equal(selected(near).state.x, 2);
     assert.ok(selected(near).state.hands);
-    assert.equal(selected(far).state.hands, undefined);
+    assert.ok(selected(far).state.hands, 'a balcony view must retain distant controller poses');
     const farCount = far.ws.sent.filter(msg => msg.type === 'states').length;
     message(room, source, { type: 'state', state: pose(3) });
     room._flushPoses(1050);
     assert.equal(selected(near).state.x, 3);
-    assert.equal(far.ws.sent.filter(msg => msg.type === 'states').length, farCount);
+    assert.equal(far.ws.sent.filter(msg => msg.type === 'states').length, farCount + 1);
+    assert.equal(selected(far).state.x, 3, 'a distant walking guest must not fall back to 2Hz');
     room._flushPoses(1500);
     assert.equal(selected(far).state.x, 3);
+    assert.equal(far.ws.sent.filter(msg => msg.type === 'states').length, farCount + 1, 'unchanged poses remain coalesced');
     message(room, source, { type: 'state', state: pose(4) });
     message(room, near, { type: 'block', pid: source.session.pid });
     const nearCount = near.ws.sent.filter(msg => msg.type === 'states').length;

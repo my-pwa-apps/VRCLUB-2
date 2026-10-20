@@ -796,11 +796,11 @@ const VJDesk = {
 
     _runVJDeskButton(button) {
         const toast = text => this.showErrorMessage(text);
-        // The resident DJ is a personal choice (who is in YOUR club); the music has its own owner check; everything
-        // else changes the room's lights, which in someone else's room belong to the host.
+        // Guests can hide the resident DJ personally; the host's preference also decides the room's DJ presence.
         if (button.kind === 'dj') {
             const here = this.togglePeopleVisible('dj');
-            toast(here ? 'The DJ is back at the decks' : 'The DJ has gone home: the decks are yours');
+            toast(this._roomDJVisible === false ? 'The host has sent the room DJ home. Your own DJ preference is saved.'
+                : here ? 'The DJ is back at the decks' : 'The DJ has gone home: the decks are yours');
             return;
         }
         if (button.kind === 'music') { this._vjDeskMusic(); return; }
@@ -1194,7 +1194,7 @@ const VJDesk = {
             case 'dj': {
                 const here = this.isPeopleVisible('dj');
                 out.active = here;
-                out.value = here ? 'PLAYING' : 'SENT HOME';
+                out.value = here ? 'PLAYING' : this._roomDJVisible === false ? 'HOST SENT HOME' : 'SENT HOME';
                 break;
             }
             case 'music': {

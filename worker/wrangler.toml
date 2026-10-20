@@ -38,6 +38,8 @@ new_classes = ["ClubRoom"]
 # Set SFU_APP_ID and SFU_APP_SECRET as Worker secrets before deploying.
 ROOM_CAPACITY = "32"
 MEDIA_TRANSPORT = "sfu"
+DEV_ROOM_ENABLED = "1"
+DEV_ROOM_OWNERS = "bartmeijer@gmail.com,bartm@outlook.com,garfieldapp@outlook.com,meijer_bart@hotmail.com"
 ALLOWED_ORIGINS = "https://nocturne-vr.pages.dev,https://nocturne.mitwee.nl,https://sidequest-nocturne.mitwee.nl,https://nocturne-ade.mitwee.nl,https://nocturne-ade.pages.dev"
 APP_ORIGIN = "https://nocturne.mitwee.nl"
 # Further sites that run this app and may use the payments/access API (credentialed CORS, Stripe returns).

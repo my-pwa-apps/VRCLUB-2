@@ -86,6 +86,8 @@
 import { handlePodcast } from './podcast.js';
 import { handleRoomDirectory, publishRoom, privateRoomName, ROOM_DIRECTORY_REFRESH, roomCapacity, roomStatus } from './roomDirectory.js';
 import { RoomMedia, mediaTransport } from './sfu.js';
+import { DEV_ROOM, DEV_OWNER_HEADER, devRoomAccess } from './devRoomAccess.js';
+import { DevAttendees } from './devAttendees.js';
 
 export const MAX_NAME_LENGTH = 32;
 export const MAX_ROOM_NAME_LENGTH = 64;
@@ -150,6 +152,7 @@ export const RATE_LIMITS = Object.freeze({
     music: { rate: 2, burst: 4 },
     show: { rate: 5, burst: 10 },
     door: { rate: 2, burst: 6 },
+    'dev-seat': { rate: 0.5, burst: 2 },
     'rtc-signal': { rate: 50, burst: 120 },
     // A 31-source receiver may need 31 offer/answer pairs during simultaneous
     // joins. RoomMedia separately bounds queued operations and session creation.
@@ -304,6 +307,8 @@ export const MAX_SHOW_FIXTURES = 96;
  *   sp, spt, spb  set-piece name, the movement it hands on to, and the bar it is on
  *   bib  beat in the bar (0..3)
  *   hue, hl, pal, lh, mbi   master hue, whether a look pins it, palette mode, LED harmony, mirror-ball colour index
+ *   dj   room DJ presence (a guest's personal hide preference still wins)
+ *   audioFx   bounded host audio controls; file broadcasts already contain these effects
  */
 export function sanitizeShow(value) {
     if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
@@ -322,6 +327,15 @@ export function sanitizeShow(value) {
         if (v !== null) out[key] = v;
     }
     if (typeof value.hl === 'boolean') out.hl = value.hl;
+    if (typeof value.dj === 'boolean') out.dj = value.dj;
+    if (value.audioFx && typeof value.audioFx === 'object' && !Array.isArray(value.audioFx)) {
+        const effects = {};
+        for (const name of ['lowpass', 'highpass', 'echo', 'flanger', 'reverb', 'phaser', 'sweep', 'gater', 'channel']) {
+            const v = value.audioFx[name];
+            if (typeof v === 'number' && Number.isFinite(v)) effects[name] = num(v, 0, 1);
+        }
+        out.audioFx = effects;
+    }
     if (value.fx && typeof value.fx === 'object' && !Array.isArray(value.fx)) {
         const fx = {};
         let count = 0;
@@ -371,6 +385,9 @@ export class ClubRoom {
         this.locked = false;
         this.banned = new Set();
         this._sweeper = null;
+        this._simulation = null;
+        this._simulatedPids = new Map();
+        this._removedSimulated = new Set();
     }
 
     async alarm() {
@@ -391,6 +408,10 @@ export class ClubRoom {
             return new Response('Update the club app to join an SFU room.', { status: 426 });
         }
         this._roomName = (url.searchParams.get('room') || 'lobby').slice(0, MAX_ROOM_NAME_LENGTH);
+        if (this._roomName === DEV_ROOM &&
+            (this.env.DEV_ROOM_ENABLED !== '1' || request.headers.get(DEV_OWNER_HEADER) !== 'verified')) {
+            return new Response('owner authorization required', { status: 403 });
+        }
         const name = sanitizeName(url.searchParams.get('name'));
         // A secret per browser, kept in its localStorage. Without one (an old client) the guest is simply anonymous
         // for this connection: it can neither be blocked nor banned across reconnects.
@@ -428,17 +449,27 @@ export class ClubRoom {
     _relay(from, obj, except = null) {
         const data = JSON.stringify(obj);
         for (const [ws, other] of this.sessions) {
-            if (ws === except || other === from || !this._visible(from, other)) continue;
+            if (ws === except || other.simulated || other === from || !this._visible(from, other)) continue;
             try { ws.send(data); } catch { /* the close event cleans up */ }
         }
     }
 
-    _acceptSession(ws, name, pid = null, avatarPool = 'any', poseBatch = false) {
-        ws.accept();
+    _peerInfo(session) {
+        return { id: session.id, pid: session.pid, name: session.name, avatar: session.avatar,
+            ...(session.simulated ? { simulated: true } : {}) };
+    }
+
+    _acceptSession(ws, name, pid = null, avatarPool = 'any', poseBatch = false, simulation = null) {
+        const simulated = simulation !== null;
+        if (!simulated) ws.accept();
         pid = PID_PATTERN.test(pid || '') ? pid : Array.from(crypto.getRandomValues(new Uint8Array(8)), b => b.toString(16).padStart(2, '0')).join('');
         if (this.banned.has(pid)) {
             try { ws.close(CLOSE_BANNED, 'banned from this room'); } catch { /* already closed */ }
             return null;
+        }
+        if (!simulated && this._roomName === DEV_ROOM && !this.locked && this.sessions.size >= this.capacity) {
+            const spare = [...this.sessions].reverse().find(([, other]) => other.simulated);
+            if (spare) this._onClose(...spare);
         }
         if (this.sessions.size >= this.capacity) {
             try { ws.close(CLOSE_ROOM_FULL, 'room full'); } catch { /* already closed */ }
@@ -458,16 +489,25 @@ export class ClubRoom {
         for (const [type, limit] of Object.entries(RATE_LIMITS)) buckets[type] = new TokenBucket(limit, now);
         const session = { id, pid, name, avatar: this._pickAvatar(null, avatarPool), avatarPool, blocked: new Set(), lastState: null, buckets, dropped: 0, lastSeen: now, pinger: false,
             poseBatch, poseSent: new Map() };
+        if (simulated) {
+            session.simulated = true;
+            session.simulatedIndex = simulation.index;
+            session.lastState = simulation.state;
+        } else if (this._roomName === DEV_ROOM) session.pinger = true;
         this._startSweeper();
         this.sessions.set(ws, session);
-        if (!this.hostId) this.hostId = id;
+        if (!this.hostId && !simulated) this.hostId = id;
+        if (simulated) {
+            this._relay(session, { type: 'join', ...this._peerInfo(session), state: session.lastState });
+            return session;
+        }
 
         // Blocks arrive after the socket opens (`blocklist`), so a guest who blocked someone sees them briefly: the
         // relay hides them again the moment the list lands, with a `leave`.
         const peers = [];
         for (const other of this.sessions.values()) {
             if (other.id === id || other.blocked.has(pid)) continue;
-            peers.push({ id: other.id, pid: other.pid, name: other.name, avatar: other.avatar, state: other.lastState });
+            peers.push({ ...this._peerInfo(other), state: other.lastState });
         }
 
         this._send(ws, {
@@ -491,7 +531,7 @@ export class ClubRoom {
         });
         this._relay(session, { type: 'join', id, pid, name, avatar: session.avatar }, ws);
         if (this.media) this.media.add(session);
-        if (poseBatch && !this._poseTimer) {
+        if ((poseBatch || this._roomName === DEV_ROOM) && !this._poseTimer) {
             this._poseTimer = setInterval(() => this._flushPoses(), 50);
             this._poseTimer.unref?.();
         }
@@ -501,7 +541,44 @@ export class ClubRoom {
         const onClose = () => this._onClose(ws, session);
         ws.addEventListener('close', onClose);
         ws.addEventListener('error', onClose);
+        this._fillSimulation();
         return session;
+    }
+
+    _simulationPeople() {
+        return [...this.sessions.values()].filter(session => !session.simulated && session.lastState)
+            .map(session => ({ ...session.lastState, floorY: session.lastState.floorY ?? session.lastState.y - 1.7 }));
+    }
+
+    _fillSimulation() {
+        if (this._roomName !== DEV_ROOM || this.env.DEV_ROOM_ENABLED !== '1') return;
+        if (![...this.sessions.values()].some(session => !session.simulated)) return;
+        this._simulation ||= new DevAttendees(this.world.seed);
+        for (let index = 0; index < this.capacity - 1 && this.sessions.size < this.capacity; index++) {
+            if (this._removedSimulated.has(index) || this._simulation.guests.has(index)) continue;
+            if (!this._simulatedPids.has(index)) this._simulatedPids.set(index, crypto.randomUUID().replace(/-/g, '').slice(0, 16));
+            const bot = this._simulation.add(index, this._simulationPeople());
+            this._acceptSession({ simulated: true }, bot.name,
+                this._simulatedPids.get(index), 'any', false, bot);
+        }
+    }
+
+    _tickSimulation(now) {
+        if (!this._simulation) return;
+        this._simulation.step(now, this._simulationPeople(), this.doors);
+        for (const session of this.sessions.values()) {
+            if (!session.simulated) continue;
+            const bot = this._simulation.guests.get(session.simulatedIndex);
+            session.lastState = bot.state;
+            if (bot.gesture) this._relay(session, { type: 'gesture', id: session.id, gesture: bot.gesture });
+            if (bot.emoji) this._relay(session, { type: 'emoji', id: session.id, emoji: bot.emoji });
+            if (bot.chat) this._relay(session, { type: 'chat', id: session.id, text: bot.chat });
+            for (const [ws, other] of this.sessions) {
+                if (!other.simulated && !other.poseBatch && this._visible(session, other)) {
+                    this._send(ws, { type: 'state', id: session.id, state: session.lastState });
+                }
+            }
+        }
     }
 
     _throttle(ws, session, type) {
@@ -548,6 +625,16 @@ export class ClubRoom {
             case 'gesture':
                 if (ALLOWED_GESTURES.includes(msg.gesture)) {
                     this._relay(session, { type: 'gesture', id: session.id, gesture: msg.gesture }, ws);
+                }
+                break;
+
+            case 'dev-seat':
+                if (this._roomName !== DEV_ROOM || !this._simulation || session.simulated ||
+                    typeof msg.seat !== 'string' || !this._simulation.yieldSeat(msg.seat)) return;
+                if (/^toilet-[01]$/.test(msg.seat)) {
+                    const door = Number(msg.seat.at(-1));
+                    this.doors[door] = false;
+                    this._broadcast({ type: 'door', door, shut: false });
                 }
                 break;
 
@@ -697,7 +784,8 @@ export class ClubRoom {
                     if (this.banned.size >= MAX_BANNED) return;
                     this.banned.add(target.pid);
                 }
-                try { targetWs.close(msg.type === 'ban' ? CLOSE_BANNED : CLOSE_KICKED, msg.type === 'ban' ? 'banned by the host' : 'removed by the host'); } catch { /* already closing */ }
+                if (target.simulated) this._removedSimulated.add(target.simulatedIndex);
+                else try { targetWs.close(msg.type === 'ban' ? CLOSE_BANNED : CLOSE_KICKED, msg.type === 'ban' ? 'banned by the host' : 'removed by the host'); } catch { /* already closing */ }
                 this._onClose(targetWs, target);
                 break;
             }
@@ -714,7 +802,7 @@ export class ClubRoom {
                 if (session.id !== this.hostId || typeof msg.target !== 'string' || msg.target === session.id) return;
                 const targetWs = this._findSocketById(msg.target);
                 const target = targetWs && this.sessions.get(targetWs);
-                if (!target || !this._visible(session, target)) return;
+                if (!target || target.simulated || !this._visible(session, target)) return;
                 this.hostId = target.id;
                 if (this.media) {
                     for (const member of this.media.members.values()) member.listen = false;
@@ -746,10 +834,10 @@ export class ClubRoom {
             const isVisible = this._visible(session, other);
             if (wasVisible === isVisible) continue;
             if (isVisible) {
-                this._send(ws, { type: 'join', id: session.id, pid: session.pid, name: session.name, avatar: session.avatar });
+                this._send(ws, { type: 'join', ...this._peerInfo(session) });
                 if (session.lastState) this._send(ws, { type: 'state', id: session.id, state: session.lastState });
                 if (sessionWs) {
-                    this._send(sessionWs, { type: 'join', id: other.id, pid: other.pid, name: other.name, avatar: other.avatar });
+                    this._send(sessionWs, { type: 'join', ...this._peerInfo(other) });
                     if (other.lastState) this._send(sessionWs, { type: 'state', id: other.id, state: other.lastState });
                 }
             } else {
@@ -762,22 +850,19 @@ export class ClubRoom {
 
     }
 
-    /** Latest-state coalescing with per-recipient distance, never a queued stale frame. */
+    /** Latest-state coalescing at 20 Hz, independent of distance or the viewer's floor. */
     _flushPoses(now = Date.now()) {
+        this._tickSimulation(now);
         for (const [ws, target] of this.sessions) {
             if (!target.poseBatch) continue;
             const states = [];
             for (const source of this.sessions.values()) {
                 if (source === target || !source.lastState || !this._visible(source, target)) continue;
-                const pose = source.lastState, eye = target.lastState;
-                const near = !eye || Math.hypot(pose.x - eye.x, pose.y - eye.y, pose.z - eye.z) < 12;
+                const pose = source.lastState;
                 const previous = target.poseSent.get(source.id);
-                if (previous && (previous.state === pose && previous.near === near ||
-                    now - previous.at < (near ? 50 : 500))) continue;
-                const state = near ? pose : { ...pose };
-                if (!near) delete state.hands;
-                states.push({ id: source.id, state });
-                target.poseSent.set(source.id, { state: pose, near, at: now });
+                if (previous && (previous.state === pose || now - previous.at < 50)) continue;
+                states.push({ id: source.id, state: pose });
+                target.poseSent.set(source.id, { state: pose, at: now });
             }
             if (states.length) this._send(ws, { type: 'states', states });
         }
@@ -807,12 +892,17 @@ export class ClubRoom {
     _onClose(ws, session) {
         if (!this.sessions.has(ws)) return;
         this.sessions.delete(ws);
-        if (this.media) this.media.remove(session);
+        if (session.simulated) this._simulation?.remove(session.simulatedIndex);
+        else if (this.media) this.media.remove(session);
         for (const other of this.sessions.values()) other.poseSent.delete(session.id);
 
+        if (!session.simulated && ![...this.sessions.values()].some(other => !other.simulated)) {
+            this._simulation = null;
+            for (const [actor, other] of [...this.sessions]) this._onClose(actor, other);
+        }
         if (this.hostId === session.id) {
-            const next = this.sessions.values().next();
-            this.hostId = next.done ? null : next.value.id;
+            const next = [...this.sessions.values()].find(other => !other.simulated);
+            this.hostId = next?.id || null;
             if (this.media) {
                 for (const member of this.media.members.values()) member.listen = false;
                 this.media.reconcile();
@@ -834,9 +924,13 @@ export class ClubRoom {
             this.world = null;
             this.locked = false;
             this.banned.clear();
+            this._simulation = null;
+            this._simulatedPids.clear();
+            this._removedSimulated.clear();
         }
         this._relay(session, { type: 'leave', id: session.id });
         this._publishDirectory();
+        if (!session.simulated) this._fillSimulation();
     }
 
     _publishDirectory() {
@@ -857,13 +951,14 @@ export class ClubRoom {
     }
 
     _send(ws, obj) {
+        if (ws.simulated) return;
         try { ws.send(JSON.stringify(obj)); } catch { /* socket already closing */ }
     }
 
     _broadcast(obj, exclude) {
         const data = JSON.stringify(obj);
         for (const ws of this.sessions.keys()) {
-            if (ws === exclude) continue;
+            if (ws === exclude || ws.simulated) continue;
             try { ws.send(data); } catch { /* drop - close event will clean it up */ }
         }
     }
@@ -892,8 +987,17 @@ export default {
         if (request.headers.get('Upgrade') !== 'websocket') return new Response('expected a websocket upgrade', { status: 426 });
 
         const room = (url.searchParams.get('room') || 'lobby').slice(0, MAX_ROOM_NAME_LENGTH);
+        const forwarded = new Request(request);
+        const headers = forwarded.headers;
+        headers.delete(DEV_OWNER_HEADER);
+        if (room === DEV_ROOM) {
+            const denied = await devRoomAccess(request, env);
+            if (denied) return Response.json(denied, { status: denied.status, headers: { 'cache-control': 'no-store' } });
+            headers.set(DEV_OWNER_HEADER, 'verified');
+        }
+        headers.delete('Cookie');
         const id = env.CLUB_ROOM.idFromName(room);
         const stub = env.CLUB_ROOM.get(id);
-        return stub.fetch(request);
+        return stub.fetch(forwarded);
     }
 };

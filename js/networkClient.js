@@ -150,7 +150,7 @@ class NetworkClient {
     isHost() { return !!this.selfId && this.selfId === this.hostId; }
 
     connect() {
-        if (this.ws || this._reconnectTimer !== null) return;
+        if (this.ws || this._opening || this._reconnectTimer !== null) return;
         this._closedByUser = false;
         this._reconnectAttempts = 0;
         this._hasConnected = false;
@@ -160,6 +160,8 @@ class NetworkClient {
 
     disconnect() {
         this._closedByUser = true;
+        this._openRevision = (this._openRevision || 0) + 1;
+        this._opening = false;
         clearTimeout(this._reconnectTimer);
         this._reconnectTimer = null;
         if (this.sfu) this.sfu.dispose();
@@ -182,10 +184,28 @@ class NetworkClient {
 
     dispose() { this.disconnect(); }
 
-    _open() {
+    async _open() {
+        const revision = this._openRevision = (this._openRevision || 0) + 1;
+        let serverUrl = this.serverUrl;
+        if (this.room === 'private-000032') {
+            this._opening = true;
+            try {
+                if (!window.VRPayment?.prepareDevRoom) throw new Error('Update the club app before joining DEV room 000032.');
+                serverUrl = await window.VRPayment.prepareDevRoom(serverUrl);
+            } catch (error) {
+                if (this._openRevision !== revision || this._closedByUser) return;
+                this._opening = false;
+                this.disableVoice();
+                this._setStatus('error');
+                this.onError(error);
+                return;
+            }
+            if (this._openRevision !== revision || this._closedByUser) return;
+            this._opening = false;
+        }
         let url;
         try {
-            url = new URL(this.serverUrl);
+            url = new URL(serverUrl);
         } catch {
             this._setStatus('error');
             this.onError(new Error('Invalid multiplayer server URL'));
@@ -447,8 +467,9 @@ class NetworkClient {
         if (!peer || typeof peer.id !== 'string') return;
         const pid = NetworkClient.PID.test(peer.pid) ? peer.pid : null;
         if (pid && this.blockedPids.has(pid)) return;
-        this.peers.set(peer.id, { name: peer.name, pid, avatar: typeof peer.avatar === 'string' ? peer.avatar : null, state: peer.state || null, pc: null });
-        this.onPeerJoin(peer.id, peer.name, { pid, avatar: this.peers.get(peer.id).avatar });
+        this.peers.set(peer.id, { name: peer.name, pid, avatar: typeof peer.avatar === 'string' ? peer.avatar : null,
+            simulated: peer.simulated === true, state: peer.state || null, pc: null });
+        this.onPeerJoin(peer.id, peer.name, { pid, avatar: this.peers.get(peer.id).avatar, simulated: peer.simulated === true });
         if (peer.state) this.onPeerState(peer.id, peer.state);
         this._maybeInitiateVoice(peer.id);
         if (this.sfu) this.sfu.sync();
@@ -678,6 +699,13 @@ class NetworkClient {
     sendDoor(door, shut) {
         if (this.status !== 'connected' || !Number.isInteger(door) || door < 0 || door >= NetworkClient.MAX_DOORS) return false;
         this._send({ type: 'door', door, shut: shut === true });
+        return true;
+    }
+
+    requestDevSeat(seat) {
+        if (!this.connected || this.room !== 'private-000032' ||
+            !/^(?:bar-[0234]|lounge-[01]|balcony-[01]|toilet-[01])$/.test(seat)) return false;
+        this._send({ type: 'dev-seat', seat });
         return true;
     }
 

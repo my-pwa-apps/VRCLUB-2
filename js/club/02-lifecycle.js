@@ -54,6 +54,7 @@ class VRClubLifecycle extends VRClubCore {
         // added to the scene - every dancer is instantiated from them - so
         // scene.dispose() will not reclaim them and dispose() has to do it by hand.
         this._avatarContainers = [];
+        this._initCharacterStyles();
         
         // Load environment for PBR reflections.
         // Vendored under js/vendor/ for the same reason the Babylon runtime is: a CDN
@@ -551,6 +552,21 @@ class VRClubLifecycle extends VRClubCore {
     _setupXRSession(vrHelper) {
         if (vrHelper?.baseExperience) this._xrHeadHeight();
         if (vrHelper?.baseExperience) {
+            vrHelper.baseExperience.onInitialXRPoseSetObservable.add(camera => {
+                const street = this._streetDoor?.open ? window.CityLayout : null;
+                this.standFromSeat(false);
+                // Babylon adds the first tracked eye height to this floor offset.
+                camera.position.set(street ? street.vrEntry.x : 0, street ? street.groundY : 0,
+                    street ? street.vrEntry.z : -12);
+                camera.rotationQuaternion.set(0, 1, 0, 0);
+                camera.cameraDirection.set(0, 0, 0);
+                camera.cameraRotation.set(0, 0);
+                camera._deferredUpdated = false;
+                this._walkLevel = street ? street.groundY : 0;
+                this._vrFallSpeed = 0;
+                if (this.jumpState) this.jumpState.active = false;
+                if (!street) this.showErrorMessage('The street is unavailable. Starting inside the club.', 'info');
+            });
             vrHelper.baseExperience.onStateChangedObservable.add(state => {
                 if (state === BABYLON.WebXRState.ENTERING_XR || state === BABYLON.WebXRState.EXITING_XR) {
                     this._xrTransitioning = true;
@@ -620,19 +636,14 @@ class VRClubLifecycle extends VRClubCore {
             });
         }
         
-        // Set VR starting position at dance floor center (below mirror ball).
         // `baseExperience` can be absent when session creation fails after the helper
         // object is constructed; without this guard init() throws on those platforms
         // and drops a plain desktop browser onto the fatal-error retry splash.
         if (vrHelper && vrHelper.baseExperience) {
             vrHelper.baseExperience.onStateChangedObservable.add((state) => {
                 if (state === BABYLON.WebXRState.IN_XR) {
-                    // Position user at dance floor center below mirror ball
                     const xrCamera = vrHelper.baseExperience.camera;
                     if (xrCamera) {
-                        xrCamera.position.x = 0;
-                        xrCamera.position.z = -12;
-                        
                         // Configure depth range for better VR rendering (now that session is active)
                         if (vrHelper.baseExperience.sessionManager && vrHelper.baseExperience.sessionManager.session) {
                             vrHelper.baseExperience.sessionManager.updateRenderStateAsync({
@@ -844,6 +855,7 @@ class VRClubLifecycle extends VRClubCore {
     dispose() {
         if (this._disposed) return;
         this._disposed = true;
+        this._cancelDevSeatWait();
         this._liveEventConcept?.dispose();
         window.VRPayment?.onXRStateChange?.(false);
         try { this._immersive?.dispose(); } catch (_) { /* launch state only */ }

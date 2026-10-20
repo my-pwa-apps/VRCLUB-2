@@ -5,6 +5,131 @@ import { fileURLToPath } from 'node:url';
 
 useQuestHarness();
 
+test('host DJ presence and audio effects reach the real club, survive late join and never process a broadcast twice', async ({ page, context }) => {
+    test.setTimeout(900_000);
+    const room = new ClubRoom({});
+    await context.routeWebSocket(/vrclub-network\.garfieldapp\.workers\.dev/, route => {
+        const socket = {
+            accept() {},
+            addEventListener() {},
+            send: message => route.send(message),
+            close: (code, reason) => route.close({ code, reason })
+        };
+        const session = room._acceptSession(socket, new URL(route.url()).searchParams.get('name'));
+        route.onMessage(data => room._onMessage(socket, session, { data }));
+        route.onClose(() => room._onClose(socket, session));
+    });
+    const host = await context.newPage();
+    try {
+        await host.route('**/performance-host-test', route => route.fulfill({
+            contentType: 'text/html', body: '<p>Room performance host</p>'
+        }));
+        await host.goto('/performance-host-test');
+        await host.addScriptTag({ path: fileURLToPath(new URL('../../js/networkClient.js', import.meta.url)) });
+        await host.evaluate(() => {
+            window.performanceHost = new window.NetworkClient({
+                serverUrl: 'wss://vrclub-network.garfieldapp.workers.dev', room: 'private-performance', name: 'Host'
+            });
+            window.performanceHost.connect();
+        });
+        await host.waitForFunction(() => window.performanceHost.isHost());
+        await enterClub(page);
+        await page.evaluate(async () => {
+            const club = window.vrClub;
+            await club.modelLoadPromise;
+            club.multiplayer.connect({ room: 'private-performance', name: 'Listener' });
+        });
+        await page.waitForFunction(() => window.vrClub.multiplayer.following);
+        await expect.poll(() => page.evaluate(() => !!window.vrClub.npcAvatars.find(npc => npc.name === 'djPerformer'))).toBe(true);
+        const effects = { lowpass: 0.7, highpass: 0.2, echo: 0.3, flanger: 0.4, reverb: 0.5,
+            phaser: 0.6, sweep: 0.7, gater: 0.8, channel: 0.4 };
+        await host.evaluate(audioFx => window.performanceHost.sendShow({ m: 'show', mv: 'pulse', cue: 0, dj: false, audioFx }), effects);
+        const state = () => page.evaluate(() => {
+            const club = window.vrClub;
+            return {
+                dj: club.npcAvatars.find(npc => npc.name === 'djPerformer').root.isEnabled(),
+                player: club._vjDesk.playerVisible,
+                effects: club.djEffectsSnapshot(),
+                lowpass: club.djFxLowpass.frequency.value,
+                channel: club.djFxChannel.gain.value,
+                preference: localStorage.getItem('vrclub.hiddenPeople')
+            };
+        });
+        await expect.poll(async () => (await state()).dj).toBe(false);
+        await expect.poll(async () => (await state()).effects).toEqual(effects);
+        await expect.poll(async () => (await state()).channel).toBeCloseTo(0.16, 3);
+        await expect.poll(async () => (await state()).lowpass).toBeCloseTo(20000 * Math.pow(250 / 20000, 0.7), 1);
+        expect((await state()).player).toBe(true);
+        expect((await state()).preference).toBeNull();
+        expect(await page.evaluate(() => window.vrClub.setDJEffect('channel', 0))).toBe(false);
+
+        await enterVR(page);
+        const vr = await page.evaluate(() => {
+            const club = window.vrClub;
+            club.toggleVRQuickMenu(true);
+            club._showVRQuickMenuPage('crowd');
+            const button = club._vrQuickMenuButtons.find(item => item.people === 'dj');
+            return { enabled: button.mesh.isEnabled(), value: club._vrQuickMenuButtonValue(button, false),
+                desk: club._vjDeskButtonState(window.VJDeskLayout.buttons.show.find(item => item.kind === 'dj')).value };
+        });
+        expect(vr).toEqual({ enabled: true, value: 'HOST SENT DJ HOME', desk: 'HOST SENT HOME' });
+
+        // A personal hide survives the host bringing the room DJ back; unhiding cannot clear the host effects.
+        await page.evaluate(() => window.vrClub.setPeopleVisible('dj', false));
+        await host.evaluate(audioFx => window.performanceHost.sendShow({ m: 'manual', dj: true, audioFx }), effects);
+        await page.waitForFunction(() => window.vrClub._roomDJVisible === true);
+        expect((await state()).dj).toBe(false);
+        await page.evaluate(() => window.vrClub.setPeopleVisible('dj', true));
+        await expect.poll(async () => (await state()).dj).toBe(true);
+        expect((await state()).effects).toEqual(effects);
+        await expect.poll(async () => (await state()).channel).toBeCloseTo(0.16, 3);
+
+        const broadcast = await page.evaluate(async () => {
+            const club = window.vrClub;
+            const destination = club.audioContext.createMediaStreamDestination();
+            const oscillator = club.audioContext.createOscillator();
+            oscillator.connect(destination);
+            oscillator.start();
+            const remote = club.startNetworkMusic(destination.stream, { playing: true, title: 'Processed file test' });
+            await new Promise(resolve => setTimeout(resolve, 400));
+            const values = {
+                lowpass: club.djFxLowpass.frequency.value, channel: club.djFxChannel.gain.value,
+                echo: club.djFxEchoWet.gain.value, sweep: club.djFxExtra.sweepWet.gain.value,
+                gater: club.djFxExtra.gaterDepth.gain.value, readout: club.djEffectsSnapshot()
+            };
+            club.stopNetworkMusic(remote);
+            oscillator.stop();
+            oscillator.disconnect();
+            for (const track of destination.stream.getTracks()) track.stop();
+            destination.disconnect();
+            return values;
+        });
+        expect(broadcast.lowpass).toBeCloseTo(20000, 0);
+        expect(broadcast.channel).toBeCloseTo(1, 3);
+        expect(broadcast.echo).toBeCloseTo(0, 3);
+        expect(broadcast.sweep).toBeCloseTo(0, 3);
+        expect(broadcast.gater).toBeCloseTo(0, 3);
+        expect(broadcast.readout).toEqual(effects);
+
+        await host.evaluate(audioFx => window.performanceHost.sendShow({ m: 'show', mv: 'pulse', cue: 0, dj: false, audioFx }), effects);
+        await expect.poll(async () => (await state()).dj).toBe(false);
+        await page.evaluate(() => window.vrClub.multiplayer.disconnect());
+        await expect.poll(async () => (await state()).dj).toBe(true);
+        expect((await state()).effects).toEqual({ lowpass: 0, highpass: 0, echo: 0, flanger: 0, reverb: 0,
+            phaser: 0, sweep: 0, gater: 0, channel: 1 });
+        await page.evaluate(() => window.vrClub.multiplayer.connect({ room: 'private-performance', name: 'Late listener' }));
+        await page.waitForFunction(() => window.vrClub.multiplayer.following);
+        await expect.poll(async () => (await state()).dj).toBe(false);
+        expect((await state()).effects).toEqual(effects);
+        expect((await state()).preference).toBeNull();
+        await expectHealthyRuntime(page);
+    } finally {
+        await page.evaluate(() => window.vrClub?.multiplayer?.disconnect());
+        await host.close();
+        clearInterval(room._sweeper);
+    }
+});
+
 test('room browser is opt-in on desktop, remembers only known private codes and fits the real VR menu', async ({ page }) => {
     const calls = [];
     const status = (room, people, locked = false) => ({ room, people, locked, capacity: 8, active: people > 0 });

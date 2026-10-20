@@ -3710,6 +3710,14 @@ assessment remain current and are not duplicated here.
 
 - [ ] **Replace remote guest capsules with expressive low-cost avatars**
 
+  **ADE immersive appearance update:** Every remote now retains their assigned modular
+  Quaternius body, with serialized construction and no visible capsule while loading.
+  Distance/tier eviction is removed. Normal clips and controller poses continue in view,
+  including balcony views; only clearly rearward poses can pause, with mirror and
+  close-range exceptions. Relay batches retain hands and up-to-20-Hz changed poses at
+  every distance. The historical caps described below no longer apply on this branch.
+  Full 32-person Quest frame time and increased relay traffic still need measurement.
+
   **Rechecked 2026-10-06:** A fresh production receive/update probe again maps seated
   eye y=1.0 to root ground y=-0.7 using the real manager and loaded assets. No live
   peer connection was needed or tested. The ground/calibration protocol work below remains open.

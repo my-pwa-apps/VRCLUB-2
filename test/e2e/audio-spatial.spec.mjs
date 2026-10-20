@@ -144,10 +144,9 @@ test('the PA is heard on the side it appears, on desktop and in VR', async ({ pa
         await expectLouderOnSide(page, 'desktop facing -x');
     });
 
-    // Babylon copies the desktop camera's yaw into the XR camera: face the stage so the
-    // headset spawns looking at it, and every step below has an unambiguous nearer PA.
+    // Measure on the floor facing the PA, not from the street arrival.
     await stand(0, -12, 180);
-    await enterVR(page);
+    await enterVR(page, { floorPosition: [0, 0, -12] });
     await page.waitForFunction(() => window.vrClub.audioContext.state === 'running');
 
     await test.step('in the headset, stepping sideways', async () => {

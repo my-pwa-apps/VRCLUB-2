@@ -338,6 +338,25 @@ class VRClubAudioCrowd extends VRClubUI {
         return this._djEffects || (this._djEffects = { ...VRClubAudioCrowd.DJ_EFFECT_DEFAULTS });
     }
 
+    djEffectsSnapshot() {
+        return { ...this._djEffectsState() };
+    }
+
+    _applySharedDJEffects(effects) {
+        if (!effects || typeof effects !== 'object' || Array.isArray(effects)) return;
+        const state = this._djEffectsState();
+        let changed = false;
+        for (const name of Object.keys(VRClubAudioCrowd.DJ_EFFECT_DEFAULTS)) {
+            const value = effects[name];
+            if (typeof value !== 'number' || !Number.isFinite(value)) continue;
+            const next = Math.min(1, Math.max(0, value));
+            if (state[name] === next) continue;
+            state[name] = next;
+            changed = true;
+        }
+        if (changed) this._writeDJEffects();
+    }
+
     _createDJEffects() {
         const ctx = this.audioContext;
         try {
@@ -503,7 +522,8 @@ class VRClubAudioCrowd extends VRClubUI {
     }
 
     _writeDJEffects(timeConstant = 0.025) {
-        const state = this._djEffectsState();
+        // A file broadcast already contains the host's effects. Keep its knob readout, not a second wet pass.
+        const state = this._networkMusic ? VRClubAudioCrowd.DJ_EFFECT_DEFAULTS : this._djEffectsState();
         const lowpassHz = 20000 * Math.pow(250 / 20000, state.lowpass);
         const highpassHz = 20 * Math.pow(4000 / 20, state.highpass);
         this._setDJAudioParam(this.djFxLowpass?.frequency, lowpassHz, timeConstant);
@@ -724,6 +744,7 @@ class VRClubAudioCrowd extends VRClubUI {
         this._connectMusicInput(gain);
         const remote = { source, gain, element, previousKind: this._audioKind, previousTitle: this.nowPlayingLabel };
         this._networkMusic = remote;
+        this._writeDJEffects();
         this._audioKind = 'network';
         this.nowPlayingLabel = state?.title || 'Host broadcast';
         if (typeof this.syncDJFromSet === 'function') this.syncDJFromSet({ label: this.nowPlayingLabel });
@@ -744,6 +765,7 @@ class VRClubAudioCrowd extends VRClubUI {
                 this._audioKind = remote.previousKind;
                 this.nowPlayingLabel = remote.previousTitle;
             }
+            this._writeDJEffects();
         }
     }
 
@@ -1232,6 +1254,7 @@ class VRClubAudioCrowd extends VRClubUI {
         const aniso = this.tierSettings.anisotropy;
 
         materials.forEach(mat => {
+            const characterHair = mat._vrclubCharacterHair === true;
             // Exceeding the device light budget produces "Too many lights" and a
             // black character, so this applies to imported materials too.
             mat.maxSimultaneousLights = this.maxLights;
@@ -1240,15 +1263,16 @@ class VRClubAudioCrowd extends VRClubUI {
             // ship alpha channels they do not actually use - without this the crowd
             // renders see-through in the headset.
             mat.alpha = 1.0;
-            mat.transparencyMode = BABYLON.Material.MATERIAL_OPAQUE;
+            mat.transparencyMode = characterHair ? BABYLON.Material.MATERIAL_ALPHATEST : BABYLON.Material.MATERIAL_OPAQUE;
             if (mat.needAlphaBlending) mat.needAlphaBlending = () => false;
-            if (mat.needAlphaTesting) mat.needAlphaTesting = () => false;
+            if (mat.needAlphaTesting) mat.needAlphaTesting = () => characterHair;
+            if (characterHair) { mat.useAlphaFromAlbedoTexture = true; mat.alphaCutOff = 0.45; }
 
             // Depth write is what makes the crowd OCCLUDE the additive light beams
             // in rendering group 1 instead of letting them shine straight through.
             mat.disableDepthWrite = false;
             mat.forceDepthWrite = true;
-            mat.backFaceCulling = true;
+            mat.backFaceCulling = !characterHair;
 
             if (garmentColor && (mat.name === 'MI_Peasant' || mat.name === 'MI_Ranger') && mat.albedoColor) {
                 mat.albedoColor.copyFrom(garmentColor);
@@ -1260,7 +1284,7 @@ class VRClubAudioCrowd extends VRClubUI {
 
             [mat.albedoTexture, mat.diffuseTexture].forEach(tex => {
                 if (!tex) return;
-                tex.hasAlpha = false;
+                tex.hasAlpha = characterHair;
                 tex.anisotropicFilteringLevel = aniso;
             });
 
@@ -1286,6 +1310,8 @@ class VRClubAudioCrowd extends VRClubUI {
      * @param {object} [options.ambient]          subtle yaw and idle-speed variation for a fixed bystander
      */
     _spawnAvatar(container, name, position, facing, height, speedRatio, options = {}) {
+        const originalHeight = height;
+        if (container.character) height = container.character.height;
         // doNotInstantiate: these are skinned meshes, so each dancer needs its own
         // skeleton and animation group to move independently. cloneMaterials stays
         // false so the whole crowd still shares one set of materials and textures.
@@ -1411,6 +1437,10 @@ class VRClubAudioCrowd extends VRClubUI {
 
         const npc = {
             name,
+            character: container.character || null,
+            characterSourceId: container.characterSourceId,
+            characterEntry: entry,
+            characterSpawn: { height: originalHeight, options, floorOffset: root.position.y - position.y },
             root,
             meshes,
             animations: groups,
@@ -1646,7 +1676,13 @@ class VRClubAudioCrowd extends VRClubUI {
             // loops there for ever: every frame the scene evaluated ~2,200 animatables (about 17 source files) that no one could
             // see. The instantiated characters start their own cloned groups, so the sources' can simply be stopped.
             for (const group of container.animationGroups) group.stop();
+            const person = window.CharacterCatalog && Object.values(window.CharacterCatalog.people).find(item => item.url === url);
+            if (person) for (const material of container.materials) material._vrclubCharacterHair = material.name.endsWith('_hair');
             this._prepareAvatarMaterials(container.materials, garmentColor, hairColor);
+            container.character = person || null;
+            container.characterSourceId = person
+                ? Object.keys(window.CharacterCatalog.npcs).find(id => window.CharacterCatalog.people[window.CharacterCatalog.npcs[id]] === person)
+                : VRClubAudioCrowd.AVATAR_SOURCES.find(source => source.url === url)?.id;
             this._restoreLightBudgets();
             this._avatarContainers.push(container);
             return container;
@@ -1698,15 +1734,18 @@ class VRClubAudioCrowd extends VRClubUI {
     }
 
     async _applyDJ(id) {
-        const look = VRClubAudioCrowd.djLook(id);
+        const style = this.getCharacterStyle();
+        const look = this._characterDJLook(id, style);
         if (!look) return false;
         this._djWanted = id;
         // Sent home: remember the local choice and fetch nothing until the DJ is asked back.
         if (!this.isPeopleVisible('dj')) return false;
-        if (this._djId === id) return true;
+        if (this._djId === id && this._djCharacterStyle === style) return true;
         this._djContainers = this._djContainers || {};
-        if (!this._djContainers[id]) this._djContainers[id] = await this._loadAvatarSource(look.url, look.garment, look.hair);
-        const container = this._djContainers[id];
+        const key = `${style}:${id}`;
+        if (!this._djContainers[key]) this._djContainers[key] = await this._loadCharacterContainer(look, style);
+        const container = this._djContainers[key];
+        if (style !== this.getCharacterStyle()) return false;
         if (!container || this._disposed) return false;
 
         // The previous DJ leaves: skeleton, clip, collider and all.
@@ -1722,6 +1761,7 @@ class VRClubAudioCrowd extends VRClubUI {
         this._djEntry = this._spawnPerformingDJ(container, look)
             || this._spawnAvatar(container, 'djPerformer', new BABYLON.Vector3(0, 0.5, -19.4), 0, look.height, 0.55, { clip: 'Idle_Loop' });
         this._djId = id;
+        this._djCharacterStyle = style;
         if (this._refreshContactShadows) this._refreshContactShadows();
         if (this._refreshShadowCasters) this._refreshShadowCasters();
         return true;
@@ -1776,6 +1816,9 @@ class VRClubAudioCrowd extends VRClubUI {
         if (npc.collider) npc.collider.position.set(desk.cx, 0.5 + 0.85, desk.near - 0.45);
         this.npcAvatars.push(npc);
         this._djRig = rig;
+        npc.rig = rig;
+        npc.character = container.character || null;
+        npc.characterSourceId = `dj-${this._djWanted || this._initialDJId()}`;
         this._djPerformer = performer;
         this._djMusic = { hasAudio: false, beatPhase: 0, bar: 0, energy: 0, drop: false, bpm: 120 };
         this._djVisitors = [];
@@ -2078,6 +2121,8 @@ class VRClubAudioCrowd extends VRClubUI {
         };
         const npc = {
             name: 'bartender',
+            character: container.character || null,
+            characterSourceId: 'bartender',
             root: rig.root,
             meshes: rig.meshes,
             animations: [],
@@ -2319,7 +2364,8 @@ class VRClubAudioCrowd extends VRClubUI {
      */
     _requiredCrowdSources(crowdSize = this.isPeopleVisible('dancers') ? this.tierSettings.crowdSize : 0,
         guestSize = this.isPeopleVisible('bystanders') ? this.tierSettings.guestSize : 0) {
-        const need = new Set([VRClubAudioCrowd.sourceIndex('dancerF'), VRClubAudioCrowd.sourceIndex('dancerM')]);
+        const need = new Set(this.getCharacterStyle() === 'diverse' ? []
+            : [VRClubAudioCrowd.sourceIndex('dancerF'), VRClubAudioCrowd.sourceIndex('dancerM')]);
         if (this.isPeopleVisible('bystanders')) need.add(VRClubAudioCrowd.sourceIndex('bartender'));
         (this._crowdSlots || []).slice(0, Math.max(0, crowdSize | 0)).forEach(slot => need.add(slot.src));
         this._guestSlots().slice(0, Math.max(0, guestSize | 0)).forEach(slot => need.add(slot.src));
@@ -2329,10 +2375,12 @@ class VRClubAudioCrowd extends VRClubUI {
     /** Fetch one source once, however many callers ask. Resolves to its container, or null when it cannot load. */
     _loadCrowdSource(index) {
         const pending = this._crowdSourcePending || (this._crowdSourcePending = {});
+        const containers = this._crowdSourceContainers;
+        const style = this.getCharacterStyle();
         if (!pending[index]) {
-            const source = VRClubAudioCrowd.AVATAR_SOURCES[index];
-            pending[index] = this._loadAvatarSource(source.url, source.garmentColor).then(container => {
-                if (this._crowdSourceContainers) this._crowdSourceContainers[index] = container;
+            const source = this._characterSource(index, style);
+            pending[index] = this._loadCharacterContainer(source, style).then(container => {
+                if (containers) containers[index] = container;
                 return container;
             });
         }
@@ -2340,11 +2388,12 @@ class VRClubAudioCrowd extends VRClubUI {
     }
 
     async _loadCrowdSources(indices) {
+        const containers = this._crowdSourceContainers;
         for (const index of indices) {
             if (this._disposed) return;
             await this._loadCrowdSource(index);
         }
-        this._availableCrowdSources = (this._crowdSourceContainers || []).filter(Boolean);
+        if (containers === this._crowdSourceContainers) this._availableCrowdSources = (containers || []).filter(Boolean);
     }
     _spawnGuestsTo(target) {
         if (!this._crowdSourceContainers) return;
@@ -2521,13 +2570,21 @@ class VRClubAudioCrowd extends VRClubUI {
     /** Is this group of characters in the club? An unknown name is never hidden. */
     isPeopleVisible(category) {
         const visibility = this.peopleVisibility;
-        if (!visibility || !Object.prototype.hasOwnProperty.call(visibility, category)) return true;
-        return visibility[category] !== false;
+        const personal = !visibility || !Object.prototype.hasOwnProperty.call(visibility, category) || visibility[category] !== false;
+        return personal && (category !== 'dj' || this._roomDJVisible !== false);
+    }
+
+    setRoomDJVisible(visible) {
+        const next = typeof visible === 'boolean' ? visible : null;
+        if ((this._roomDJVisible ?? null) === next) return;
+        this._roomDJVisible = next;
+        this._applyDJVisibility();
+        this._refreshVRQuickMenu();
     }
 
     /**
-     * Send a group of characters home, or bring it back. This is a personal, local preference — not a light or a
-     * music control — so it is never gated on the host.
+     * Keep personal hide preferences. In a room the host's DJ preference also sets the room's presence;
+     * a guest may hide that DJ, but cannot bring back one the host sent home.
      * @param {string|null} category 'dancers', 'bystanders', 'dj', or 'all' for every group at once
      * @returns {boolean} whether the group is now visible
      */
@@ -2544,18 +2601,18 @@ class VRClubAudioCrowd extends VRClubUI {
             this._persistPeopleVisibility();
             this.applyPeopleVisibility();
         }
-        return on;
+        return category === 'dj' ? this.isPeopleVisible('dj') : on;
     }
 
     /** Flip a group. 'all' comes back only when every group is away, so one press empties the club. */
     togglePeopleVisible(category) {
         const names = VRClubCore.peopleCategories(category);
         if (names.length === 0) return true;
-        return this.setPeopleVisible(category, !names.some(name => this.isPeopleVisible(name)));
+        return this.setPeopleVisible(category, !names.some(name => this.peopleVisibility?.[name] !== false));
     }
 
     _persistPeopleVisibility() {
-        const hidden = VRClubCore.PEOPLE_CATEGORIES.filter(name => !this.isPeopleVisible(name));
+        const hidden = VRClubCore.PEOPLE_CATEGORIES.filter(name => this.peopleVisibility?.[name] === false);
         try {
             if (hidden.length > 0) localStorage.setItem('vrclub.hiddenPeople', hidden.join(','));
             else localStorage.removeItem('vrclub.hiddenPeople');
@@ -2572,7 +2629,7 @@ class VRClubAudioCrowd extends VRClubUI {
     _applyDJVisibility() {
         const enabled = this.isPeopleVisible('dj');
         if (typeof this._applyVJDeskPlayerVisibility === 'function') this._applyVJDeskPlayerVisibility();
-        if (enabled && typeof this.resetDJEffects === 'function') this.resetDJEffects();
+        if (enabled && !this.isFollowingHost?.() && typeof this.resetDJEffects === 'function') this.resetDJEffects();
         if (enabled && this._djWanted && this._djWanted !== this._djId) {
             this.setDJ(this._djWanted).then(applied => {
                 if (!applied) this.showErrorMessage('The selected DJ could not load. Try again later.');
@@ -3276,6 +3333,29 @@ class VRClubAudioCrowd extends VRClubUI {
     // His grip, read from the hand itself: the cup sits in the palm, 4.5 cm toward its face, its axis along the thumb side.
     // The wrist-local directions are the m6 skeleton's own (fingers along +Y, thumb side along -X, palm toward -Z).
     _updateMinglerGrip(glass) {
+        if (this._mingler && this._mingler.character) {
+            if (!glass.characterKnuckles) {
+                const nodes = this._mingler.root.getChildTransformNodes(false);
+                glass.characterKnuckles = ['Index2.R', 'Pinky2.R'].map(name => nodes.find(node => node.name.endsWith(`_${name}`)));
+            }
+            const [index, pinky] = glass.characterKnuckles;
+            if (!index || !pinky) throw new Error('Character grip landmarks are missing.');
+            glass.minglerHand.computeWorldMatrix(true);
+            glass.minglerWrist.computeWorldMatrix(true);
+            index.computeWorldMatrix(true); pinky.computeWorldMatrix(true);
+            const wrist = glass.minglerHand.absolutePosition, middle = glass.minglerWrist.absolutePosition;
+            glass._f.copyFrom(middle).subtractInPlace(wrist).normalize();
+            glass.handAxis.copyFrom(index.absolutePosition).subtractInPlace(pinky.absolutePosition);
+            glass._n.copyFrom(glass._f).scaleInPlace(BABYLON.Vector3.Dot(glass.handAxis, glass._f));
+            glass.handAxis.subtractInPlace(glass._n).normalize();
+            BABYLON.Vector3.CrossToRef(glass.handAxis, glass._f, glass._n);
+            glass._n.normalize();
+            glass.handPosition.copyFrom(wrist).addInPlace(middle).scaleInPlace(0.5);
+            glass.handPosition.x += glass._n.x * 0.045 + glass.handAxis.x * 0.01;
+            glass.handPosition.y += glass._n.y * 0.045 + glass.handAxis.y * 0.01;
+            glass.handPosition.z += glass._n.z * 0.045 + glass.handAxis.z * 0.01;
+            return;
+        }
         const wrist = glass.minglerHand.computeWorldMatrix(true);
         const knuckle = glass.minglerWrist.computeWorldMatrix(true);
         const f = glass._f, n = glass._n, t = glass.handAxis, p = glass._p;

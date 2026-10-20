@@ -26,6 +26,149 @@ remain eight-person mesh rooms. Old browsers can still use mesh rooms; SFU rooms
 the updated media client, and the backend rejects old clients before socket admission
 and rejects mesh signaling in those rooms.
 
+## Owner-only DEV room 000032
+
+Use the normal **Join room** flow and enter **000032** (`private-000032`).
+This is available on the updated ADE frontend, not the older normal/SideQuest
+frontends. No developer panel, per-visitor configuration or extra credentials
+are needed. The device must already have the verified owner's API session
+(headset pairing supplies it); otherwise verify the owner email through Access.
+Knowing the code, supplying an email header or possessing an old invitation
+cookie does not authorize admission. Ordinary VR entitlements and leases remain
+unchanged; this is not a free-VR bypass.
+
+Configuration in `worker/wrangler.toml`:
+
+| Variable | Purpose |
+| --- | --- |
+| `DEV_ROOM_ENABLED` | Only the exact value `"1"` enables this one reserved room; unset/disabled refuses it. |
+| `DEV_ROOM_OWNERS` | Comma-separated verified account emails permitted to enter, independent of Cloudflare Access administrator permissions. |
+
+The client preflights `POST /payments/dev-room` using the existing credentialed,
+exact-origin payment API. Only this room then opens its socket on the API host,
+where the HttpOnly cookie is available. The public relay rechecks the hashed
+server session, expiry, session/device revocation and owner allow-list before
+resolving the Durable Object. It strips incoming authorization headers, creates
+its own internal admission marker and removes the cookie before forwarding.
+No account credential enters JavaScript or a WebSocket URL. Denial is explicit,
+does not schedule connection retries, and a cancelled preflight cannot reconnect.
+Account authorization is checked on entry/reconnection, not continuously on an
+already admitted socket. No schema migration, new secret or SFU application is required.
+
+The first real owner starts the simulation. `worker/src/devAttendees.js` gives
+each guest individual activity choices on a measured navigation graph, not a shared
+tour: dance, watch from a wall or balcony, chat indoors/outside, get fresh air, sit
+at one of four available bar stools, either couch cushion or either balcony chair,
+or visit a toilet. The resident bar regular's stool is never assigned. Guests linger
+for roughly one to three minutes instead of continually circulating. At most three
+ordinary guests walk simultaneously; others continue their activity rather than
+queue on a corridor. Entire swept paths are reserved before departure. Human
+obstructions can cause safe backtracking, never teleports. An occupied destination
+is skipped or an approach is cancelled if a real player occupies it.
+
+Real players have furniture priority. Selecting an NPC's seat requests `dev-seat`;
+the NPC stands and leaves before the client seats the player. Selecting an occupied
+simulated toilet door also asks its occupant to leave. The toilet door opens before
+walking, and seat reuse is held for 30 seconds. The client waits for both server
+occupancy and the rendered body to clear; a 15-second timeout reports that the guest
+cannot yet move, rather than placing two bodies on one seat. Pending waits are
+cancelled on stand, another selection, disconnect or disposal. Real occupied
+furniture/toilets are never evicted. Requests are DEV-only, known-seat allow-listed
+and rate-limited.
+
+The 31 guests have distinct fictional international first names, such as Amina,
+Hiroto, Priya, Kwame, Thandi and Minh. These are not real visitor/account identities.
+Nearby resting guests turn toward one another and occasionally wave, nod or show
+a greeting emoji. Two- and three-person groups take turns in occasional short
+scripted fictional conversations shown as ordinary chat balloons, at most one
+room-wide utterance per five seconds. Assets with a talking clip use it; others
+keep their idle and gestures. Seated guests retain their seated pose.
+Dancers face the booth and occasionally nod or cheer
+with a raised-hands emoji toward the DJ. These are ordinary overhead reactions,
+not a private message to the DJ, a new targeting protocol or a scripted DJ reply.
+Reactions use the existing allow-lists and block-aware routing, with at least
+23 seconds between a guest's social events; nobody waves instead of walking on a stair.
+This is deterministic scripted behavior, not AI conversation, synthetic voice,
+complete pedestrian simulation or physical prop handling.
+Unit tests check actual walking surfaces, fixed-NPC clearance and furniture assignments,
+and run 31 attendees for a simulated hour across five seeds and 4/10/20 Hz updates,
+requiring every attendee to change activities without body overlaps or position
+jumps. The hour-long tests require at most three ordinary walkers on every update and
+no walking queue lasting more than 1.2 seconds (including the toilet-door opening);
+the browser regression checks architectural clearance in the loaded club.
+
+* The capacity counts **everyone present**, normally one owner and 31 fictional
+  guests. Another authorized owner replaces one simulated guest; departure
+  refills the spare place. No overflow past the configured capacity is allowed.
+* Simulated guests use the ordinary join/state/gesture/avatar path, with explicit
+  `simulated` metadata and persistent `state.dancing` for late joins, unblocks
+  and detailed-body loading. Human state sanitization does not accept that field.
+* They cannot host or receive host transfers. Blocks remain two-way; kicked or
+  banned simulated guests are not immediately replaced or rerolled to evade it.
+  The host's room lock still applies to new real arrivals.
+* There are **no synthetic WebSockets or SFU members**: only real owners join
+  media membership. Bots publish no voice, microphone or music; their fictional
+  scripted chat is explicitly part of the simulation.
+  Normal host music/lights and personal safety settings remain in use.
+* Leaving the last real owner clears simulated membership, world state and
+  pose/sweep timers. DEV owners must heartbeat from admission, including before
+  their first ping; a lost connection is removed after 30 seconds of inactivity,
+  checked by the ten-second sweeper. Synthetic guests cannot keep a room alive.
+* While an owner remains connected the active 20 Hz room timer incurs Durable
+  Object activity/cost. There is no autonomous unattended bot service.
+
+This tests relay **outgoing presence fanout**, movement/animation, full-detail
+pose cadence, retained bodies and client rendering. It does **not** test 31
+inbound sockets, 32 independent WebRTC/SFU senders, real network congestion,
+human behavior, moderation staffing or physical-headset frame time.
+All tiers retain each remote guest's assigned Quaternius body; the 17 looks can
+repeat. Only clearly unseen poses can pause. Use real clients for media
+load and a physical headset's performance report for headset measurements.
+
+To disable the feature, set `DEV_ROOM_ENABLED = "0"` and redeploy the Worker.
+Normal public/private rooms do not gain simulated attendees.
+
+### DEV-room release
+
+The initial DEV-room release used Worker version `944ae909-cb98-46ef-8eea-ced720b2b626`.
+Its ADE frontend was deployed at <https://a11d9b38.nocturne-ade.pages.dev>,
+serving `assets/app-b6e1aae623ba.js` and service worker `vrclub-v0c0105df1939`.
+The custom host's index, bundle and service worker were verified byte-for-byte,
+with its non-indexing headers intact. Anonymous and spoofed-owner preflights
+and WebSocket upgrades return 401 on the deployed service; wrong-origin
+preflights return 403. The 722-test suite and real relay/browser/VR regression
+pass. Positive owner authorization is covered with real SQLite sessions locally;
+a live owner-cookie/headset join still needs an owner-device check.
+
+The immersive-appearance update was deployed with shared Worker version
+`86f0ffb6-6b10-4419-8a40-aa5123436763` and ADE deployment
+<https://f111b1c1.nocturne-ade.pages.dev>, bundle `assets/app-5a55a6131ccf.js`,
+service worker `vrclub-v23f949b1aa71`. All 724 tests and the DEV-room, tracked-arm
+and 31-body desktop/VR browser regressions pass. The custom host's index, bundle
+and service worker match the build byte-for-byte; non-indexing and anonymous
+DEV-room rejection remain intact. The four verified-owner accounts remain configured.
+The ordinary/SideQuest frontends have not received this appearance update.
+
+The named/social-attendee update supersedes that Worker with version
+`88e9e99f-ac64-4a70-890d-746482f6d382`. The ADE frontend remains on the same
+verified build; no new frontend protocol is needed. All 726 tests and the real
+DEV-room relay/browser/VR regression pass, including visible emoji rendering and
+architectural clearance of the dispersed stops. Live anonymous/wrong-origin
+admission remains 401/403. Leave and rejoin `000032` to start with the new guests.
+
+The individual-activity update supersedes that release with shared Worker
+`f5c889f1-6ac4-4c03-82cf-ff3dadb660e6` and ADE deployment
+<https://67b25109.nocturne-ade.pages.dev>, bundle `assets/app-2d1d6e47b567.js`,
+service worker `vrclub-vbd3a5d37dfc4`. All 731 tests pass. The real relay/browser/VR
+regression verifies visible scripted chat balloons, real-player seat handover,
+requests to vacate simulated toilets, architectural navigation clearance and
+cleanup. Syntax and focused lint pass with one pre-existing unused-argument warning.
+The custom host's index, JavaScript bundle and service worker match the build
+byte-for-byte; noindex and anonymous/wrong-origin 401/403 checks remain intact.
+Reload the ADE site and rejoin `000032` to use the new client and fresh simulation.
+The ordinary and SideQuest frontends are unchanged; normal rooms gain no NPCs.
+Naturalness and 32-person frame time still need a physical-headset check.
+
 ## Coordinated rollout
 
 1. Provision or explicitly choose an SFU application for the shared relay; validate
@@ -113,13 +256,18 @@ entitlement is introduced here.
 
 ## Rendering and appearance limits
 
-Scaled rooms select the nearest detailed bodies within 15 m (with hysteresis),
-up to 6 on Balanced, 10 on High and 14 on Ultra. Other guests remain present as
-capsule/head fallbacks, with spatial voice and interactions intact. Hidden/outdoor
-culling remains local and never changes shared positions or room membership.
+Every remote guest retains their assigned Quaternius body, independent of tier
+or distance. Body construction is serialized across frames; loading or failed
+appearances never expose a blue capsule. Failures are reported and retried.
+Only poses clearly behind the viewer pause (130-degree hold / 115-degree resume,
+with nearby guests always animated); an active restroom mirror keeps poses running.
+Hidden/outdoor culling remains local and never changes shared positions or membership.
 The assignable pool remains 17 people: appearances can repeat once exhausted.
-Pose batching uses 20 Hz nearby and 2 Hz far away, omitting distant hand poses;
+Changed poses, including hands, are batched at up to 20 Hz regardless of distance;
 stationary senders still heartbeat at roughly 2 Hz and send seat/height changes.
+This deliberately increases simultaneous skeleton work and relay bandwidth compared
+with the old 6/10/14-body and distant-2-Hz limits. Full 32-person physical-headset
+frame time and traffic costs remain unmeasured.
 
 The existing origin allow-list, room admission/moderation, and heartbeat rules still
 apply. Media requests are authorized through the admitted room WebSocket, not a public
@@ -146,6 +294,29 @@ does not change chat selection. Muting one's own microphone does not stop receiv
 others. Disabling music listening closes music only. The existing app enables host-music
 listening on room connection; the transport's listening authorization does not introduce
 a new consent step. The transport never stops a host-owned music capture track.
+
+The host's existing `show` frames also carry optional `dj` (room DJ presence) and
+`audioFx` (nine allow-listed 0..1 control values). These fields are independent of
+automatic/manual lighting, retained for late joiners, host-only and block-aware.
+A guest's personal DJ hide wins without persisting the host's choice. URL listeners
+apply host effects locally; file broadcasts already contain the processed mix.
+While receiving one, the local effect graph is neutral even though knob readouts
+retain host values, preventing doubled wet effects, noise sweeps or crossfader cuts.
+Leaving/losing the host restores local settings; becoming host keeps current
+effects. New clients and relay are needed for this behavior; old clients ignore
+these optional fields, and an old relay strips them. This is not sample-accurate
+modulation or audio synchronization.
+
+The 19 October follow-up deployed this protocol as Worker version
+`a084e575-2808-4420-9982-30596b858638` and the ADE client as Pages deployment
+`210cf57f.nocturne-ade.pages.dev` (bundle `app-542e5eeaf615.js`, also verified on
+`nocturne-ade.mitwee.nl`). The normal and SideQuest frontend deployments were not
+changed by this follow-up; both participants need the updated ADE client for the
+new DJ/effect behavior. No database migration was required. Production verification
+used three temporary clients in one private room: 32-person SFU admission metadata,
+all nine effect settings, DJ absence and retained late-join state. No media was
+published; actual effects and VR visibility were exercised in browser regressions,
+not rechecked on physical headsets.
 
 The backend owns provider session IDs and publication names. Browser catalogs contain
 only room-member IDs, source kind, and an opaque publication version. Clients ask to
@@ -207,9 +378,9 @@ Updated clients opt in with `poseBatch=1`. Legacy clients still receive immediat
 frames. For capable recipients, a 50 ms room timer sends one `states` frame containing the
 latest changed pose for each visible guest:
 
-* Under 12 metres (3D distance, including height): at most 20 Hz, including hands.
-* Farther away: at most 2 Hz, hands omitted.
-* Until the recipient has supplied a pose: full-detail near behavior.
+* All distances and floors: at most 20 Hz, including hands.
+* Identical poses are coalesced; the relay never invents extra sender updates.
+* Visibility-based pose holds happen only on the receiving client.
 
 The welcome includes full current snapshots for late joiners. Coalescing reads current
 membership and blocks at flush time, so queued stale or blocked guests cannot leak back

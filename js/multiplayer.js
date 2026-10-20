@@ -938,6 +938,7 @@ class ClubMultiplayer {
         if (!this.connected || !this.isHost()) error = 'Only the current host can give someone else host control.';
         else if (!this.client.hostTransferSupported) error = 'This relay needs an update before host control can be transferred.';
         else if (!this.client.peers.has(id)) error = 'That person is no longer in this room.';
+        else if (this.client.peers.get(id).simulated) error = 'Simulated attendees cannot host a room.';
         if (error) {
             this.lastError = error;
             this.club.showErrorMessage?.(error);
@@ -1109,13 +1110,25 @@ class ClubMultiplayer {
         }
         if (!this.following) this._stopRemoteMusic();
         const following = this.following;
+        const club = this.club;
+        if (!following && (!this.connected || !this.isHost()) && typeof club.setRoomCharacterStyle === 'function') {
+            club.setRoomCharacterStyle(null);
+        }
         if (following && this.client && !this.client.musicListening) {
             this.client.setMusicListening(true);
         }
         if (following === this._roleApplied) return;
         const was = this._roleApplied;
         this._roleApplied = following;
-        const club = this.club;
+        if (following && typeof club.djEffectsSnapshot === 'function') {
+            this._savedDJEffects = club.djEffectsSnapshot();
+        } else if (!following) {
+            const effects = was && this.connected && this.isHost() && typeof club.djEffectsSnapshot === 'function'
+                ? club.djEffectsSnapshot() : this._savedDJEffects;
+            if (typeof club.setRoomDJVisible === 'function') club.setRoomDJVisible(null);
+            if (effects && typeof club._applySharedDJEffects === 'function') club._applySharedDJEffects(effects);
+            this._savedDJEffects = null;
+        }
         this._show.lastFrameAt = performance.now();
         this._show.stale = false;
         this._show.force = true;
@@ -1159,6 +1172,8 @@ class ClubMultiplayer {
         if (!director || !vj) return null;
         const driving = director.isDriving();
         const frame = { m: driving ? 'show' : (club.vjManualMode ? 'manual' : 'off'), ...vj.colourSnapshot() };
+        if (typeof club.isPeopleVisible === 'function') frame.dj = club.isPeopleVisible('dj');
+        if (typeof club.djEffectsSnapshot === 'function') frame.audioFx = club.djEffectsSnapshot();
         if (driving) {
             const snap = director.snapshot();
             Object.assign(frame, { mv: snap.mv, cue: snap.cue, cb: snap.cb, bib: snap.bib });
@@ -1166,6 +1181,10 @@ class ClubMultiplayer {
             frame._bar = snap.bar;
         } else {
             frame.fx = this._captureFixtures();
+        }
+        // Room appearance travels through the existing relay's validated flat metadata map, in every show mode.
+        if (typeof club.getRoomCharacterStyle === 'function') {
+            frame.fx = { ...frame.fx, characterStyle: club.getRoomCharacterStyle() };
         }
         return frame;
     }
@@ -1181,7 +1200,7 @@ class ClubMultiplayer {
         const bar = frame._bar;
         delete frame._bar;
         const key = JSON.stringify([frame.m, frame.mv, frame.cue, frame.sp, frame.spb, bar, frame.hue === undefined ? 0 : Math.round(frame.hue * 500),
-            frame.hl, frame.pal, frame.lh, frame.mbi, frame.fx]);
+            frame.hl, frame.pal, frame.lh, frame.mbi, frame.fx, frame.dj, frame.audioFx]);
         if (!show.dirty && key === show.key && now - show.sentAt < ClubMultiplayer.SHOW_HEARTBEAT_MS) return;
         if (this.client.sendShow(frame)) {
             show.key = key;
@@ -1194,6 +1213,9 @@ class ClubMultiplayer {
     _applyShow(frame) {
         if (!this.following || !frame || typeof frame.m !== 'string') return;
         const club = this.club;
+        if (typeof club.setRoomCharacterStyle === 'function') club.setRoomCharacterStyle(frame.fx?.characterStyle ?? 'quaternius');
+        if (typeof club.setRoomDJVisible === 'function') club.setRoomDJVisible(frame.dj);
+        if (typeof club._applySharedDJEffects === 'function') club._applySharedDJEffects(frame.audioFx || this._savedDJEffects);
         const director = club.showDirector, vj = club.vjDirector;
         if (!director || !vj) return;
         const now = performance.now();
