@@ -282,7 +282,8 @@ window.CharacterStyles = {
         const oldMeshes = new Set(npc.meshes);
         for (const light of this.scene.lights) {
             if (!light.includedOnlyMeshes.some(mesh => oldMeshes.has(mesh))) continue;
-            light.includedOnlyMeshes = light.includedOnlyMeshes.filter(mesh => !oldMeshes.has(mesh)).concat(next.meshes);
+            light.includedOnlyMeshes = light.includedOnlyMeshes.filter(mesh => !oldMeshes.has(mesh));
+            this._extendAccentLight(light, next.meshes);
         }
         if (npc.smoke) {
             for (const key of ['wisp', 'exhale']) if (npc.smoke[key]) npc.smoke[key].dispose();

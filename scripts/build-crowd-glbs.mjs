@@ -38,10 +38,12 @@ const outDir = argument('--out') || join(ROOT, 'js/models/avatars');
 const only = argument('--only');
 const refreshStatic = process.argv.includes('--refresh-static');
 const variantsOnly = process.argv.includes('--variants');
-if ((!dirs.women || !dirs.men) && !refreshStatic && !variantsOnly) {
+const refreshWardrobe = process.argv.includes('--refresh-wardrobe');
+if ((!dirs.women || !dirs.men) && !refreshStatic && !variantsOnly && !refreshWardrobe) {
     console.error('usage: node scripts/build-crowd-glbs.mjs --women "<dir>" --men "<dir>" [--out <dir>] [--only id,id] [--optimize]');
     console.error('   or: node scripts/build-crowd-glbs.mjs --refresh-static [--out <dir>]');
     console.error('   or: node scripts/build-crowd-glbs.mjs --variants [--only id,id] [--optimize]   (no packs needed)');
+    console.error('   or: node scripts/build-crowd-glbs.mjs --refresh-wardrobe [--only id,id] [--optimize]   (bouncer and variants, no packs needed)');
     process.exit(1);
 }
 
@@ -79,8 +81,8 @@ const CAST = [
     { id: 'm7', base: 'men', file: 'Suit', skin: 'deep', mirror: true, colors: { Hair: BLACK_HAIR, Eyebrows: BLACK_HAIR, Suit: '#4b202c' } },
     { id: 'm8', base: 'men', file: 'Beach', skin: 'light', guest: true, colors: { Hair: '#c9a459', Eyebrows: '#8a6b34', LightBrown: '#e2d9bd', Red_Dark: '#1f6090' } },
     { id: 'm9', base: 'men', file: 'Casual_2', skin: 'medium', colors: { Hair: '#4a2f1a', LightBrown: '#6a3c8d' } },
-    // The bouncer at the street door: black suit, black shirt and tie. Not a guest slot; he uses a relaxed idle.
-    { id: 'bouncer', base: 'men', file: 'Suit', skin: 'espresso', guest: true, colors: { Hair: BLACK_HAIR, Eyebrows: BLACK_HAIR, Suit: '#111114', Tie: '#08080a', White: '#1d1d22' } }
+    // The bouncer keeps his dark suit, with a lighter shirt separating the lapels from his face.
+    { id: 'bouncer', base: 'men', file: 'Suit', skin: 'espresso', guest: true, colors: { Hair: BLACK_HAIR, Eyebrows: BLACK_HAIR, Suit: '#303747', Tie: '#08080a', White: '#a6adb8' } }
 ];
 const GUEST_CLIPS = ['Dance_Loop', 'Idle_Loop', 'Idle_Talking_Loop', 'Idle_FoldArms_Loop', 'Idle_TalkingPhone_Loop', 'Yes'];
 // Everybody can dance and nod (`Yes`); the guests who stand about also carry the idle poses. The people who walk the
@@ -1237,7 +1239,7 @@ const VARIANTS = [
     { id: 'vm2', from: 'm9', skin: 'pale', hair: '#b5532a', clothes: ['#1f7a78', '#222a44'] },
     // The queue outside (replace the five who used to repeat dancers inside).
     { id: 'vf2', from: 'f1', skin: 'golden', hair: '#e6dcc0', clothes: ['#d8a23a', '#1d1d22'] },
-    { id: 'vm3', from: 'm3', skin: 'espresso', hair: '#15110f', clothes: ['#28614b', '#2a3342'] },
+    { id: 'vm3', from: 'm3', skin: 'espresso', hair: '#15110f', clothes: ['#9c722e', '#2a3342'] },
     { id: 'vf3', from: 'f3', skin: 'pale', hair: '#d8458f', clothes: ['#4a1c5a'] },
     { id: 'vm4', from: 'm7', skin: 'tan', hair: '#2a1b10', clothes: ['#59354f', '#1c3a5c'] },
     { id: 'vm7', from: 'm5', skin: 'brown', hair: '#2fb36a', clothes: ['#167b82', '#5a1c1c', '#23262e'] },
@@ -1255,7 +1257,7 @@ const VARIANT_SKIN = { pale: '#f3dccb', olive: '#c9a07a', golden: '#d2a26b', umb
  * whose colours fall into a few flat clusters (skin, hair, a top and trousers, shoes), told apart here by where on the
  * body they sit. The body, the skeleton and every clip are copied as they are, so a variant plays exactly like its base.
  */
-async function buildVariant(variant) {
+async function buildVariant(variant, preserveIdentity = false) {
     const base = CAST.find(person => person.id === variant.from);
     const document = await io.read(join(outDir, `club-crowd-${base.id}.glb`));
     const primitives = [];
@@ -1298,12 +1300,17 @@ async function buildVariant(variant) {
     const clothing = [];
     for (const [k, g] of clusters) {
         const mean = g.ySum / g.n;
-        if (near(g.rgb, skin, 0.004)) mapping.set(k, newSkin);
-        else if (near(g.rgb, darker, 0.01)) mapping.set(k, newSkin.map(v => v * 0.82));
+        if (near(g.rgb, skin, 0.004)) {
+            if (!preserveIdentity) mapping.set(k, newSkin);
+        } else if (near(g.rgb, darker, 0.01)) {
+            if (!preserveIdentity) mapping.set(k, newSkin.map(v => v * 0.82));
+        }
         else if (near(g.rgb, EYES, 0.002)) continue;
-        else if (g.yMax >= 0.95 && g.n >= 250) mapping.set(k, newHair);
-        else if (g.yMin >= 0.78 && mean >= 0.83 && g.n >= 40) mapping.set(k, newHair.map(v => v * 0.7));
-        else if (g.n >= (variant.minClothingVertices || 270) && mean >= 0.12) clothing.push([k, g, mean]);
+        else if (g.yMax >= 0.95 && g.n >= 250) {
+            if (!preserveIdentity) mapping.set(k, newHair);
+        } else if (g.yMin >= 0.78 && mean >= 0.83 && g.n >= 40) {
+            if (!preserveIdentity) mapping.set(k, newHair.map(v => v * 0.7));
+        } else if (g.n >= (variant.minClothingVertices || 60) && mean >= 0.12) clothing.push([k, g, mean]);
     }
     clothing.sort((a, b) => b[2] - a[2]);
     clothing.forEach(([k], index) => { if (variant.clothes[index]) mapping.set(k, hexToLinear(variant.clothes[index])); });
@@ -1324,7 +1331,20 @@ async function buildVariant(variant) {
 }
 
 const built = [];
-if (variantsOnly) {
+if (refreshWardrobe) {
+    const wanted = only ? only.split(',') : ['bouncer', ...VARIANTS.map(variant => variant.id)];
+    for (const id of wanted) {
+        if (id === 'bouncer') {
+            const person = CAST.find(person => person.id === id);
+            built.push(await buildVariant({ id, from: id, skin: person.skin, hair: BLACK_HAIR,
+                clothes: [person.colors.White, person.colors.Suit] }, true));
+        } else {
+            const variant = VARIANTS.find(variant => variant.id === id);
+            if (!variant) throw new Error(`No pack-free wardrobe recipe for ${id}`);
+            built.push(await buildVariant(variant));
+        }
+    }
+} else if (variantsOnly) {
     const wanted = only ? only.split(',') : null;
     for (const variant of VARIANTS) if (!wanted || wanted.includes(variant.id)) built.push(await buildVariant(variant));
 } else if (refreshStatic) {

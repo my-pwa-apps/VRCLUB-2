@@ -262,8 +262,8 @@ const CityDistrict = {
         const facade = this.scene.getMeshByName('vestibuleWalls');
         if (facade) lit.push(facade);
         lit.push(...(this._cityGround || []));
-        this._streetDoorLight = this._createScopedAccent('streetDoorLight', new BABYLON.Vector3(2.0, ground + 3.2, CityLayout.doorZ + 1.3),
-            { intensity: 2.4, range: 11, diffuse: [1, 0.78, 0.55], group: 'city' }, lit);
+        this._streetDoorLight = this._createScopedAccent('streetDoorLight', new BABYLON.Vector3(2.0, ground + 2.6, CityLayout.doorZ + 2.5),
+            { intensity: 24, range: 11, diffuse: [1, 0.78, 0.55], group: 'city' }, lit);
         this._streetDoorDressing = meshes;
     },
 

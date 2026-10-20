@@ -1715,8 +1715,8 @@
   {
     "id": "noah",
     "label": "Noah",
-    "description": "Adult man, short fuller build, white T-shirt and jeans",
-    "gender": 1,
+    "description": "Adult man, short fuller build, teal T-shirt and jeans",
+    "gender": 1.0,
     "age": 0.56,
     "weight": 0.74,
     "muscle": 0.4,
@@ -1731,6 +1731,11 @@
     "hair": "short02",
     "clothes": "male_casualsuit06",
     "shoes": "shoes06",
+    "clothingTint": [
+      0.04,
+      0.28,
+      0.36
+    ],
     "sources": [
       "young_caucasian_male",
       "low-poly",
@@ -1746,39 +1751,10 @@
       1024,
       512
     ],
-    "bytes": 721136,
+    "bytes": 1645592,
     "bones": 53,
-    "hairAlpha": "MASK required; production loader forces OPAQUE and needs adaptation",
-    "animation": "Base GLB: original breathing test. Separate dance GLB: eleven retargeted club crowd moves.",
-    "textures": [
-      {
-        "width": 1024,
-        "height": 1024,
-        "bytes": 102924
-      },
-      {
-        "width": 512,
-        "height": 512,
-        "bytes": 37670
-      }
-    ],
-    "draws": 2,
-    "animationChannels": 2,
-    "danceUrl": "/models/noah-dance.glb",
-    "danceClips": [
-      "Dance_Loop",
-      "Groove_Bounce",
-      "Groove_SideTap",
-      "Groove_Clap",
-      "Groove_ClapUp",
-      "Groove_Pump",
-      "Groove_Twist",
-      "Groove_HandsUp",
-      "Groove_ArmsWide",
-      "Groove_ArmsUp",
-      "Groove_Sway"
-    ],
-    "danceBytes": 969588
+    "hairAlpha": "MASK; production hair is alpha-tested and writes depth",
+    "animation": "Base breathing reference; scripts/characters/build.mjs authors production role/player clips and procedural DJ rigs"
   },
   {
     "id": "idris",
@@ -2002,8 +1978,8 @@
   {
     "id": "felix",
     "label": "Felix",
-    "description": "Older man, lean build, silver hair, casual light T-shirt and jeans",
-    "gender": 1,
+    "description": "Older man, lean build, silver hair, olive button shirt and trousers",
+    "gender": 1.0,
     "age": 0.93,
     "weight": 0.38,
     "muscle": 0.48,
@@ -2016,66 +1992,42 @@
     },
     "skin": "old_caucasian_male",
     "hair": "short04",
-    "clothes": "male_casualsuit06",
+    "clothes": "male_casualsuit01",
     "shoes": "shoes04",
     "hairTint": [
       0.65,
       0.64,
       0.6
     ],
+    "clothingTint": [
+      0.28,
+      0.34,
+      0.08
+    ],
     "sources": [
       "old_caucasian_male",
       "low-poly",
       "eyebrow001",
       "short04",
-      "male_casualsuit06",
+      "male_casualsuit01",
       "shoes04"
     ],
     "license": "CC0-1.0",
-    "triangles": 9496,
+    "triangles": 9494,
     "materials": 2,
     "textureSizes": [
       1024,
       512
     ],
-    "bytes": 784664,
+    "bytes": 1587796,
     "bones": 53,
-    "hairAlpha": "MASK required; production loader forces OPAQUE and needs adaptation",
-    "animation": "Base GLB: original breathing test. Separate dance GLB: eleven retargeted club crowd moves.",
-    "textures": [
-      {
-        "width": 1024,
-        "height": 1024,
-        "bytes": 87482
-      },
-      {
-        "width": 512,
-        "height": 512,
-        "bytes": 43454
-      }
-    ],
-    "draws": 2,
-    "animationChannels": 2,
-    "danceUrl": "/models/felix-dance.glb",
-    "danceClips": [
-      "Dance_Loop",
-      "Groove_Bounce",
-      "Groove_SideTap",
-      "Groove_Clap",
-      "Groove_ClapUp",
-      "Groove_Pump",
-      "Groove_Twist",
-      "Groove_HandsUp",
-      "Groove_ArmsWide",
-      "Groove_ArmsUp",
-      "Groove_Sway"
-    ],
-    "danceBytes": 1001160
+    "hairAlpha": "MASK; production hair is alpha-tested and writes depth",
+    "animation": "Base breathing reference; scripts/characters/build.mjs authors production role/player clips and procedural DJ rigs"
   },
   {
     "id": "ari",
     "label": "Ari",
-    "description": "Adult man, soft medium build, long hair, slate blouse and skirt",
+    "description": "Adult man, soft medium build, long hair, silver-grey blouse and skirt",
     "gender": 0.9,
     "age": 0.55,
     "weight": 0.5,
@@ -2092,9 +2044,9 @@
     "clothes": "female_elegantsuit01",
     "shoes": "shoes03",
     "clothingTint": [
-      0.16,
-      0.21,
-      0.28
+      0.32,
+      0.38,
+      0.46
     ],
     "sources": [
       "young_caucasian_male2",
@@ -2111,39 +2063,10 @@
       1024,
       512
     ],
-    "bytes": 791868,
+    "bytes": 1582584,
     "bones": 53,
-    "hairAlpha": "MASK required; production loader forces OPAQUE and needs adaptation",
-    "animation": "Base GLB: original breathing test. Separate dance GLB: eleven retargeted club crowd moves.",
-    "textures": [
-      {
-        "width": 1024,
-        "height": 1024,
-        "bytes": 56650
-      },
-      {
-        "width": 512,
-        "height": 512,
-        "bytes": 40534
-      }
-    ],
-    "draws": 2,
-    "animationChannels": 2,
-    "danceUrl": "/models/ari-dance.glb",
-    "danceClips": [
-      "Dance_Loop",
-      "Groove_Bounce",
-      "Groove_SideTap",
-      "Groove_Clap",
-      "Groove_ClapUp",
-      "Groove_Pump",
-      "Groove_Twist",
-      "Groove_HandsUp",
-      "Groove_ArmsWide",
-      "Groove_ArmsUp",
-      "Groove_Sway"
-    ],
-    "danceBytes": 1000308
+    "hairAlpha": "MASK; production hair is alpha-tested and writes depth",
+    "animation": "Base breathing reference; scripts/characters/build.mjs authors production role/player clips and procedural DJ rigs"
   },
   {
     "id": "robin",
@@ -2298,7 +2221,7 @@
   {
     "id": "mara",
     "label": "Mara",
-    "description": "Adult woman, tall broad build, copper braid, plum blouse and skirt",
+    "description": "Adult woman, tall broad build, copper braid, rose blouse and skirt",
     "gender": 0.0,
     "age": 0.73,
     "weight": 0.61,
@@ -2320,9 +2243,9 @@
       0.05
     ],
     "clothingTint": [
-      0.32,
-      0.08,
-      0.23
+      0.48,
+      0.24,
+      0.32
     ],
     "sources": [
       "middleage_asian_female",
@@ -2339,15 +2262,15 @@
       1024,
       512
     ],
-    "bytes": 1448940,
+    "bytes": 1501328,
     "bones": 53,
-    "hairAlpha": "MASK required; production loader forces OPAQUE and needs adaptation",
-    "animation": "Prototype_Breathing only; club animation retargeting not implemented"
+    "hairAlpha": "MASK; production hair is alpha-tested and writes depth",
+    "animation": "Base breathing reference; scripts/characters/build.mjs authors production role/player clips and procedural DJ rigs"
   },
   {
     "id": "jonas",
     "label": "Jonas",
-    "description": "Older man, shorter stocky build, silver hair, rust T-shirt and jeans",
+    "description": "Older man, shorter stocky build, silver hair, indigo T-shirt and jeans",
     "gender": 1.0,
     "age": 0.86,
     "weight": 0.72,
@@ -2369,9 +2292,9 @@
       0.45
     ],
     "clothingTint": [
-      0.42,
-      0.15,
-      0.06
+      0.08,
+      0.12,
+      0.4
     ],
     "sources": [
       "old_asian_male",
@@ -2388,9 +2311,9 @@
       1024,
       512
     ],
-    "bytes": 1656860,
+    "bytes": 1737388,
     "bones": 53,
-    "hairAlpha": "MASK required; production loader forces OPAQUE and needs adaptation",
-    "animation": "Prototype_Breathing only; club animation retargeting not implemented"
+    "hairAlpha": "MASK; production hair is alpha-tested and writes depth",
+    "animation": "Base breathing reference; scripts/characters/build.mjs authors production role/player clips and procedural DJ rigs"
   }
 ]
