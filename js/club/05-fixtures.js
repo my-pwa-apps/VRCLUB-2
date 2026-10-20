@@ -1241,7 +1241,7 @@ class VRClubFixtures extends VRClubEnvironment {
     }
     
     /**
-     * One dynamic mesh for every ceiling-laser beam and one for their surface dots.
+     * One dynamic mesh for every ceiling-laser beam, without surface-hit dots.
      *
      * A real show beam is 2-5 mm wide: at club distances that is under a pixel, so a modelled cylinder
      * aliases into a dashed, crawling line. Each beam is instead a camera-facing ribbon never narrower
@@ -1273,12 +1273,6 @@ class VRClubFixtures extends VRClubEnvironment {
             const s = 2 * u - 1;
             return Math.exp(-(s / 0.11) * (s / 0.11)) + 0.2 * Math.exp(-(s / 0.45) * (s / 0.45));
         });
-        // The dot a beam throws on a surface: a hot centre and a soft diffuse bloom.
-        const dotTex = profile('laserDotProfile', 32, 32, (u, v) => {
-            const r2 = ((2 * u - 1) ** 2 + (2 * v - 1) ** 2);
-            return Math.exp(-r2 / 0.05) + 0.3 * Math.exp(-r2 / 0.3);
-        });
-
         const build = (name, texture) => {
             const mesh = new BABYLON.Mesh(name, this.scene);
             const positions = new Float32Array(count * 12);
@@ -1329,17 +1323,12 @@ class VRClubFixtures extends VRClubEnvironment {
         };
 
         const beams = build('laser_beams', beamTex);
-        const hits = build('laser_beamHits', dotTex);
         return {
             count,
             mesh: beams.mesh,
             material: beams.material,
             positions: beams.positions,
             colors: beams.colors,
-            hitMesh: hits.mesh,
-            hitMaterial: hits.material,
-            hitPositions: hits.positions,
-            hitColors: hits.colors,
             hit: { t: 0, px: 0, py: 0, pz: 0, nx: 0, ny: 0, nz: 0 }
         };
     }

@@ -2,8 +2,6 @@
 const SPOT_FLASH_BASE_S = 0.040;
 const SPOT_FLASH_MIN_S = 0.022;
 const SPOT_FLASH_MIN_INTERVAL_S = 0.34;
-// Corner offsets (x, y) of a laser surface-dot quad, in the batch's vertex order.
-const LASER_DOT_CORNERS = [-1, -1, 1, -1, 1, 1, -1, 1];
 class VRClubAnimationFixtures extends VRClubAnimationCore {
     updateLEDWallPass(ctx) {
         const { time, audio: audioData } = ctx;
@@ -128,7 +126,7 @@ class VRClubAnimationFixtures extends VRClubAnimationCore {
 
     /**
      * Ceiling laser projectors. Every beam is aimed, clipped against the room's interior faces and written
-     * into the shared ribbon batch (see _createLaserBeamBatch) together with the dot it throws on that face.
+     * into the shared ribbon batch (see _createLaserBeamBatch), without a separate surface-hit dot.
      *
      * The look follows how a show beam is actually seen in haze:
      *  - it is only visible through scatter, so its brightness follows the haze, never the fog colour;
@@ -137,7 +135,7 @@ class VRClubAnimationFixtures extends VRClubAnimationCore {
      *  - the ribbon is never narrower than a few pixels, and its brightness is divided by that widening,
      *    so a distant beam stays a fine line instead of aliasing into dashes or swelling into a bar;
      *  - it diverges ~1.5 mrad and loses a little power to scatter along its length (Beer-Lambert);
-     *  - it ends on whatever face it reaches, with a dot whose brightness follows its angle of incidence.
+     *  - it ends on whatever face it reaches.
      */
     updateLasers(ctx) {
         const { time, dtScale } = ctx;
@@ -167,7 +165,6 @@ class VRClubAnimationFixtures extends VRClubAnimationCore {
         if (!this.lasersActive || master <= 0.001) {
             this._laserGeometryReady = false;
             if (batch.mesh.isEnabled()) batch.mesh.setEnabled(false);
-            if (batch.hitMesh.isEnabled()) batch.hitMesh.setEnabled(false);
             for (const laser of this.lasers) {
                 if (laser.emitterMat) laser.emitterMat.emissiveColor = this.cachedColors.black;
             }
@@ -184,7 +181,6 @@ class VRClubAnimationFixtures extends VRClubAnimationCore {
         const kick = this.kickPulse || 0;
         const scatter = 0.35 + 0.65 * haze;
         const base = 0.6 * scatter * master * (1 + kick * 0.5) * (this.isInVRMode ? 1.15 : 1);
-        const dotBase = 0.95 * master * (1 + kick * 0.3);
 
         const angularSpeed = this.laserSpeed || 1.0;
         for (const laser of this.lasers) {
@@ -194,13 +190,12 @@ class VRClubAnimationFixtures extends VRClubAnimationCore {
 
         // Balanced headset tiers update the dynamic ribbon less often than the display.
         // Rotation still advances from elapsed seconds every frame; only the CPU intersections
-        // and four buffer uploads are throttled. Ultra keeps native headset cadence.
+        // and two buffer uploads are throttled. Ultra keeps native headset cadence.
         const updateHz = this.isInVRMode ? (this.tierSettings.vrLaserUpdateHz || 0) : 0;
         if (updateHz > 0 && this._laserGeometryReady) {
             this._laserGeometryClock = (this._laserGeometryClock || 0) + dt;
             if (this._laserGeometryClock < 1 / updateHz) {
                 batch.material.emissiveColor.copyFrom(color);
-                batch.hitMaterial.emissiveColor.copyFrom(color);
                 for (const laser of this.lasers) {
                     if (laser.emitterMat) {
                         if (!laser._emitterEmissiveBuf) laser._emitterEmissiveBuf = new BABYLON.Color3(0, 0, 0);
@@ -229,7 +224,7 @@ class VRClubAnimationFixtures extends VRClubAnimationCore {
                 this._intersectRoomInterior(o.x, o.y, o.z, dir.x, dir.y, dir.z, hit);
                 beam.length = hit.t;
                 const index = Number.isInteger(beam.slot) ? beam.slot : slot;
-                this._writeLaserBeamQuad(batch, index, o, dir, hit, camPos, pixelAngle, base, dotBase);
+                this._writeLaserBeamQuad(batch, index, o, dir, hit, camPos, pixelAngle, base);
                 slot++;
             }
 
@@ -242,20 +237,16 @@ class VRClubAnimationFixtures extends VRClubAnimationCore {
 
         batch.mesh.updateVerticesData(BABYLON.VertexBuffer.PositionKind, batch.positions);
         batch.mesh.updateVerticesData(BABYLON.VertexBuffer.ColorKind, batch.colors);
-        batch.hitMesh.updateVerticesData(BABYLON.VertexBuffer.PositionKind, batch.hitPositions);
-        batch.hitMesh.updateVerticesData(BABYLON.VertexBuffer.ColorKind, batch.hitColors);
         batch.material.emissiveColor.copyFrom(color);
-        batch.hitMaterial.emissiveColor.copyFrom(color);
         this._laserGeometryReady = true;
         if (!batch.mesh.isEnabled()) batch.mesh.setEnabled(true);
-        if (!batch.hitMesh.isEnabled()) batch.hitMesh.setEnabled(true);
     }
 
     /** Beam direction for one beam of a projector (writes `out`). */
     _aimLaserBeam(laser, beam, laserIndex, out) {
         if (laser.type === 'multi') {
             // A grating splits the beam into a ring; the galvo spins the ring and breathes its cone,
-            // so the dots on the floor circle and slowly open and close.
+            // so the beams circle and slowly open and close.
             const a = (beam.beamIndex / laser.beams.length) * Math.PI * 2 + laser.rotation * 2;
             const tilt = Math.PI / 5 + 0.09 * Math.sin(laser.tiltPhase + laserIndex * 2.1);
             out.set(Math.sin(a) * Math.sin(tilt), -Math.cos(tilt), Math.cos(a) * Math.sin(tilt));
@@ -286,8 +277,8 @@ class VRClubAnimationFixtures extends VRClubAnimationCore {
         return lambert * Math.min(2, Math.max(0.25, inverseSquare));
     }
 
-    /** Write one beam ribbon and its surface dot into the batch buffers. Allocates nothing. */
-    _writeLaserBeamQuad(batch, slot, o, d, hit, cam, pixelAngle, base, dotBase) {
+    /** Write one clipped beam ribbon into the batch buffers. Allocates nothing. */
+    _writeLaserBeamQuad(batch, slot, o, d, hit, cam, pixelAngle, base) {
         const L = hit.t;
         const ex = o.x + d.x * L, ey = o.y + d.y * L, ez = o.z + d.z * L;
         const P = batch.positions, C = batch.colors;
@@ -296,31 +287,6 @@ class VRClubAnimationFixtures extends VRClubAnimationCore {
         const core0 = 0.004 * 8, core1 = (0.004 + 0.0015 * L) * 8;
         this._writeLaserBeamEnd(P, C, p, c, 0, 1, o.x, o.y, o.z, d, core0, base, cam, pixelAngle);
         this._writeLaserBeamEnd(P, C, p, c, 3, 2, ex, ey, ez, d, core1, base * Math.exp(-0.02 * L), cam, pixelAngle);
-
-        // The dot on the surface the beam reaches.
-        const HP = batch.hitPositions, HC = batch.hitColors;
-        const nx = hit.nx, ny = hit.ny, nz = hit.nz;
-        if (L <= 0 || (nx === 0 && ny === 0 && nz === 0)) {
-            for (let k = 0; k < 4; k++) HC[c + k * 4 + 3] = 0;
-            return;
-        }
-        const t1x = Math.abs(ny) > 0.9 ? 1 : 0, t1y = Math.abs(ny) > 0.9 ? 0 : 1, t1z = 0;
-        const t2x = ny * t1z - nz * t1y, t2y = nz * t1x - nx * t1z, t2z = nx * t1y - ny * t1x;
-        const footprint = 0.045 + 0.0015 * L;
-        let size = footprint, dotAlpha = dotBase * (0.4 + 0.6 * Math.abs(d.x * nx + d.y * ny + d.z * nz));
-        if (cam) {
-            const dist = Math.max(0.05, Math.hypot(hit.px - cam.x, hit.py - cam.y, hit.pz - cam.z));
-            size = Math.max(footprint, dist * pixelAngle * 5);
-            dotAlpha *= Math.sqrt(Math.max(0.15, footprint / size));
-        }
-        const cx = hit.px + nx * 0.012, cy = hit.py + ny * 0.012, cz = hit.pz + nz * 0.012;
-        for (let k = 0; k < 4; k++) {
-            const a1 = LASER_DOT_CORNERS[k * 2] * size, a2 = LASER_DOT_CORNERS[k * 2 + 1] * size;
-            HP[p + k * 3] = cx + t1x * a1 + t2x * a2;
-            HP[p + k * 3 + 1] = cy + t1y * a1 + t2y * a2;
-            HP[p + k * 3 + 2] = cz + t1z * a1 + t2z * a2;
-            HC[c + k * 4 + 3] = Math.min(1, dotAlpha);
-        }
     }
 
     /**

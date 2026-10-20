@@ -1,6 +1,7 @@
 import { accessSession, accessInfo, accountEntitled, handleRecovery, limit } from './accessRecovery.js';
 import { handleDeviceLink } from './deviceLink.js';
 import { handleMusicSync } from './musicSync.js';
+import { devRoomAccess, DEV_ROOM } from './devRoomAccess.js';
 export { generateNumericCode as generateInvitationCode } from './accessRecovery.js';
 
 const SESSION_COOKIE = 'nocturne_vr_session';
@@ -286,6 +287,11 @@ export async function handlePayments(request, env, appOrigin) {
     }
     const isWebhook = url.pathname === '/payments/webhook';
     if (!isWebhook && request.headers.get('Origin') !== appOrigin) return json({ error: 'origin_not_allowed' }, 403, headers);
+    if (url.pathname === '/payments/dev-room') {
+        if (request.method !== 'POST') return json({ error: 'method_not_allowed' }, 405, headers);
+        const denied = await devRoomAccess(request, env);
+        return denied ? json(denied, denied.status, headers) : json({ room: DEV_ROOM }, 200, headers);
+    }
     const recovery = await handleRecovery(request, env, headers, {
         json, readBody: readInvitationBody, normalizeEmail, legacyAccess
     });

@@ -8,6 +8,7 @@
     "start:prod": "npm run build && node scripts/serve.mjs --dist",
     "dev": "node scripts/serve.mjs",
     "build": "node scripts/build.mjs",
+    "build:characters": "node scripts/characters/build.mjs",
     "build:quest": "node scripts/build.mjs",
     "deploy:cloudflare": "npm run build && npx --yes wrangler@4.141.0 pages deploy dist --project-name nocturne-vr --branch Quest",
     "deploy:sidequest": "npm run build && npx --yes wrangler@4.141.0 pages deploy dist --project-name nocturne-sidequest --branch SideQuest",

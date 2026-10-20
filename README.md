@@ -4,6 +4,10 @@ Hyperrealistic WebXR nightclub built with Babylon.js for compatible VR headsets 
 
 ## Quick Start
 
+Shared safety, SFU room capacity, optional character styles and owner-only DEV-room
+support are integrated from the ADE development branch. ADE artwork, event dressing
+and pitch build/deployment commands are not part of Quest or SideQuest.
+
 ### Quest branch
 
 This branch is a **Quest distribution candidate**, not an uploaded or signed store release.
@@ -69,13 +73,16 @@ js/venueDressing.js        Entrance stair hall (down from the street door) and b
 js/mezzanine.js            Steel balcony and stair along the left wall, plus the walking-surface follow, mixed into VRClub.prototype
 js/cityDistrict.js         The street outside (baked GLB), its sky and skyline, fence, street door and "outdoors" amount, mixed into VRClub.prototype
 js/vjDesk.js               The VJ desk at the DJ table: two touch panels (who has the lights, the DJ, music, macros, faders; every light), mixed into VRClub.prototype
+js/characterCatalog.js     Generated CC0 MakeHuman adult cast, measured eyes, NPC assignments and compatible player IDs
+js/characterStyles.js      Shared room style, personal lightweight override and live model replacement preserving NPC/session state
 js/avatarRig.js            Procedural player body on the dancer skeleton: planted gait, turning, head, IK arms and legs
 js/frameStats.js           Frame-time distribution recorder (frame interval, update and submit CPU time, p95/p99, missed frames)
 js/playerHeight.js         Pure player-height maths: standing eye-height estimator and the Seated mode view lift
 js/djPerformer.js          The DJ's live set as a pose for AvatarRig: mixing, cueing, knobs, crowd, hands up on a drop, waves at visitors, on the beat
 js/crowdDance.js           The crowd's choreographer: who dances which move, on the beat; claps in a build, hands up on a drop, sway or stand when the kick goes
 js/minglerClock.js         Shared room-time mingler round: deterministic positions, activities and clip phase, independent of host, startup and graphics tier
-js/networkClient.js        Multiplayer WebSocket/WebRTC client (presence, voice, emoji, shared music)
+js/sfuClient.js            Room-authorised SFU audio transport; loaded before networkClient
+js/networkClient.js        Multiplayer WebSocket/WebRTC client (presence, mesh/SFU voice, emoji, shared music)
 js/avatarManager.js        Remote guests as clip-driven Quaternius people: idle/walk/run, wave, nod, dance; name tags, spatial voice, mute and the personal-space bubble
 js/multiplayer.js          One multiplayer session for the whole club (DOM panel and VR menu): connect, mic, gestures, block, mute, kick/ban/lock, shared music
 js/club/01-core.js         VRClub constructor, shared state, and device settings
@@ -96,11 +103,52 @@ scripts/build.mjs          Production bundler and static-asset copier
 scripts/build-city-assets.mjs Bakes the street from the Quaternius Downtown City MegaKit into js/models/city/downtown.glb
 scripts/build-crowd-glbs.mjs Builds the 17-person crowd (`club-crowd-*.glb`) from the Quaternius Modular Women/Men packs: retargets the club's clips, recolours, bakes vertex colours
 scripts/build-dj-glbs.mjs  Derives the two DJs from the guest files
+scripts/characters/build.mjs Builds the 34 detailed adults with NPC/player clips from the verified source GLBs
 test/contract.test.mjs     Contract tests — load order, wiring, assets, hygiene
 test/unit.test.mjs         Runtime unit tests for security, caching, materials, and show logic
 textures/                  Local PBR environment textures
 js/models/                 Local GLB models and model textures
 ```
+
+### Optional detailed characters
+
+In **Show → Club → Crowd**, choose **Character style → Diverse adults**. In VR the
+same choice is under **CROWD → CHARACTER STYLE**. Quaternius remains the default;
+the detailed models are not fetched until selected. The host chooses the room's
+style. **LIGHTWEIGHT CHARACTERS FOR ME** (VR: **LIGHTWEIGHT FOR ME**) forces
+Quaternius on this device without changing the room's choice, including when the
+host uses that override.
+If a change cannot load, the active cast stays in place. Use **Retry loading
+characters** (VR: **RETRY CHARACTERS**) or switch to the personal lightweight
+override, which remains available while characters load.
+
+The 34 fictional CC0 adults include varied ages, builds, skin tones, genders,
+hair, dresses, skirts and casual clothing. Existing tier counts are unchanged:
+Ultra has fourteen dancers, eight indoor guests, bartender, bouncer, eight people
+queueing and one selected DJ (33 placed people; the other DJ is an alternative).
+The same role behaviours, music, visibility, seats and room connection remain
+when styles change. The local body/mirror and remote player bodies change too.
+Network identity IDs and women/men/anyone pools remain compatible with the relay:
+the seventeen existing player identities resolve to seventeen detailed adults,
+separately from NPC slots. This does not expand the relay's identity pool.
+
+The detailed cast has two draws and fewer than 10,000 triangles per person;
+each DJ adds fitted headphones (three draws, fewer than 13,000 triangles).
+It uses textured skin and hair, more joints and substantially more animation
+data than Quaternius. A first change downloads/parses the required models and
+can pause rendering briefly. Quest CPU/GPU cost and physical-controller feel
+have not been measured; keep the lightweight override available.
+
+`npm run build:characters` rebuilds the shipped models and generated catalogue
+from `design/characters/base/` and `recipes.json`, using the existing Quaternius
+CC0 animation sources. Source generation uses Blender 5.2 and MPFB 2.0.18:
+set `VRCLUB_CHARACTER_TOOLS` to an external verified asset/MPFB tooling directory,
+`BLENDER_USER_RESOURCES` to its isolated Blender profile, and run
+`scripts/characters/generate.py` with Blender. `AVATAR_ONLY` optionally limits
+generation to comma-separated IDs. Asset pack hashes and selected CC0 sources
+are recorded in `design/characters/provenance.json` and the recipes. MPFB's
+software licence is separate from its CC0 output assets. Source models, Blender
+intermediates and tooling do not enter the production build.
 
 ## Controls
 
@@ -120,7 +168,7 @@ while their cookie is present; otherwise contact the issuer. See
 - **Natural club life**: the guest who works the room now periodically joins the dance floor and follows a hand-cleared route around every stool and standing guest. A regular sits on a real bar stool, alternates quiet time with bartender conversation, and occasionally lifts a bottle from the counter for a drink using authored seated animation.
 - **Inclusive player bodies and seats**: physical headset height never shortens the visible avatar, so seated play still presents the same standing silhouette. Players can intentionally click or ray-select empty bar stools, either balcony stool, or one of three places on the lightweight Chesterfield-style lounge bench; moving or selecting the seat again stands up. Multiplayer guests see the authored seated pose too.
 - **Laser speed**: rotating ceiling beams now move at one quarter of their previous rate. The VJ laser-speed slider still changes their speed; laser-sheet motion is unchanged.
-- **The street**: the club is a basement. From its front doorway a carpeted stair climbs between the ticket desk and the coat check to the street door, which opens onto a night avenue lined with lit buildings (or press `6` / use the Street button / the VR menu's Travel page). A bouncer in a black suit watches the door, and a line of people waits behind a velvet rope to get in (longer on higher graphics tiers). Out there the music is only the low bass coming through the walls, loudest at the door and quieter the further you walk from it (about half as loud 8 m away, much quieter at the end of the block). The street is drawn only while you are near the entrance, and the door stays shut if it cannot load. Its source kit is not in the repo; see ASSETS.md.
+- **The street**: the club is a basement. From its front doorway a carpeted stair climbs between the ticket desk and the coat check to the street door, which opens onto a night avenue lined with lit buildings (or press `6` / use the Street button / the VR menu's Travel page). Every VR entry starts on the opposite pavement, facing the entrance from about 16 metres away so the logo and queue are in view; tracked eye height is preserved. If the street cannot load, a notice explains the indoor fallback. A bouncer in a black suit watches the door, and a line of people waits behind a velvet rope to get in (longer on higher graphics tiers). Out there the music is only the low bass coming through the walls, loudest at the door and quieter the further you walk from it (about half as loud 8 m away, much quieter at the end of the block). The street is drawn only while you are near the entrance, and the door stays shut if it cannot load. Its source kit is not in the repo; see ASSETS.md.
 - **Mirror ball**: 96 surface spots on Balanced, 180 on High, 280 on Ultra. The VJ and VR Lighting controls can hide the outgoing rays while retaining the reflected spots around the room. Outgoing-ray counts and the two-batch rendering layout are unchanged; High and Ultra headset GPU cost is not yet measured.
 - **🎛️ Lights** (top-left, the VJ menu): safe mode, fixture toggles, spotlight/gobo settings, graphics quality, the NOCTURNE show, live macros and a reset.
 - **Take over from the DJ** (the VJ desk on the DJ table): go to the booth (**Go to → DJ Booth**, or the VR menu's TRAVEL page) and use the two touch panels either side of the DJ controller, with the mouse or a controller ray. The left panel, **SHOW**, says who has the lights right now. It holds **AUTO SHOW** (hand the lights back to the automatic show), **RESIDENT DJ** (send the DJ home and the decks are yours), **MUSIC** (play/pause, or start a set), DROP, BLACKOUT, NEXT SECTION, TAP TEMPO, BEAMS TO FLOOR and RESET LIGHTS, plus BRIGHTNESS and MOVEMENT SPEED faders. The right panel, **LIGHTS**, switches every fixture on or off and steps the spot colour, moves, aim, gobo, wall picture and mirror colour, each showing its current value. Touching any light makes you the VJ; the lights stay yours while you stand at the desk and go back to the automatic show a minute after you walk away, or at once with AUTO SHOW.
@@ -157,10 +205,49 @@ entirely opt-in: nobody connects until a guest presses **Join room**. In a room,
 **Mic**, **React** and **Chat** (keys **M** and **T**), and the music is lowered while anyone talks (switchable). In VR the quick menu's first row in a room is **TALK**, **REACT** and **CHAT** (one-tap ready-made messages).
 For faster access, click the **right thumbstick** while in a room to open the social wheel, tilt toward Chat,
 Reactions or Microphone, click to choose, and center the stick before choosing again. Microphone and chat
-can target Everyone, nobody, or selected guests. Right-stick turning pauses while the wheel is open; the
+can target Everyone, nobody, or selected guests in private rooms; public-room audiences stay room-wide
+(with personal mutes and two-way blocks still available). Right-stick turning pauses while the wheel is open; the
 left-stick click and grips still sprint, and `Y`/`B` still opens the complete quick menu.
 Both local testing and the deployed site default to the hosted relay:
 `wss://vrclub-network.garfieldapp.workers.dev`. No local Worker is required.
+
+**QuestProtect safety.** The desktop Online panel and VR ONLINE page first show a
+versioned **Before you go online** guide: keep personal/contact details private,
+leave if pressured, and use **Report & block**. Acceptance is remembered on this
+device; Safety can reopen it. Report & block sends a reason to the room host before
+blocking contact both ways. Hosts receive a bounded, session-only report list with
+remove/ban controls. Reports are not a staffed ADE reporting service, evidence
+archive, age verification or guaranteed protection against abuse. An official
+event still needs appointed moderators, escalation procedures and an admission policy.
+
+**Larger rooms.** This branch integrates QuestDev's SFU/presence experiment and
+configures the shared relay for **32 connected guests per room**, public or private.
+The coordinated production rollout completed on 19 October 2026: migration 0009,
+dedicated production SFU credentials, all three supported frontends and the shared
+Worker are deployed. Old open tabs need reloading. SFU audio avoids a 32-person browser-to-browser
+mesh; detailed remote bodies are bounded to the nearest 6/10/14 on
+Balanced/High/Ultra, with capsule fallbacks for the rest. The 17-character pool can
+repeat once exhausted. Admission is tested, not a claim of 32-person headset
+performance or festival broadcast delivery. See [SCALING.md](docs/SCALING.md)
+for setup, compatibility, safety enforcement, tests and rollout.
+
+**Owner-only DEV room.** On the updated Quest or SideQuest site, join room **000032** through the
+normal Online menu or VR room-code keypad. An already verified owner account on
+that device is recognized automatically; otherwise verify it through Access first.
+The code is a selector, not a password: non-owner accounts cannot enter.
+The relay fills unused places to 32 total with fictional, internationally named attendees who walk
+between individually chosen activities: dancing, watching the floor from a wall or
+balcony, chatting in small indoor/outdoor groups, getting fresh air, resting on the
+couch or balcony chairs, sitting at the bar and visiting a toilet. They linger rather
+than following a shared circuit. Conversations use occasional short scripted chat
+balloons, gestures and emoji, not generated speech or an AI service. Dancers sometimes
+cheer toward the DJ. Limited simultaneous walking and reserved clear paths avoid
+walking queues; real players can request an occupied seat or toilet and the simulated
+guest makes room before the player sits. Another authorized owner takes a simulated guest's place.
+Only real owners can host; leaving the last owner removes the simulation.
+These are server-generated poses, not 31 real sockets or voice publishers.
+Every attendee retains their assigned Quaternius body. See
+[the DEV-room runbook](docs/SCALING.md#owner-only-dev-room-000032) for limits and configuration.
 
 ### Immersive VR access
 
@@ -241,7 +328,15 @@ ROOM**. The first guest in is the room's **host** (named in the status line); if
 guest becomes host. The host owns the music and the lights: everyone else hears the same track at the same
 position and sees the same show, and their lighting and music controls are dimmed (VR buttons read
 *HOST ONLY*). A guest's own comfort settings stay theirs: Safe Mode (it still removes the host's
-strobes), volume, quality, VR comfort and the generic DJ choice. No host stream is fetched until the guest
+strobes), volume, quality, VR comfort and the generic DJ appearance. The host's DJ on/off choice
+sets whether the room DJ is present for everyone. Guests can additionally hide that DJ personally,
+but cannot bring back one the host sent home; the host's choice never overwrites their saved preferences.
+All nine host audio controls (low-pass, high-pass, echo, flanger, reverb, phaser, noise sweep, gater and
+crossfader) follow the same host frames in automatic and manual lighting modes. Saved-link listeners
+apply them locally; local-file broadcasts already contain them, so receivers do not apply them twice.
+These are control-setting updates, not sample-accurate synchronization of modulation or WebRTC audio.
+Both clients and the relay must support these optional fields; older clients retain their former behavior.
+No host stream is fetched until the guest
 chooses **Listen along**, because loading it discloses their IP address to that server. Local files
 the host plays are automatically offered over a separate **WebRTC music broadcast**, also gated by
 Listen along (a direct connection shares IP addresses with the host). The file is not uploaded:
@@ -285,7 +380,9 @@ never a private room code or a participant's name.
 
 The relay accepts browser connections only from origins listed in `ALLOWED_ORIGINS`
 (`worker/wrangler.toml`); loopback and private-LAN origins always pass. Add your own site's
-origin before deploying a relay for it. Rooms hold up to 8 guests (voice is a full mesh, and eight is how many are drawn as characters), and per-connection
+origin before deploying a relay for it. The shared relay configuration targets 32 guests using SFU
+audio; unconfigured custom relays retain eight-person mesh rooms. Rooms above eight require SFU.
+Detailed character counts are independent of room capacity, and per-connection
 rate limits disconnect clients that flood the room.
 For a custom relay's room browser, also add its HTTP(S) origin to `connect-src` in
 `index.html`; the shipped policy permits the hosted relay and API without allowing

@@ -54,7 +54,26 @@ export interface DiagnosticsReport {
     materials: number;
     audioState: string;
     safeMode: boolean;
+    multiplayer: MultiplayerDiagnostics | null;
     recentLogs: DiagnosticLogEntry[];
+}
+
+export interface MultiplayerDiagnostics {
+    participants: number;
+    detailedAvatars: number;
+    detailBudget: number;
+    fallbackAvatars: number;
+    voiceStreams: number;
+}
+
+export type ModerationReason = 'harassment' | 'grooming' | 'sexual-content' | 'hate' |
+    'unwanted-contact' | 'impersonation' | 'other';
+
+export interface ModerationReport {
+    type: 'moderation-report';
+    reporter: { id: string; name: string; pid: string };
+    target: { id: string; name: string; pid: string };
+    reason: ModerationReason;
 }
 
 export interface AudioFrameData {
@@ -192,6 +211,8 @@ export declare class NetworkClient {
     readonly peerCount: number;
     status: 'idle' | 'connecting' | 'connected' | 'disconnected' | 'error';
     micEnabled: boolean;
+    capacity: number;
+    mediaTransport: 'mesh' | 'sfu';
     targetedChat: boolean;
     voiceAudience: Set<string> | null;
     isHost(): boolean;
@@ -201,6 +222,7 @@ export declare class NetworkClient {
     sendState(state: PeerState): void;
     sendEmoji(emoji: string): void;
     sendChat(text: string, targets?: string[] | null): boolean;
+    sendReport(id: string, reason: ModerationReason): boolean;
     setVoiceAudience(ids: string[] | null): void;
     /** Returns false (and sends nothing) unless host and the URL is http(s). */
     sendMusic(music: SharedMusicState): boolean;
@@ -212,9 +234,10 @@ export declare class NetworkClient {
     onPeerLeave: (id: string) => void;
     onEmoji: (id: string, emoji: string) => void;
     onChat: (id: string, text: string, restricted: boolean) => void;
+    onModerationReport: (report: ModerationReport) => void;
     onMusic: (music: SharedMusicState) => void;
     onHostChange: (hostId: string | null) => void;
-    onRemoteStream: (id: string, stream: MediaStream) => void;
+    onRemoteStream: (id: string, stream: MediaStream | null) => void;
     onError: (error: Error) => void;
 }
 
@@ -229,6 +252,7 @@ export declare class AvatarManager {
     detachVoice(id: string): void;
     removePeer(id: string): void;
     update(dtSeconds: number): void;
+    getDiagnostics(): MultiplayerDiagnostics;
     dispose(): void;
 }
 

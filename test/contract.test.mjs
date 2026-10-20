@@ -27,6 +27,20 @@ const scriptSrcs = [...html.matchAll(/<script[^>]*\ssrc="([^"]+)"/g)]
 /** Path portion of a script src, minus the ?v= cache-busting token. */
 const srcPath = (src) => src.split('?')[0];
 
+test('Quest and SideQuest exclude ADE pitch features and preserve distribution targets', () => {
+    assert.doesNotMatch(html, /liveEventConcept|event-concept-|concept-assets\/ade/);
+    for (const relative of [
+        'js/liveEventConcept.js', 'concept-assets/ade', 'design/ade-brandpack',
+        'scripts/ade-site.mjs', 'scripts/build-ade-brandpack.mjs'
+    ]) {
+        assert.equal(existsSync(join(ROOT, relative)), false, `${relative} is pitch-only`);
+    }
+    const { scripts } = JSON.parse(readFileSync(join(ROOT, 'package.json'), 'utf8'));
+    assert.ok(Object.keys(scripts).every(name => !name.includes('ade')));
+    assert.match(scripts['deploy:cloudflare'], /--project-name nocturne-vr --branch Quest$/);
+    assert.match(scripts['deploy:sidequest'], /--project-name nocturne-sidequest --branch SideQuest$/);
+});
+
 // Paths are normalised to POSIX separators throughout. A `join('js','club') + '\\'`
 // filter previously matched on Windows and matched NOTHING on the Linux CI runner,
 // which made the dispose()-listener guarantee simultaneously a no-op locally and a
@@ -154,6 +168,8 @@ test('script load order honours the dependency contract', () => {
         assert.ok(idx(dep) > -1 && idx(dep) < main, `${dep} must load before club_hyperrealistic.js`);
     }
     // ShowDirector reads the beat grid VJDirector publishes.
+    assert.ok(idx('js/sfuClient.js') > -1 && idx('js/sfuClient.js') < idx('js/networkClient.js'),
+        'sfuClient must precede networkClient');
     assert.ok(idx('js/vjDirector.js') < idx('js/showDirector.js'), 'vjDirector must precede showDirector');
     // ui-init drives the splash screen and instantiates VRClub.
     assert.ok(idx('js/ui-init.js') > main, 'ui-init.js must load after club_hyperrealistic.js');
@@ -179,6 +195,7 @@ test('every class used across files is exported onto window', () => {
         'js/avatarRig.js': ['AvatarRig'],
     'js/djPerformer.js': ['DJPerformer'],
     'js/crowdDance.js': ['CrowdDance'],
+        'js/sfuClient.js': ['SFUClient'],
         'js/networkClient.js': ['NetworkClient'],
         'js/avatarManager.js': ['AvatarManager'],
         'js/multiplayer.js': ['ClubMultiplayer']

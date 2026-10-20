@@ -45,6 +45,21 @@ Safe Mode continues to suppress strobes, and manual fixture controls remain avai
   empty room. Changing Safe Mode immediately recomposes the current automatic
   cue and countdown rung, without taking control from manual lighting.
 
+### Room DJ and Audio Effects
+
+In a room, the host's **RESIDENT DJ** toggle sends the DJ home or brings them back
+for everyone. Guests may still hide the DJ for themselves, but cannot override a
+host absence. Their saved personal people-hiding choices are not overwritten.
+
+The host's nine audio controls are shared: low-pass, high-pass, echo, flanger,
+reverb, phaser, noise sweep, gater and crossfader. They update with the existing
+host frames, at most four times a second, including late joiners. Saved-link music
+is processed on each listener; a local-file broadcast is already processed and
+must not receive a second wet effect or crossfader attenuation. Guests cannot turn
+the host's knobs. Returning their personally hidden DJ does not clear host effects.
+Leaving or blocking the host restores local settings; promotion to host keeps the
+current effect values. This shares settings, not sample-exact modulation phases.
+
 The VJ control console is located on the **right side of the DJ platform** (x=3.5, z=-24.4). It features **9 interactive 3D buttons** arranged in 3 rows.
 
 ## Button Layout (3 Rows)

@@ -4,6 +4,7 @@
 
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { DevAttendees } from '../worker/src/devAttendees.js';
 
 const relay = await import('../worker/src/relay.js');
 const {
@@ -32,6 +33,152 @@ function join(room, name = 'Guest') {
     return { ws, session };
 }
 
+function devRoom(t) {
+    const room = new ClubRoom({}, { ROOM_CAPACITY: '32', MEDIA_TRANSPORT: 'sfu', DEV_ROOM_ENABLED: '1',
+        SFU_APP_ID: 'test-app', SFU_APP_SECRET: 'test-secret' });
+    room._roomName = 'private-000032';
+    room.world = { v: 1, seed: 456, startedAt: Date.now() };
+    room._simulation = new DevAttendees(456);
+    t.after(() => {
+        for (const [ws, session] of [...room.sessions]) if (!session.simulated) room._onClose(ws, session);
+    });
+    return room;
+}
+
+test('DEV room fills to 32, yields bot slots to real owners and never assigns bots host or SFU membership', t => {
+    const room = devRoom(t), a = join(room, 'Owner');
+    assert.equal(room.sessions.size, 32);
+    assert.equal(room.media.members.size, 1);
+    assert.equal(a.ws.sent.filter(frame => frame.type === 'join' && frame.simulated).length, 31);
+    const bot = [...room.sessions.values()].find(session => session.simulated);
+    assert.equal(bot.name, 'Amina');
+    const names = [...room.sessions.values()].filter(session => session.simulated).map(session => session.name);
+    assert.equal(new Set(names).size, 31);
+    a.ws.message({ type: 'host-transfer', target: bot.id });
+    assert.equal(room.hostId, a.session.id);
+    const b = join(room, 'Second owner');
+    assert.equal(room.sessions.size, 32);
+    assert.equal(room.media.members.size, 2);
+    assert.equal(b.ws.last('welcome').peers.filter(peer => peer.simulated).length, 30);
+    room._onClose(a.ws, a.session);
+    assert.equal(room.hostId, b.session.id);
+    assert.equal(room.sessions.size, 32);
+    assert.equal(room.media.members.size, 1);
+    assert.equal([...room.sessions.values()].filter(session => session.simulated).length, 31);
+    room._onClose(b.ws, b.session);
+    assert.equal(room.sessions.size, 0);
+    assert.equal(room._simulation, null);
+    assert.equal(room._poseTimer, null);
+    assert.equal(room._sweeper, null);
+    assert.equal(room.world, null);
+});
+
+test('DEV state fanout moves bots, preserves dance state for late join and honors block, unblock and moderation', t => {
+    const room = devRoom(t);
+    const ws = new FakeSocket(), owner = room._acceptSession(ws, 'Owner', null, 'any', true);
+    const bots = [...room.sessions.values()].filter(session => session.simulated);
+    const before = bots.map(bot => ({ ...bot.lastState }));
+    const start = room._simulation.now;
+    const first = room._simulation.guests.get(bots[0].simulatedIndex);
+    first.departAt = first.chooseAt = start;
+    for (let i = 1; i <= 400; i++) room._flushPoses(start + i * 50);
+    assert.ok(bots.some((bot, index) => Math.hypot(bot.lastState.x - before[index].x, bot.lastState.z - before[index].z) > 1));
+    assert.ok(ws.last('states').states.every(item => typeof item.state.dancing === 'boolean'));
+    assert.ok(bots.some(bot => bot.lastState.dancing));
+    assert.ok(ws.sent.some(frame => frame.type === 'gesture'));
+    assert.ok(ws.sent.some(frame => frame.type === 'emoji' && ALLOWED_EMOJI.includes(frame.emoji)));
+    const target = bots[0];
+    ws.message({ type: 'block', pid: target.pid });
+    ws.sent.length = 0;
+    room._flushPoses(start + 21000);
+    assert.ok(!ws.sent.some(frame => frame.type === 'states' && frame.states.some(item => item.id === target.id)));
+    ws.message({ type: 'unblock', pid: target.pid });
+    assert.equal(ws.last('join').simulated, true);
+    assert.equal(typeof ws.last('state').state.dancing, 'boolean');
+    ws.message({ type: 'kick', target: target.id });
+    const removed = target.simulatedIndex;
+    room._fillSimulation();
+    assert.equal(room.sessions.size, 31, 'kicking a bot is not evaded by an immediate replacement');
+    assert.ok(![...room.sessions.values()].some(session => session.simulatedIndex === removed));
+    const late = join(room, 'Late owner');
+    assert.ok(late.ws.last('welcome').peers.filter(peer => peer.simulated).every(peer => typeof peer.state.dancing === 'boolean'));
+    assert.equal(room.hostId, owner.id);
+});
+
+test('DEV social reactions follow ordinary block rules without adding media members', t => {
+    const room = devRoom(t), { ws, session: owner } = join(room, 'Owner');
+    const dancer = [...room.sessions.values()].find(session => session.simulated && session.lastState.dancing);
+    assert.ok(dancer);
+    const bot = room._simulation.guests.get(dancer.simulatedIndex);
+    const now = room._simulation.now;
+    bot.gestureAt = now;
+    ws.sent.length = 0;
+    room._tickSimulation(now + 50);
+    assert.ok(ws.sent.some(frame => frame.type === 'emoji' && frame.id === dancer.id));
+    assert.ok(ws.sent.some(frame => frame.type === 'gesture' && frame.id === dancer.id));
+    owner.blocked.add(dancer.pid);
+    bot.gestureAt = now + 100;
+    ws.sent.length = 0;
+    room._tickSimulation(now + 100);
+    assert.ok(!ws.sent.some(frame => frame.id === dancer.id), 'blocked reactions stay invisible');
+    assert.ok(!ws.sent.some(frame => frame.type === 'chat'));
+    assert.equal(room.media.members.size, 1);
+});
+
+test('DEV scripted conversation balloons are block-aware and cannot create synthetic voice publishers', t => {
+    const room = devRoom(t), { ws, session: owner } = join(room, 'Owner');
+    const start = room._simulation.now;
+    for (let now = start + 50; now <= start + 30000; now += 50) room._tickSimulation(now);
+    const chats = ws.sent.filter(frame => frame.type === 'chat');
+    assert.ok(chats.length >= 4 && chats.length <= 6);
+    for (const frame of chats) {
+        const session = [...room.sessions.values()].find(session => session.id === frame.id);
+        assert.ok(session.simulated);
+        assert.equal(sanitizeChat(frame.text), frame.text);
+    }
+    for (const session of room.sessions.values()) if (session.simulated) owner.blocked.add(session.pid);
+    ws.sent.length = 0;
+    for (let now = start + 30050; now <= start + 40000; now += 50) room._tickSimulation(now);
+    assert.ok(!ws.sent.some(frame => frame.type === 'chat'));
+    assert.equal(room.media.members.size, 1);
+    const stripped = sanitizeState({ x: 0, y: 1.7, z: 0, rotY: 0, seated: true, seat: 'toilet-0', talking: true, dancing: true });
+    assert.ok(!('seat' in stripped) && !('talking' in stripped) && !('dancing' in stripped));
+});
+
+test('DEV seat requests validate known furniture, are rate-limited and let a real owner vacate a simulated toilet', t => {
+    const room = devRoom(t), { ws } = join(room, 'Owner');
+    const occupant = [...room._simulation.guests.values()].find(bot => bot.state.seat?.startsWith('toilet-'));
+    assert.ok(occupant);
+    const seat = occupant.destination.id, door = Number(seat.at(-1));
+    room.doors[door] = true;
+    ws.message({ type: 'dev-seat', seat: 'bar-1' });
+    assert.equal(occupant.state.seated, true);
+    ws.message({ type: 'dev-seat', seat });
+    assert.equal(occupant.state.seated, false);
+    assert.equal(room.doors[door], false);
+    assert.deepEqual(ws.last('door'), { type: 'door', door, shut: false });
+    ws.message({ type: 'dev-seat', seat: 'bar-0' });
+    assert.ok(!room._simulation.seatHolds.has('bar-0'), 'a third immediate request exceeds the two-request burst');
+});
+
+test('DEV owner heartbeat loss clears synthetic guests even when the owner never sent a first ping', t => {
+    const room = devRoom(t), owner = join(room);
+    room._sweep(owner.session.lastSeen + IDLE_CLOSE_MS + 1);
+    assert.equal(owner.ws.closed.code, CLOSE_IDLE);
+    assert.equal(room.sessions.size, 0);
+    assert.equal(room._poseTimer, null);
+    assert.equal(room._sweeper, null);
+});
+
+test('DEV admission cannot use a bare direct Durable Object request', async t => {
+    const room = devRoom(t);
+    const response = await room.fetch(new Request('https://relay.example/?room=private-000032&sfu=1', {
+        headers: { Upgrade: 'websocket' }
+    }));
+    assert.equal(response.status, 403);
+    assert.equal(room.sessions.size, 0);
+});
+
 test('room world time is shared with late joiners and survives handover, but resets when empty', () => {
     const room = new ClubRoom({});
     const a = join(room), b = join(room);
@@ -55,6 +202,7 @@ test('room world time is shared with late joiners and survives handover, but res
 
 test('selected chat is delivered only to distinct selected visible guests, with sender fixed by the relay', () => {
     const room = new ClubRoom({});
+    room._roomName = 'private-123456';
     const a = join(room, 'A'), b = join(room, 'B'), c = join(room, 'C'), d = join(room, 'D');
     const e = join(room, 'E');
     assert.equal(a.ws.last('welcome').targetedChat, true);
@@ -73,18 +221,49 @@ test('selected chat is delivered only to distinct selected visible guests, with 
     assert.equal(c.ws.last('chat').text, 'public', 'a departed target never becomes a broadcast');
 });
 
+test('public rooms reject selected-recipient chat while room-visible chat still works', () => {
+    const room = new ClubRoom({});
+    room._roomName = 'lobby';
+    const a = join(room, 'A'), b = join(room, 'B');
+    a.ws.message({ type: 'chat', text: 'hidden', targets: [b.session.id] });
+    assert.equal(b.ws.last('chat'), undefined);
+    a.ws.message({ type: 'chat', text: 'visible' });
+    assert.equal(b.ws.last('chat').text, 'visible');
+});
+
 test('empty and malformed chat target lists never broadcast', () => {
     for (const targets of [[], null, 'everyone', [42], [{}], Array(9).fill('id'), ['x'.repeat(65)]]) {
         const room = new ClubRoom({});
+        room._roomName = 'private-123456';
         const a = join(room), b = join(room);
         a.ws.message({ type: 'chat', text: 'must not leak', targets });
         assert.equal(b.ws.last('chat'), undefined);
     }
     const room = new ClubRoom({});
+    room._roomName = 'private-123456';
     const a = join(room), b = join(room);
     a.session.blocked.add(b.session.pid);
     a.ws.message({ type: 'chat', text: 'blocked', targets: [b.session.id] });
     assert.equal(b.ws.last('chat'), undefined);
+});
+
+test('reports are validated, private to the host, and never broadcast to the room', () => {
+    const room = new ClubRoom({});
+    const host = join(room, 'Host'), reporter = join(room, 'Reporter'), target = join(room, 'Target');
+    reporter.ws.message({ type: 'report', target: target.session.id, reason: 'harassment' });
+    assert.deepEqual(host.ws.last('moderation-report'), {
+        type: 'moderation-report',
+        reporter: { id: reporter.session.id, name: 'Reporter', pid: reporter.session.pid },
+        target: { id: target.session.id, name: 'Target', pid: target.session.pid },
+        reason: 'harassment'
+    });
+    assert.equal(reporter.ws.last('moderation-report'), undefined);
+    assert.equal(target.ws.last('moderation-report'), undefined);
+
+    const before = host.ws.sent.filter(message => message.type === 'moderation-report').length;
+    reporter.ws.message({ type: 'report', target: target.session.id, reason: 'not-a-reason' });
+    reporter.ws.message({ type: 'report', target: 'missing', reason: 'grooming' });
+    assert.equal(host.ws.sent.filter(message => message.type === 'moderation-report').length, before);
 });
 
 test('relay welcomes, announces joins, and hands host to the next guest on leave', () => {
@@ -948,6 +1127,29 @@ test('only the host can drive the lights, guests receive the frame, and a late j
     assert.equal(late.ws.sent[0].show.cue, 2);
 });
 
+test('room character style uses the existing host-only shared map in every mode, survives handover and reaches late joiners', () => {
+    const room = new ClubRoom({});
+    const host = join(room), guest = join(room);
+    let late;
+    try {
+        for (const mode of ['show', 'manual', 'off']) {
+            host.ws.message({ type: 'show', m: mode, fx: { characterStyle: 'diverse' } });
+            assert.equal(guest.ws.last('show').fx.characterStyle, 'diverse');
+            assert.equal(room.showState.fx.characterStyle, 'diverse');
+        }
+        guest.ws.message({ type: 'show', m: 'show', fx: { characterStyle: 'quaternius' } });
+        assert.equal(room.showState.fx.characterStyle, 'diverse', 'a guest cannot change room appearance');
+        host.ws.emit('close');
+        assert.equal(room.hostId, guest.session.id);
+        late = join(room);
+        assert.equal(late.ws.sent[0].show.fx.characterStyle, 'diverse', 'promotion must retain the room choice');
+    } finally {
+        guest.ws.emit('close');
+        if (late) late.ws.emit('close');
+        clearInterval(room._sweeper);
+    }
+});
+
 test('the light-show frame is shaped, clamped and bounded; hostile fields never get through', () => {
     assert.equal(sanitizeShow(null), null);
     assert.equal(sanitizeShow([]), null);
@@ -971,6 +1173,39 @@ test('the light-show frame is shaped, clamped and bounded; hostile fields never 
     const many = {};
     for (let i = 0; i < 300; i++) many[`k${i}`] = i;
     assert.equal(Object.keys(sanitizeShow({ m: 'off', fx: many }).fx).length, relay.MAX_SHOW_FIXTURES);
+});
+
+test('room DJ presence and audio effects are host-owned, bounded, block-aware and retained for late joins', () => {
+    const room = new ClubRoom({});
+    const host = join(room), guest = join(room), blocked = join(room);
+    blocked.session.blocked.add(host.session.pid);
+    const frame = {
+        type: 'show', m: 'show', dj: false,
+        audioFx: { lowpass: 0.7, highpass: -1, echo: 2, flanger: 0.1, reverb: 0.2,
+            phaser: 0.3, sweep: 0.4, gater: 0.5, channel: 0.6, arbitrary: 1 }
+    };
+    guest.ws.message(frame);
+    assert.equal(room.showState, null);
+    host.ws.message(frame);
+    const expected = { lowpass: 0.7, highpass: 0, echo: 1, flanger: 0.1, reverb: 0.2,
+        phaser: 0.3, sweep: 0.4, gater: 0.5, channel: 0.6 };
+    assert.equal(guest.ws.last('show').dj, false);
+    assert.deepEqual(guest.ws.last('show').audioFx, expected);
+    assert.equal(blocked.ws.last('show'), undefined);
+    const late = join(room);
+    assert.equal(late.ws.last('welcome').show.dj, false);
+    assert.deepEqual(late.ws.last('welcome').show.audioFx, expected);
+    assert.deepEqual(sanitizeShow({ m: 'off', dj: 'false', audioFx: [] }), { m: 'off' });
+    assert.deepEqual(sanitizeShow({ m: 'off', audioFx: { lowpass: '1', echo: NaN, channel: Infinity, reverb: {} } }),
+        { m: 'off', audioFx: {} });
+    host.ws.emit('close');
+    assert.equal(room.hostId, guest.session.id);
+    assert.equal(room.showState.dj, false);
+    assert.deepEqual(room.showState.audioFx, expected);
+    guest.ws.emit('close');
+    blocked.ws.emit('close');
+    late.ws.emit('close');
+    assert.equal(room.showState, null);
 });
 
 test('stall doors are shared room state: any guest may push one, late joiners see it, hostile input is dropped, an empty room resets', () => {

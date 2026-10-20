@@ -3,6 +3,41 @@ import { browserFailures, enterClub, enterVR, expectHealthyRuntime, useQuestHarn
 
 useQuestHarness();
 
+test('spinning lasers retain their beams without surface-hit dots on desktop and in VR', async ({ page }) => {
+    await enterClub(page);
+    for (const immersive of [false, true]) {
+        if (immersive) await enterVR(page);
+        const state = await page.evaluate(() => {
+            const club = window.vrClub;
+            club.takeLightControl();
+            club.lasersActive = true;
+            club.masterIntensity = 1;
+            club._laserGeometryReady = false;
+            club.updateLasers({ time: 4, dt: 1 / 72, dtScale: 60 / 72 });
+            const batch = club.laserBeamBatch;
+            return {
+                immersive: club.isInVRMode,
+                enabled: batch.mesh.isEnabled(),
+                beamCount: club.lasers.reduce((count, laser) => count + laser.beams.length, 0),
+                vertices: batch.positions.length,
+                finite: batch.positions.every(Number.isFinite),
+                visible: batch.colors.some((value, index) => index % 4 === 3 && value > 0),
+                clipped: club.lasers.every(laser => laser.beams.every(beam => beam.length > 0 && Number.isFinite(beam.length))),
+                surfaceHitMesh: !!club.scene.getMeshByName('laser_beamHits'),
+                surfaceHitMaterial: club.scene.materials.some(material => material.name === 'laser_beamHitsMat'),
+                surfaceHitTexture: club.scene.textures.some(texture => texture.name === 'laserDotProfile')
+            };
+        });
+        expect(state.immersive).toBe(immersive);
+        expect(state.enabled).toBe(true);
+        expect(state.beamCount).toBeGreaterThan(0);
+        expect(state.vertices).toBe(state.beamCount * 12);
+        expect(state.finite && state.visible && state.clipped).toBe(true);
+        expect(state.surfaceHitMesh || state.surfaceHitMaterial || state.surfaceHitTexture).toBe(false);
+    }
+    await expectHealthyRuntime(page);
+});
+
 test('later lighting groups respect opaque depth without hiding foreground beams', async ({ page }) => {
     await enterClub(page);
     const results = await page.evaluate(async () => {

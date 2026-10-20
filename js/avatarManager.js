@@ -7,9 +7,10 @@
  * Each remote guest is one of the club's Quaternius people (the relay hands every guest a different random one, see
  * AVATARS in worker/src/index.js). The people files carry the packs' own Idle, Walk, Run
  * and Wave clips plus the retargeted Yes (a nod) and Dance_Loop, and this class picks one from how fast the guest is
- * moving and what gesture they sent, cross-fading between them. Only the first MAX_PEOPLE guests get a skinned body
- * (a skeleton each); the rest, and any guest whose character is still loading, are a capsule + head. The capsule
- * always stays as an invisible collision body. A floating name tag and an emoji bubble ride on top. Position and
+ * moving and what gesture they sent, cross-fading between them. Every guest retains their assigned skinned body;
+ * distance and graphics tier never replace it. An invisible capsule provides collision while the body loads too.
+ * Pose evaluation can pause only clearly behind the viewer, never in view or while the mirror is active.
+ * A floating name tag and an emoji bubble ride on top. Position and
  * facing are interpolated toward the last network sample rather than snapped, because state arrives far slower than
  * the render loop. VR controller samples override the tracked arms with IK after clip evaluation, so a real wave
  * is visible without sending a canned gesture; the lower body keeps its locomotion clip.
@@ -26,7 +27,6 @@ class AvatarManager {
     static ALLOWED_EMOJI = new Set(['🎉', '🔥', '❤️', '😂', '👋', '🙌', '💃', '🕺']);
     static EMOJI_MIN_INTERVAL = 0.5; // seconds between reactions rendered per guest
     static GESTURE_MIN_INTERVAL = 0.4;
-    static MAX_PEOPLE = 8;           // skinned bodies for remote guests (each is a 62-bone skeleton and one draw)
     static PERSON_HEIGHT = { f: 1.68, m: 1.8 };
     static WALK_SPEED = 0.25;        // m/s above which a guest is walking
     static RUN_SPEED = 2.6;
@@ -58,30 +58,21 @@ class AvatarManager {
         this.scene = club.scene;
         /** @type {Map<string, object>} */
         this.remotes = new Map();
-        this._material = null;
         this.personalSpace = true;
         this.nameTags = true;
         this.muteAll = false;
         this._frame = 0;
         this._poseTime = 0;
+        this._buildingPerson = false;
         this._armObserver = this.scene.onAfterAnimationsObservable.add(() => {
             for (const peer of this.remotes.values()) {
-                if (peer.person?.arms && peer.root.isEnabled() && this._hasTrackedHands(peer)) {
+                if (peer.person?.arms && peer.root.isEnabled() && !peer.animPaused && this._hasTrackedHands(peer)) {
                     peer.person.arms.updateTrackedArms(peer.hands, peer.root.rotation.y,
                         peer.seated ? 1.2 : peer.eyeHeight);
                 }
             }
         });
         this.onSpeakingChange = () => {};
-    }
-
-    _getMaterial() {
-        if (this._material) return this._material;
-        this._material = this.club.materialFactory
-            ? this.club.materialFactory.createPBRMaterial('remotePlayerMat',
-                { baseColor: [0.25, 0.75, 1.0], metallic: 0.15, roughness: 0.55 }, true)
-            : new BABYLON.StandardMaterial('remotePlayerMat', this.scene);
-        return this._material;
     }
 
     /** @param {{pid?:string|null, avatar?:string|null}} [info] */
@@ -99,20 +90,14 @@ class AvatarManager {
         const body = BABYLON.MeshBuilder.CreateCapsule(`remoteBody_${id}`, { height: 1.6, radius: 0.28 }, scene);
         body.parent = root;
         body.position.y = 0.9;
-        body.material = this._getMaterial();
+        body.isVisible = false;
         body.isPickable = false;
         body.checkCollisions = true;
 
-        const head = BABYLON.MeshBuilder.CreateSphere(`remoteHead_${id}`, { diameter: 0.32 }, scene);
-        head.parent = root;
-        head.position.y = 1.75;
-        head.material = this._getMaterial();
-        head.isPickable = false;
-
         peer = {
-            id, name: name || 'Guest', pid: info.pid || null, avatarId: null,
-            root, body, head, nameplate: null, person: null,
-            muted: false, speaking: false, isHost: false, hidden: false, culled: false, seated: false,
+            id, name: name || 'Guest', pid: info.pid || null, avatarId: null, simulated: info.simulated === true,
+            root, body, nameplate: null, person: null, detailLoading: false, detailRetryAt: 0, loadErrorShown: false,
+            muted: false, speaking: false, isHost: false, hidden: false, culled: false, animPaused: false, seated: false,
             eyeHeight: AvatarManager.EYE_HEIGHT, wantedEye: AvatarManager.EYE_HEIGHT, eyeEasing: false, eyeY: 0, floorY: null,
             emojiPlane: null, emojiTimer: 0, lastEmojiAt: -Infinity,
             chatPlane: null, chatTimer: 0,
@@ -134,13 +119,15 @@ class AvatarManager {
 
     // ───────────────────────── the person (a skinned Quaternius character) ─────────────────────────
 
-    /** Give a guest a character. Falls back to the capsule while it loads, when it cannot, or past MAX_PEOPLE. */
+    /** Give a guest a character; the collision capsule is never a visible fallback. */
     async setAvatar(id, avatarId) {
         const peer = this.remotes.get(id);
         if (!peer || peer.avatarId === avatarId) return;
         peer.avatarId = avatarId;
+        peer.detailRetryAt = 0;
+        peer.loadErrorShown = false;
         this._disposePerson(peer);
-        await this._buildPerson(peer);
+        await this._requestPerson(peer);
     }
 
     _peopleCount() {
@@ -149,17 +136,67 @@ class AvatarManager {
         return live;
     }
 
+    _updatePeople() {
+        if (this._buildingPerson) return;
+        let next = null;
+        for (const peer of this.remotes.values()) {
+            if (peer.person || !peer.avatarId || peer.detailRetryAt > this._poseTime) continue;
+            if (!next || (next.animPaused || next.culled) && !peer.animPaused && !peer.culled) next = peer;
+        }
+        if (next) void this._requestPerson(next);
+    }
+
+    async _requestPerson(peer) {
+        if (this._buildingPerson || peer.person || peer.detailLoading) return false;
+        this._buildingPerson = true;
+        peer.detailLoading = true;
+        const avatarId = peer.avatarId;
+        const generation = this.club._characterStyles?.generation || 0;
+        try {
+            if (await this._buildPerson(peer)) return true;
+            if (this.remotes.get(peer.id) !== peer || peer.avatarId !== avatarId) return false;
+            if ((this.club._characterStyles?.generation || 0) !== generation) return false;
+            throw new Error(`Character ${avatarId} is not available.`);
+        } catch (error) {
+            console.error(`Remote avatar ${peer.id} failed to load`, error);
+            if (this.remotes.get(peer.id) === peer && peer.avatarId === avatarId) {
+                peer.detailRetryAt = this._poseTime + 5;
+                if (!peer.loadErrorShown) {
+                    peer.loadErrorShown = true;
+                    this.club.showErrorMessage?.('A guest appearance could not load. Retrying shortly.');
+                }
+            }
+            return false;
+        } finally {
+            peer.detailLoading = false;
+            this._buildingPerson = false;
+        }
+    }
+
+    getDiagnostics() {
+        return {
+            participants: this.remotes.size + 1,
+            detailedAvatars: this._peopleCount(),
+            detailBudget: this.remotes.size,
+            fallbackAvatars: 0,
+            loadingAvatars: this.remotes.size - this._peopleCount(),
+            voiceStreams: Array.from(this.remotes.values()).filter(peer => peer.audio).length
+        };
+    }
+
     async _buildPerson(peer) {
         const club = this.club;
         const Crowd = window.VRClubAudioCrowd;
         const avatarId = peer.avatarId;
         if (!avatarId || !Crowd || !club._loadCrowdSource || !club._crowdSourceContainers) return false;
-        if (peer.person || this._peopleCount() >= AvatarManager.MAX_PEOPLE) return false;
+        if (peer.person) return false;
         const index = Crowd.sourceIndex(avatarId);
         if (index < 0) return false;
-        const container = await club._loadCrowdSource(index);
+        const generation = club._characterStyles?.generation || 0;
+        const container = club._loadPlayerSource ? await club._loadPlayerSource(avatarId) : await club._loadCrowdSource(index);
         // The guest may have left, changed avatar or been given a body by a faster call while the file loaded.
-        if (!container || this.remotes.get(peer.id) !== peer || peer.avatarId !== avatarId || peer.person || this._peopleCount() >= AvatarManager.MAX_PEOPLE) return false;
+        if (!container || this.remotes.get(peer.id) !== peer || peer.avatarId !== avatarId || peer.person) return false;
+        if ((club._characterStyles?.generation || 0) !== generation) return false;
 
         const prefix = `peer${peer.id}_`;
         const entry = container.instantiateModelsToScene(name => `${prefix}${name}`, false, { doNotInstantiate: true });
@@ -175,7 +212,10 @@ class AvatarManager {
         const height = (AvatarManager.PERSON_HEIGHT[avatarId[0]] || 1.72) * (peer.eyeHeight / AvatarManager.EYE_HEIGHT);
         let bounds = node.getHierarchyBoundingVectors(true);
         const rawHeight = bounds.max.y - bounds.min.y;
-        if (rawHeight > 1e-6) node.scaling.setAll(height / rawHeight);
+        if (container.character) {
+            const minY = bounds.min.y - peer.root.getAbsolutePosition().y;
+            node.scaling.setAll(peer.eyeHeight / (container.character.eye[1] - minY));
+        } else if (rawHeight > 1e-6) node.scaling.setAll(height / rawHeight);
         node.computeWorldMatrix(true);
         bounds = node.getHierarchyBoundingVectors(true);
         node.position.y += peer.root.getAbsolutePosition().y - bounds.min.y;
@@ -189,7 +229,7 @@ class AvatarManager {
         });
 
         // Keep the clips a guest can play; any other would still be evaluated every frame.
-        const wanted = new Set(['Idle', 'Walk', 'Run', 'Wave', 'Yes', 'Dance_Loop', 'Seated_Loop', 'Seated_Low_Loop']);
+        const wanted = new Set(['Idle', 'Walk', 'Run', 'Wave', 'Yes', 'Dance_Loop', 'Seated_Loop', 'Seated_Low_Loop', 'Idle_Talking_Loop']);
         const groups = {};
         for (const group of entry.animationGroups) {
             const clip = group.name.startsWith(prefix) ? group.name.slice(prefix.length) : group.name;
@@ -202,11 +242,11 @@ class AvatarManager {
 
         const arms = AvatarRig.createTrackedArms(node, prefix);
         if (!arms) console.warn(`Live arm tracking unavailable for avatar ${avatarId}: required modular bones are missing.`);
-        peer.person = { entry, node, meshes, groups, arms, current: null, speedRatio: 1 };
+        peer.person = { entry, node, meshes, groups, arms, character: container.character || null, current: null, speedRatio: 1 };
         peer.body.isVisible = false;   // stays as the collision body
-        peer.head.isVisible = false;
+        if (peer.hasState) this._updateClip(peer);
+        else this._play(peer, 'Idle', true, 1);
         this._applyHidden(peer);
-        this._play(peer, 'Idle', true, 1);
         if (this.club._refreshContactShadows) this.club._refreshContactShadows();
         return true;
     }
@@ -216,8 +256,14 @@ class AvatarManager {
         if (!person) return;
         peer.person = null;
         try { person.entry.dispose(); } catch (_) { /* already gone */ }
-        peer.body.isVisible = true;
-        peer.head.isVisible = true;
+    }
+
+    refreshCharacterStyle() {
+        for (const peer of this.remotes.values()) {
+            this._disposePerson(peer);
+            peer.detailRetryAt = 0;
+            peer.loadErrorShown = false;
+        }
     }
 
     /** Start (or keep) a clip. A running clip is stopped first: one skeleton evaluates one animation. */
@@ -235,6 +281,7 @@ class AvatarManager {
         group.start(loop, speedRatio);
         group.speedRatio = speedRatio;
         person.current = clip;
+        if (peer.hidden || peer.culled || peer.animPaused) group.pause();
         if (!loop) {
             group.onAnimationGroupEndObservable.addOnce(() => {
                 if (peer.person && peer.person.current === clip) peer.person.current = null;
@@ -407,6 +454,8 @@ class AvatarManager {
     updatePeerState(id, name, state, info) {
         if (!state) return;
         const peer = this.ensurePeer(id, name, info || {});
+        if (peer.simulated && typeof state.dancing === 'boolean') peer.gesture.dancing = state.dancing;
+        peer.talking = peer.simulated && state.talking === true;
         const finite = value => (Number.isFinite(value) ? value : 0);
         peer.target.x = finite(state.x);
         // Place the root on the sender's floor so the head (root + EYE_HEIGHT) lands at
@@ -567,13 +616,20 @@ class AvatarManager {
     _applyHidden(peer) {
         // Everything of theirs except the voice: the tag, the body, the emoji and the collision capsule.
         peer.root.setEnabled(!peer.hidden && !peer.culled);
+        const group = peer.person?.groups[peer.person.current];
+        if (group) {
+            const paused = peer.hidden || peer.culled || peer.animPaused;
+            if (paused && group.isPlaying) group.pause();
+            else if (!paused && !group.isPlaying) group.restart();
+        }
     }
 
     /**
      * A guest out on the street while this guest is deep inside the club (the street is not drawn, and the walls stand
      * between them) cannot be seen: neither drawn nor animated here. Their position keeps interpolating, so their voice
      * stays where they are, and nobody needs to agree on this: it is only what this device spends effort on. They are
-     * back, mid-clip and unmoved, the moment the street is drawn again. A guest in the same room is never touched.
+     * back, mid-clip and unmoved, the moment the street is drawn again. In the room, the shared crowd visibility helper
+     * holds only clearly rearward poses, with hysteresis and a close-range exception; a live mirror keeps every pose on.
      */
     _updateCulling(peer) {
         const club = this.club, City = window.CityLayout;
@@ -581,14 +637,26 @@ class AvatarManager {
             && City.exteriorAmount(peer.root.position.x, peer.root.position.z) > 0.5);
         const person = peer.person;
         const group = person && person.groups[person.current];
-        if (away !== !!peer.culled) {
+        const camera = club._playerCamera ? club._playerCamera() : this.scene?.activeCamera;
+        const eye = camera && (camera.globalPosition || camera.position);
+        let animPaused = false;
+        if (!away && eye && camera.getDirectionToRef && typeof window.VRClubAudioCrowd?.needsAnimation === 'function' &&
+            !club.restroomMirrorTexture?.refreshRate) {
+            const gaze = this._gaze || (this._gaze = new BABYLON.Vector3());
+            camera.getDirectionToRef(BABYLON.Axis.Z, gaze);
+            const p = peer.root.position;
+            animPaused = !window.VRClubAudioCrowd.needsAnimation(!!peer.animPaused,
+                eye.x, eye.y, eye.z, gaze.x, gaze.y, gaze.z, p.x, p.y + 0.9, p.z);
+        }
+        if (away !== !!peer.culled || animPaused !== !!peer.animPaused) {
+            const visibilityChanged = away !== !!peer.culled;
             peer.culled = away;
+            peer.animPaused = animPaused;
             this._applyHidden(peer);
-            if (group && !away) group.restart();
-            if (club._refreshContactShadows) club._refreshContactShadows();
+            if (visibilityChanged && club._refreshContactShadows) club._refreshContactShadows();
         }
         // A clip that started while they were away (a body that finished loading) is held too.
-        if (away && group && group.isPlaying) group.pause();
+        if ((away || animPaused) && group && group.isPlaying) group.pause();
     }
 
     _updateBubble(peer) {
@@ -621,13 +689,8 @@ class AvatarManager {
         peer.nameplate.dispose();
         this._disposePerson(peer);
         peer.body.dispose();
-        peer.head.dispose();
         peer.root.dispose();
         this.remotes.delete(id);
-        // A capsule that was waiting for a body gets the place this guest freed.
-        for (const other of this.remotes.values()) {
-            if (!other.person && other.avatarId) { this._buildPerson(other); break; }
-        }
         if (this.club._refreshContactShadows) this.club._refreshContactShadows();
     }
 
@@ -646,6 +709,7 @@ class AvatarManager {
         // .github/copilot-instructions.md - "never scale a bare retention rate").
         const step = dt;
         this._poseTime += step;
+        this._updatePeople();
         const lerpK = 1 - (1 - 0.15) ** (step * 60);
         this._frame++;
 
@@ -661,7 +725,6 @@ class AvatarManager {
             root.rotation.y += AvatarManager.shortestAngle(root.rotation.y, peer.target.rotY) * lerpK;
             peer.seated = peer.target.seated;
             peer.body.position.y = peer.seated ? 0.62 : 0.9;
-            peer.head.position.y = peer.seated ? 1.22 : 1.75;
             this._updateTrackedHands(peer, lerpK);
             // Out of sight this device skips only the pose: where they are, how fast they move and what they are doing
             // keep updating below, so on return the right clip starts straight away, in the right place.
@@ -674,7 +737,7 @@ class AvatarManager {
                     peer.speed += (Math.min(instant, 8) - peer.speed) * (1 - (1 - 0.2) ** (step * 60));
                 }
                 peer.prevX = root.position.x; peer.prevZ = root.position.z;
-                if (peer.person && !peer.culled) this._updateClip(peer);
+                if (peer.person && !peer.hidden && !peer.culled && !peer.animPaused) this._updateClip(peer);
             }
             this._updateBubble(peer);
 
@@ -822,6 +885,10 @@ class AvatarManager {
         // A gesture plays to its end; walking away from a dance ends it.
         const tracked = this._hasTrackedHands(peer);
         if (!tracked && (person.current === 'Wave' || person.current === 'Yes')) return;
+        if (!tracked && !moving && peer.talking && person.groups.Idle_Talking_Loop) {
+            this._play(peer, 'Idle_Talking_Loop', true, 1);
+            return;
+        }
         if (peer.gesture.dancing && moving) peer.gesture.dancing = false;
         if (!tracked && peer.gesture.dancing && person.groups.Dance_Loop) { this._play(peer, 'Dance_Loop', true, 1); return; }
         if (peer.speed > AvatarManager.RUN_SPEED && person.groups.Run) this._play(peer, 'Run', true, Math.min(1.5, peer.speed / 4));
@@ -845,10 +912,6 @@ class AvatarManager {
     dispose() {
         this.scene.onAfterAnimationsObservable.remove(this._armObserver);
         for (const id of [...this.remotes.keys()]) this.removePeer(id);
-        if (this._material && this._material._vrclubShared !== true) {
-            try { this._material.dispose(); } catch { /* ignore */ }
-        }
-        this._material = null;
     }
 }
 

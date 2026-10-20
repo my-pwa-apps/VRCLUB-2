@@ -31,6 +31,7 @@ class FakeStorage {
     constructor() { this.map = new Map(); }
     getItem(key) { return this.map.has(key) ? this.map.get(key) : null; }
     setItem(key, value) { this.map.set(key, String(value)); }
+    removeItem(key) { this.map.delete(key); }
 }
 
 class FakeManager {
@@ -77,6 +78,46 @@ function welcomed(client, extra = {}) {
     socket.receive({ type: 'welcome', id: 'me', pid: PID_A, avatar: 'f3', hostId: 'me', locked: false, peers: [], ...extra });
     return socket;
 }
+
+test('DEV entry preflights the owner account, keeps the room parameters and cannot open after cancellation', async () => {
+    const { window, NetworkClient } = load();
+    let resolve;
+    window.VRPayment = { prepareDevRoom: () => new Promise(done => { resolve = done; }) };
+    const client = new NetworkClient({ serverUrl: 'wss://relay.example', room: 'private-000032', name: 'Owner' });
+    client.connect();
+    client.connect();
+    assert.equal(FakeSocket.instances.length, 0);
+    client.disconnect();
+    resolve('wss://api.mitwee.nl/');
+    await new Promise(done => setImmediate(done));
+    assert.equal(FakeSocket.instances.length, 0);
+    window.VRPayment.prepareDevRoom = async () => 'wss://api.mitwee.nl/';
+    client.connect();
+    await new Promise(done => setImmediate(done));
+    const socket = FakeSocket.instances.at(-1), url = new URL(socket.url);
+    assert.equal(url.host, 'api.mitwee.nl');
+    assert.equal(url.searchParams.get('room'), 'private-000032');
+    assert.equal(url.searchParams.get('name'), 'Owner');
+    assert.equal(url.searchParams.get('sfu'), '1');
+    assert.equal(url.searchParams.has('token'), false);
+    client.disconnect();
+});
+
+test('DEV owner denial is explicit and does not schedule socket retries', async () => {
+    const { window, NetworkClient } = load();
+    const denied = new Error('Owner only');
+    window.VRPayment = { prepareDevRoom: async () => { throw denied; } };
+    const client = new NetworkClient({ serverUrl: 'wss://relay.example', room: 'private-000032' });
+    let error;
+    client.onError = value => { error = value; };
+    client.connect();
+    await new Promise(done => setImmediate(done));
+    assert.equal(error, denied);
+    assert.equal(client.status, 'error');
+    assert.equal(client._reconnectTimer, null);
+    assert.equal(FakeSocket.instances.length, 0);
+    client.disconnect();
+});
 
 test('shared world time uses a monotonic clock, validates the relay shape and corrects authenticated ping replies', () => {
     const { NetworkClient, context } = load();
@@ -224,9 +265,9 @@ function makeController(options = {}) {
     return { ...env, club, storage, mp };
 }
 
-function connectedController(peers = [{ id: 'p1', pid: PID_B, name: 'Bo', avatar: 'm1' }], welcome = {}) {
+function connectedController(peers = [{ id: 'p1', pid: PID_B, name: 'Bo', avatar: 'm1' }], welcome = {}, room = 'r') {
     const env = makeController();
-    env.mp.connect({ serverUrl: 'wss://relay.example', room: 'r' });
+    env.mp.connect({ serverUrl: 'wss://relay.example', room });
     const socket = FakeSocket.instances.at(-1);
     socket.receive({ type: 'welcome', id: 'me', pid: PID_A, avatar: 'f3', hostId: 'me', locked: false, peers, ...welcome });
     return { ...env, socket };
@@ -241,6 +282,17 @@ test('a guest gets a stable secret uid and a name, saved on first use', () => {
     assert.match(mp.name, /^Guest\d{4}$/);
     storage.setItem(ClubMultiplayer.PREFS.uid, 'bad');
     assert.notEqual(mp.uid, 'bad');
+});
+
+test('online safety acceptance is versioned, persisted and announced to every surface', () => {
+    const { mp, storage, ClubMultiplayer } = makeController();
+    let changes = 0;
+    mp.onChange(() => { changes++; });
+    assert.equal(mp.hasAcceptedOnlineSafety(), false);
+    mp.acceptOnlineSafety();
+    assert.equal(mp.hasAcceptedOnlineSafety(), true);
+    assert.equal(storage.getItem(ClubMultiplayer.PREFS.onlineSafety), ClubMultiplayer.ONLINE_SAFETY_VERSION);
+    assert.equal(changes, 1);
 });
 
 test('connecting is opt-in, one at a time, and joins with uid, room and the saved block list', () => {
@@ -276,6 +328,19 @@ test('blocking from the controller persists the guest, removes them and survives
     assert.equal(mp.unblock(PID_B), true);
     assert.deepEqual(plain(mp.blockedList()), []);
     assert.equal(mp.unblock(PID_B), false);
+});
+
+test('report and block sends the report before removing the peer and stores the block', () => {
+    const { mp, socket, storage, ClubMultiplayer } = connectedController();
+    assert.equal(mp.reportAndBlockPeer('p1', 'harassment'), true);
+    const safetyFrames = socket.sent.filter(frame => frame.type === 'report' || frame.type === 'block');
+    assert.deepEqual(plain(safetyFrames), [
+        { type: 'report', target: 'p1', reason: 'harassment' },
+        { type: 'block', pid: PID_B }
+    ]);
+    assert.equal(mp.people().length, 0);
+    assert.equal(JSON.parse(storage.getItem(ClubMultiplayer.PREFS.blocked))[0].pid, PID_B);
+    assert.match(mp.notice, /reported and blocked/i);
 });
 
 test('unblockAll lifts every block and tells the relay about each', () => {
@@ -634,6 +699,109 @@ function fakeRig(club) {
     };
     return calls;
 }
+
+function attachPerformance(env) {
+    env.context.localStorage = env.storage;
+    env.context.VRClubUI = class {};
+    for (const file of ['js/club/01-core.js', 'js/club/11-audio-crowd.js']) {
+        vm.runInContext(readFileSync(join(ROOT, file), 'utf8'), env.context, { filename: file });
+    }
+    const proto = env.window.VRClubAudioCrowd.prototype;
+    for (const name of ['_djEffectsState', 'djEffectsSnapshot', '_applySharedDJEffects', 'resetDJEffects',
+        'isPeopleVisible', 'setRoomDJVisible', 'setPeopleVisible', 'togglePeopleVisible', '_persistPeopleVisibility',
+        'applyPeopleVisibility', '_applyDJVisibility']) env.club[name] = proto[name];
+    Object.assign(env.club, {
+        peopleVisibility: { dancers: true, bystanders: true, dj: true },
+        isFollowingHost: () => env.mp.following,
+        _writeDJEffects() { this.effectWrites = (this.effectWrites || 0) + 1; },
+        _applyCrowdSize() {},
+        _refreshVRQuickMenu() {}
+    });
+    fakeRig(env.club);
+    return env;
+}
+
+test('room DJ and all nine audio controls travel in automatic and manual frames and changes publish within the existing limit', () => {
+    const env = attachPerformance(connectedController());
+    const { mp, club, socket } = env;
+    const names = Object.keys(env.window.VRClubAudioCrowd.DJ_EFFECT_DEFAULTS);
+    assert.equal(names.length, 9);
+    club._applySharedDJEffects(Object.fromEntries(names.map((name, index) => [name, (index + 1) / 10])));
+    club.setPeopleVisible('dj', false);
+    mp._syncShared(1000);
+    assert.equal(socket.last('show').dj, false);
+    assert.deepEqual(plain(socket.last('show').audioFx), plain(club.djEffectsSnapshot()));
+    club._applySharedDJEffects({ lowpass: 0.9, channel: 0 });
+    mp._syncShared(1100);
+    assert.equal(socket.last('show').audioFx.channel, 0.9, 'the existing publication rate is respected');
+    mp._syncShared(1400);
+    assert.equal(socket.last('show').audioFx.channel, 0);
+    assert.equal(socket.last('show').audioFx.lowpass, 0.9, 'an effect-only change does not wait for a bar or heartbeat');
+    club.vjManualMode = true;
+    club.setPeopleVisible('dj', true);
+    mp._syncShared(1800);
+    assert.equal(socket.last('show').m, 'manual');
+    assert.equal(socket.last('show').dj, true);
+    assert.deepEqual(plain(socket.last('show').audioFx), plain(env.window.VRClubAudioCrowd.DJ_EFFECT_DEFAULTS));
+});
+
+test('followers adopt room performance without persisting the host DJ choice, restore on leaving, and keep effects on promotion', () => {
+    const env = attachPerformance(connectedController(undefined, { hostId: 'p1' }));
+    const { club, mp, socket, storage } = env;
+    club._applySharedDJEffects({ lowpass: 0.2, channel: 0.8 });
+    mp._roleApplied = null;
+    mp._syncRole();
+    const saved = club.djEffectsSnapshot();
+    const send = (dj, audioFx) => socket.receive({ type: 'show', m: 'show', mv: 'pulse', cue: 1, dj, audioFx });
+    send(false, { lowpass: 0.75, channel: 0.4, arbitrary: 1, echo: '1' });
+    assert.equal(club.isPeopleVisible('dj'), false);
+    assert.equal(club.peopleVisibility.dj, true);
+    assert.equal(club._djEffects.lowpass, 0.75);
+    assert.equal(club._djEffects.channel, 0.4);
+    assert.equal(club._djEffects.echo, 0);
+    assert.equal(Object.hasOwn(club._djEffects, 'arbitrary'), false);
+    club.setPeopleVisible('bystanders', false);
+    assert.equal(storage.getItem('vrclub.hiddenPeople'), 'bystanders', 'the host absence never enters a personal preference');
+    club.setPeopleVisible('dj', false);
+    send(true, { lowpass: 0.5, channel: 0.6 });
+    assert.equal(club.isPeopleVisible('dj'), false, 'a personal hide wins when the host returns the DJ');
+    club.setPeopleVisible('dj', true);
+    assert.equal(club.isPeopleVisible('dj'), true);
+    assert.equal(club._djEffects.channel, 0.6, 'personal visibility changes cannot clear the host effects');
+    socket.receive({ type: 'show', m: 'show', mv: 'pulse', cue: 1 });
+    assert.equal(club._roomDJVisible, null, 'an older host does not leave a stale DJ override');
+    assert.deepEqual(plain(club.djEffectsSnapshot()), plain(saved));
+    send(false, { lowpass: 0.9, channel: 0.3 });
+    socket.receive({ type: 'host', id: 'me' });
+    assert.equal(club._roomDJVisible, null);
+    assert.equal(club.isPeopleVisible('dj'), true, 'the new host decides presence from their own preference');
+    assert.equal(club._djEffects.channel, 0.3, 'handover keeps the heard effects');
+    assert.equal(mp._buildShowFrame().audioFx.lowpass, 0.9);
+    mp.disconnect();
+});
+
+test('disconnecting or blocking the host restores the local effects and DJ preference, and late welcome frames apply performance', () => {
+    for (const action of ['disconnect', 'block']) {
+        const env = attachPerformance(makeController());
+        const { club, mp } = env;
+        club._applySharedDJEffects({ channel: 0.8 });
+        mp.connect({ serverUrl: 'wss://relay.example', room: 'r' });
+        const socket = FakeSocket.instances.at(-1);
+        socket.receive({ type: 'welcome', id: 'me', pid: PID_A, hostId: 'p1',
+            peers: [{ id: 'p1', pid: PID_B, name: 'Bo', avatar: 'm1' }],
+            show: { m: 'show', mv: 'pulse', cue: 1, dj: false, audioFx: { channel: 0.3 } } });
+        assert.equal(club.isPeopleVisible('dj'), false);
+        assert.equal(club._djEffects.channel, 0.3);
+        if (action === 'disconnect') mp.disconnect();
+        else mp.blockPeer('p1');
+        assert.equal(mp.following, false);
+        assert.equal(club.isPeopleVisible('dj'), true);
+        assert.equal(club._djEffects.channel, 0.8);
+        socket.receive({ type: 'show', m: 'show', dj: false, audioFx: { channel: 0 } });
+        assert.equal(club._djEffects.channel, 0.8, 'an unfollowed host cannot change restored settings');
+        mp.disconnect();
+    }
+});
 
 test('the host publishes the show on change, on every bar, and on a heartbeat, but not faster than the relay allows', () => {
     const { mp, socket, club } = connectedController();
@@ -1207,7 +1375,7 @@ test('typed chat: sent cleaned, logged for both sides, counted as unread only wh
 test('chat and microphone audiences are independent and restricted chat fails closed on old relays', () => {
     const { mp, socket, club } = connectedController([
         { id: 'p1', pid: PID_B, name: 'Bo' }, { id: 'p2', pid: 'c'.repeat(16), name: 'Cy' }
-    ], { targetedChat: true });
+    ], { targetedChat: true }, 'private-123456');
     const errors = [];
     club.showErrorMessage = message => errors.push(message);
     mp.setAudience('chat', ['p1', 'p1', 'missing']);
@@ -1235,8 +1403,20 @@ test('chat and microphone audiences are independent and restricted chat fails cl
     assert.deepEqual(plain(mp.voiceAudience), ['p2']);
 });
 
+test('public rooms reject selected chat and voice audiences without changing the room-wide defaults', () => {
+    const { mp, club } = connectedController();
+    const errors = [];
+    club.showErrorMessage = message => errors.push(message);
+    assert.equal(mp.canRestrictAudience(), false);
+    assert.equal(mp.setAudience('chat', ['p1']), false);
+    assert.equal(mp.setAudience('voice', []), false);
+    assert.equal(mp.chatAudience, null);
+    assert.equal(mp.voiceAudience, null);
+    assert.match(errors.at(-1), /private rooms/i);
+});
+
 test('departure, reconnect and room changes never broaden a restricted audience', () => {
-    const { mp, socket, club } = connectedController(undefined, { targetedChat: true });
+    const { mp, socket, club } = connectedController(undefined, { targetedChat: true }, 'private-654321');
     club.showErrorMessage = () => {};
     mp.setAudience('chat', ['p1']);
     mp.setAudience('voice', ['p1']);
@@ -1253,8 +1433,9 @@ test('departure, reconnect and room changes never broaden a restricted audience'
     assert.equal(mp.voiceAudience.length, 0);
     mp.disconnect();
     mp.connect({ room: 'another' });
-    assert.equal(mp.chatAudience.length, 0);
-    assert.equal(mp.client.voiceAudience.size, 0);
+    assert.equal(mp.chatAudience, null, 'public rooms reset chat to the room-visible default');
+    assert.equal(mp.voiceAudience, null, 'public rooms reset voice to the room-visible default');
+    assert.equal(mp.client.voiceAudience, null);
 });
 
 test('a failed microphone restriction closes that voice connection and reports the error without touching music', async () => {

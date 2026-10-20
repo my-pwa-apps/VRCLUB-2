@@ -1248,6 +1248,7 @@ class VRClubCore {
             materials: this.scene ? this.scene.materials.length : 0,
             audioState: this.audioContext ? this.audioContext.state : 'none',
             safeMode: this.photosensitiveSafeMode,
+            multiplayer: this.avatarManager?.getDiagnostics() || null,
             recentLogs: this.diagnosticsBuffer ? this.diagnosticsBuffer.slice(-25) : []
         };
     }

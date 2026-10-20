@@ -770,6 +770,53 @@ body:has(.panel:not(.hidden)) .payment-toggle,
     margin: 6px 0 8px;
 }
 
+.network-safety-gate {
+    border: 1px solid rgba(143, 255, 238, 0.55);
+    border-radius: 10px;
+    background: linear-gradient(145deg, rgba(17, 51, 66, 0.82), rgba(20, 20, 31, 0.94));
+    padding: 14px;
+}
+
+.network-safety-lead {
+    margin: 7px 0;
+    font-size: 14px;
+    font-weight: 700;
+    line-height: 1.4;
+}
+
+.network-safety-rules {
+    margin: 8px 0;
+    padding-left: 20px;
+    font-size: 12px;
+    line-height: 1.45;
+}
+
+.network-safety-rules li + li {
+    margin-top: 6px;
+}
+
+#networkSafetyPrivate {
+    display: flex;
+    flex-direction: column;
+    gap: 3px;
+}
+
+#networkSafetyPrivate small {
+    font-size: 11px;
+    font-weight: 500;
+    opacity: 0.82;
+}
+
+.network-report-reason {
+    flex: 1 1 100%;
+    min-height: 38px;
+    border: 1px solid #657080;
+    border-radius: 6px;
+    background: #171b24;
+    color: #fff;
+    padding: 6px 8px;
+}
+
 .network-people {
     list-style: none;
     margin: 6px 0 0;

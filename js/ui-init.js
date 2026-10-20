@@ -1052,11 +1052,36 @@ function initVJMenu() {
     // Every action lives on VRClub (setPeopleVisible / togglePeopleVisible); this surface only presses and renders,
     // exactly like the VR quick menu's COMFORT page.
     const peopleButtons = [...document.querySelectorAll('.vj-button[data-people]')];
+    const characterStyle = document.getElementById('characterStyle');
+    const lightweightCharacters = document.getElementById('lightweightCharacters');
+    const characterStyleStatus = document.getElementById('characterStyleStatus');
+    const retryCharacterStyle = document.getElementById('retryCharacterStyle');
+    if (retryCharacterStyle) retryCharacterStyle.addEventListener('click', () => vrClubInstance.retryCharacterStyle());
+    if (characterStyle) characterStyle.addEventListener('change', () => vrClubInstance.setCharacterStyle(characterStyle.value));
+    if (lightweightCharacters) lightweightCharacters.addEventListener('click', () => {
+        vrClubInstance.setLightweightCharacters(!vrClubInstance.characterStyleStatus().lightweight);
+    });
     function renderPeopleButtons() {
+        if (characterStyle) {
+            const state = vrClubInstance.characterStyleStatus();
+            characterStyle.value = state.selected;
+            characterStyle.disabled = vrClubInstance.isFollowingHost() || !!state.loading;
+            lightweightCharacters.disabled = false;
+            retryCharacterStyle.hidden = !state.error;
+            retryCharacterStyle.disabled = !!state.loading;
+            setToggleState(lightweightCharacters, state.lightweight);
+            characterStyleStatus.textContent = state.error ? `Could not change characters: ${state.error}. Retry loading or use lightweight characters.`
+                : state.loading ? 'Loading characters. The current cast stays until every replacement is ready.'
+                    : `Showing ${state.style === 'diverse' ? 'diverse adults' : 'Quaternius'}. ${state.lightweight ? 'Your lightweight override is on.' : "Your override never changes the host's room choice."}`;
+        }
         for (const button of peopleButtons) {
             const category = button.getAttribute('data-people');
             const names = category === 'all' ? ['dancers', 'bystanders', 'dj'] : [category];
             setToggleState(button, names.every(name => vrClubInstance.isPeopleVisible(name)));
+            if (category === 'dj' && vrClubInstance._roomDJVisible === false) {
+                const state = button.querySelector('.button-state');
+                if (state) state.textContent = 'HOST SENT HOME';
+            }
         }
     }
     for (const button of peopleButtons) {
@@ -1064,11 +1089,15 @@ function initVJMenu() {
             const category = button.getAttribute('data-people');
             const here = vrClubInstance.togglePeopleVisible(category);
             renderPeopleButtons();
+            window.addEventListener('characterstylechange', renderPeopleButtons);
+            teardowns.push(() => window.removeEventListener('characterstylechange', renderPeopleButtons));
             flashButton(button);
             if (vrClubInstance.showErrorMessage) {
                 const who = category === 'all' ? 'Everyone' : button.textContent.trim().toLowerCase();
                 const label = who.charAt(0).toUpperCase() + who.slice(1);
-                vrClubInstance.showErrorMessage(here ? `${label}: back in the club` : `${label}: sent home`);
+                vrClubInstance.showErrorMessage(category === 'dj' && vrClubInstance._roomDJVisible === false
+                    ? 'The host has sent the room DJ home. Your own DJ preference is saved.'
+                    : here ? `${label}: back in the club` : `${label}: sent home`);
             }
         });
     }
@@ -1673,13 +1702,18 @@ function initAudioMenu() {
         for (const id of window.VRClubAudioCrowd.MY_CHARACTERS) {
             const option = document.createElement('option');
             option.value = id;
-            option.textContent = labels[id] || id;
+            option.textContent = vrClubInstance.characterLabel ? vrClubInstance.characterLabel(id) : labels[id] || id;
             myCharacter.appendChild(option);
         }
         myCharacter.value = vrClubInstance.getLocalCharacter() || '';
         myCharacter.addEventListener('change', () => {
             myCharacter.value = vrClubInstance.setLocalCharacter(myCharacter.value || null) || '';
         });
+        const refreshCharacterLabels = () => {
+            for (const option of myCharacter.options) if (option.value) option.textContent = vrClubInstance.characterLabel(option.value);
+        };
+        window.addEventListener('characterstylechange', refreshCharacterLabels);
+        teardowns.push(() => window.removeEventListener('characterstylechange', refreshCharacterLabels));
     }
     const djStyle = document.getElementById('djStyle');
     djStyle.value = vrClubInstance._initialDJId();
@@ -1911,7 +1945,7 @@ function initAudioMenu() {
 function initRoomGuestLock(mp) {
     const club = vrClubInstance;
     const panels = [
-        { id: 'vjMenu', what: 'show controls', keep: '#vjSafeModeBtn, #vjVRComfortBtn, #vjMinimize, #vjClose, [data-open-panel], [data-vj-tab-target], [data-control="cycleGraphicsQuality"], [data-people], [data-hold], #vjHoldTiming, #djStyle, #myCharacter, #vjAutoQualityBtn' },
+        { id: 'vjMenu', what: 'show controls', keep: '#vjSafeModeBtn, #vjVRComfortBtn, #vjMinimize, #vjClose, [data-open-panel], [data-vj-tab-target], [data-control="cycleGraphicsQuality"], [data-people], [data-hold], #vjHoldTiming, #djStyle, #myCharacter, #vjAutoQualityBtn, #lightweightCharacters, #retryCharacterStyle' },
         { id: 'audioMenu', what: 'music', keep: '#audioMinimize, #audioClose, #audioVolume, #crowdAmbience, [data-open-panel]' }
     ];
     const renders = [];
@@ -1992,16 +2026,22 @@ function initAudienceSelector(mp, root, scope) {
     const render = () => {
         const audience = mp[`${scope}Audience`];
         const people = mp.people();
-        const next = JSON.stringify([mp.connected, audience, people.map(p => [p.id, p.name])]);
+        const restrictedAllowed = mp.canRestrictAudience();
+        const next = JSON.stringify([mp.connected, restrictedAllowed, audience, people.map(p => [p.id, p.name])]);
         if (key === next) return;
         key = next;
         everyone.setAttribute('aria-pressed', String(audience === null));
         selected.setAttribute('aria-pressed', String(audience !== null));
-        everyone.disabled = selected.disabled = !mp.connected;
-        status.textContent = `${scope === 'voice' ? 'Microphone audience' : 'Chat audience'}: ${mp.audienceLabel(scope)}.`;
+        everyone.disabled = !mp.connected;
+        selected.disabled = !mp.connected || !restrictedAllowed;
+        status.textContent = restrictedAllowed
+            ? `${scope === 'voice' ? 'Microphone audience' : 'Chat audience'}: ${mp.audienceLabel(scope)}.`
+            : mp.connected
+                ? `Public-room ${scope} is shared with the room so the host can moderate it. Use a private room for selected recipients.`
+                : `${scope === 'voice' ? 'Microphone audience' : 'Chat audience'}: join a room first.`;
         const focused = list.contains(document.activeElement) ? document.activeElement.dataset.peer : null;
         list.replaceChildren();
-        list.hidden = audience === null;
+        list.hidden = audience === null || !restrictedAllowed;
         for (const person of people) {
             const label = document.createElement('label');
             const checkbox = document.createElement('input');
@@ -2169,6 +2209,11 @@ function initNetworkMenu() {
     const networkMinimize = document.getElementById('networkMinimize');
     const networkClose = document.getElementById('networkClose');
     const networkTitle = document.getElementById('networkMenuTitle');
+    const safetyGate = document.getElementById('networkSafetyGate');
+    const safetyPrivate = document.getElementById('networkSafetyPrivate');
+    const safetyContinue = document.getElementById('networkSafetyContinue');
+    const safetyCancel = document.getElementById('networkSafetyCancel');
+    const reviewSafety = document.getElementById('networkReviewSafety');
     const serverUrlInput = document.getElementById('networkServerUrl');
     const roomInput = document.getElementById('networkRoom');
     const nameInput = document.getElementById('networkName');
@@ -2191,9 +2236,13 @@ function initNetworkMenu() {
     const nameTagsBtn = document.getElementById('networkNameTags');
     const muteAllBtn = document.getElementById('networkMuteAll');
     const lockBtn = document.getElementById('networkLockRoom');
+    const moderationReports = document.getElementById('networkModerationReports');
     const privateRoomBtn = document.getElementById('networkPrivateRoom');
     const inviteBtn = document.getElementById('networkInviteBtn');
     const joinSection = document.getElementById('networkJoin');
+    const roomBrowser = document.getElementById('networkRoomBrowser');
+    const avatarPoolSection = document.getElementById('networkAvatarPool');
+    const safetySection = document.getElementById('networkSafety');
     const roomActions = document.getElementById('networkRoomActions');
     const roomInfo = document.getElementById('networkRoomInfo');
     const leaveBtn = document.getElementById('networkLeaveBtn');
@@ -2213,6 +2262,7 @@ function initNetworkMenu() {
     const teardowns = uiTeardowns;
     // One session for the whole club: the VR quick menu's ONLINE pages drive the very same object.
     const mp = vrClubInstance.multiplayer || new ClubMultiplayer(vrClubInstance);
+    let safetyReviewing = false;
     initAudienceSelector(mp, document.getElementById('networkVoiceAudience'), 'voice');
 
     if (serverUrlInput) serverUrlInput.value = mp.serverUrl;
@@ -2228,7 +2278,8 @@ function initNetworkMenu() {
         closeOtherSidePanels('networkMenu');
         networkMenu.classList.remove('hidden', 'minimized');
         networkToggle.setAttribute('aria-expanded', 'true');
-        if (networkTitle) networkTitle.focus();
+        if (!mp.hasAcceptedOnlineSafety() && safetyGate) safetyGate.focus();
+        else if (networkTitle) networkTitle.focus();
     };
 
     networkToggle.addEventListener('click', () => {
@@ -2263,7 +2314,7 @@ function initNetworkMenu() {
         button.setAttribute('aria-pressed', String(!!on));
         button.classList.toggle('active', !!on);
     };
-    const label = (id) => (ClubMultiplayer.AVATAR_LABELS[id] || id || 'Guest');
+    const label = (id) => (vrClubInstance.characterLabel ? vrClubInstance.characterLabel(id) : ClubMultiplayer.AVATAR_LABELS[id]) || id || 'Guest';
     /** A small button inside a list row. Built with the DOM API: first-party code never builds markup from strings. */
     const rowButton = (text, title, onClick, danger = false) => {
         const button = document.createElement('button');
@@ -2301,6 +2352,28 @@ function initNetworkMenu() {
             item.appendChild(rowButton(person.muted ? 'Unmute' : 'Mute', `${person.muted ? 'Unmute' : 'Mute'} ${person.name}`,
                 () => mp.togglePeerMute(person.id)));
             item.appendChild(rowButton('Block', `Block ${person.name}: you will not see or hear each other`, () => mp.blockPeer(person.id)));
+            const reportButton = rowButton('Report & block', `Report ${person.name} to the room host and immediately block contact both ways`, () => {
+                reportButton.disabled = true;
+                const picker = document.createElement('select');
+                picker.className = 'network-report-reason';
+                picker.setAttribute('aria-label', `Reason for reporting ${person.name}`);
+                for (const [reason, text] of Object.entries(ClubMultiplayer.REPORT_REASONS)) {
+                    const option = document.createElement('option');
+                    option.value = reason;
+                    option.textContent = text;
+                    picker.appendChild(option);
+                }
+                const send = rowButton('Report & block', `Report and block ${person.name}`, () => {
+                    if (!mp.reportAndBlockPeer(person.id, picker.value)) {
+                        vrClubInstance.showErrorMessage('The report was not sent. Please try again while connected.');
+                    }
+                    picker.remove();
+                    send.remove();
+                    reportButton.disabled = false;
+                }, true);
+                item.append(picker, send);
+            }, true);
+            item.appendChild(reportButton);
             if (host) {
                 const kickKey = `kick:${person.id}`, banKey = `ban:${person.id}`, hostKey = `host:${person.id}`;
                 const supported = mp.client.hostTransferSupported;
@@ -2344,17 +2417,23 @@ function initNetworkMenu() {
 
     function render() {
         const connected = mp.connected, connecting = mp.connecting;
+        const safetyAccepted = mp.hasAcceptedOnlineSafety();
+        const showSafety = !safetyAccepted || safetyReviewing;
         setStatus(mp.statusText());
         // Before joining only the join form shows; once in a room, the things you can do there.
-        if (joinSection) joinSection.hidden = connected;
+        if (safetyGate) safetyGate.hidden = !showSafety;
+        if (joinSection) joinSection.hidden = showSafety || connected;
+        if (roomBrowser) roomBrowser.hidden = showSafety;
+        if (avatarPoolSection) avatarPoolSection.hidden = showSafety;
+        if (safetySection) safetySection.hidden = showSafety;
         if (roomActions) roomActions.hidden = !connected;
         for (const section of inRoomSections) section.hidden = !connected;
         if (hostTools) hostTools.hidden = !(connected && mp.isHost());
         if (roomInfo && connected) {
             const code = /^private-(\d{6})$/.exec(mp.currentRoom || '');
             roomInfo.textContent = code
-                ? `Private room. Friends join with the code ${code[1].slice(0, 3)} ${code[1].slice(3)}, or the invite link. The first person in a room is its host: they choose the music and the lights.`
-                : 'The first person in a room is its host: they choose the music and the lights. Send the invite link to bring friends here.';
+                ? `Private room ${code[1].slice(0, 3)} ${code[1].slice(3)}. It is unlisted, but anyone with the code can join. Lock it after trusted guests arrive.`
+                : 'Public room: strangers can join. Chat and voice are shared with the room so the host can moderate them. Leave, mute, or use Report & block at the first unwanted contact.';
         }
         if (connectBtnLabel) connectBtnLabel.textContent = connecting ? 'Cancel' : 'Join room';
         for (const input of [nameInput, roomInput, serverUrlInput]) if (input) input.disabled = connecting;
@@ -2397,6 +2476,38 @@ function initNetworkMenu() {
         }
         renderPeople();
         renderBlocked();
+        if (moderationReports) {
+            moderationReports.replaceChildren();
+            for (const report of mp.moderationReports) {
+                const item = document.createElement('li');
+                item.className = 'network-person';
+                const text = document.createElement('span');
+                text.className = 'network-person-name';
+                const reason = ClubMultiplayer.REPORT_REASONS[report.reason] || 'Safety concern';
+                text.textContent = `${report.reporter?.name || 'Guest'} reported ${report.target?.name || 'guest'}: ${reason}`;
+                item.appendChild(text);
+                const target = mp.people().find(person => person.id === report.target?.id);
+                if (target) {
+                    const kickKey = `report-kick:${report.at}`, banKey = `report-ban:${report.at}`;
+                    item.appendChild(rowButton(armed.has(kickKey) && armed.get(kickKey) > Date.now() ? 'Confirm kick' : 'Kick',
+                        `Remove ${target.name} from the room`, () => {
+                            if (confirmed(kickKey) && mp.kickPeer(target.id)) mp.dismissModerationReport(report.at);
+                        }, true));
+                    item.appendChild(rowButton(armed.has(banKey) && armed.get(banKey) > Date.now() ? 'Confirm ban' : 'Ban',
+                        `Ban ${target.name} from this room`, () => {
+                            if (confirmed(banKey) && mp.banPeer(target.id)) mp.dismissModerationReport(report.at);
+                        }, true));
+                }
+                item.appendChild(rowButton('Dismiss', 'Dismiss this safety report', () => mp.dismissModerationReport(report.at)));
+                moderationReports.appendChild(item);
+            }
+            if (!mp.moderationReports.length) {
+                const none = document.createElement('li');
+                none.className = 'audio-file-name';
+                none.textContent = 'No safety reports.';
+                moderationReports.appendChild(none);
+            }
+        }
         const directory = mp.roomDirectory;
         if (browseRooms) browseRooms.disabled = directory.loading;
         if (saveRoom) saveRoom.disabled = directory.loading;
@@ -2431,6 +2542,27 @@ function initNetworkMenu() {
     render();
 
     // ---- actions: every one is a call into the controller ----------------------------------------------------------
+    if (safetyContinue) safetyContinue.addEventListener('click', () => {
+        mp.acceptOnlineSafety();
+        safetyReviewing = false;
+        render();
+        if (nameInput) nameInput.focus();
+    });
+    if (safetyPrivate) safetyPrivate.addEventListener('click', () => {
+        mp.acceptOnlineSafety();
+        safetyReviewing = false;
+        if (mp.joinNewPrivateRoom() && roomInput) roomInput.value = mp.currentRoom;
+    });
+    if (safetyCancel) safetyCancel.addEventListener('click', () => {
+        safetyReviewing = false;
+        render();
+        closeNetworkMenu();
+    });
+    if (reviewSafety) reviewSafety.addEventListener('click', () => {
+        safetyReviewing = true;
+        render();
+        safetyGate?.focus();
+    });
     if (browseRooms) browseRooms.addEventListener('click', () => {
         void mp.refreshRooms({ serverUrl: serverUrlInput ? serverUrlInput.value : mp.serverUrl });
     });

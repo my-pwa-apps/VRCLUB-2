@@ -58,7 +58,7 @@ test('desktop scenarios: empty club, lighting, crowd, crowd with the show at its
 test('VR (Quest emulator) scenarios: the same four', async ({ page }) => {
     test.setTimeout(1_200_000);
     await enterClub(page);
-    await enterVR(page);
+    await enterVR(page, { floorPosition: [0, 0, -12] });
     const results = (await runScenarios(page)).map(brief);
     console.log('PERF_SCENARIOS_XR', JSON.stringify(results));
     for (const r of results) { expect(r.frames, r.scenario).toBeGreaterThan(5); expect(r.mode).toBe('xr'); }

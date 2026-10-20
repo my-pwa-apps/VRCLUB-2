@@ -671,6 +671,8 @@ class VRClubUI extends VRClubAnimationFinish {
         if (!mp) return true;
         if (button.op === 'joinListedRoom') return !!(button.locked || button.full || mp.roomDirectory.loading || mp.connecting);
         if (button.op === 'browseRooms' || button.op === 'moreRooms') return mp.roomDirectory.loading;
+        if (button.op === 'safetyInfo') return true;
+        if (['audienceClear', 'audiencePeer'].includes(button.op) && !mp.canRestrictAudience()) return true;
         const needsRoom = ['mic', 'avatar', 'gesture', 'emoji', 'phrase', 'muteAll', 'leave'];
         if (needsRoom.includes(button.op) && !mp.connected) return true;
         if (button.op === 'lock' && !mp.isHost()) return true;
@@ -702,14 +704,23 @@ class VRClubUI extends VRClubAnimationFinish {
 
     /** Buttons that change the room's music or lights: in someone else's room they belong to the host. */
     _isHostOwnedVRButton(button) {
+        if (button.action === 'characterStyle') return true;
         if (['seek', 'playPause', 'play', 'pause', 'stop', 'sourceStep', 'folderMode', 'savedSet', 'setStep',
             'musicSetup', 'autoShow', 'reset', 'cycle', 'nextSection', 'showDrop', 'showSection'].includes(button.action)) return true;
         return !!button.control && !button.action && !['vrComfortMode', 'vrSeatedMode', 'autoQuality', 'photosensitiveSafeMode'].includes(button.control);
     }
 
     _vrQuickMenuButtonValue(button, active) {
+        if (button.action === 'lightweightCharacters') return this.characterStyleStatus().lightweight ? 'ON: QUATERNIUS FOR ME' : 'OFF: FOLLOW ROOM STYLE';
+        if (button.action === 'characterStyle') {
+            const state = this.characterStyleStatus();
+            return this.isFollowingHost() ? 'HOST CHOOSES' : state.loading ? 'LOADING...' : state.selected === 'diverse' ? 'DIVERSE: MORE CPU/GPU' : 'QUATERNIUS: LIGHTWEIGHT';
+        }
         if (button.op || button.action === 'person') return this._vrNetValue(button, active);
-        if (button.action === 'people') return active ? 'HERE' : 'SENT HOME';
+        if (button.action === 'people') {
+            if (button.people === 'dj' && this._roomDJVisible === false) return 'HOST SENT DJ HOME';
+            return active ? 'HERE' : 'SENT HOME';
+        }
         if (button.action === 'welcomeSafe') return 'NO STROBES';
         if (button.action === 'welcomeFull') return 'STROBES ON';
         if (button.action === 'accessNewCode') return 'IF THIS ONE FAILED';
@@ -740,8 +751,7 @@ class VRClubUI extends VRClubAnimationFinish {
         if (button.action === 'pickCharacter') return button.detail || '';
         if (button.action === 'page' && button.target === 'character') {
             const id = this.getLocalCharacter();
-            const labels = (window.ClubMultiplayer && window.ClubMultiplayer.AVATAR_LABELS) || {};
-            return id ? String(labels[id] || id).toUpperCase().slice(0, 28) : (this.getLocalAvatarStyle() === 'male' ? 'DEFAULT MAN' : 'DEFAULT WOMAN');
+            return id ? String(this.characterLabel(id)).toUpperCase().slice(0, 28) : (this.getLocalAvatarStyle() === 'male' ? 'DEFAULT MAN' : 'DEFAULT WOMAN');
         }
         if (button.control === 'autoQuality') return this.autoQuality ? 'ON \u2022 STEPS DOWN IF SLOW' : 'OFF';
         if (button.control === 'vrSeatedMode') return this.vrSeatedMode ? 'ON \u2022 AVATAR STANDS' : 'OFF';
@@ -807,7 +817,7 @@ class VRClubUI extends VRClubAnimationFinish {
         const ids = Crowd ? Crowd.MY_CHARACTERS : [];
         const second = this._vrCharacterPage === 1;
         const entry = id => {
-            const [kind, ...rest] = String(labels[id] || id).split(',').map(part => part.trim());
+            const [kind, ...rest] = String(this.characterLabel ? this.characterLabel(id) : labels[id] || id).split(',').map(part => part.trim());
             return { label: kind.toUpperCase(), detail: rest.join(', ').toUpperCase(), action: 'pickCharacter', character: id };
         };
         const buttons = second
@@ -918,6 +928,10 @@ class VRClubUI extends VRClubAnimationFinish {
                 { label: 'DJ', action: 'people', people: 'dj' },
                 { label: 'CHOOSE DJ', action: 'page', target: 'dj' },
                 { label: 'EVERYONE', action: 'people', people: 'all' },
+                { label: 'CHARACTER STYLE', action: 'characterStyle' },
+                { label: 'LIGHTWEIGHT FOR ME', action: 'lightweightCharacters' },
+                ...(this.characterStyleStatus && this.characterStyleStatus().error
+                    ? [{ label: 'RETRY CHARACTERS', action: 'retryCharacters' }] : []),
                 common.back,
                 common.close
             ],
@@ -994,6 +1008,10 @@ class VRClubUI extends VRClubAnimationFinish {
     }
 
     _showVRQuickMenuPage(page) {
+        const multiplayer = this._multiplayer();
+        if (page === 'online' && multiplayer && !multiplayer.connected && !multiplayer.hasAcceptedOnlineSafety()) {
+            page = 'onlineSafety';
+        }
         this._vrQuickMenuPage = page;
         if (page === 'chat' && this.multiplayer) this.multiplayer.markChatRead();
         const definitions = this._vrQuickMenuPageDefinitions(page);
@@ -1022,6 +1040,8 @@ class VRClubUI extends VRClubAnimationFinish {
             button.full = false;
             button.inactive = false;
             button.scope = null;
+            button.reason = null;
+            button.info = null;
             button.danger = false;
             button.character = undefined;
             button.detail = '';
@@ -1043,7 +1063,7 @@ class VRClubUI extends VRClubAnimationFinish {
             context.font = 'bold 66px sans-serif';
             context.textAlign = 'left';
             context.textBaseline = 'middle';
-            const titles = { home: 'VR CLUB', room: 'JOIN ROOM', look: 'RANDOM LOOK', gestures: 'REACT', chat: 'CHAT', crowd: 'WHO IS HERE',
+            const titles = { home: 'VR CLUB', onlineSafety: 'BEFORE YOU GO ONLINE', room: 'JOIN ROOM', look: 'RANDOM LOOK', gestures: 'REACT', chat: 'CHAT', crowd: 'WHO IS HERE',
                 me: 'ME', character: 'YOUR CHARACTER',
                 voiceAudience: 'MICROPHONE AUDIENCE', chatAudience: 'CHAT RECIPIENTS', welcome: 'WELCOME', access: 'LINK YOUR ACCOUNT', musicPhone: 'MUSIC FROM YOUR PHONE' };
             // Immersive launch pages draw their own words: the pairing code is the title, so it is read at arm's length.
@@ -1062,10 +1082,11 @@ class VRClubUI extends VRClubAnimationFinish {
                 comfort: 'HOW YOU MOVE, WHAT YOU SEE AND FEEL',
                 me: 'YOUR CHARACTER, YOUR HEIGHT AND SITTING',
                 character: 'WHO YOU ARE IN THE RESTROOM MIRROR OFFLINE',
-                crowd: 'SEND THE DANCERS, GUESTS OR DJ HOME',
+                crowd: 'HOST CHOOSES STYLE; LIGHTWEIGHT FOR ME IS PERSONAL',
                 travel: 'POINT AT A PLACE TO JUMP THERE',
                 music: 'CONTROL THE CURRENT TRACK OR CHANGE SOURCE',
-                musicSources: 'SAVED LINKS AND THIS SESSION\u2019S LOCAL FOLDER'
+                musicSources: 'SAVED LINKS AND THIS SESSION\u2019S LOCAL FOLDER',
+                onlineSafety: 'KEEP DETAILS PRIVATE \u2022 LEAVE \u2022 REPORT + BLOCK'
             };
             const subtitle = immersiveText ? immersiveText.subtitle : hostOwned
                 ? `${host} IS THE HOST: THEIR MUSIC AND LIGHTS`
@@ -1309,7 +1330,7 @@ class VRClubUI extends VRClubAnimationFinish {
         return typeof ClubMultiplayer !== 'undefined' ? new ClubMultiplayer(this) : null;
     }
 
-    static get VR_NET_PAGES() { return ['online', 'rooms', 'gestures', 'chat', 'people', 'person', 'safety', 'room', 'look', 'voiceAudience', 'chatAudience']; }
+    static get VR_NET_PAGES() { return ['onlineSafety', 'online', 'rooms', 'gestures', 'chat', 'people', 'person', 'report', 'safety', 'room', 'look', 'voiceAudience', 'chatAudience']; }
 
     /** Babylon's default layer mask plus one extra bit: the quick menu is on both, the world only on the first. */
     static get MENU_LAYER_MASK() { return 0x1FFFFFFF; }
@@ -1320,6 +1341,18 @@ class VRClubUI extends VRClubAnimationFinish {
         const back = (target) => ({ ...common.back, target });
         const net = (label, op, extra = {}) => ({ label, action: 'net', op, ...extra });
         if (!mp) return [common.back, common.close];
+        if (page === 'onlineSafety') {
+            const accepted = mp.hasAcceptedOnlineSafety();
+            return [
+                net('KEEP DETAILS PRIVATE', 'safetyInfo', { info: 'NO LOCATION / CONTACT ACCOUNTS' }),
+                net('LEAVE IF PRESSURED', 'safetyInfo', { info: 'DO NOT MOVE CHAT ELSEWHERE' }),
+                net('REPORT + BLOCK ABUSE', 'safetyInfo', { info: 'CONTACT STOPS BOTH WAYS' }),
+                net('START PRIVATE ROOM', 'safetyPrivate', { info: 'RECOMMENDED' }),
+                net(accepted ? 'RETURN TO ONLINE' : 'SHOW ONLINE OPTIONS', 'safetyAccept', { info: accepted ? 'GUIDE ACCEPTED' : 'I UNDERSTAND' }),
+                net('STAY OFFLINE', 'safetyOffline'),
+                common.close
+            ];
+        }
         if (page === 'online') {
             return [
                 net('NETWORK', 'connection'),
@@ -1399,6 +1432,7 @@ class VRClubUI extends VRClubAnimationFinish {
                 net('LOCK ROOM', 'lock'),
                 net('NOD TO NOD', 'autoNod'),
                 net('UNBLOCK ALL', 'unblockAll'),
+                net('REVIEW SAFETY GUIDE', 'reviewSafety'),
                 net('LEAVE ROOM', 'leave', { danger: true }),
                 back('online'),
                 common.close
@@ -1413,13 +1447,21 @@ class VRClubUI extends VRClubAnimationFinish {
             if (people.length > per) rows.push({ label: 'MORE \u25B8', action: 'net', op: 'morePeople' });
             return [...rows, back('online'), common.close];
         }
+        if (page === 'report') {
+            const person = mp.people().find(item => item.id === this._vrReportPeer);
+            if (!person) return [back('people'), common.close];
+            const reasons = Object.entries(ClubMultiplayer.REPORT_REASONS).map(([reason, label]) =>
+                net(label.toUpperCase(), 'reportReason', { reason }));
+            return [...reasons, back('person'), common.close];
+        }
         // person: one guest, chosen from the list
         const person = mp.people().find(item => item.id === this._vrPerson);
         if (!person) return [back('people'), common.close];
         const armedFor = (op) => this._vrArmed && this._vrArmed.key === `${op}:${person.id}` && this._vrArmed.until > Date.now();
         const rows = [
             net(person.muted ? 'UNMUTE' : 'MUTE', 'peerMute', { peer: person.id }),
-            net('BLOCK', 'peerBlock', { peer: person.id })
+            net('BLOCK', 'peerBlock', { peer: person.id }),
+            net('REPORT + BLOCK', 'peerReport', { peer: person.id, danger: true })
         ];
         if (mp.isHost()) {
             rows.push(net(armedFor('host') ? 'SURE? MAKE HOST' : 'MAKE HOST', 'peerHost', { peer: person.id }));
@@ -1500,7 +1542,10 @@ class VRClubUI extends VRClubAnimationFinish {
             case 'browseRooms': return mp.roomDirectory.loading ? 'CHECKING...' : 'PUBLIC + SAVED PRIVATE';
             case 'audienceAll': return active ? 'SELECTED' : '';
             case 'audienceClear': return 'SEND TO NOBODY';
-            case 'audiencePeer': return active ? 'SELECTED' : 'NOT SELECTED';
+            case 'audiencePeer': return !mp.canRestrictAudience() ? 'PRIVATE ROOMS ONLY' : active ? 'SELECTED' : 'NOT SELECTED';
+            case 'safetyInfo': return button.info || '';
+            case 'safetyPrivate': return 'RECOMMENDED';
+            case 'safetyAccept': return 'I UNDERSTAND';
             case 'connection': return mp.connected ? 'CONNECTED' : mp.connecting ? 'CONNECTING' : 'OFFLINE';
             case 'mic': return !mp.connected ? 'JOIN A ROOM FIRST' : active ? (mp.voiceAudience === null ? 'ON: EVERYONE' : 'ON: SELECTED') : 'MIC OFF';
             case 'chatUnread': return mp.chatUnread ? ` NEW` : '';
@@ -1532,6 +1577,22 @@ class VRClubUI extends VRClubAnimationFinish {
             return true;
         };
         switch (button.op) {
+            case 'safetyAccept':
+                mp.acceptOnlineSafety();
+                this._showVRQuickMenuPage('online');
+                return;
+            case 'safetyPrivate':
+                mp.acceptOnlineSafety();
+                mp.joinNewPrivateRoom();
+                this.showErrorMessage(`Private room ${mp.currentRoom.replace('private-', '')}: share this code only with people you trust`);
+                this._showVRQuickMenuPage('online');
+                return;
+            case 'reviewSafety':
+                this._showVRQuickMenuPage('onlineSafety');
+                return;
+            case 'safetyOffline':
+                this._showVRQuickMenuPage('home');
+                return;
             case 'browseRooms':
             case 'moreRooms':
                 this._showVRQuickMenuPage('rooms');
@@ -1624,6 +1685,20 @@ class VRClubUI extends VRClubAnimationFinish {
                 const person = mp.people().find(item => item.id === button.peer);
                 if (mp.blockPeer(button.peer)) this.showErrorMessage(`Blocked ${person ? person.name : 'guest'}: you will not see or hear each other`);
                 this._vrPerson = null;
+                this._showVRQuickMenuPage('people');
+                return;
+            }
+            case 'peerReport':
+                this._vrReportPeer = button.peer;
+                this._showVRQuickMenuPage('report');
+                return;
+            case 'reportReason': {
+                const person = mp.people().find(item => item.id === this._vrReportPeer);
+                const reason = button.reason;
+                if (person && mp.reportAndBlockPeer(person.id, reason)) {
+                    this.showErrorMessage('Reported and blocked: you cannot see, hear or contact each other.');
+                }
+                this._vrReportPeer = null;
                 this._showVRQuickMenuPage('people');
                 return;
             }
@@ -1806,13 +1881,27 @@ class VRClubUI extends VRClubAnimationFinish {
             this._refreshVRQuickMenu();
             return;
         }
+        if (button.action === 'characterStyle') {
+            this.setCharacterStyle(this.getRoomCharacterStyle() === 'diverse' ? 'quaternius' : 'diverse');
+            return;
+        }
+        if (button.action === 'lightweightCharacters') {
+            this.setLightweightCharacters(!this.characterStyleStatus().lightweight);
+            return;
+        }
+        if (button.action === 'retryCharacters') {
+            this.retryCharacterStyle();
+            return;
+        }
         if (button.action === 'people') {
             // Who is in the club: personal and local, so it is never gated on the host.
             const here = this.togglePeopleVisible(button.people);
             const who = button.people === 'all' ? 'Everyone'
                 : button.people === 'dj' ? 'The DJ'
                 : button.people === 'dancers' ? 'The dancers' : 'The bystanders';
-            this.showErrorMessage(here ? `${who}: back in the club` : `${who}: sent home`);
+            this.showErrorMessage(button.people === 'dj' && this._roomDJVisible === false
+                ? 'The host has sent the room DJ home. Your own DJ preference is saved.'
+                : here ? `${who}: back in the club` : `${who}: sent home`);
             this._refreshVRQuickMenu();
             return;
         }
@@ -2215,8 +2304,53 @@ class VRClubUI extends VRClubAnimationFinish {
         return true;
     }
 
+    _simulatedSeatOccupant(id) {
+        const client = this.networkManager;
+        if (!client?.connected || client.room !== 'private-000032') return null;
+        for (const [peerId, peer] of client.peers) {
+            if (peer.simulated && peer.state?.seat === id && peer.state.seated) return { id: peerId, peer };
+        }
+        return null;
+    }
+
+    _cancelDevSeatWait() {
+        if (this._devSeatWaitObserver) this.scene.onBeforeRenderObservable.remove(this._devSeatWaitObserver);
+        this._devSeatWaitObserver = null;
+        this._devSeatWait = null;
+    }
+
+    _requestDevSeatYield(id) {
+        if (!this._simulatedSeatOccupant(id)) return false;
+        if (!this.networkManager.requestDevSeat(id)) return false;
+        this.showErrorMessage('The simulated guest is making room for you.');
+        return true;
+    }
+
     sitAtSeat(seat) {
         if (!seat || !Number.isFinite(seat.x) || !Number.isFinite(seat.z)) return false;
+        const occupant = this._simulatedSeatOccupant(seat.id);
+        if (occupant) {
+            this._cancelDevSeatWait();
+            if (!this._requestDevSeatYield(seat.id)) return false;
+            const request = this._devSeatWait = { seat, id: occupant.id, client: this.networkManager, at: performance.now() };
+            this._devSeatWaitObserver = this.scene.onBeforeRenderObservable.add(() => {
+                if (this._disposed || !this.networkManager?.connected || this.networkManager !== request.client) {
+                    this._cancelDevSeatWait(); return;
+                }
+                if (performance.now() - request.at > 15000) {
+                    this._cancelDevSeatWait();
+                    this.showErrorMessage('That guest cannot move clear yet. Please try another seat.');
+                    return;
+                }
+                if (this._simulatedSeatOccupant(seat.id)) return;
+                const peer = this.avatarManager?.remotes.get(request.id);
+                if (peer && Math.hypot(peer.root.position.x - seat.x, peer.root.position.z - seat.z) < 0.85) return;
+                this._cancelDevSeatWait();
+                this.sitAtSeat(seat);
+            });
+            return false;
+        }
+        this._cancelDevSeatWait();
         this._activeSeat = seat;
         // A seat in the room has its own seated pose: Seated mode's lift would double the height.
         if (this._seatLift) this._seatLift.update(0, 0, false, 0, true);
@@ -2243,6 +2377,7 @@ class VRClubUI extends VRClubAnimationFinish {
     }
 
     standFromSeat(notify = true) {
+        this._cancelDevSeatWait();
         const seat = this._activeSeat;
         if (!seat) return false;
         this._activeSeat = null;
