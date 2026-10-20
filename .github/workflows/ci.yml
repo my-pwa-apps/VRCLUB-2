@@ -53,16 +53,15 @@ jobs:
         run: npm run build
 
       # Building and discarding the output only proves the script does not throw.
-      # The payload budget is the thing that actually regresses: the deploy was
-      # The optional detailed CC0 cast brings the measured payload to ~115 MiB.
-      # Keep a bounded allowance for that cast, which is loaded only on selection.
+      # Detailed resident models plus 17 optional modular personal wardrobes
+      # measure 159 MiB. Wardrobes load on demand, never on club startup.
       - name: Enforce deploy payload budget
         if: matrix.os == 'ubuntu-latest' && matrix.node == '20'
         run: |
           SIZE_MB=$(du -sm dist | cut -f1)
           echo "dist/ is ${SIZE_MB} MB"
-          if [ "$SIZE_MB" -gt 120 ]; then
-            echo "::error::dist/ is ${SIZE_MB} MB, over the 120 MB budget. Optimise or prune assets."
+          if [ "$SIZE_MB" -gt 165 ]; then
+            echo "::error::dist/ is ${SIZE_MB} MB, over the 165 MB budget. Optimise or prune assets."
             exit 1
           fi
 

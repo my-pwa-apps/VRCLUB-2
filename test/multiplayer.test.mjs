@@ -47,6 +47,7 @@ class FakeManager {
     updatePeerState() {}
     removePeer(id) { this.peers.delete(id); }
     setAvatar(id, avatar) { this.calls.push(['avatar', id, avatar]); }
+    setAppearance(id, appearance) { const peer = this.peers.get(id); if (peer) peer.appearance = appearance; }
     showEmoji(id, emoji) { this.calls.push(['emoji', id, emoji]); }
     showChat(id, text) { this.calls.push(['chat', id, text]); }
     anyoneSpeaking() { return false; }

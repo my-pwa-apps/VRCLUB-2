@@ -26,7 +26,7 @@ emits one minified, content-hashed production bundle with esbuild.
 6. loaders/factories (`textureLoader`, `modelLoader`, `materialFactory`, `lightFactory`)
 7. `js/vjDirector.js`, then `js/showDirector.js`
 8. `js/ledPatterns.js`, then `js/barProps.js` (bottle geometry and label atlas; no club dependency), then `js/restroomArt.js` (the restroom's painted poster atlas and placement plan; needs `js/nocturneLogo.js` only at paint time), then `js/venueDressing.js` (entrance stair hall, bar, lounge couch and restroom), `js/mezzanine.js` (steel balcony and stair, and the walking-surface follow) and `js/cityDistrict.js` (the street outside, at street level) and `js/vjDesk.js` (the VJ desk's show, lights and set-player touch panels at the DJ table), all mixed into `VRClub.prototype`
-   Then `js/characterCatalog.js` (generated CC0 adult cast and assignments) and `js/characterStyles.js` (room style, local performance override and live model replacement, mixed into `VRClub.prototype`).
+   Then `js/characterCatalog.js` (generated CC0 adult cast and assignments) and `js/characterStyles.js` (room style, local performance override and live model replacement, mixed into `VRClub.prototype`), followed by `js/wardrobeCatalog.js`, `js/avatarAppearance.js` and `js/avatarEditor.js`.
 9. `js/playerHeight.js` (pure player-height maths), `js/avatarRig.js` (the local player's procedural body), `js/djPerformer.js` (the DJ's live set, posed through the rig), `js/crowdDance.js` (the crowd's choreographer), `js/minglerClock.js` (the shared room-time round), then `js/sfuClient.js`, `js/networkClient.js`, `js/avatarManager.js` and `js/multiplayer.js` (`ClubMultiplayer`) — optional multiplayer (no instance until a guest connects)
 10. `js/club/01-core.js` through `js/club/11-audio-crowd.js`, in numeric order
 11. `js/club_hyperrealistic.js` — final public `VRClub` bridge and LED mixin
@@ -871,6 +871,28 @@ and fail `npm test`.
 ## Assets
 
 ### Configurable character cast
+
+**Personal wardrobe:** `AvatarAppearance` validates the complete versioned
+descriptor (base, hair, outfit and four hex colours), instantiates selected fitted
+parts with private factory materials and shared textures, and supplies preview
+models. `PersonalAppearance` is mixed into `VRClub`; it owns
+`vrclub.personalAppearance`, acknowledgement-based saves/resets and bounded,
+on-demand wardrobe source loading. `AvatarEditor` owns desktop/phone and
+in-headset previews. Choosing an ordinary character clears the custom wardrobe.
+Custom personal bodies stay detailed regardless of NPC style/lightweight choice.
+The same descriptor drives self/mirror and remote bodies; include it in stale-load
+guards even when the base ID is unchanged. Never clone source textures or mutate
+source materials. The relay's optional `appearanceSelection` capability validates
+and retains descriptors only in membership/avatar frames, not every pose.
+Older relays must report unsupported sharing. Source generation uses
+`AVATAR_WARDROBE=1`; `npm run build:wardrobe` emits 17 optional GLBs and their
+catalog. About 45 MiB is optional, downloaded per selected base; total deployed
+payload measures 159 MiB (CI ceiling 165 MiB; source asset audit ceiling 160 MiB).
+No upload or avatar service. Every outfit selects its own authored skin-occlusion
+mesh so covered skin never pokes through clothing.
+Wardrobe sources are shared while in use and retired after the final instance
+leaves; do not retain every visited base's decoded textures for the whole session.
+Physical-headset fit, controller feel and frame cost remain unmeasured.
 
 `CharacterStyles` is the style authority: default `quaternius`, opt-in `diverse`.
 `setCharacterStyle()` selects/saves the host's choice (`vrclub.characterStyle`);

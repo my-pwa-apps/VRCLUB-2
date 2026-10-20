@@ -1372,10 +1372,13 @@ const VenueDressing = {
     /** Follow the relay's assignment in a room, or the player's own choice offline. */
     _syncMirrorDouble() {
         const avatarId = this._mirrorAvatarId();
+        const appearance = this._ownAppearance?.() || null;
+        const appearanceKey = appearance ? window.AvatarAppearance.key(appearance) : '';
         const style = this.getCharacterStyle ? this.getCharacterStyle() : 'quaternius';
-        const key = `${style}:${this._characterStyles?.generation || 0}:${avatarId}`;
+        const key = `${style}:${this._characterStyles?.generation || 0}:${avatarId}:${appearanceKey}`;
         const double = this._mirrorDouble;
-        if (double && double.avatarId === avatarId && (double.characterStyle || 'quaternius') === style) return;
+        if (double && double.avatarId === avatarId && (double.characterStyle || 'quaternius') === style &&
+            (double.appearanceKey || '') === appearanceKey) return;
         if (double) this._disposeMirrorDouble();
         if (!avatarId || this._mirrorDoubleLoading === key) return;
         this._mirrorDoubleLoading = key;
@@ -1390,12 +1393,16 @@ const VenueDressing = {
         if (index < 0 || typeof this._loadCrowdSource !== 'function' || !this._crowdSourceContainers) return;
         const characterStyle = this.getCharacterStyle ? this.getCharacterStyle() : 'quaternius';
         const generation = this._characterStyles?.generation || 0;
-        const container = this._loadPlayerSource ? await this._loadPlayerSource(avatarId) : await this._loadCrowdSource(index);
+        const appearance = this._ownAppearance?.() || null;
+        const appearanceKey = appearance ? window.AvatarAppearance.key(appearance) : '';
+        const container = this._loadPlayerSource ? await this._loadPlayerSource(avatarId, characterStyle, appearance) : await this._loadCrowdSource(index);
         if (!container || this._disposed || !this.scene || this._mirrorDouble || this._mirrorAvatarId() !== avatarId) return;
         if ((this._characterStyles?.generation || 0) !== generation) return;
+        if (appearanceKey !== (this._ownAppearance?.() ? window.AvatarAppearance.key(this._ownAppearance()) : '')) return;
 
         const prefix = 'mirrorSelf_';
-        const entry = container.instantiateModelsToScene(name => `${prefix}${name}`, false, { doNotInstantiate: true });
+        const entry = this._instantiatePlayer ? this._instantiatePlayer(container, prefix, appearance) :
+            container.instantiateModelsToScene(name => `${prefix}${name}`, false, { doNotInstantiate: true });
         const node = entry.rootNodes[0];
         if (!node) { entry.dispose(); return; }
         const root = new BABYLON.TransformNode('mirrorSelfRoot', this.scene);
@@ -1449,7 +1456,7 @@ const VenueDressing = {
         if (!groups.Idle) { entry.dispose(); root.dispose(); return; }
         const arms = typeof AvatarRig !== 'undefined' ? AvatarRig.createTrackedArms(node, prefix) : null;
         const double = {
-            avatarId, characterStyle, entry, root, node, meshes, groups, arms, current: null, speed: 0,
+            avatarId, characterStyle, appearanceKey, entry, root, node, meshes, groups, arms, current: null, speed: 0,
             eyeRaw, minY, active: true, shown: false, neck, neckChain, eyeLocal, eyeNow: new BABYLON.Vector3(), serial: (this._mirrorDoubleSerial = (this._mirrorDoubleSerial || 0) + 1),
             skeletons: Array.from(new Set(meshes.map(mesh => mesh.skeleton).filter(Boolean))),
             hands: { left: null, right: null }, handBuffers: { left: {}, right: {} },

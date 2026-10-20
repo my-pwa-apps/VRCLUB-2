@@ -155,7 +155,8 @@ window.CharacterStyles = {
         return record.promise;
     },
 
-    _loadPlayerSource(id, style = this.getCharacterStyle()) {
+    _loadPlayerSource(id, style = this.getCharacterStyle(), appearance = null) {
+        if (appearance) return this._loadWardrobeSource(id);
         const index = window.VRClubAudioCrowd.sourceIndex(id);
         if (index < 0) return Promise.resolve(null);
         const person = style === 'diverse' && window.CharacterCatalog.people[window.CharacterCatalog.players[id]];

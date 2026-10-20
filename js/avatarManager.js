@@ -81,6 +81,7 @@ class AvatarManager {
         if (peer) {
             if (name) { peer.name = name; this._drawNameplate(peer); }
             if (info.avatar && info.avatar !== peer.avatarId) this.setAvatar(id, info.avatar);
+            if (Object.hasOwn(info, 'appearance')) this.setAppearance(id, info.appearance);
             return peer;
         }
 
@@ -95,7 +96,7 @@ class AvatarManager {
         body.checkCollisions = true;
 
         peer = {
-            id, name: name || 'Guest', pid: info.pid || null, avatarId: null, simulated: info.simulated === true,
+            id, name: name || 'Guest', pid: info.pid || null, avatarId: null, appearance: info.appearance || null, simulated: info.simulated === true,
             root, body, nameplate: null, person: null, detailLoading: false, detailRetryAt: 0, loadErrorShown: false,
             muted: false, speaking: false, isHost: false, hidden: false, culled: false, animPaused: false, seated: false,
             eyeHeight: AvatarManager.EYE_HEIGHT, wantedEye: AvatarManager.EYE_HEIGHT, eyeEasing: false, eyeY: 0, floorY: null,
@@ -124,10 +125,23 @@ class AvatarManager {
         const peer = this.remotes.get(id);
         if (!peer || peer.avatarId === avatarId) return;
         peer.avatarId = avatarId;
+        if (peer.appearance?.base !== avatarId) peer.appearance = null;
         peer.detailRetryAt = 0;
         peer.loadErrorShown = false;
         this._disposePerson(peer);
         await this._requestPerson(peer);
+    }
+
+    setAppearance(id, appearance) {
+        const peer = this.remotes.get(id);
+        if (!peer) return;
+        const next = window.AvatarAppearance.sanitize(appearance);
+        if (next && next.base !== peer.avatarId) return;
+        if (window.AvatarAppearance.key(next) === window.AvatarAppearance.key(peer.appearance)) return;
+        peer.appearance = next;
+        peer.detailRetryAt = 0;
+        peer.loadErrorShown = false;
+        this._disposePerson(peer);
     }
 
     _peopleCount() {
@@ -193,13 +207,17 @@ class AvatarManager {
         const index = Crowd.sourceIndex(avatarId);
         if (index < 0) return false;
         const generation = club._characterStyles?.generation || 0;
-        const container = club._loadPlayerSource ? await club._loadPlayerSource(avatarId) : await club._loadCrowdSource(index);
+        const appearance = peer.appearance || null;
+        const appearanceKey = appearance ? window.AvatarAppearance.key(appearance) : '';
+        const container = club._loadPlayerSource ? await club._loadPlayerSource(avatarId, club.getCharacterStyle?.() || 'quaternius', appearance) : await club._loadCrowdSource(index);
         // The guest may have left, changed avatar or been given a body by a faster call while the file loaded.
         if (!container || this.remotes.get(peer.id) !== peer || peer.avatarId !== avatarId || peer.person) return false;
         if ((club._characterStyles?.generation || 0) !== generation) return false;
+        if (appearanceKey !== (peer.appearance ? window.AvatarAppearance.key(peer.appearance) : '')) return false;
 
         const prefix = `peer${peer.id}_`;
-        const entry = container.instantiateModelsToScene(name => `${prefix}${name}`, false, { doNotInstantiate: true });
+        const entry = club._instantiatePlayer ? club._instantiatePlayer(container, prefix, appearance) :
+            container.instantiateModelsToScene(name => `${prefix}${name}`, false, { doNotInstantiate: true });
         const node = entry.rootNodes[0];
         if (!node) { entry.dispose(); return false; }
         node.parent = peer.root;

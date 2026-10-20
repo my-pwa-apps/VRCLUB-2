@@ -44,7 +44,7 @@ for (const [type, bytes] of [...byType].sort((left, right) => right[1] - left[1]
     console.log(`${toMiB(bytes).padStart(8)} MiB  .${type}`);
 }
 
-const budgetMiB = Number(process.env.ASSET_BUDGET_MB || 75);
+const budgetMiB = Number(process.env.ASSET_BUDGET_MB || 160);
 if (Number.isFinite(budgetMiB) && budgetMiB > 0 && totalBytes > budgetMiB * 1024 * 1024) {
     console.error(`\nAsset payload (${toMiB(totalBytes)} MiB) exceeds ASSET_BUDGET_MB=${budgetMiB}.`);
     process.exitCode = 1;

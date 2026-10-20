@@ -1697,6 +1697,10 @@ function initAudioMenu() {
         catch (error) { showStatus(error.message, 'error'); }
     });
     const myCharacter = document.getElementById('myCharacter');
+    document.getElementById('editPersonalAvatar')?.addEventListener('click', () => {
+        vrClubInstance.avatarEditor ||= new window.AvatarEditor(vrClubInstance);
+        vrClubInstance.avatarEditor.open();
+    });
     if (myCharacter) {
         const labels = (window.ClubMultiplayer && window.ClubMultiplayer.AVATAR_LABELS) || {};
         for (const id of window.VRClubAudioCrowd.MY_CHARACTERS) {
@@ -1949,7 +1953,7 @@ function initAudioMenu() {
 function initRoomGuestLock(mp) {
     const club = vrClubInstance;
     const panels = [
-        { id: 'vjMenu', what: 'show controls', keep: '#vjSafeModeBtn, #vjVRComfortBtn, #vjMinimize, #vjClose, [data-open-panel], [data-vj-tab-target], [data-control="cycleGraphicsQuality"], [data-people], [data-hold], #vjHoldTiming, #djStyle, #myCharacter, #vjAutoQualityBtn, #lightweightCharacters, #retryCharacterStyle' },
+        { id: 'vjMenu', what: 'show controls', keep: '#vjSafeModeBtn, #vjVRComfortBtn, #vjMinimize, #vjClose, [data-open-panel], [data-vj-tab-target], [data-control="cycleGraphicsQuality"], [data-people], [data-hold], #vjHoldTiming, #djStyle, #myCharacter, #editPersonalAvatar, #vjAutoQualityBtn, #lightweightCharacters, #retryCharacterStyle' },
         { id: 'audioMenu', what: 'music', keep: '#audioMinimize, #audioClose, #audioVolume, #crowdAmbience, [data-open-panel]' }
     ];
     const renders = [];

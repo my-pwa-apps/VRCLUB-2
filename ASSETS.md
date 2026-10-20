@@ -129,6 +129,45 @@ override. Existing room identity IDs and capacities are unchanged.
 | `js/models/restroom/source/plunger.glb` | [Plunger](https://polyhaven.com/a/plunger) | James Ray Cock, Poly Haven | CC0 1.0 | Credited as courtesy |
 | `js/models/city/downtown.glb` | [Downtown City MegaKit (Standard)](https://quaternius.com), [Car Pack](https://quaternius.com) and [Ultimate House Interior Pack](https://quaternius.com) | Quaternius (<https://quaternius.com>) | CC0 1.0 | Credited as courtesy |
 
+### Modular personal wardrobe
+
+`js/models/wardrobe/` contains CC0-1.0 fitted derivatives of the same verified
+MakeHuman system assets and `dress01` assets listed above. The seventeen files
+are `js/models/wardrobe/nia.glb`, `js/models/wardrobe/asha.glb`,
+`js/models/wardrobe/sofia.glb`, `js/models/wardrobe/iris.glb`,
+`js/models/wardrobe/leila.glb`, `js/models/wardrobe/amara.glb`,
+`js/models/wardrobe/mei.glb`, `js/models/wardrobe/rosa.glb`,
+`js/models/wardrobe/tao.glb`, `js/models/wardrobe/luca.glb`,
+`js/models/wardrobe/diego.glb`, `js/models/wardrobe/ellis.glb`,
+`js/models/wardrobe/felix.glb`, `js/models/wardrobe/malik.glb`,
+`js/models/wardrobe/ren.glb`, `js/models/wardrobe/samir.glb`
+and `js/models/wardrobe/idris.glb`.
+Their base recipes and original clothing/hair/shoe sources remain
+`design/characters/recipes.json`. Additional fitted choices are system hair
+`short03` / `long01` and clothing `male_casualsuit06` / `male_casualsuit01`
+(fallbacks `short02`, `ponytail01`, `male_casualsuit04` and
+`male_elegantsuit01` keep alternatives distinct from the original),
+verified against the existing CC0 pack manifest by the generator.
+
+Changes: bake a separate body surface for each outfit using its authored
+skin-occlusion mask (never draw full skin through the trousers or blouse), fit all
+choices to each base's shape and common skeleton, decimate skin/hair/outfits,
+bake neutral tintable 1024 px skin/outfit and 512 px hair atlases, retain
+textured eyes/shoes, split clothing into top/bottom material regions, alpha-test
+hair, and retarget the existing CC0 locomotion/gesture/seating clips offline.
+Only the selected hair and outfit draw (up to six meshes); per-person material
+instances share the original textures without cloning or mutating them.
+The editor has no face/body morphs or proprietary likeness models.
+
+Authoring: run `scripts/characters/generate.py` in the same verified MPFB/Blender
+environment as the base cast with `AVATAR_WARDROBE=1`; source-only GLBs go to
+`design/characters/wardrobe/`. `npm run build:wardrobe` retargets/compresses them
+and generates `js/wardrobeCatalog.js` with measured eye landmarks from the
+wardrobe itself. These files total 44.6 MiB and are loaded on demand.
+Real-Babylon tests enforce all 17 clip sets, selected-part draw counts,
+per-person colour isolation, texture sharing and depth/light policies.
+Fit under every pose and physical-headset performance are not certified.
+
 ### Textures bundled with the models
 
 | Directory | Belongs to | Licence |

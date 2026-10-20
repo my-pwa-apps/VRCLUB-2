@@ -379,6 +379,7 @@ class ClubMultiplayer {
         const club = this.club;
         const client = new NetworkClient({ serverUrl, room, name, uid: this.uid, avatarPool: this.avatarPool,
             avatar: typeof club.getLocalCharacter === 'function' ? club.getLocalCharacter() : null,
+            appearance: club.getPersonalAppearance?.() || null,
             blocked: this.blockedList().map(item => item.pid) });
         if (!club.avatarManager) club.avatarManager = new AvatarManager(club);
         this.manager = club.avatarManager;
@@ -577,7 +578,10 @@ class ClubMultiplayer {
                 // The doors belong to the room: out of it they are ajar again.
                 if (typeof club.setSharedDoors === 'function') club.setSharedDoors([]);
             }
-            if (status === 'error' || status === 'disconnected') this._stopPing();
+            if (status === 'error' || status === 'disconnected') {
+                this._stopPing();
+                club._appearancePending?.reject('The room disconnected before confirming your appearance.');
+            }
             // Nobody left to talk to: the music comes back up.
             if (status !== 'connected' && typeof club.setVoiceDuck === 'function') { this._duckHoldUntil = 0; club.setVoiceDuck(false); }
             this._syncRole();
@@ -604,6 +608,8 @@ class ClubMultiplayer {
             this._emit();
         };
         client.onPeerAvatar = (id, avatar) => { manager.setAvatar(id, avatar); this._emit(); };
+        client.onPeerAppearance = (id, appearance) => { manager.setAppearance(id, appearance); this._emit(); };
+        client.onSelfAppearance = appearance => { club._appearanceAcknowledged?.(appearance); this._emit(); };
         client.onSelfAvatar = (avatar) => { this.selfAvatar = avatar; this._emit(); };
         client.onEmoji = (id, emoji) => manager.showEmoji(id, emoji);
         client.onChat = (id, text, restricted) => {
@@ -650,6 +656,7 @@ class ClubMultiplayer {
         client.musicDecorator = (music) => this._decorateMusic(music);
         client.onRemoteStream = (id, stream) => stream ? manager.attachVoice(id, stream) : manager.detachVoice(id);
         client.onError = (err) => {
+            if (typeof err.code === 'string' && /^(appearance-|avatar-)/.test(err.code)) club._appearancePending?.reject(err.message);
             this.lastError = `Error: ${err.message}`;
             if (err.code) this.notice = err.message;
             if (typeof err.code === 'string' && err.code.startsWith('avatar-') && typeof club.showErrorMessage === 'function') club.showErrorMessage(err.message);
