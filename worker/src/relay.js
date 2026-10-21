@@ -29,7 +29,7 @@
  *     { type: 'host-transfer', target }              - host only; give another visible guest control without disconnecting
  *     { type: 'ping', time? }                         - heartbeat every 10 s; optional monotonic timestamp for clock compensation; silence for 30 s closes a pinger (4013)
  *   server -> client
- *     { type: 'welcome', id, pid, avatar, appearance, avatarSelection:true, appearanceSelection:true, hostId, locked, serverTime, world:{v:1,startedAt,seed}, targetedChat:true, hostTransfer:true, capacity, mediaTransport, poseBatch:true, peers:[{id,pid,name,avatar,appearance,state}], music, show, doors:[bool,bool] }
+ *     { type: 'welcome', id, pid, avatar, appearance, avatarSelection:true, appearanceSelection:true, appearanceAccessories:true, appearanceFootwear:true, hostId, locked, serverTime, world:{v:1,startedAt,seed}, targetedChat:true, hostTransfer:true, capacity, mediaTransport, poseBatch:true, peers:[{id,pid,name,avatar,appearance,state}], music, show, doors:[bool,bool] }
  *     { type: 'pong', time, serverTime }              - a timestamped ping reply to its sender only
  *     { type: 'join', id, pid, name, avatar, appearance }
  *     { type: 'leave', id }
@@ -135,16 +135,40 @@ const APPEARANCE_KEYS = Object.freeze(['v', 'base', 'hair', 'outfit', 'skin', 'h
 /** Null explicitly clears a wardrobe; undefined means invalid, never a partial/default wardrobe. */
 export function sanitizeAppearance(value, avatar) {
     if (value === null) return null;
+    const accessories = {
+        glasses: ['none', 'round', 'square', 'heart', 'star', 'sunglasses'],
+        facialHair: ['none', 'stubble', 'beard'],
+        hat: ['none', 'cap', 'beanie', 'fedora', 'bucket']
+    };
+    const footwear = { shoes: ['original', 'loafers', 'pumps', 'heels'], legwear: ['bare', 'sheer-black', 'sheer-nude'] };
+    const keys = [...APPEARANCE_KEYS, ...(value?.v >= 2 ? Object.keys(accessories) : []),
+        ...(value?.v === 3 ? Object.keys(footwear) : [])];
     if (!value || typeof value !== 'object' || Array.isArray(value) ||
-        Object.keys(value).length !== APPEARANCE_KEYS.length ||
-        APPEARANCE_KEYS.some(key => !Object.hasOwn(value, key)) ||
-        value.v !== 1 || !AVATARS.includes(value.base) || value.base !== avatar ||
-        !['original', 'short', 'long'].includes(value.hair) ||
+        Object.keys(value).length !== keys.length ||
+        keys.some(key => !Object.hasOwn(value, key)) ||
+        ![1, 2, 3].includes(value.v) || !AVATARS.includes(value.base) || value.base !== avatar ||
+        !(value.v >= 2 ? ['original', 'short', 'long', 'bald'] : ['original', 'short', 'long']).includes(value.hair) ||
         !['original', 'casual', 'smart'].includes(value.outfit)) return undefined;
-    const result = { v: 1, base: value.base, hair: value.hair, outfit: value.outfit };
+    const result = { v: value.v, base: value.base, hair: value.hair, outfit: value.outfit };
     for (const key of ['skin', 'hairColor', 'top', 'bottom']) {
         if (typeof value[key] !== 'string' || value[key].length !== 7 || !/^#[0-9a-f]{6}$/i.test(value[key])) return undefined;
         result[key] = value[key].toLowerCase();
+    }
+    if (value.v >= 2) for (const [key, options] of Object.entries(accessories)) {
+        if (value.v === 2 && key === 'facialHair' && ['moustache', 'handlebar'].includes(value[key])) {
+            result[key] = 'none';
+            continue;
+        }
+        if (value.v === 2 && key === 'hat' && value[key] === 'party') {
+            result[key] = 'bucket';
+            continue;
+        }
+        if (!options.includes(value[key])) return undefined;
+        result[key] = value[key];
+    }
+    if (value.v === 3) for (const [key, options] of Object.entries(footwear)) {
+        if (!options.includes(value[key])) return undefined;
+        result[key] = value[key];
     }
     return result;
 }
@@ -553,6 +577,8 @@ export class ClubRoom {
             avatarSelection: true,
             appearance: session.appearance,
             appearanceSelection: true,
+            appearanceAccessories: true,
+            appearanceFootwear: true,
             hostId: this.hostId,
             locked: this.locked,
             serverTime: now,

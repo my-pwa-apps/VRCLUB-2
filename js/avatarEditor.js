@@ -56,8 +56,21 @@ class AvatarEditor {
         ];
     }
 
-    static get HAIR() { return ['original', 'short', 'long']; }
+    static get HAIR() { return ['original', 'short', 'long', 'bald']; }
     static get OUTFITS() { return ['original', 'casual', 'smart']; }
+    static get FOOTWEAR() {
+        return {
+            shoes: { original: 'Original shoes', loafers: 'Loafers', pumps: 'Pumps', heels: 'Heeled ankle boots' },
+            legwear: { bare: 'Bare legs', 'sheer-black': 'Sheer black tights', 'sheer-nude': 'Sheer nude tights' }
+        };
+    }
+    static get ACCESSORIES() {
+        return {
+            glasses: ['none', 'round', 'square', 'heart', 'star', 'sunglasses'],
+            facialHair: ['none', 'stubble', 'beard'],
+            hat: ['none', 'cap', 'beanie', 'fedora', 'bucket']
+        };
+    }
     static get COLORS() {
         return [
             { name: 'Deep umber', value: '#513327' },
@@ -94,8 +107,9 @@ class AvatarEditor {
 
     _freshDraft() {
         const draft = this.club.getAppearanceDraft();
-        if (!draft || draft.v !== 1) throw new Error('Your personal appearance is not available.');
-        return this._cloneDraft(draft);
+        if (!draft || ![1, 2, 3].includes(draft.v)) throw new Error('Your personal appearance is not available.');
+        return this._cloneDraft({ glasses: 'none', facialHair: 'none', hat: 'none',
+            shoes: 'original', legwear: 'bare', ...draft, v: 3 });
     }
 
     _setError(target, message) {
@@ -243,6 +257,27 @@ class AvatarEditor {
             field('Hair style', hair, 'avatarHair'),
             field('Outfit', outfit, 'avatarOutfit')
         );
+        for (const [key, label] of [['glasses', 'Glasses'], ['facialHair', 'Facial hair'], ['hat', 'Headwear']]) {
+            const select = element('select');
+            select.name = key;
+            for (const value of AvatarEditor.ACCESSORIES[key]) {
+                const option = element('option', '', `${value[0].toUpperCase()}${value.slice(1)}`);
+                option.value = value;
+                select.append(option);
+            }
+            form.append(field(label, select, `avatar-${key}`));
+        }
+        for (const [key, label] of [['shoes', 'Shoes'], ['legwear', 'Legwear']]) {
+            const select = element('select');
+            select.name = key;
+            for (const [value, text] of Object.entries(AvatarEditor.FOOTWEAR[key])) {
+                const option = element('option', '', text);
+                option.value = value;
+                select.append(option);
+            }
+            form.append(field(label, select, `avatar-${key}`));
+        }
+        form.append(element('p', 'avatar-editor__notice', 'Casual outfits include graphic prints. Headwear covers the hair to keep it from clipping. Facial hair follows Hair color.'));
         for (const [key, label] of [
             ['skin', 'Skin color'],
             ['hairColor', 'Hair color'],
@@ -279,7 +314,7 @@ class AvatarEditor {
 
     _syncForm() {
         if (!this._form || !this.draft) return;
-        for (const key of ['base', 'hair', 'outfit']) this._form.elements[key].value = this.draft[key];
+        for (const key of ['base', 'hair', 'outfit', 'glasses', 'facialHair', 'hat', 'shoes', 'legwear']) this._form.elements[key].value = this.draft[key];
         for (const key of ['skin', 'hairColor', 'top', 'bottom']) {
             const input = this._form.elements[key];
             input.value = /^#[0-9a-f]{6}$/i.test(this.draft[key]) ? this.draft[key] : '#808080';
@@ -308,7 +343,7 @@ class AvatarEditor {
         dialog.addEventListener('keydown', this._onDialogKey);
         this._onInput = event => {
             const key = event.target.name;
-            if (!key || !['base', 'hair', 'outfit', 'skin', 'hairColor', 'top', 'bottom'].includes(key)) return;
+            if (!key || !['base', 'hair', 'outfit', 'skin', 'hairColor', 'top', 'bottom', 'glasses', 'facialHair', 'hat', 'shoes', 'legwear'].includes(key)) return;
             const baseChanged = key === 'base' && this.draft.base !== event.target.value;
             this.draft[key] = event.target.value;
             this._clearError();
@@ -587,11 +622,41 @@ class AvatarEditor {
                 { label: 'HAIR COLOR', action: 'page', target: 'appearanceHairColor' },
                 { label: 'TOP COLOR', action: 'page', target: 'appearanceTop' },
                 { label: 'BOTTOM COLOR', action: 'page', target: 'appearanceBottom' },
-                { label: 'ROTATE LEFT', action: 'appearanceRotate', delta: -1 },
+                { label: 'ACCESSORIES', action: 'page', target: 'appearanceAccessories' },
                 { label: 'ROTATE RIGHT', action: 'appearanceRotate', delta: 1 },
                 { label: 'SAVE APPEARANCE', action: 'appearanceSave' },
                 { label: 'RESET PERSONAL LOOK', action: 'appearanceReset' },
                 common.close
+            ];
+        }
+        if (page === 'appearanceAccessories') {
+            return [
+                { label: `GLASSES ${draft.glasses.toUpperCase()}`, action: 'page', target: 'appearanceGlasses' },
+                { label: `FACIAL HAIR ${draft.facialHair.toUpperCase()}`, action: 'page', target: 'appearanceFacialHair' },
+                { label: `HEADWEAR ${draft.hat.toUpperCase()}`, action: 'page', target: 'appearanceHat' },
+                { label: 'SHOES AND TIGHTS', action: 'page', target: 'appearanceFootwear' },
+                { label: 'ROTATE LEFT', action: 'appearanceRotate', delta: -1 },
+                { label: 'ROTATE RIGHT', action: 'appearanceRotate', delta: 1 },
+                common.back, common.close
+            ];
+        }
+        if (page === 'appearanceFootwear') {
+            return [
+                { label: AvatarEditor.FOOTWEAR.shoes[draft.shoes].toUpperCase(), action: 'page', target: 'appearanceShoes' },
+                { label: AvatarEditor.FOOTWEAR.legwear[draft.legwear].toUpperCase(), action: 'page', target: 'appearanceLegwear' },
+                { label: 'ROTATE LEFT', action: 'appearanceRotate', delta: -1 },
+                { label: 'ROTATE RIGHT', action: 'appearanceRotate', delta: 1 },
+                { label: 'BACK TO ACCESSORIES', action: 'back', target: 'appearanceAccessories' }, common.close
+            ];
+        }
+        if (page === 'appearanceShoes' || page === 'appearanceLegwear') {
+            const field = page === 'appearanceShoes' ? 'shoes' : 'legwear';
+            return [
+                ...Object.entries(AvatarEditor.FOOTWEAR[field]).map(([value, label]) => ({
+                    label: `${label.toUpperCase()}${selected(field, value) ? ' SELECTED' : ''}`,
+                    action: 'appearanceSet', field, value
+                })),
+                { label: 'BACK TO SHOES AND TIGHTS', action: 'back', target: 'appearanceFootwear' }, common.close
             ];
         }
         if (page === 'appearanceBase') {
@@ -607,11 +672,18 @@ class AvatarEditor {
                 common.back, common.close
             ];
         }
-        if (page === 'appearanceHair' || page === 'appearanceOutfit') {
-            const field = page === 'appearanceHair' ? 'hair' : 'outfit';
-            const values = field === 'hair' ? AvatarEditor.HAIR : AvatarEditor.OUTFITS;
+        const stylePages = {
+            appearanceHair: ['hair', AvatarEditor.HAIR, 'HAIR'],
+            appearanceOutfit: ['outfit', AvatarEditor.OUTFITS, 'OUTFIT'],
+            appearanceGlasses: ['glasses', AvatarEditor.ACCESSORIES.glasses, 'GLASSES'],
+            appearanceFacialHair: ['facialHair', AvatarEditor.ACCESSORIES.facialHair, 'FACIAL HAIR'],
+            appearanceHat: ['hat', AvatarEditor.ACCESSORIES.hat, 'HEADWEAR']
+        };
+        if (stylePages[page]) {
+            const [field, values, label] = stylePages[page];
+            const prefix = field === 'hair' || field === 'outfit' ? `${label} ` : '';
             return [
-                ...values.map(value => ({ label: `${field === 'hair' ? 'HAIR' : 'OUTFIT'} ${value.toUpperCase()}${selected(field, value) ? ' SELECTED' : ''}`,
+                ...values.map(value => ({ label: `${prefix}${value.toUpperCase()}${selected(field, value) ? ' SELECTED' : ''}`,
                     action: 'appearanceSet', field, value })),
                 common.back, common.close
             ];
@@ -636,7 +708,7 @@ class AvatarEditor {
     }
 
     setDraftValue(field, value) {
-        if (!this.vrDraft || !['base', 'hair', 'outfit', 'skin', 'hairColor', 'top', 'bottom'].includes(field)) return;
+        if (!this.vrDraft || !['base', 'hair', 'outfit', 'skin', 'hairColor', 'top', 'bottom', 'glasses', 'facialHair', 'hat', 'shoes', 'legwear'].includes(field)) return;
         const baseChanged = field === 'base' && this.vrDraft.base !== value;
         this.vrDraft[field] = value;
         this._clearError();

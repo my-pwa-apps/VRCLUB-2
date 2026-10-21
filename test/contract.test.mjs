@@ -148,10 +148,14 @@ test('script load order honours the dependency contract', () => {
     assert.ok(idx('js/vjDirector.js') < idx('js/showDirector.js'), 'vjDirector must precede showDirector');
     // ui-init drives the splash screen and instantiates VRClub.
     assert.ok(idx('js/ui-init.js') > main, 'ui-init.js must load after club_hyperrealistic.js');
+    assert.ok(idx('js/avatarAccessoryAssets.js') > idx('js/wardrobeCatalog.js') &&
+        idx('js/avatarAccessoryAssets.js') < idx('js/avatarDetails.js'),
+    'authored avatar accessory geometry must load before AvatarDetails');
 });
 
 test('every class used across files is exported onto window', () => {
     const required = {
+        'js/avatarAccessoryAssets.js': ['AvatarAccessoryAssets'],
         'js/assetCache.js': ['IndexedDBAssetCache', 'InFlightRegistry'],
         'js/audioUtils.js': ['AudioUtils'],
         'js/textureLoader.js': ['TextureLoader'],

@@ -137,7 +137,54 @@ class AvatarRig {
         this._placed = false;
 
         this._measure(options.eyeHeight || 1.7);
+        this._measureHeadphones();
         this.ok = true;
+    }
+
+    /** Cup outer faces in the Head bone's bind frame, not an eye-height offset shared by unlike heads. */
+    _measureHeadphones() {
+        this._headphoneCups = null;
+        const B = BABYLON, V = B.Vector3;
+        const mesh = this.meshes.find(m => /Headphones/.test(m.name) && m.skeleton);
+        if (!mesh) return;
+        const head = mesh.skeleton.bones.find(b => /(?:^|_)Head$/.test(b.name));
+        const positions = mesh.getVerticesData(B.VertexBuffer.PositionKind);
+        if (!head || !positions) return;
+        let minX = Infinity, maxX = -Infinity;
+        for (let i = 0; i < positions.length; i += 3) {
+            minX = Math.min(minX, positions[i]); maxX = Math.max(maxX, positions[i]);
+        }
+        const inverseBind = head.getAbsoluteInverseBindMatrix();
+        const headWorld = this.bone.Head.getWorldMatrix(), inverseHead = headWorld.clone().invert();
+        const right = new V(Math.cos(this.yaw0), 0, -Math.sin(this.yaw0));
+        const forward = new V(Math.sin(this.yaw0), 0, Math.cos(this.yaw0));
+        const cups = [];
+        for (const sign of [-1, 1]) {
+            const edge = sign < 0 ? minX : maxX;
+            const centreX = (minX + maxX) * 0.5;
+            const min = new V(Infinity, Infinity, Infinity), max = new V(-Infinity, -Infinity, -Infinity);
+            // The outer tenth of this rigid headphone mesh contains the cup shell, not the crown band.
+            for (let i = 0; i < positions.length; i += 3) {
+                if ((positions[i] - centreX) * sign < (edge - centreX) * sign * 0.9) continue;
+                min.minimizeInPlaceFromFloats(positions[i], positions[i + 1], positions[i + 2]);
+                max.maximizeInPlaceFromFloats(positions[i], positions[i + 1], positions[i + 2]);
+            }
+            const point = new V(edge, (min.y + max.y) * 0.5, (min.z + max.z) * 0.5);
+            V.TransformCoordinatesToRef(point, inverseBind, point);
+            const world = V.TransformCoordinates(point, headWorld);
+            const side = V.Dot(world.subtract(this.bone.Head.getAbsolutePosition()), right) < 0 ? 0 : 1;
+            const suffix = (side === 0) === (this.sideL < 0) ? 'l' : 'r';
+            const wrist = this.bone[`hand_${suffix}`].getAbsolutePosition();
+            const knuckles = this.bone[`index_01_${suffix}`].getAbsolutePosition().add(this.bone[`pinky_01_${suffix}`].getAbsolutePosition()).scaleInPlace(0.5);
+            cups[side] = { point, palmLength: V.Distance(wrist, knuckles) * 0.5 / this.scaleK,
+                up: V.TransformNormal(new V(0, 1, 0), inverseHead).normalize(),
+                thumb: V.TransformNormal(forward.scale(side === 0 ? -1 : 1), inverseHead).normalize() };
+        }
+        this._headphoneCups = cups;
+        this._headphoneHand = {};
+        this._headphonePoint = new V();
+        this._headphoneUp = new V();
+        this._headphoneThumb = new V();
     }
 
     _initPoseScratch() {
@@ -643,9 +690,29 @@ class AvatarRig {
             const sh = this.pos[upper];
             const reach = this._reach(upper, lower, hand);
             const t = v[4];
-            const h = a === 0 ? pose.left : pose.right;
+            let h = a === 0 ? pose.left : pose.right;
             if (h && Number.isFinite(h.x)) {
                 t.set(h.x - h.fx * 0.05, h.y - h.fy * 0.05, h.z - h.fz * 0.05);   // wrist sits behind the palm
+                const cup = this._headphoneCups && this._headphoneCups[a];
+                if (cup && h.headphone > 0) {
+                    const weight = Math.min(1, h.headphone), matrix = this.W[ix.Head];
+                    const point = this._headphonePoint, up = this._headphoneUp, thumb = this._headphoneThumb;
+                    BABYLON.Vector3.TransformCoordinatesToRef(cup.point, matrix, point);
+                    BABYLON.Vector3.TransformNormalToRef(cup.up, matrix, up); up.normalize();
+                    BABYLON.Vector3.TransformNormalToRef(cup.thumb, matrix, thumb); thumb.normalize();
+                    const palmLength = cup.palmLength * this.scaleK;
+                    t.x += (point.x - up.x * palmLength - t.x) * weight;
+                    t.y += (point.y - up.y * palmLength - t.y) * weight;
+                    t.z += (point.z - up.z * palmLength - t.z) * weight;
+                    const contact = this._headphoneHand;
+                    contact.fx = h.fx + (up.x - h.fx) * weight;
+                    contact.fy = h.fy + (up.y - h.fy) * weight;
+                    contact.fz = h.fz + (up.z - h.fz) * weight;
+                    contact.ux = h.ux + (thumb.x - h.ux) * weight;
+                    contact.uy = h.uy + (thumb.y - h.uy) * weight;
+                    contact.uz = h.uz + (thumb.z - h.uz) * weight;
+                    h = contact;
+                }
                 this._limb(upper, lower, hand, t, -F.x * 0.7 + R.x * sideSign * 0.7, -0.15, -F.z * 0.7 + R.z * sideSign * 0.7);
                 this._poseHand(hand, sfx, h);
             } else {

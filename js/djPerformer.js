@@ -204,6 +204,7 @@ class DJPerformer {
         if (!this._started) { this._started = true; DJPerformer._copyHand(this._goalL, this.left); DJPerformer._copyHand(this._goalR, this.right); }
         DJPerformer._easeHand(this.left, this._goalL, kh);
         DJPerformer._easeHand(this.right, this._goalR, kh);
+        this.left.headphone = (this.left.headphone || 0) + ((this.activity === 'cue' ? 1 : 0) - (this.left.headphone || 0)) * kh;
         this.headYaw += (this._goalYaw - this.headYaw) * ka;
         this.headPitch += (this._goalPitch - this.headPitch) * ka;
         this.lean += (this._goalLean - this.lean) * ka;

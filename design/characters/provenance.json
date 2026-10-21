@@ -67,6 +67,8 @@
     "perAssetManifest": "tooling/assets/packs/dress01.json",
     "checkedEachSelectedAsset": true,
     "selectedAssets": [
+      { "id": "toigo_cut_out_dress", "author": "MargaretToigo", "source": "http://www.makehumancommunity.org/node/1704" },
+      { "id": "toigo_halter_dress_midi", "author": "MargaretToigo", "source": "http://www.makehumancommunity.org/node/1854" },
       { "id": "toigo_camisole_dress_with_full_skirt", "author": "MargaretToigo", "source": "http://www.makehumancommunity.org/node/1730" },
       { "id": "toigo_halter_dress_knee_length", "author": "MargaretToigo", "source": "http://www.makehumancommunity.org/node/1853" },
       { "id": "toigo_shift_dress", "author": "MargaretToigo", "source": "http://www.makehumancommunity.org/node/1724" },
@@ -76,7 +78,98 @@
       { "id": "toigo_strapless_ruffle_top_dress", "author": "MargaretToigo", "source": "http://www.makehumancommunity.org/node/1705" }
     ]
   },
+  "shoePack": {
+    "page": "https://static.makehumancommunity.org/assets/assetpacks/shoes01.html",
+    "download": "https://files2.makehumancommunity.org/asset_packs/shoes01/shoes01_cc0.zip",
+    "sha256": "ded3f70428505eabbf1f6d7b5f61196a7366ef20757103d276ad0ed336c35ada",
+    "license": "CC0-1.0",
+    "perAssetManifest": "tooling/assets/packs/shoes01.json",
+    "checkedEachSelectedAsset": true,
+    "selectedAssets": [
+      { "id": "toigo_ballet_flats", "author": "MargaretToigo", "source": "http://www.makehumancommunity.org/node/1734", "changes": "Plain leather recolouring, fitting and decimation; flat ballet pumps" },
+      { "id": "toigo_stiletto_booties", "author": "MargaretToigo", "source": "http://www.makehumancommunity.org/node/1694", "changes": "Plain dark leather recolouring, fitting and decimation; high-heeled ankle boots" }
+    ]
+  },
+  "fashionPacks": [
+    {
+      "id": "hair01",
+      "page": "https://static.makehumancommunity.org/assets/assetpacks/hair01.html",
+      "download": "https://files2.makehumancommunity.org/asset_packs/hair01/hair01_cc0.zip",
+      "sha256": "49445d69848a313ec41a9970f6a0fe4bcf925c9f1c6ef40a76f119c2e07940c9",
+      "license": "CC0-1.0",
+      "selectedAssets": [
+        { "id": "cortu_short_messy_hair", "author": "Cortu", "source": "http://www.makehumancommunity.org/node/2809" },
+        { "id": "toigo_inverted_bob", "author": "MargaretToigo", "source": "http://www.makehumancommunity.org/node/1673" },
+        { "id": "toigo_inverted_bob_with_bangs", "author": "MargaretToigo", "source": "http://www.makehumancommunity.org/node/1685" },
+        { "id": "toigo_curled_under_bob", "author": "MargaretToigo", "source": "http://www.makehumancommunity.org/node/1677" },
+        { "id": "toigo_blunt_bob_with_bangs", "author": "MargaretToigo", "source": "http://www.makehumancommunity.org/node/1681" }
+      ]
+    },
+    {
+      "id": "shirts01",
+      "page": "https://static.makehumancommunity.org/assets/assetpacks/shirts01.html",
+      "download": "https://files2.makehumancommunity.org/asset_packs/shirts01/shirts01_cc0.zip",
+      "sha256": "a5a723b0e84a109bb190fcfeac7f1de4138d875da3e30fe5b3340eac9f38bcd3",
+      "license": "CC0-1.0",
+      "selectedAssets": [
+        { "id": "toigo_turtleneck_halter_top", "author": "MargaretToigo", "source": "http://www.makehumancommunity.org/node/1642" },
+        { "id": "toigo_camisole_top", "author": "MargaretToigo", "source": "http://www.makehumancommunity.org/node/1726" },
+        { "id": "toigo_fisherman_sweater", "author": "MargaretToigo", "source": "http://www.makehumancommunity.org/node/1187" },
+        { "id": "toigo_keyhole_tank_top", "author": "MargaretToigo", "source": "http://www.makehumancommunity.org/node/1606" },
+        { "id": "namuhekam_male_polo_shirt", "author": "namuhekam", "source": "http://www.makehumancommunity.org/node/2909" },
+        { "id": "toigo_basic_tucked_t-shirt", "author": "MargaretToigo", "source": "http://www.makehumancommunity.org/node/1203" }
+      ]
+    },
+    {
+      "id": "skirts01",
+      "page": "https://static.makehumancommunity.org/assets/assetpacks/skirts01.html",
+      "download": "https://files2.makehumancommunity.org/asset_packs/skirts01/skirts01_cc0.zip",
+      "sha256": "293fa0c15e28e8dcea8dfff20cae31aa4b0d1268a6e6ba0a53a92ebb0f36c882",
+      "license": "CC0-1.0",
+      "selectedAssets": [
+        { "id": "toigo_tiered_mini_skirt", "author": "MargaretToigo", "source": "http://www.makehumancommunity.org/node/1668" }
+      ]
+    },
+    {
+      "id": "pants01",
+      "page": "https://static.makehumancommunity.org/assets/assetpacks/pants01.html",
+      "download": "https://files2.makehumancommunity.org/asset_packs/pants01/pants01_cc0.zip",
+      "sha256": "e4e0ec60db34f279be291a83cfd7b342a7c5cf09bb7676682a5f39f4f6ac4ad9",
+      "license": "CC0-1.0",
+      "selectedAssets": [
+        { "id": "cortu_cargo_pants", "author": "Cortu", "source": "http://www.makehumancommunity.org/node/2798" },
+        { "id": "toigo_wool_pants", "author": "MargaretToigo", "source": "http://www.makehumancommunity.org/node/1194" }
+      ]
+    },
+    {
+      "id": "shirts03",
+      "page": "https://static.makehumancommunity.org/assets/assetpacks/shirts03.html",
+      "download": "https://files.makehumancommunity.org/asset_packs/shirts03/shirts03_ccby.zip",
+      "sha256": "b3ff3596723dbc87cb07389895da760b667cf413f2c67869ccb0cdfb82a79a8a",
+      "license": "CC-BY-4.0",
+      "selectedAssets": [
+        {
+          "id": "punkduck_high_neck_crop_top",
+          "title": "High Neck Crop Top",
+          "author": "punkduck",
+          "source": "http://www.makehumancommunity.org/node/1088",
+          "license": "CC-BY-4.0",
+          "licenseUrl": "https://creativecommons.org/licenses/by/4.0/",
+          "mhcloSha256": "af3029784d154492c931718e93603d5440ebf9eee805d920fb13d7a060da01ef",
+          "licenseEvidence": "Author's .mhclo header explicitly states '# license CC BY 4.0'; pack JSON alone only says CC-BY.",
+          "changes": "Fitted to fictional adult bodies, recoloured, combined with separate trousers, atlas-baked, simplified, skinned and retargeted for NOCTURNE."
+        }
+      ]
+    }
+  ],
   "transformations": [
+    "Selected CC0 and explicitly versioned CC BY 4.0 night-out separates; combine each top and bottom's body delete masks, atlas and colour regions without extra live draw calls",
+    "Modern CC0 textured short hair, inverted and curled bobs and bangs fitted to the same adult head and game-engine rig; retain existing long hair after previewing and rejecting braid sources with scalp fit defects",
+    "Remove baked stock shirt graphics from verified shirt UV regions before source and wardrobe atlas generation; runtime prints require a catalogued plain surface",
+    "Sock-free loafers derived from CC0 system shoes03 with separate sock and lace geometry removed; CC0 ballet pumps and stiletto ankle boots on detailed women; fitted leather-thickness clearance and selectable derivatives on all seventeen wardrobe bases",
+    "Four-channel skin occlusion masks select shoe coverage on private instance geometry; opaque leg-only vertex tint supplies optional sheer black/nude tights",
+    "Source-neutral facial expressions in detailed and wardrobe models; no custom smile shaping, painted smiles or runtime expression overrides",
+    "Night-out silhouettes: fitted shirts, cropped tops and trousers, charcoal jackets, halter and cut-out dresses; verified existing CC0 packs, no brand graphics or new runtime materials",
     "Adult-only body/face morphs, individually fitted system clothing, shoes and hair",
     "Game-engine rig and skin weights",
     "Remove helpers and garment-covered body faces",

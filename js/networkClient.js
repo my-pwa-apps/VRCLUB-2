@@ -59,15 +59,39 @@ class NetworkClient {
     static sanitizeAppearance(value, avatar = value?.base) {
         if (value === null) return null;
         const keys = ['v', 'base', 'hair', 'outfit', 'skin', 'hairColor', 'top', 'bottom'];
+        const accessories = {
+            glasses: ['none', 'round', 'square', 'heart', 'star', 'sunglasses'],
+            facialHair: ['none', 'stubble', 'beard'],
+            hat: ['none', 'cap', 'beanie', 'fedora', 'bucket']
+        };
+        const footwear = { shoes: ['original', 'loafers', 'pumps', 'heels'], legwear: ['bare', 'sheer-black', 'sheer-nude'] };
+        if (value?.v >= 2) keys.push(...Object.keys(accessories));
+        if (value?.v === 3) keys.push(...Object.keys(footwear));
         if (!value || typeof value !== 'object' || Array.isArray(value) ||
             Object.keys(value).length !== keys.length || keys.some(key => !Object.hasOwn(value, key)) ||
-            value.v !== 1 || !NetworkClient.isAvatar(value.base) || value.base !== avatar ||
-            !['original', 'short', 'long'].includes(value.hair) ||
+            ![1, 2, 3].includes(value.v) || !NetworkClient.isAvatar(value.base) || value.base !== avatar ||
+            !(value.v >= 2 ? ['original', 'short', 'long', 'bald'] : ['original', 'short', 'long']).includes(value.hair) ||
             !['original', 'casual', 'smart'].includes(value.outfit)) return undefined;
-        const result = { v: 1, base: value.base, hair: value.hair, outfit: value.outfit };
+        const result = { v: value.v, base: value.base, hair: value.hair, outfit: value.outfit };
         for (const key of ['skin', 'hairColor', 'top', 'bottom']) {
             if (typeof value[key] !== 'string' || value[key].length !== 7 || !/^#[0-9a-f]{6}$/i.test(value[key])) return undefined;
             result[key] = value[key].toLowerCase();
+        }
+        if (value.v >= 2) for (const [key, options] of Object.entries(accessories)) {
+            if (value.v === 2 && key === 'facialHair' && ['moustache', 'handlebar'].includes(value[key])) {
+                result[key] = 'none';
+                continue;
+            }
+            if (value.v === 2 && key === 'hat' && value[key] === 'party') {
+                result[key] = 'bucket';
+                continue;
+            }
+            if (!options.includes(value[key])) return undefined;
+            result[key] = value[key];
+        }
+        if (value.v === 3) for (const [key, options] of Object.entries(footwear)) {
+            if (!options.includes(value[key])) return undefined;
+            result[key] = value[key];
         }
         return result;
     }
@@ -106,6 +130,8 @@ class NetworkClient {
         if (this._preferredAppearance) this.preferredAvatar = this._preferredAppearance.base;
         this.avatarSelectionSupported = false;
         this.appearanceSelectionSupported = false;
+        this.appearanceAccessoriesSupported = false;
+        this.appearanceFootwearSupported = false;
         this.uid = typeof uid === 'string' && /^[A-Za-z0-9_-]{16,64}$/.test(uid) ? uid : null;
         /** @type {Set<string>} */
         this.blockedPids = new Set((blocked || []).filter(pid => NetworkClient.PID.test(pid)).slice(0, NetworkClient.MAX_BLOCKED));
@@ -216,6 +242,8 @@ class NetworkClient {
         this.avatar = null;
         this.selfAppearance = null;
         this.appearanceSelectionSupported = false;
+        this.appearanceAccessoriesSupported = false;
+        this.appearanceFootwearSupported = false;
         this.locked = false;
         this.hostId = null;
         if (this.ws) {
@@ -262,8 +290,10 @@ class NetworkClient {
         this._joiningAvatar = this.preferredAvatar;
         if (this.preferredAvatar) url.searchParams.set('avatar', this.preferredAvatar);
         else url.searchParams.delete('avatar');
-        this._joiningAppearance = JSON.stringify(this.preferredAppearance);
-        if (this._appearancePreferenceSet && (!this.preferredAppearance || this.preferredAppearance.base === this.preferredAvatar)) {
+        // Negotiate newer wardrobes after welcome so old relays can advertise their capabilities first.
+        this._joiningAppearance = JSON.stringify(this.preferredAppearance?.v >= 2 ? null : this.preferredAppearance);
+        if (!(this.preferredAppearance?.v >= 2) && this._appearancePreferenceSet &&
+            (!this.preferredAppearance || this.preferredAppearance.base === this.preferredAvatar)) {
             url.searchParams.set('appearance', this._joiningAppearance);
         } else {
             url.searchParams.delete('appearance');
@@ -301,6 +331,9 @@ class NetworkClient {
 
     _onSocketClosed(evt) {
         this.ws = null;
+        this.appearanceSelectionSupported = false;
+        this.appearanceAccessoriesSupported = false;
+        this.appearanceFootwearSupported = false;
         if (this.sfu) this.sfu.dispose();
         this.sfu = null;
         this.resetMusic();
@@ -384,6 +417,8 @@ class NetworkClient {
                 this.avatar = typeof msg.avatar === 'string' ? msg.avatar : null;
                 this.avatarSelectionSupported = msg.avatarSelection === true;
                 this.appearanceSelectionSupported = msg.appearanceSelection === true;
+                this.appearanceAccessoriesSupported = msg.appearanceAccessories === true;
+                this.appearanceFootwearSupported = msg.appearanceFootwear === true;
                 this.selfAppearance = NetworkClient.sanitizeAppearance(msg.appearance, this.avatar) || null;
                 this.hostId = msg.hostId;
                 this.capacity = Number.isInteger(msg.capacity) && msg.capacity >= 8 && msg.capacity <= 32 ? msg.capacity : 8;
@@ -412,7 +447,9 @@ class NetworkClient {
                 if (this.blockedPids.size) this._send({ type: 'blocklist', pids: [...this.blockedPids] });
                 if (this.avatar) this.onSelfAvatar(this.avatar, this.selfAppearance);
                 this.onSelfAppearance(this.selfAppearance);
-                if (this._appearancePreferenceSet && !this.appearanceSelectionSupported) {
+                if (this._appearancePreferenceSet && (!this.appearanceSelectionSupported ||
+                    (this.preferredAppearance?.v >= 2 && !this.appearanceAccessoriesSupported) ||
+                    (this.preferredAppearance?.v === 3 && !this.appearanceFootwearSupported))) {
                     this._reportAppearanceError('unsupported');
                 } else if (this.appearanceSelectionSupported &&
                     (JSON.stringify(this.preferredAppearance) !== this._joiningAppearance ||
@@ -642,7 +679,8 @@ class NetworkClient {
         this.setPreferredAppearance(appearance);
         this.preferredAvatar = avatar;
         if (!this.connected) return true;
-        if (!this.appearanceSelectionSupported) {
+        if (!this.appearanceSelectionSupported || (appearance?.v >= 2 && !this.appearanceAccessoriesSupported) ||
+            (appearance?.v === 3 && !this.appearanceFootwearSupported)) {
             this._reportAppearanceError('unsupported');
             return false;
         }

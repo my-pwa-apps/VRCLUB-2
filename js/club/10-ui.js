@@ -926,7 +926,7 @@ class VRClubUI extends VRClubAnimationFinish {
             me: [
                 { label: 'MY CHARACTER', action: 'page', target: 'character' },
                 { label: 'EDIT MY CHARACTER', action: 'page', target: 'appearanceEditor' },
-                { label: 'MEASURE HEIGHT', action: 'measureHeight' },
+                { label: 'MEASURE EYE HEIGHT', action: 'measureHeight' },
                 { label: 'SEATED MODE', control: 'vrSeatedMode' },
                 common.back,
                 common.close
@@ -1089,6 +1089,9 @@ class VRClubUI extends VRClubAnimationFinish {
                 appearanceEditor: 'PERSONAL WARDROBE', appearanceBase: 'BASE CHARACTER', appearanceHair: 'HAIR STYLE',
                 appearanceOutfit: 'OUTFIT STYLE', appearanceSkin: 'SKIN COLOR', appearanceHairColor: 'HAIR COLOR',
                 appearanceTop: 'TOP COLOR', appearanceBottom: 'BOTTOM COLOR',
+                appearanceAccessories: 'ACCESSORIES', appearanceGlasses: 'GLASSES',
+                appearanceFacialHair: 'FACIAL HAIR', appearanceHat: 'HEADWEAR',
+                appearanceFootwear: 'SHOES AND TIGHTS', appearanceShoes: 'SHOES', appearanceLegwear: 'LEGWEAR',
                 voiceAudience: 'MICROPHONE AUDIENCE', chatAudience: 'CHAT RECIPIENTS', welcome: 'WELCOME', access: 'LINK YOUR ACCOUNT', musicPhone: 'MUSIC FROM YOUR PHONE' };
             // Immersive launch pages draw their own words: the pairing code is the title, so it is read at arm's length.
             const immersiveText = (page === 'welcome' || page === 'access' || page === 'musicPhone') && this._immersive ? this._immersive.pageText(page) : null;
@@ -1114,6 +1117,13 @@ class VRClubUI extends VRClubAnimationFinish {
                 appearanceHairColor: 'CHOOSE A HAIR COLOR',
                 appearanceTop: 'CHOOSE A TOP COLOR',
                 appearanceBottom: 'CHOOSE A BOTTOM COLOR',
+                appearanceAccessories: 'GLASSES, FACIAL HAIR, HEADWEAR, SHOES AND TIGHTS',
+                appearanceFootwear: 'CHOOSE SHOES AND LEGWEAR FOR YOUR PERSONAL AVATAR',
+                appearanceShoes: 'CHOOSE ORIGINAL SHOES, LOAFERS, PUMPS OR HEELED ANKLE BOOTS',
+                appearanceLegwear: 'CHOOSE BARE LEGS OR SHEER TIGHTS',
+                appearanceGlasses: 'CHOOSE YOUR FRAMES OR SUNGLASSES',
+                appearanceFacialHair: 'COLOUR FOLLOWS YOUR HAIR COLOUR',
+                appearanceHat: 'HEADWEAR COVERS YOUR HAIR TO AVOID CLIPPING',
                 crowd: 'HOST CHOOSES STYLE; LIGHTWEIGHT FOR ME IS PERSONAL',
                 travel: 'POINT AT A PLACE TO JUMP THERE',
                 music: 'CONTROL THE CURRENT TRACK OR CHANGE SOURCE',
