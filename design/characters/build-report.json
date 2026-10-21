@@ -1,7 +1,7 @@
 [
   {
     "id": "nia",
-    "bytes": 2040908,
+    "bytes": 1986608,
     "clips": [
       "Dance_Loop",
       "Groove_Bounce",
@@ -27,7 +27,7 @@
   },
   {
     "id": "luca",
-    "bytes": 1939888,
+    "bytes": 1947216,
     "clips": [
       "Dance_Loop",
       "Groove_Bounce",
@@ -53,7 +53,7 @@
   },
   {
     "id": "robin",
-    "bytes": 1160240,
+    "bytes": 1242444,
     "clips": [
       "Dance_Loop",
       "Groove_Bounce",
@@ -72,7 +72,7 @@
   },
   {
     "id": "tao",
-    "bytes": 2050368,
+    "bytes": 2136396,
     "clips": [
       "Dance_Loop",
       "Groove_Bounce",
@@ -98,7 +98,7 @@
   },
   {
     "id": "sofia",
-    "bytes": 1982004,
+    "bytes": 1960756,
     "clips": [
       "Dance_Loop",
       "Groove_Bounce",
@@ -124,7 +124,7 @@
   },
   {
     "id": "asha",
-    "bytes": 1988820,
+    "bytes": 1899984,
     "clips": [
       "Dance_Loop",
       "Groove_Bounce",
@@ -150,7 +150,7 @@
   },
   {
     "id": "diego",
-    "bytes": 1964348,
+    "bytes": 2014688,
     "clips": [
       "Dance_Loop",
       "Groove_Bounce",
@@ -176,7 +176,7 @@
   },
   {
     "id": "iris",
-    "bytes": 1948084,
+    "bytes": 1871160,
     "clips": [
       "Dance_Loop",
       "Groove_Bounce",
@@ -202,7 +202,7 @@
   },
   {
     "id": "eden",
-    "bytes": 1101124,
+    "bytes": 1118852,
     "clips": [
       "Dance_Loop",
       "Groove_Bounce",
@@ -221,7 +221,7 @@
   },
   {
     "id": "ren",
-    "bytes": 2026584,
+    "bytes": 2105412,
     "clips": [
       "Dance_Loop",
       "Groove_Bounce",
@@ -247,7 +247,7 @@
   },
   {
     "id": "felix",
-    "bytes": 1899028,
+    "bytes": 2098988,
     "clips": [
       "Dance_Loop",
       "Groove_Bounce",
@@ -273,7 +273,7 @@
   },
   {
     "id": "kai",
-    "bytes": 1171044,
+    "bytes": 1254752,
     "clips": [
       "Dance_Loop",
       "Groove_Bounce",
@@ -292,7 +292,7 @@
   },
   {
     "id": "jonas",
-    "bytes": 1045168,
+    "bytes": 1249332,
     "clips": [
       "Dance_Loop",
       "Groove_Bounce",
@@ -311,7 +311,7 @@
   },
   {
     "id": "mara",
-    "bytes": 1033788,
+    "bytes": 1109096,
     "clips": [
       "Dance_Loop",
       "Groove_Bounce",
@@ -330,7 +330,7 @@
   },
   {
     "id": "ellis",
-    "bytes": 1587332,
+    "bytes": 1593396,
     "clips": [
       "Idle",
       "Walk",
@@ -346,7 +346,7 @@
   },
   {
     "id": "amara",
-    "bytes": 2115352,
+    "bytes": 2105944,
     "clips": [
       "Idle",
       "Walk",
@@ -364,7 +364,7 @@
   },
   {
     "id": "malik",
-    "bytes": 2520112,
+    "bytes": 2535728,
     "clips": [
       "Idle",
       "Walk",
@@ -383,7 +383,7 @@
   },
   {
     "id": "mei",
-    "bytes": 1997064,
+    "bytes": 1947296,
     "clips": [
       "Idle",
       "Walk",
@@ -400,7 +400,7 @@
   },
   {
     "id": "rosa",
-    "bytes": 1611020,
+    "bytes": 1586608,
     "clips": [
       "Idle",
       "Walk",
@@ -416,7 +416,7 @@
   },
   {
     "id": "samir",
-    "bytes": 1789500,
+    "bytes": 1872108,
     "clips": [
       "Idle",
       "Walk",
@@ -432,7 +432,7 @@
   },
   {
     "id": "luz",
-    "bytes": 795600,
+    "bytes": 819280,
     "clips": [
       "Idle_Loop",
       "Idle_Talking_Loop"
@@ -440,7 +440,7 @@
   },
   {
     "id": "ari",
-    "bytes": 694364,
+    "bytes": 891956,
     "clips": [
       "Idle_Loop",
       "Idle_Talking_Loop"
@@ -448,7 +448,7 @@
   },
   {
     "id": "leila",
-    "bytes": 1595092,
+    "bytes": 1598428,
     "clips": [
       "Idle",
       "Walk",
@@ -464,7 +464,7 @@
   },
   {
     "id": "kwame",
-    "bytes": 810644,
+    "bytes": 896404,
     "clips": [
       "Idle_Loop",
       "Idle_Talking_Loop",
@@ -473,7 +473,7 @@
   },
   {
     "id": "hana",
-    "bytes": 746808,
+    "bytes": 785052,
     "clips": [
       "Idle_Loop",
       "Idle_Talking_Loop",
@@ -482,7 +482,7 @@
   },
   {
     "id": "owen",
-    "bytes": 766500,
+    "bytes": 708068,
     "clips": [
       "Idle_Loop",
       "Idle_Talking_Loop",
@@ -491,7 +491,7 @@
   },
   {
     "id": "alex",
-    "bytes": 804572,
+    "bytes": 797148,
     "clips": [
       "Idle_Loop",
       "Idle_Talking_Loop",
@@ -500,7 +500,7 @@
   },
   {
     "id": "vera",
-    "bytes": 815000,
+    "bytes": 788000,
     "clips": [
       "Idle_Loop",
       "Idle_Talking_Loop",
@@ -510,7 +510,7 @@
   },
   {
     "id": "noah",
-    "bytes": 723600,
+    "bytes": 825688,
     "clips": [
       "Idle_Loop",
       "Idle_Talking_Loop",
@@ -519,7 +519,7 @@
   },
   {
     "id": "river",
-    "bytes": 823132,
+    "bytes": 846152,
     "clips": [
       "Idle_Loop",
       "Idle_Talking_Loop",
@@ -528,12 +528,12 @@
   },
   {
     "id": "sana",
-    "bytes": 577780,
+    "bytes": 560096,
     "clips": []
   },
   {
     "id": "idris",
-    "bytes": 1662408,
+    "bytes": 1744280,
     "clips": [
       "Idle",
       "Walk",
@@ -549,12 +549,12 @@
   },
   {
     "id": "jin",
-    "bytes": 667252,
+    "bytes": 699464,
     "clips": []
   },
   {
     "id": "zara",
-    "bytes": 704880,
+    "bytes": 726736,
     "clips": []
   }
 ]

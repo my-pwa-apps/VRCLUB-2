@@ -56,18 +56,48 @@ state the source and independent status.
 
 ## 3D models
 
+### Creator-authored avatar eyewear
+
+The round, square and sunglasses choices use Sagerfrog's Glasses 01, 02 and 03,
+adapted for MakeHuman by spamrakuen from the official
+[MakeHuman Community glasses01 pack](https://static.makehumancommunity.org/assets/assetpacks/glasses01.html).
+The selected `.mhclo`, `.mhmat` and `.obj` source files each declare CC0; the pack
+manifest is retained beside them in `design/characters/accessories/`.
+`npm run build:avatar-accessories` validates those notices, samples the original
+diffuse maps into vertex colours and rebuilds `js/avatarAccessoryAssets.js`.
+At runtime the meshes are fitted to the measured eye landmarks and merged with
+the avatar's existing head-skinned adornment mesh; they add no draw call, texture
+or material. Novelty glasses and beard/stubble remain original procedural
+designs; no moustache geometry is generated or offered. The facial-hair pack
+was not used because its pack-level CC0 metadata
+conflicts with AGPL3 notices in its individual OBJ files. The queue caller's
+phone also remains procedural; no verified authored phone source was found.
+
 ### Optional detailed adult cast (ADE)
 
 The following 34 fictional adults are generated from MakeHuman/MPFB's **CC0
-assets**, with individually verified CC0 system clothing, hair, shoes and
-MargaretToigo's CC0 `dress01` dresses. Sources:
+base assets**, verified CC0 clothing, hair and shoes, plus punkduck's explicitly
+licensed **CC BY 4.0** High Neck Crop Top on Asha. Sources:
 [MPFB](https://github.com/makehumancommunity/mpfb2),
 [system asset pack](https://static.makehumancommunity.org/assets/assetpacks/makehuman_system_assets.html),
 [dress01](https://static.makehumancommunity.org/assets/assetpacks/dress01.html).
 The per-person selected assets, authors, URLs and recipes are in
 `design/characters/recipes.json`; exact pack hashes and upstream tool revision
 are in `design/characters/provenance.json`. MPFB software is GPL-3.0-or-later;
-these generated assets are **CC0-1.0**, not GPL source code.
+the base assets are **CC0-1.0**, not GPL source code. Asha's dressed character
+and wardrobe additionally contain the attributed **CC BY 4.0** garment below;
+do not redistribute that derivative as CC0-only.
+Faces retain their source-neutral expressions in both base and wardrobe models.
+No smiles are painted, procedurally shaped or baked from generic face-shape sliders.
+Expression changes must use verified official expression options supplied for that
+avatar; none are currently integrated. Recipes and shipped model metadata record
+`source-neutral` with no expression targets. The lightweight cast keeps its authored faces.
+Regenerate with Blender 5.2 using `scripts/characters/generate.py`,
+`VRCLUB_CHARACTER_TOOLS` pointing at the existing MPFB/assets tooling directory,
+and a separate `BLENDER_USER_RESOURCES` profile. Repeat with `AVATAR_WARDROBE=1`
+for fitted personal parts, then run `npm run build:characters` and
+`npm run build:wardrobe`. `AVATAR_ONLY` accepts comma-separated cast IDs for a
+targeted source regeneration; the production builders always rebuild their full catalogs.
 
 Changes: adult body/face recipes, fitted clothing and hair, hidden-body removal,
 decimation below 10,000 triangles, 1024 px body/512 px hair WebP atlases,
@@ -75,16 +105,95 @@ decimation below 10,000 triangles, 1024 px body/512 px hair WebP atlases,
 CC0 Quaternius dances, locomotion, gestures, seating and social clips. Hand
 contacts are fitted to anatomy and role props; knee planes follow each person's
 own anatomy. Non-skin metacarpal helpers support the existing tracked-arm driver.
+Standing idles preserve the source's measured hip-to-neck direction rather than
+amplifying its short upper-spine segment on a differently proportioned body;
+bar, rail, dance and work poses retain their intentional bends. Regenerate both
+the detailed cast and personal wardrobe after changing `scripts/characters/retarget.mjs`.
 Measured eye landmarks place the self body. Both DJs reuse
 [Headphones by nisu](https://opengameart.org/content/headphones), CC0, fitted to
 each head and skinned to its Head joint (3,324 extra triangles).
+The procedural cue hand contacts the measured cup shell in the moving Head
+frame, with its own palm length, on both detailed and lightweight DJs.
 No proprietary scans, branded outfits or externally hosted avatar service.
 
-Residents sharing a clothing mesh use distinct baked palettes: Luca keeps the
-light tee, Noah wears teal, and Felix wears an olive button shirt. Jonas wears
-indigo, Mara rose and Ari silver-grey to separate previously similar outfits.
+The detailed night-out wardrobe combines cropped tops and trousers, fitted
+shirts, tailored layers, halter silhouettes and the CC0 cut-out dress
+([MargaretToigo](http://www.makehumancommunity.org/node/1704)) and midi halter
+([MargaretToigo](http://www.makehumancommunity.org/node/1854)).
+Residents sharing a clothing mesh use distinct baked palettes: Luca wears an
+ivory long-sleeve top, Noah teal, and Felix an olive button shirt. Jonas wears
+indigo, Mara a rose halter dress and Ari silver-grey.
 These colours are baked into clothing atlas cells, never into skin or runtime
 material clones. `test/wardrobe.test.mjs` samples the shipped torso textures.
+Stock MakeHuman graphics on `male_casualsuit02`, `04` and `06` are removed
+from their verified shirt UV region before either atlas is baked. The club
+adds at most one original print, and only to catalogued plain print surfaces;
+unknown textured garments never receive an overlapping graphic.
+
+#### Curated night-out separates and modern hair
+
+The owner approves both CC0 and CC-BY with verified terms and attribution.
+The following source-only packs extend the existing silhouettes without changing
+identities, rigs, clips, editor enums or live draw budgets:
+
+| Asset / title | Creator | Licence | Original source |
+|---|---|---|---|
+| High Neck Crop Top | punkduck | [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/) | [node 1088](http://www.makehumancommunity.org/node/1088) |
+| Turtleneck Halter Top | MargaretToigo | CC0-1.0 | [node 1642](http://www.makehumancommunity.org/node/1642) |
+| Camisole Top | MargaretToigo | CC0-1.0 | [node 1726](http://www.makehumancommunity.org/node/1726) |
+| Fisherman Sweater | MargaretToigo | CC0-1.0 | [node 1187](http://www.makehumancommunity.org/node/1187) |
+| Keyhole Tank Top | MargaretToigo | CC0-1.0 | [node 1606](http://www.makehumancommunity.org/node/1606) |
+| Basic Tucked T-shirt | MargaretToigo | CC0-1.0 | [node 1203](http://www.makehumancommunity.org/node/1203) |
+| Male Polo Shirt | namuhekam | CC0-1.0 | [node 2909](http://www.makehumancommunity.org/node/2909) |
+| Tiered Mini Skirt | MargaretToigo | CC0-1.0 | [node 1668](http://www.makehumancommunity.org/node/1668) |
+| Wool Pants | MargaretToigo | CC0-1.0 | [node 1194](http://www.makehumancommunity.org/node/1194) |
+| Cargo Pants | Cortu | CC0-1.0 | [node 2798](http://www.makehumancommunity.org/node/2798) |
+| Short Messy Hair | Cortu | CC0-1.0 | [node 2809](http://www.makehumancommunity.org/node/2809) |
+| Inverted Bob / with Bangs | MargaretToigo | CC0-1.0 | [node 1673](http://www.makehumancommunity.org/node/1673), [1685](http://www.makehumancommunity.org/node/1685) |
+| Curled-under Bob / Blunt Bob with Bangs | MargaretToigo | CC0-1.0 | [node 1677](http://www.makehumancommunity.org/node/1677), [1681](http://www.makehumancommunity.org/node/1681) |
+
+Official packs: [shirts01](https://static.makehumancommunity.org/assets/assetpacks/shirts01.html),
+[shirts03](https://static.makehumancommunity.org/assets/assetpacks/shirts03.html),
+[skirts01](https://static.makehumancommunity.org/assets/assetpacks/skirts01.html),
+[pants01](https://static.makehumancommunity.org/assets/assetpacks/pants01.html),
+[hair01](https://static.makehumancommunity.org/assets/assetpacks/hair01.html).
+Download hashes and selected asset metadata are pinned in
+`design/characters/provenance.json`. The crop top's author-original `.mhclo`
+explicitly says `# license CC BY 4.0`; its exact file hash is checked before
+generation. Generic pack JSON only says CC-BY, which is not enough to assume
+a version. Unversioned CC-BY candidates and an incompatible extended-basemesh
+lace blouse were not imported.
+
+Changes: fit to the existing fictional adult bodies; recolour to the room's
+graphite, bronze, stone, teal and amber palette; combine tops and bottoms,
+union garment-covered skin masks, atlas-bake, simplify, skin and retarget.
+Wardrobe top and bottom retain independent colours and the same two garment
+draws. Eye landmarks use their actual atlas cell rather than assuming a 2x2
+layout. Hair remains alpha-tested with depth writes, never alpha-blended.
+Modern short/bob choices reuse the editor's existing slots; existing long hair
+and ponytails remain. Two French-braid sources were evaluated but not shipped
+after real previews exposed poor scalp coverage at the wardrobe budget.
+No face expression, smile, runtime light, texture clone or per-frame updater
+is added. Physical-headset appearance and performance remain unmeasured.
+
+Detailed women wear a deterministic mix of sock-free leather loafers,
+closed ballet pumps and high-heeled ankle boots. Loafers derive from the
+CC0 MakeHuman system `shoes03` footwear with the separate sock and lace
+geometry removed. Fitted shoes include a small leather-thickness clearance
+to prevent toes poking through independently decimated footwear and skin.
+The other choices are fitted derivatives of
+[Ballet flats](http://www.makehumancommunity.org/node/1734) and
+[Stiletto booties](http://www.makehumancommunity.org/node/1694) by MargaretToigo,
+from the verified CC0-only
+[MakeHuman shoes01 pack](https://static.makehumancommunity.org/assets/assetpacks/shoes01.html).
+Changes: plain leather recolouring, sock removal and a low collar on the loafers,
+shape fitting, measured sole-to-floor alignment, skin occlusion, atlas baking
+and triangle reduction. Footwear fitting does not change the skeleton or clips.
+The pumps are flat ballet pumps, not stilettos; the high-heel option is an
+ankle boot. No socks are added to these three options. The lightweight cast
+keeps its original authored footwear.
+The existing lightweight CC0 cast retains its original geometry and expressions;
+these face and silhouette changes belong to the optional detailed cast and wardrobe.
 
 | File | Fictional adult | Role |
 |------|------------------|------|
@@ -124,14 +233,23 @@ material clones. `test/wardrobe.test.mjs` samples the shipped torso textures.
 | `js/models/characters/zara.glb` | Zara | Female DJ |
 
 The two fictional DJs' current styling takes broad hair, wardrobe and build cues
-from reference photographs supplied by the owner: mature, lean, ear-length dark
-hair and a charcoal crew-neck tee for the male; long side-parted blonde hair and a
+from reference photographs supplied by the owner: mature, lean, loose dark waves
+around the ears and into the nape, and a charcoal crew-neck tee for the male; long side-parted blonde hair and a
 charcoal tee for the female. They remain Jin and Zara, not representations of
 Hernan Cattaneo or Miss Melera and not an endorsement. The photographs and their
 printed clothing artwork are not bundled or copied. Both recipes reuse only the
-verified CC0 system assets above, including `short03` / `long01` hair and a
-plain `male_casualsuit06` tee/jeans mesh fitted to each body. The lightweight DJs
-retain their existing CC0 silhouettes with matching dark-shirt/hair tints.
+verified CC0 system assets above, including `long01` hair and a
+plain `male_casualsuit06` tee/jeans mesh fitted to each body. Jin uses the mature
+male skin and age parameter 0.82; his lower hair panels are re-authored into
+13 tapered curved clumps, retaining the parted roots. He remains 1.78 m tall,
+with the same 53-bone rig and three draws. `AVATAR_ONLY=jin` limits the offline
+generator and `npm run build:characters` to his recipe without rebuilding the
+other runtime people. The lightweight male DJ also has longer opaque nape
+waves, softened cheek/jaw geometry and subtle age creases; the effect is more
+stylized than Jin's. `node scripts/build-dj-glbs.mjs --refine-male` refreshes
+those refinements idempotently without the source packs; full regeneration
+applies them too. Headphone geometry and bind matrices remain unchanged,
+and the lightweight DJ stays at seven draws.
 Reference provenance is recorded in `design/characters/provenance.json`.
 
 All table entries are **CC0-1.0**, credited in-app as a courtesy. Quaternius
@@ -155,8 +273,8 @@ override. Existing room identity IDs and capacities are unchanged.
 
 ### Modular personal wardrobe
 
-`js/models/wardrobe/` contains CC0-1.0 fitted derivatives of the same verified
-MakeHuman system assets and `dress01` assets listed above. The seventeen files
+`js/models/wardrobe/` contains fitted derivatives of the same verified CC0
+MakeHuman assets and the attributed CC BY 4.0 crop top on Asha listed above. The seventeen files
 are `js/models/wardrobe/nia.glb`, `js/models/wardrobe/asha.glb`,
 `js/models/wardrobe/sofia.glb`, `js/models/wardrobe/iris.glb`,
 `js/models/wardrobe/leila.glb`, `js/models/wardrobe/amara.glb`,
@@ -181,13 +299,63 @@ textured eyes/shoes, split clothing into top/bottom material regions, alpha-test
 hair, and retarget the existing CC0 locomotion/gesture/seating clips offline.
 Only the selected hair and outfit draw (up to six meshes); per-person material
 instances share the original textures without cloning or mutating them.
+All bases also include original shoes, loafers, ballet pumps and heeled ankle
+boots. Eyes are merged into each shoe option to retain the six-draw ceiling.
+Three outfit skin meshes carry four-channel shoe-occlusion masks, not twelve
+duplicated bodies. Production packs decoded normalized coverage into bytes.
+Selection filters triangles on instance-owned geometry,
+never the shared source or another visitor's body.
+Optional sheer black/nude tights tint only leg-weighted skin vertices; they
+remain opaque, require no texture, mesh or per-frame updater, and default to
+bare legs. Original legacy shoes are retained as a separate choice.
+Complete v3 appearance descriptors add `shoes` and `legwear`; v1/v2 still
+select their original shoes and bare legs. The relay must advertise
+`appearanceFootwear` before a v3 look can be shared; unsupported relays preserve
+the saved preference and report that sharing requires an update.
 The editor has no face/body morphs or proprietary likeness models.
+
+`js/avatarDetails.js` adds original code-authored glasses (round, square,
+heart, star and sunglasses), beard/stubble shapes and cap/beanie/fedora/bucket
+headwear. Moustaches are not generated or offered: that choice stays unavailable
+until an officially avatar-accompanied asset with clear redistribution terms
+is verified. Older saved moustache choices normalize to none. This procedural geometry is covered by
+the repository's MIT licence; it does not import a model, logo or texture.
+One vertex-coloured skinned mesh draws selected accessories together.
+Facial hair is fitted to the actual face surface, not a floating face card.
+All four hat styles use measured upper-head bounds and a scalp-envelope profile,
+not eye-level face width or a fixed-height crown. Brims rest near the brow,
+crowns clear the scalp by millimetres and full brims extend only about 2.4 cm.
+The real-GLB tests check scalp coverage and size across both casts and all
+seventeen personal wardrobe bases.
+Accessories follow the head and disappear with the first-person head while
+remaining visible in the mirror. Personal wardrobes retain the six-draw
+ceiling and shared source textures. Headwear hides the fitted hair.
+The same deterministic accessory assignments dress both NPC styles.
+Selected shirts and long-sleeve tops also carry original orbit/wave graphics
+and hand-authored Japanese 音 (sound) / 光 (light) lettering; personal Casual
+outfits receive the same bounded designs. Meanings were checked against
+[音](https://jlearn.net/dictionary/%E9%9F%B3) and
+[光](https://jlearn.net/dictionary/%E5%85%89). No brand, artist graphic,
+font download or faux-language marks are used. The ink is clipped to the
+actual garment triangles and retains interpolated torso skin weights,
+merged into that same accessory draw: no texture download or per-frame
+projection. Only head accessories collapse with the first-person head.
+Idris/the bouncer, Ellis and Ren have bald heads; the lightweight bouncer,
+m4 and m7 expose their existing scalp by removing connected crown-hair
+geometry, retaining eyebrows/side hair, skin, rig and animation. Their vm4/vm5
+variants inherit the changed silhouette. Reproduce with
+`node scripts/build-crowd-glbs.mjs --refresh-wardrobe --only bouncer,m4,m7 --optimize`
+then `node scripts/build-crowd-glbs.mjs --variants --only vm4,vm5 --optimize`.
+The queue caller's original generic phone is one opaque, vertex-coloured mesh
+fitted to the raised palm and parented to the wrist, with no per-frame updater.
+It is created/disposed with that caller in either character style and uses
+the existing scoped street lighting. Physical-headset appearance is unmeasured.
 
 Authoring: run `scripts/characters/generate.py` in the same verified MPFB/Blender
 environment as the base cast with `AVATAR_WARDROBE=1`; source-only GLBs go to
 `design/characters/wardrobe/`. `npm run build:wardrobe` retargets/compresses them
 and generates `js/wardrobeCatalog.js` with measured eye landmarks from the
-wardrobe itself. These files total 44.6 MiB and are loaded on demand.
+wardrobe itself. These files total 47.9 MiB and are loaded on demand.
 Real-Babylon tests enforce all 17 clip sets, selected-part draw counts,
 per-person colour isolation, texture sharing and depth/light policies.
 Fit under every pose and physical-headset performance are not certified.
@@ -320,7 +488,7 @@ these three images before stripping the embedded copies.
 |------|--------|---------|
 | `js/models/avatars/club-dancer-female.glb` | Quaternius Universal Base Characters + Modular Character Outfits - Fantasy + Universal Animation Library (`Dance_Loop`) | CC0 1.0 |
 | `js/models/avatars/club-dancer-male.glb` | Quaternius Universal Base Characters + Modular Character Outfits - Fantasy + Universal Animation Library (`Dance_Loop`) | CC0 1.0 |
-| `js/models/avatars/club-dj-male.glb` | Fictional male DJ, derived from `club-guest-male.glb`: beard removed, shortened Universal Base Characters `Hair_Long` added over the cap, CC0 headphones added, `Idle_Loop` retained. Dark-brown hair and grey top through runtime tints | CC0 1.0 |
+| `js/models/avatars/club-dj-male.glb` | Fictional male DJ, derived from `club-guest-male.glb`: beard removed, Universal Base Characters `Hair_Long` reworked into opaque nape waves over the cap, softened cheek/jaw and subtle age creases, CC0 headphones added, `Idle_Loop` retained. Dark-brown hair and grey top through runtime tints | CC0 1.0 |
 | `js/models/avatars/club-dj-female.glb` | Fictional female DJ, derived from `club-guest-female.glb`: CC0 headphones added, `Idle_Loop` retained. Blond hair and grey top through runtime tints | CC0 1.0 |
 | `js/models/avatars/club-guest-female.glb` | Quaternius Universal Base Characters + Modular Character Outfits - Fantasy (Ranger outfit without its hood and pauldron) + Universal Animation Library (`Dance_Loop`, `Idle_Talking_Loop`, `Idle_Loop`) + Universal Animation Library 2 (`Yes`, `Idle_FoldArms_Loop`, `Idle_TalkingPhone_Loop`). At runtime it is the bartender (black outfit through a tint); it is also the source the DJ and crowd builds derive from | CC0 1.0 |
 | `js/models/avatars/club-guest-male.glb` | As `club-guest-female.glb`, male. Not loaded at runtime any more (the guests are the `club-crowd-*` people); kept as the source `scripts/build-dj-glbs.mjs` and `scripts/build-crowd-glbs.mjs` derive from | CC0 1.0 |
@@ -391,9 +559,11 @@ Garment clusters down to 60 vertices are recoloured: the old 270-vertex floor
 silently left several tops unchanged while only recolouring trousers.
 `node scripts/build-crowd-glbs.mjs --refresh-wardrobe --optimize` rebuilds these
 variants and the bouncer's clothing without the packs or changes to his skin,
-hair, skeleton or clips. The existing scoped entrance lamp also lights his face
+skeleton or clips. Bald recipes additionally remove the connected crown-hair
+shell while preserving the existing scalp. The existing scoped entrance lamp also lights his face
 more clearly; live character swaps re-register accent-light ordering. No extra
-light, material, texture or draw is added. Appearance is browser-tested in both
+light or texture is added. Optional NPC accessories add one shared-material
+draw per dressed person, and the caller's phone adds one draw. Appearance is browser-tested in both
 styles; physical-headset readability and timing remain unmeasured.
 
 "All six" is `Dance_Loop`, `Idle_Loop`, `Idle_Talking_Loop`, `Idle_FoldArms_Loop`, `Idle_TalkingPhone_Loop` and `Yes`:

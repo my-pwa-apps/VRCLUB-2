@@ -228,14 +228,14 @@ class AvatarManager {
         node.computeWorldMatrix(true);
         // Normalise on real-world height, as the crowd does, and stand the feet on the guest's floor.
         const height = (AvatarManager.PERSON_HEIGHT[avatarId[0]] || 1.72) * (peer.eyeHeight / AvatarManager.EYE_HEIGHT);
-        let bounds = node.getHierarchyBoundingVectors(true);
+        let bounds = node.getHierarchyBoundingVectors(true, mesh => !mesh.metadata?.vrclubAdornment);
         const rawHeight = bounds.max.y - bounds.min.y;
         if (container.character) {
             const minY = bounds.min.y - peer.root.getAbsolutePosition().y;
             node.scaling.setAll(peer.eyeHeight / (container.character.eye[1] - minY));
         } else if (rawHeight > 1e-6) node.scaling.setAll(height / rawHeight);
         node.computeWorldMatrix(true);
-        bounds = node.getHierarchyBoundingVectors(true);
+        bounds = node.getHierarchyBoundingVectors(true, mesh => !mesh.metadata?.vrclubAdornment);
         node.position.y += peer.root.getAbsolutePosition().y - bounds.min.y;
 
         const meshes = [];

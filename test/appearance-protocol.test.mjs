@@ -9,6 +9,10 @@ const wardrobe = (base = 'f1') => ({
     skin: '#AaBBcc', hairColor: '#123456', top: '#FEDCBA', bottom: '#000000'
 });
 const plain = value => JSON.parse(JSON.stringify(value));
+const accessorized = (base = 'f1') => ({
+    ...wardrobe(base), v: 2, hair: 'bald', glasses: 'heart', facialHair: 'beard', hat: 'fedora'
+});
+const footwear = (base = 'f1') => ({ ...accessorized(base), v: 3, shoes: 'heels', legwear: 'sheer-black' });
 
 class Socket {
     static OPEN = 1;
@@ -76,6 +80,163 @@ test('wardrobe sanitizers require the exact complete allow-listed shape and norm
         }
         for (const value of invalid) assert.equal(sanitize(value, 'f1'), undefined, JSON.stringify(value));
     }
+});
+
+test('version two accessories are complete, bounded and identical in client, renderer and relay', () => {
+    const NetworkClient = clientClass(), window = {};
+    vm.runInNewContext(readFileSync(new URL('../js/avatarAppearance.js', import.meta.url), 'utf8'), { window });
+    const sanitizers = [sanitizeAppearance, NetworkClient.sanitizeAppearance,
+        (value, base) => { assert.equal(value.base, base); return window.AvatarAppearance.sanitize(value); }];
+    for (const sanitize of sanitizers) {
+        const next = sanitize(accessorized(), 'f1');
+        assert.deepEqual(plain(next), { ...accessorized(), skin: '#aabbcc', top: '#fedcba' });
+        assert.ok(JSON.stringify(next).length < MAX_APPEARANCE_LENGTH);
+        assert.equal(sanitize(wardrobe(), 'f1').v, 1, 'old saved wardrobes remain unchanged');
+        for (const [field, choices] of Object.entries(window.AvatarAppearance.ACCESSORIES)) for (const choice of choices) {
+            assert.equal(sanitize({ ...accessorized(), [field]: choice }, 'f1')[field], choice);
+        }
+        for (const legacy of ['moustache', 'handlebar']) {
+            assert.equal(sanitize({ ...accessorized(), facialHair: legacy }, 'f1').facialHair, 'none');
+        }
+        assert.equal(sanitize({ ...accessorized(), hat: 'party' }, 'f1').hat, 'bucket');
+    }
+    for (const sanitize of [sanitizeAppearance, NetworkClient.sanitizeAppearance]) {
+        for (const key of ['glasses', 'facialHair', 'hat']) {
+            const missing = accessorized(); delete missing[key];
+            assert.equal(sanitize(missing, 'f1'), undefined);
+            for (const value of ['../custom.glb', '', null, [], true, 'star'.repeat(1000)]) {
+                assert.equal(sanitize({ ...accessorized(), [key]: value }, 'f1'), undefined);
+            }
+        }
+        assert.equal(sanitize({ ...accessorized(), v: 1 }, 'f1'), undefined);
+        assert.equal(sanitize({ ...accessorized(), extra: true }, 'f1'), undefined);
+    }
+});
+
+test('accessory capabilities fail explicitly on old relays and retain exact looks for late joins and reconnects', t => {
+    const C = clientClass(), errors = [];
+    const client = new C({ serverUrl: 'ws://localhost' });
+    client.onError = error => errors.push(error);
+    const ws = welcome(client);
+    assert.equal(client.selectAppearance(accessorized()), false);
+    assert.equal(ws.sent.filter(frame => frame.type === 'avatar').length, 0);
+    assert.equal(client.appearanceAccessoriesSupported, false);
+    assert.ok(errors.length > 0);
+    client.appearanceAccessoriesSupported = true;
+    assert.equal(client.selectAppearance(accessorized()), true);
+    assert.equal(ws.last('avatar').appearance.glasses, 'heart');
+    client.disconnect();
+    assert.equal(client.appearanceAccessoriesSupported, false);
+    const saved = new C({ serverUrl: 'ws://localhost', appearance: accessorized() });
+    const savedErrors = [];
+    saved.onError = error => savedErrors.push(error.code);
+    const old = welcome(saved);
+    assert.equal(new URL(old.url).searchParams.has('appearance'), false, 'old relays must be able to reach capability negotiation');
+    assert.equal(savedErrors.at(-1), 'appearance-unsupported');
+    assert.equal(saved.preferredAppearance.hair, 'bald', 'unsupported sharing must not erase the saved preference');
+    saved.disconnect();
+    const upgraded = welcome(saved, { appearanceAccessories: true });
+    assert.equal(upgraded.last('avatar').appearance.glasses, 'heart');
+    assert.equal(saved.selfAppearance, null, 'the negotiated appearance still waits for acknowledgement');
+    upgraded.receive({ type: 'avatar', id: 'self', avatar: 'f1', appearance: sanitizeAppearance(accessorized(), 'f1') });
+    assert.equal(saved.selfAppearance.hat, 'fedora');
+    saved.disconnect();
+    const room = new ClubRoom({});
+    t.after(() => { for (const [socket, session] of [...room.sessions]) room._onClose(socket, session); });
+    const chosen = join(room, 'f1', accessorized());
+    assert.equal(chosen.ws.last('welcome').appearanceAccessories, true);
+    const late = join(room, 'm1');
+    assert.deepEqual(late.ws.last('welcome').peers.find(peer => peer.id === chosen.session.id).appearance, chosen.session.appearance);
+    chosen.ws.receive({ type: 'avatar', avatar: 'm2', appearance: accessorized('m2') });
+    assert.equal(late.ws.last('avatar').appearance.hair, 'bald');
+    const resumed = join(room, 'm2', chosen.session.appearance);
+    assert.deepEqual(resumed.ws.last('welcome').appearance, chosen.session.appearance);
+});
+
+test('version three footwear is complete and strictly allow-listed across client, renderer and relay', () => {
+    const C = clientClass(), window = {};
+    vm.runInNewContext(readFileSync(new URL('../js/avatarAppearance.js', import.meta.url), 'utf8'), { window });
+    const A = window.AvatarAppearance;
+    const invalid = [{ ...footwear(), extra: true }, { ...footwear(), v: 2 },
+        { ...footwear(), hat: 'party' }, { ...footwear(), facialHair: 'moustache' }];
+    for (const field of Object.keys(footwear())) {
+        const missing = footwear(); delete missing[field];
+        invalid.push(missing);
+    }
+    for (const field of ['shoes', 'legwear']) for (const value of ['', null, [], {}, 1, true, 'socks', '../shoe.glb', 'HEELS']) {
+        invalid.push({ ...footwear(), [field]: value });
+    }
+    for (const sanitize of [sanitizeAppearance, C.sanitizeAppearance, value => {
+        try { return A.sanitize(value); } catch { return undefined; }
+    }]) {
+        const v1 = sanitize(wardrobe(), 'f1'), v2 = sanitize(accessorized(), 'f1');
+        assert.equal(v1.v, 1);
+        assert.equal(v2.v, 2);
+        assert.equal(Object.hasOwn(v1, 'shoes'), false);
+        assert.equal(Object.hasOwn(v2, 'legwear'), false);
+        for (const base of ['f1', 'f2', 'f3', 'f4', 'f5', 'f6', 'f7', 'f8',
+            'm1', 'm2', 'm3', 'm4', 'm5', 'm6', 'm7', 'm8', 'm9']) {
+            for (const shoes of ['original', 'loafers', 'pumps', 'heels']) for (const legwear of ['bare', 'sheer-black', 'sheer-nude']) {
+                const next = sanitize({ ...footwear(base), shoes, legwear }, base);
+                assert.deepEqual(plain(next), { ...footwear(base), skin: '#aabbcc', top: '#fedcba', shoes, legwear });
+                assert.ok(JSON.stringify(next).length < MAX_APPEARANCE_LENGTH);
+            }
+        }
+        for (const value of invalid) assert.equal(sanitize(value, 'f1'), undefined, JSON.stringify(value));
+    }
+});
+
+test('footwear sends only after both capabilities negotiate and survives unsupported relays and disconnects', () => {
+    const C = clientClass();
+    for (const capabilities of [{}, { appearanceAccessories: true }, { appearanceFootwear: true },
+        { appearanceAccessories: true, appearanceFootwear: 'true' },
+        { appearanceSelection: false, appearanceAccessories: true, appearanceFootwear: true }]) {
+        const client = new C({ serverUrl: 'ws://localhost', appearance: footwear() }), errors = [];
+        client.onError = error => errors.push(error.code);
+        client.connect();
+        const connecting = Socket.instances.at(-1);
+        assert.equal(client.selectAppearance(footwear()), true);
+        assert.equal(connecting.last('avatar'), undefined, 'connecting never publishes without negotiation');
+        const ws = connecting;
+        ws.receive({ type: 'welcome', id: 'self', avatar: 'f1', avatarSelection: true, appearanceSelection: true,
+            appearance: null, peers: [], ...capabilities });
+        assert.equal(new URL(ws.url).searchParams.has('appearance'), false);
+        assert.equal(ws.last('avatar'), undefined);
+        assert.equal(errors.at(-1), 'appearance-unsupported');
+        assert.equal(client.selectAppearance(footwear()), false);
+        assert.equal(client.preferredAppearance.shoes, 'heels');
+        client.disconnect();
+        assert.equal(client.appearanceFootwearSupported, false);
+        const upgraded = welcome(client, { appearanceAccessories: true, appearanceFootwear: true });
+        assert.equal(upgraded.last('avatar').appearance.legwear, 'sheer-black');
+        assert.equal(client.selfAppearance, null);
+        upgraded.receive({ type: 'avatar', id: 'self', avatar: 'f1', appearance: footwear() });
+        assert.equal(client.selfAppearance.shoes, 'heels');
+        upgraded.close(1006);
+        assert.equal(client.appearanceFootwearSupported, false, 'unexpected socket loss resets negotiation too');
+        assert.equal(client.appearanceAccessoriesSupported, false);
+        assert.equal(client.preferredAppearance.legwear, 'sheer-black');
+        client.disconnect();
+    }
+});
+
+test('relay advertises footwear and retains v3 membership, acknowledgements and late-join state', t => {
+    const room = new ClubRoom({});
+    t.after(() => { for (const [socket, session] of [...room.sessions]) room._onClose(socket, session); });
+    const chosen = join(room, 'f1', footwear());
+    assert.equal(chosen.ws.last('welcome').appearanceFootwear, true);
+    assert.equal(chosen.ws.last('welcome').appearanceAccessories, true);
+    const observer = join(room, 'm1');
+    assert.deepEqual(observer.ws.last('welcome').peers.find(peer => peer.id === chosen.session.id).appearance,
+        sanitizeAppearance(footwear(), 'f1'));
+    chosen.ws.receive({ type: 'avatar', avatar: 'm2', appearance: footwear('m2') });
+    assert.equal(chosen.ws.last('avatar').appearance.shoes, 'heels');
+    assert.equal(observer.ws.last('avatar').appearance.legwear, 'sheer-black');
+    chosen.session.buckets.avatar = new TokenBucket(RATE_LIMITS.avatar);
+    chosen.ws.receive({ type: 'avatar', avatar: 'f1', appearance: { ...footwear(), legwear: 'socks' } });
+    assert.equal(chosen.ws.last('avatar-error').reason, 'invalid-appearance');
+    assert.equal(chosen.session.avatar, 'm2');
+    assert.equal(chosen.session.appearance.base, 'm2');
 });
 
 test('relay wardrobes use retained join/avatar metadata, acknowledgements, blocks, the avatar rate bucket and clear', t => {

@@ -43,7 +43,7 @@ if ((!dirs.women || !dirs.men) && !refreshStatic && !variantsOnly && !refreshWar
     console.error('usage: node scripts/build-crowd-glbs.mjs --women "<dir>" --men "<dir>" [--out <dir>] [--only id,id] [--optimize]');
     console.error('   or: node scripts/build-crowd-glbs.mjs --refresh-static [--out <dir>]');
     console.error('   or: node scripts/build-crowd-glbs.mjs --variants [--only id,id] [--optimize]   (no packs needed)');
-    console.error('   or: node scripts/build-crowd-glbs.mjs --refresh-wardrobe [--only id,id] [--optimize]   (bouncer and variants, no packs needed)');
+    console.error('   or: node scripts/build-crowd-glbs.mjs --refresh-wardrobe [--only id,id] [--optimize]   (bald cast and variants, no packs needed)');
     process.exit(1);
 }
 
@@ -75,14 +75,14 @@ const CAST = [
     { id: 'm1', base: 'men', file: 'Casual_2', skin: 'deep', mirror: true, colors: { Hair: BLACK_HAIR, Eyebrows: BLACK_HAIR, LightBrown: '#1b1b20', LightBlue: '#2a3342' } },
     { id: 'm2', base: 'men', file: 'Casual_2', skin: 'fair', colors: { Hair: SILVER, Eyebrows: '#9c9ca3', LightBrown: '#6f7f93' } },
     { id: 'm3', base: 'men', file: 'Casual_Hoodie', skin: 'tan', mirror: true, colors: { Hair: '#2a1b10', Purple: '#1f5b3b' } },
-    { id: 'm4', base: 'men', file: 'Casual_Hoodie', skin: 'brown', guest: true, colors: { Hair: BLACK_HAIR, Eyebrows: BLACK_HAIR, Purple: '#a43c2a' } },
+    { id: 'm4', base: 'men', file: 'Casual_Hoodie', skin: 'brown', guest: true, bald: true, colors: { Hair: BLACK_HAIR, Eyebrows: BLACK_HAIR, Purple: '#a43c2a' } },
     { id: 'm5', base: 'men', file: 'Punk', skin: 'light', colors: { Red: '#2f6dff', Red_Dark: '#1e40a2' } },
     { id: 'm6', base: 'men', file: 'Suit', skin: 'tan', guest: true, drink: true, smoke: true, colors: { Hair: '#b9bac2', Eyebrows: '#9c9ca3', Suit: '#2a303b' } },
-    { id: 'm7', base: 'men', file: 'Suit', skin: 'deep', mirror: true, colors: { Hair: BLACK_HAIR, Eyebrows: BLACK_HAIR, Suit: '#4b202c' } },
+    { id: 'm7', base: 'men', file: 'Suit', skin: 'deep', mirror: true, bald: true, colors: { Hair: BLACK_HAIR, Eyebrows: BLACK_HAIR, Suit: '#4b202c' } },
     { id: 'm8', base: 'men', file: 'Beach', skin: 'light', guest: true, colors: { Hair: '#c9a459', Eyebrows: '#8a6b34', LightBrown: '#e2d9bd', Red_Dark: '#1f6090' } },
     { id: 'm9', base: 'men', file: 'Casual_2', skin: 'medium', colors: { Hair: '#4a2f1a', LightBrown: '#6a3c8d' } },
     // The bouncer keeps his dark suit, with a lighter shirt separating the lapels from his face.
-    { id: 'bouncer', base: 'men', file: 'Suit', skin: 'espresso', guest: true, colors: { Hair: BLACK_HAIR, Eyebrows: BLACK_HAIR, Suit: '#303747', Tie: '#08080a', White: '#a6adb8' } }
+    { id: 'bouncer', base: 'men', file: 'Suit', skin: 'espresso', guest: true, bald: true, colors: { Hair: BLACK_HAIR, Eyebrows: BLACK_HAIR, Suit: '#303747', Tie: '#08080a', White: '#a6adb8' } }
 ];
 const GUEST_CLIPS = ['Dance_Loop', 'Idle_Loop', 'Idle_Talking_Loop', 'Idle_FoldArms_Loop', 'Idle_TalkingPhone_Loop', 'Yes'];
 // Everybody can dance and nod (`Yes`); the guests who stand about also carry the idle poses. The people who walk the
@@ -1186,6 +1186,7 @@ async function build(person) {
         if (!NATIVE_CLIPS.includes(animation.getName())) animation.dispose();
     }
     paintAndFlatten(document, person);
+    if (person.bald) makeBald(document, person);
     addAnimations(document, tgt, results);
     await document.transform(prune());
 
@@ -1257,9 +1258,52 @@ const VARIANT_SKIN = { pale: '#f3dccb', olive: '#c9a07a', golden: '#d2a26b', umb
  * whose colours fall into a few flat clusters (skin, hair, a top and trousers, shoes), told apart here by where on the
  * body they sit. The body, the skeleton and every clip are copied as they are, so a variant plays exactly like its base.
  */
+function makeBald(document, person) {
+    if (document.getRoot().getExtras().bald) return;
+    const hair = hexToLinear(person.colors.Hair), skin = hexToLinear(SKIN[person.skin]);
+    let removed = 0;
+    for (const mesh of document.getRoot().listMeshes()) for (const primitive of mesh.listPrimitives()) {
+        const p = primitive.getAttribute('POSITION'), c = primitive.getAttribute('COLOR_0'), indices = primitive.getIndices();
+        const parents = new Map(), heights = new Map(), candidates = [];
+        const near = (a, b) => a.every((x, i) => Math.abs(x - b[i]) < 0.006);
+        let top = -Infinity, scalp = -Infinity;
+        const key = index => p.getElement(index, []).map(x => x.toFixed(5)).join(',');
+        const find = k => {
+            if (!parents.has(k)) parents.set(k, k);
+            if (parents.get(k) !== k) parents.set(k, find(parents.get(k)));
+            return parents.get(k);
+        };
+        for (let i = 0; i < p.getCount(); i++) {
+            const y = p.getElement(i, [])[1];
+            top = Math.max(top, y);
+            if (near(c.getElement(i, []).slice(0, 3), skin)) scalp = Math.max(scalp, y);
+        }
+        if (scalp < top - 0.06) throw new Error(`${person.id}: the scalp must exist under the removable hair`);
+        for (let i = 0; i < indices.getCount(); i += 3) {
+            const tri = [indices.getScalar(i), indices.getScalar(i + 1), indices.getScalar(i + 2)];
+            if (!tri.every(index => near(c.getElement(index, []).slice(0, 3), hair))) continue;
+            const keys = tri.map(key);
+            const root = find(keys[0]);
+            for (const k of keys.slice(1)) parents.set(find(k), root);
+            candidates.push([i, keys[0], Math.max(...tri.map(index => p.getElement(index, [])[1]))]);
+        }
+        for (const [, k, y] of candidates) heights.set(find(k), Math.max(heights.get(find(k)) || -Infinity, y));
+        const cut = new Set(candidates.filter(([, k]) => heights.get(find(k)) > top - 0.025).map(([i]) => i));
+        const kept = [];
+        for (let i = 0; i < indices.getCount(); i += 3) {
+            if (cut.has(i)) { removed++; continue; }
+            kept.push(indices.getScalar(i), indices.getScalar(i + 1), indices.getScalar(i + 2));
+        }
+        indices.setArray(new Uint32Array(kept));
+    }
+    if (removed < 100) throw new Error(`${person.id}: no connected scalp-hair shell was removed`);
+    document.getRoot().setExtras({ ...document.getRoot().getExtras(), bald: true, removedHairTriangles: removed });
+}
+
 async function buildVariant(variant, preserveIdentity = false) {
     const base = CAST.find(person => person.id === variant.from);
     const document = await io.read(join(outDir, `club-crowd-${base.id}.glb`));
+    if (base.bald && preserveIdentity) makeBald(document, base);
     const primitives = [];
     for (const node of document.getRoot().listNodes()) {
         const mesh = node.getMesh();
@@ -1332,12 +1376,12 @@ async function buildVariant(variant, preserveIdentity = false) {
 
 const built = [];
 if (refreshWardrobe) {
-    const wanted = only ? only.split(',') : ['bouncer', ...VARIANTS.map(variant => variant.id)];
+    const wanted = only ? only.split(',') : [...CAST.filter(person => person.bald).map(person => person.id), ...VARIANTS.map(variant => variant.id)];
     for (const id of wanted) {
-        if (id === 'bouncer') {
+        if (CAST.find(person => person.id === id)?.bald) {
             const person = CAST.find(person => person.id === id);
             built.push(await buildVariant({ id, from: id, skin: person.skin, hair: BLACK_HAIR,
-                clothes: [person.colors.White, person.colors.Suit] }, true));
+                clothes: id === 'bouncer' ? [person.colors.White, person.colors.Suit] : [] }, true));
         } else {
             const variant = VARIANTS.find(variant => variant.id === id);
             if (!variant) throw new Error(`No pack-free wardrobe recipe for ${id}`);

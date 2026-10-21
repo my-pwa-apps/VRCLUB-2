@@ -162,10 +162,14 @@ test('script load order honours the dependency contract', () => {
     assert.ok(idx('js/liveEventConcept.js') > main &&
         idx('js/liveEventConcept.js') < idx('js/ui-init.js'),
     'the opt-in live event concept must load between the public club and UI initialization');
+    assert.ok(idx('js/avatarAccessoryAssets.js') > idx('js/wardrobeCatalog.js') &&
+        idx('js/avatarAccessoryAssets.js') < idx('js/avatarDetails.js'),
+    'authored avatar accessory geometry must load before AvatarDetails');
 });
 
 test('every class used across files is exported onto window', () => {
     const required = {
+        'js/avatarAccessoryAssets.js': ['AvatarAccessoryAssets'],
         'js/assetCache.js': ['IndexedDBAssetCache', 'InFlightRegistry'],
         'js/audioUtils.js': ['AudioUtils'],
         'js/liveEventConcept.js': ['LiveEventConcept'],

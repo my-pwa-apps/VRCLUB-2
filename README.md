@@ -8,10 +8,22 @@ Hyperrealistic WebXR nightclub built with Babylon.js for compatible VR headsets 
 
 Open **Show → Club → Edit my character** on a computer or phone, or
 **Comfort → Me → Edit my character** in VR. Choose one of 17 adult bases,
-original/short/long hair, an original/casual/smart fitted outfit, and skin,
-hair, top and bottom colours. Rotate the 3D preview before saving; Cancel
+original/short/long hair or a bald head, an original/casual/smart fitted outfit,
+glasses, facial hair and headwear, and skin, hair, top and bottom colours.
+Frames include round, square, heart, star and sunglasses; facial hair includes
+stubble and a beard. Moustache options remain unavailable until an officially
+avatar-accompanied asset with clear redistribution terms is verified; older
+saved moustache choices reset to none. Hats include a cap, beanie, fedora and
+bucket hat; older party-cone selections migrate to the bucket hat. Headwear
+hides the fitted hair to avoid clipping, and facial hair follows Hair color.
+Casual outfits include original graphic prints;
+selected NPC shirts and sweaters also carry abstract wave/orbit graphics or
+Japanese 音 (sound) and 光 (light). Tailored outfits stay plain.
+Rotate the 3D preview before saving; Cancel
 leaves your character unchanged. Reset removes customization and keeps the
 chosen base. This is a wardrobe editor, not a body/face sculpting tool.
+Faces keep their source-authored expressions; no custom smile shaping is applied.
+Official expression controls are not currently integrated.
 
 Your choice is saved on this device and shared with guests in rooms. Sharing
 requires the updated relay; an older relay gives an explicit error rather than
@@ -24,9 +36,18 @@ Controller comfort, clothing fit in every pose and frame cost on a physical
 headset still require headset review.
 
 `js/wardrobeCatalog.js` lists the on-demand wardrobe assets;
+`js/avatarAccessoryAssets.js` contains eyewear generated from the selected
+CC0 MakeHuman Community assets by `scripts/build-avatar-accessories.mjs`;
+`js/avatarDetails.js` fits the authored glasses and remaining procedural
+accessories to measured heads, and a phone to the outside queue caller's
+animated hand in both character styles;
 `js/avatarAppearance.js` owns validation, shared-texture instantiation, device
 preferences and authoritative room updates; `js/avatarEditor.js` owns the
 desktop/phone modal and the VR preview.
+Old eight-field v1 wardrobes remain valid. The editor saves complete v2
+descriptors, negotiating `appearanceAccessories` before publishing them.
+Deploy the frontend and relay together for shared accessories; old relays
+report unsupported sharing without discarding the device preference.
 
 ### Live-event / ADE exploration
 
@@ -91,7 +112,10 @@ explicit fallback whose audio cannot be analysed, spatialized or shared. The Wid
 loaded only for that fallback. YouTube and Spotify page URLs are not playable. Other direct
 audio hosts must allow CORS.
 Only explicitly saved music resumes on entry; historical podcast/stream preferences are ignored.
-Generic **Male DJ / Female DJ** choices are in the Music panel and VR CROWD → CHOOSE DJ.
+Generic **Male DJ / Female DJ** choices are in Show & Lights → Club and VR CROWD → CHOOSE DJ.
+The fictional male DJ has mature styling and longer, softly wavy nape-length hair
+in both character styles; the detailed Jin look carries the stronger facial age cues.
+The supplied hairstyle reference is not bundled, and this is not an artist likeness or endorsement.
 The Quest payload uses CC0 dancers only; historical Mixamo files do not ship.
 
 ```powershell

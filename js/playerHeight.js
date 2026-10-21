@@ -1,6 +1,6 @@
 'use strict';
-// Player height: how tall the person in the headset is, and how far a seated player's view must rise to stand
-// at that height. Pure maths (no Babylon, no DOM) so it is checked without an engine.
+// Player eye height and how far a seated player's view must rise to stand at that eye height.
+// Pure maths (no Babylon, no DOM) so it is checked without an engine.
 //
 // Two ideas, both about the headset's tracked height above the physical floor (the "eye" height):
 //
@@ -10,6 +10,8 @@
 //
 //  * SEATED mode keeps the avatar standing while the player sits. It measures the seated head height once and lifts
 //    the view by the difference to the standing eye height, so the eyes are where a standing person's would be.
+//
+// Neither estimator measures crown-to-floor stature or corrects a headset's incorrectly configured physical floor.
 
 const PlayerHeight = (() => {
     /** Eye height of the default 1.7 m body, and the plausible range of a real player's standing eye height (m). */

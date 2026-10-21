@@ -25,13 +25,69 @@ for (const file of ['js/vendor/babylon.js', 'js/vendor/babylonjs.loaders.min.js'
 const B = box.BABYLON;
 B.Logger.LogLevels = B.Logger.WarningLogLevel | B.Logger.ErrorLogLevel;
 async function load(id) {
+    return loadFile(box.CharacterCatalog.people[id].url, box.CharacterCatalog.people[id]);
+}
+async function loadFile(url, character = null) {
     const engine = new B.NullEngine(), scene = new B.Scene(engine);
-    const bytes = readFileSync(join(root, box.CharacterCatalog.people[id].url));
+    const bytes = readFileSync(join(root, url));
     const container = await B.SceneLoader.LoadAssetContainerAsync('', `data:application/octet-stream;base64,${bytes.toString('base64')}`, scene, null, '.glb');
     container.animationGroups.forEach(group => group.stop());
-    container.character = box.CharacterCatalog.people[id];
+    container.character = character;
     return { engine, scene, container };
 }
+
+test('Detailed and lightweight DJs keep the physical palm on the headphone shell throughout cue nods', async () => {
+    for (const [url, height] of [
+        ['js/models/avatars/club-dj-male.glb', 1.78], ['js/models/avatars/club-dj-female.glb', 1.68],
+        ...['jin', 'zara'].map(id => [box.CharacterCatalog.people[id].url, box.CharacterCatalog.people[id].height])
+    ]) {
+        const { scene, engine, container } = await loadFile(url);
+        try {
+            const rig = new box.AvatarRig({ scene }, container, { eyeHeight: height * 0.93 });
+            const mesh = rig.meshes.find(m => /Headphones/.test(m.name));
+            const headBone = mesh.skeleton.bones.find(bone => bone.name === 'Head');
+            const inverseBind = headBone.getAbsoluteInverseBindMatrix();
+            const vertices = mesh.getVerticesData(B.VertexBuffer.PositionKind);
+            const localVertices = [];
+            for (let i = 0; i < vertices.length; i += 3) {
+                localVertices.push(B.Vector3.TransformCoordinates(B.Vector3.FromArray(vertices, i), inverseBind));
+            }
+            const desk = { cx: 0, near: -18.89, far: -18.35, top: 1.54, halfWidth: 0.51 };
+            const dj = new box.DJPerformer({ x: 0, z: desk.near - 0.18, groundY: 0.5,
+                eyeHeight: height * 0.93, desk, rng: () => 0.5 });
+            const music = { hasAudio: true, beatPhase: 0, bar: 0, energy: 0.6, bpm: 124 };
+            const at = name => rig.bone[name].getAbsolutePosition();
+            const rawPalm = side => B.Vector3.Cross(at(`index_01_${side}`).subtract(at(`hand_${side}`)),
+                at(`pinky_01_${side}`).subtract(at(`hand_${side}`))).normalize();
+            dj._begin('tweak', 99);
+            for (let frame = 0; frame < 120; frame++) rig.update(1 / 60, dj.update(1 / 60, music, null));
+            rig._refreshAll();
+            const signs = Object.fromEntries(['l', 'r'].map(side => [side, rawPalm(side).y < 0 ? 1 : -1]));
+            dj._begin('cue', 99);
+            for (let frame = 0; frame < 240; frame++) {
+                music.beatPhase = (frame / 60 * 124 / 60) % 1;
+                rig.update(1 / 60, dj.update(1 / 60, music, null));
+                rig._refreshAll();
+                if (frame < 150 || frame % 10 !== 0) continue;
+                const side = at('hand_l').x < at('hand_r').x ? 'l' : 'r';
+                const wrist = at(`hand_${side}`);
+                const index = at(`index_01_${side}`), pinky = at(`pinky_01_${side}`);
+                const palm = wrist.scale(0.5).add(index.add(pinky).scale(0.25));
+                const world = rig.bone.Head.getWorldMatrix();
+                const shell = localVertices.map(vertex => B.Vector3.TransformCoordinates(vertex, world))
+                    .filter(vertex => vertex.x < at('Head').x);
+                const nearest = Math.min(...shell.map(vertex => B.Vector3.Distance(vertex, palm)));
+                assert.ok(nearest < 0.025, `${url}: palm misses the real cup shell by ${(nearest * 100).toFixed(1)} cm`);
+                const normal = rawPalm(side).scale(signs[side]);
+                const inward = B.Vector3.TransformNormal(B.Vector3.TransformNormal(new B.Vector3(1, 0, 0), inverseBind), world).normalize();
+                if (B.Vector3.Dot(inward, at('Head').subtract(palm)) < 0) inward.scaleInPlace(-1);
+                assert.ok(B.Vector3.Dot(normal, inward) > 0.95,
+                    `${url}: palm is not flat against the cup`);
+            }
+            rig.dispose();
+        } finally { container.dispose(); scene.dispose(); engine.dispose(); }
+    }
+});
 
 test('All 17 detailed online bodies play their full clips and track physical hands on the real skeleton', async () => {
     for (const [avatarId, id] of Object.entries(box.CharacterCatalog.players)) {

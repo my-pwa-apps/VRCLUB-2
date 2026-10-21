@@ -1,5 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { createHash } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -15,6 +16,67 @@ const linear = hex => [1, 3, 5].map(i => {
 const near = (a, b) => a.every((value, i) => Math.abs(value - b[i]) < 0.004);
 const primitives = doc => doc.getRoot().listMeshes().flatMap(mesh => mesh.listPrimitives());
 const readCrowd = id => io.read(join(root, 'js', 'models', 'avatars', `club-crowd-${id}.glb`));
+
+test('fashion provenance pins verified licences and the CC-BY creator remains credited in both app surfaces', () => {
+    const provenance = JSON.parse(readFileSync(join(root, 'design', 'characters', 'provenance.json')));
+    const packs = new Map(provenance.fashionPacks.map(pack => [pack.id, pack]));
+    for (const pack of packs.values()) {
+        assert.match(pack.sha256, /^[a-f0-9]{64}$/);
+        assert.ok(['CC0-1.0', 'CC-BY-4.0'].includes(pack.license));
+        for (const asset of pack.selectedAssets) {
+            assert.ok(asset.author && asset.source.startsWith('http'), `${asset.id}: missing provenance`);
+        }
+    }
+    const crop = packs.get('shirts03').selectedAssets.find(asset => asset.id === 'punkduck_high_neck_crop_top');
+    assert.equal(crop.author, 'punkduck');
+    assert.equal(crop.license, 'CC-BY-4.0');
+    assert.equal(crop.source, 'http://www.makehumancommunity.org/node/1088');
+    assert.equal(crop.licenseUrl, 'https://creativecommons.org/licenses/by/4.0/');
+    assert.match(crop.mhcloSha256, /^[a-f0-9]{64}$/);
+    assert.match(crop.licenseEvidence, /# license CC BY 4\.0/);
+    const html = readFileSync(join(root, 'index.html'), 'utf8');
+    assert.match(html.slice(html.indexOf('splash-credits'), html.indexOf('<main>')), /punkduck/);
+    const credits = html.slice(html.indexOf('id="modelCredits"'));
+    assert.ok(credits.includes(crop.source));
+    assert.match(credits, /High Neck Crop Top.*punkduck/);
+    assert.match(credits, /fitted to Asha, recoloured, combined with trousers/);
+});
+
+test('packed wardrobe shoe masks preserve normalized source values rather than integer storage bytes', async () => {
+    for (const id of ['nia', 'asha', 'sofia', 'iris', 'leila', 'amara', 'mei', 'rosa',
+        'tao', 'luca', 'diego', 'ellis', 'felix', 'malik', 'ren', 'samir', 'idris']) {
+        const source = await io.read(join(root, 'design', 'characters', 'wardrobe', `${id}.glb`));
+        const built = await io.read(join(root, 'js', 'models', 'wardrobe', `${id}.glb`));
+        for (const outfit of ['original', 'casual', 'smart']) {
+            const name = `wardrobe_skin_${outfit}`;
+            const masks = doc => doc.getRoot().listNodes().find(node => node.getName() === name)
+                .getMesh().listPrimitives()[0].getAttribute('COLOR_0');
+            const before = masks(source), after = masks(built), a = [], b = [];
+            assert.equal(before.getCount(), after.getCount(), `${id}/${outfit}: mask topology changed`);
+            for (let vertex = 0; vertex < before.getCount(); vertex++) {
+                before.getElement(vertex, a); after.getElement(vertex, b);
+                assert.ok(a.every((value, channel) => Math.abs(value - b[channel]) <= 1 / 255),
+                    `${id}/${outfit}/${vertex}: normalized coverage corrupted during byte packing`);
+            }
+        }
+    }
+});
+
+test('all personal wardrobe hair slots contain distinct fitted geometry and rejected braids are not shipped', async () => {
+    const recipes = JSON.parse(readFileSync(join(root, 'design', 'characters', 'recipes.json')));
+    const ids = ['nia', 'asha', 'sofia', 'iris', 'leila', 'amara', 'mei', 'rosa',
+        'tao', 'luca', 'diego', 'ellis', 'felix', 'malik', 'ren', 'samir', 'idris'];
+    for (const id of ids) {
+        const doc = await io.read(join(root, 'js', 'models', 'wardrobe', `${id}.glb`));
+        const shapes = ['original', 'short', 'long'].map(option => {
+            const node = doc.getRoot().listNodes().find(node => node.getName() === `wardrobe_hair_${option}`);
+            const positions = node.getMesh().listPrimitives()[0].getAttribute('POSITION').getArray();
+            return createHash('sha256').update(Buffer.from(positions.buffer, positions.byteOffset, positions.byteLength)).digest('hex');
+        });
+        assert.equal(new Set(shapes).size, 3, `${id}: a hair option repeats the original geometry`);
+    }
+    for (const recipe of recipes) assert.ok(!recipe.sources.some(source => /french_braid/.test(source)));
+});
 
 test('lightweight variants actually recolour their tops, not only their trousers or hair', async () => {
     const pairs = [
@@ -40,15 +102,17 @@ test('lightweight variants actually recolour their tops, not only their trousers
     }
 });
 
-test('the lightweight bouncer retains dark skin and hair, with a contrasting shirt and charcoal suit', async () => {
-    const color = primitives(await readCrowd('bouncer'))[0].getAttribute('COLOR_0');
+test('the bald lightweight bouncer retains dark skin and eyebrows, with a contrasting shirt and charcoal suit', async () => {
+    const document = await readCrowd('bouncer');
+    const color = primitives(document)[0].getAttribute('COLOR_0');
     const count = hex => {
         let matches = 0;
         for (let i = 0; i < color.getCount(); i++) if (near(color.getElement(i, []), linear(hex))) matches++;
         return matches;
     };
     assert.equal(count('#553323'), 406, 'skin tone is unchanged');
-    assert.ok(count('#15110f') >= 580, 'dark hair is unchanged');
+    assert.equal(document.getRoot().getExtras().bald, true);
+    assert.ok(count('#15110f') > 0 && count('#15110f') < 580, 'eyebrows and side hair stay, the scalp shell does not');
     assert.equal(count('#a6adb8'), 107, 'the shirt must be visibly separate');
     assert.equal(count('#303747'), 512, 'the suit is charcoal, not an undifferentiated black shape');
 });
@@ -87,5 +151,82 @@ test('the shipped detailed torso textures visibly distinguish the formerly repea
     for (const [a, b] of [['luca', 'noah'], ['luca', 'felix'], ['diego', 'jonas'], ['river', 'mara'], ['mei', 'ari']]) {
         const ca = await torsoColor(a), cb = await torsoColor(b);
         assert.ok(Math.hypot(...ca.map((value, i) => value - cb[i])) > 25, `${a}/${b}: torso colours too close (${ca}/${cb})`);
+    }
+});
+
+test('the detailed club wardrobe includes fitted tops, tailored layers and night-out dress silhouettes', () => {
+    const recipes = JSON.parse(readFileSync(join(root, 'design', 'characters', 'recipes.json')));
+    const clothes = Object.fromEntries(recipes.map(person => [person.id, person.clothes]));
+    assert.equal(clothes.amara, 'toigo_cut_out_dress');
+    assert.equal(clothes.asha, 'punkduck_high_neck_crop_top');
+    assert.equal(clothes.eden, 'toigo_halter_dress_midi');
+    assert.equal(clothes.mara, 'toigo_halter_dress_with_fluted_skirt');
+    assert.equal(clothes.rosa, 'toigo_camisole_top');
+    assert.equal(clothes.iris, 'toigo_turtleneck_halter_top');
+    assert.equal(clothes.malik, 'male_casualsuit01');
+    assert.equal(clothes.luca, 'male_casualsuit02');
+    const people = Object.fromEntries(recipes.map(person => [person.id, person]));
+    assert.equal(people.rosa.bottom, 'toigo_tiered_mini_skirt');
+    assert.equal(people.asha.bottom, 'cortu_cargo_pants');
+    assert.equal(people.iris.bottom, 'cortu_cargo_pants');
+    assert.equal(people.vera.clothes, 'toigo_fisherman_sweater');
+    assert.equal(people.vera.bottom, 'toigo_wool_pants');
+    assert.equal(people.diego.hair, 'cortu_short_messy_hair');
+    assert.equal(people.mei.hair, 'toigo_inverted_bob_with_bangs');
+});
+
+test('stock shirt emblems are removed before both original and casual wardrobe graphics are applied', async () => {
+    const recipes = JSON.parse(readFileSync(join(root, 'design', 'characters', 'recipes.json')));
+    const printed = new Set(['male_casualsuit02', 'male_casualsuit04', 'male_casualsuit06']);
+    for (const id of ['luca', 'diego', 'ren', 'felix']) {
+        const recipe = recipes.find(person => person.id === id);
+        const doc = await io.read(join(root, 'js', 'models', 'wardrobe', `${id}.glb`));
+        for (const outfit of ['original', 'casual']) {
+            if (outfit === 'original' && !printed.has(recipe.clothes)) continue;
+            const material = doc.getRoot().listMaterials().find(item =>
+                new RegExp(`^wardrobe_top_${outfit}(?:\\.\\d+)?$`).test(item.getName()));
+            assert.ok(material, `${id}/${outfit}: missing shirt material`);
+            const { data, info } = await sharp(material.getBaseColorTexture().getImage())
+                .removeAlpha().raw().toBuffer({ resolveWithObject: true });
+            const low = [255, 255, 255], high = [0, 0, 0];
+            for (let y = 16; y < info.height * 0.45; y++) for (let x = 16; x < info.width - 16; x++) {
+                for (let channel = 0; channel < 3; channel++) {
+                    const value = data[(y * info.width + x) * info.channels + channel];
+                    low[channel] = Math.min(low[channel], value);
+                    high[channel] = Math.max(high[channel], value);
+                }
+            }
+            assert.ok(high.every((value, channel) => value - low[channel] < 8),
+                `${id}/${outfit}: the plain shirt still contains a baked emblem (${low}..${high})`);
+        }
+    }
+});
+
+test('all detailed women use verified sock-free footwear and retain a mixed shoe wardrobe', () => {
+    const recipes = JSON.parse(readFileSync(join(root, 'design', 'characters', 'recipes.json')));
+    const women = recipes.filter(person => person.gender === 0);
+    assert.equal(women.length, 15);
+    const sources = { loafers: 'shoes03', pumps: 'toigo_ballet_flats', heels: 'toigo_stiletto_booties' };
+    assert.equal(new Set(women.map(person => person.footwearStyle)).size, 3);
+    for (const person of women) {
+        assert.ok(Object.hasOwn(sources, person.footwearStyle), `${person.id}: missing sock-free shoe choice`);
+        assert.equal(person.shoes, sources[person.footwearStyle]);
+    }
+});
+
+test('detailed faces retain source-neutral expressions without custom smile shaping or runtime morph targets', async () => {
+    const recipes = JSON.parse(readFileSync(join(root, 'design', 'characters', 'recipes.json')));
+    const generator = readFileSync(join(root, 'scripts', 'characters', 'generate.py'), 'utf8');
+    assert.doesNotMatch(generator, /relaxed_expression|mouth-angles-up|cheek-trans-up/);
+    const wardrobeIds = new Set(['nia', 'asha', 'sofia', 'iris', 'leila', 'amara', 'mei', 'rosa',
+        'tao', 'luca', 'diego', 'ellis', 'felix', 'malik', 'ren', 'samir', 'idris']);
+    for (const person of recipes) {
+        const expression = person.expression;
+        assert.deepEqual(expression, { style: 'source-neutral', targets: {} }, `${person.id}: no forced facial deformation`);
+        for (const folder of wardrobeIds.has(person.id) ? ['characters', 'wardrobe'] : ['characters']) {
+            const doc = await io.read(join(root, 'js', 'models', folder, `${person.id}.glb`));
+            assert.deepEqual(doc.getRoot().getExtras().expression, expression, `${folder}/${person.id}: stale generated face`);
+            for (const primitive of primitives(doc)) assert.equal(primitive.listTargets().length, 0);
+        }
     }
 });

@@ -40,16 +40,32 @@ test('in VR, Seated mode lifts a sitter to standing height and a measured height
         device.position.set(0, 1.7, 0);
         out.liftGone = await until(() => club._seatLift.lift < 0.005, 180000);
 
-        // A measured height: stand at 1.84 m, press MEASURE HEIGHT, and the body and the network height follow.
+        // Eye height must remain physical floor-to-headset, not the balcony's world-space camera height.
+        // 1.55 m is an example eye height for a shorter adult, not an inferred 1.65 m stature.
         club.setSeatedMode(false);
-        device.position.set(0, 1.84, 0);
+        device.position.set(0, 1.55, 0);
+        cam.position.set(-11, 4.55, -15);
+        club._walkLevel = 3;
         for (let i = 0; i < 20; i++) await next();
-        club.startHeightMeasure();
-        out.measured = await until(() => club.playerEyeHeight !== null, 60000);
+        const manager = club.vrHelper.baseExperience.sessionManager;
+        await new Promise(resolve => manager.onXRFrameObservable.addOnce(frame => {
+            out.baseEye = frame.getViewerPose(manager.baseReferenceSpace).transform.position.y;
+            out.offsetEye = frame.getViewerPose(manager.referenceSpace).transform.position.y;
+            resolve();
+        }));
+        out.measureStarted = club.startHeightMeasure();
+        out.measured = await until(() => !club._heightMeasure, 60000);
         out.playerEyeHeight = club.playerEyeHeight;
         out.stored = localStorage.getItem('vrclub.playerEyeHeight');
-        out.bodyRefit = await until(() => club._localRig && Math.abs(club._localRig.standEye - 1.84) < 0.05, 60000);
+        out.bodyRefit = await until(() => club._localRig && Math.abs(club._localRig.standEye - 1.55) < 0.05, 60000);
         out.networkEye = club._bodyEyeHeight();
+        club.setSeatedMode(true);
+        device.position.set(0, 1.4, 0);
+        out.measureWithLift = await until(() => club._seatLift.lift > 0.05, 60000);
+        club.startHeightMeasure();
+        out.rawMeasureFinished = await until(() => !club._heightMeasure, 60000);
+        out.rawMeasuredEye = club.playerEyeHeight;
+        out.liftedEye = club._xrHeadHeight();
         return out;
     });
     expect(result.sittingStandardEye).toBeCloseTo(1.1, 2);
@@ -58,10 +74,17 @@ test('in VR, Seated mode lifts a sitter to standing height and a measured height
     expect(result.seatedFeet, 'the lift raises the view, not the virtual floor').toBeCloseTo(0, 1);
     expect(result.bodyEyeSeated).toBeCloseTo(1.7, 2);
     expect(result.liftGone).toBe(true);
+    expect(result.baseEye).toBeCloseTo(1.55, 2);
+    expect(result.offsetEye, 'the balcony offset really reached the XR reference space').toBeCloseTo(4.55, 1);
+    expect(result.measureStarted).toBe(true);
     expect(result.measured).toBe(true);
-    expect(result.playerEyeHeight).toBeCloseTo(1.84, 1);
-    expect(Number(result.stored)).toBeCloseTo(1.84, 1);
+    expect(result.playerEyeHeight).toBeCloseTo(1.55, 1);
+    expect(Number(result.stored)).toBeCloseTo(1.55, 1);
     expect(result.bodyRefit, 'the local body is refitted to the measured height').toBe(true);
-    expect(result.networkEye).toBeCloseTo(1.84, 1);
+    expect(result.networkEye).toBeCloseTo(1.55, 1);
+    expect(result.measureWithLift).toBe(true);
+    expect(result.rawMeasureFinished).toBe(true);
+    expect(result.rawMeasuredEye, 'measurement must not add Seated mode lift or a guessed stature allowance').toBeCloseTo(1.4, 2);
+    expect(result.liftedEye).toBeGreaterThan(result.rawMeasuredEye);
     await expectHealthyRuntime(page);
 });

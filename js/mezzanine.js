@@ -521,7 +521,7 @@ const Mezzanine = {
         return this.playerEyeHeight;
     },
 
-    /** Start the three-second MEASURE HEIGHT: stand tall; the median of the final second is kept. */
+    /** Measure floor-to-headset eye height, not crown-to-floor stature. */
     startHeightMeasure() {
         if (!this.isInVRMode || !Number.isFinite(this._xrEyeHeight)) {
             this.showErrorMessage('Height can be measured in the headset.');
@@ -529,7 +529,7 @@ const Mezzanine = {
         }
         const now = performance.now() / 1000;
         this._heightMeasure = { until: now + 3, samples: [] };
-        this.showErrorMessage('Stand up straight and look ahead: measuring for 3 seconds');
+        this.showErrorMessage('Stand up straight and look ahead: measuring eye height for 3 seconds (not body height).');
         return true;
     },
 
@@ -546,7 +546,7 @@ const Mezzanine = {
         }
         this.setPlayerEyeHeight(value);
         if (this._heightEstimator) this._heightEstimator.reset();
-        this.showErrorMessage(`Your eye height is ${value.toFixed(2)} m. The avatar now matches it.`);
+        this.showErrorMessage(`Eye height: ${value.toFixed(2)} m (not body height). If too low, reset your headset floor level and measure again.`);
     }
 };
 window.Mezzanine = Mezzanine;

@@ -1363,6 +1363,9 @@ class VRClubAudioCrowd extends VRClubUI {
                 meshes.push(mesh);
             });
         });
+        if (container.character || container.characterSourceId) {
+            window.AvatarDetails.applyNPC(meshes, container.character, this.materialFactory, name, container.characterSourceId);
+        }
 
         // A multi-clip GLB (the leather-jacket guests) carries every pose it can strike. Keep the one this guest plays and drop
         // the others, so no hidden animation group keeps evaluating 60 joints.
@@ -1434,6 +1437,9 @@ class VRClubAudioCrowd extends VRClubUI {
             const span = group.to - group.from;
             if (span > 0) group.goToFrame(group.from + Math.random() * span);
         });
+        if (groups.some(group => clipOf(group) === 'Idle_TalkingPhone_Loop')) {
+            meshes.push(window.AvatarDetails.phone(meshes, this.materialFactory, name));
+        }
 
         const npc = {
             name,

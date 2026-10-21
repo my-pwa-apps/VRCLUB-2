@@ -26,7 +26,7 @@ emits one minified, content-hashed production bundle with esbuild.
 6. loaders/factories (`textureLoader`, `modelLoader`, `materialFactory`, `lightFactory`)
 7. `js/vjDirector.js`, then `js/showDirector.js`
 8. `js/ledPatterns.js`, then `js/barProps.js` (bottle geometry and label atlas; no club dependency), then `js/restroomArt.js` (the restroom's painted poster atlas and placement plan; needs `js/nocturneLogo.js` only at paint time), then `js/venueDressing.js` (entrance stair hall, bar, lounge couch and restroom), `js/mezzanine.js` (steel balcony and stair, and the walking-surface follow) and `js/cityDistrict.js` (the street outside, at street level) and `js/vjDesk.js` (the VJ desk's show, lights and set-player touch panels at the DJ table), all mixed into `VRClub.prototype`
-   Then `js/characterCatalog.js` (generated CC0 adult cast and assignments) and `js/characterStyles.js` (room style, local performance override and live model replacement, mixed into `VRClub.prototype`), followed by `js/wardrobeCatalog.js`, `js/avatarAppearance.js` and `js/avatarEditor.js`.
+   Then `js/characterCatalog.js` (generated licensed adult cast and assignments) and `js/characterStyles.js` (room style, local performance override and live model replacement, mixed into `VRClub.prototype`), followed by `js/wardrobeCatalog.js`, `js/avatarDetails.js`, `js/avatarAppearance.js` and `js/avatarEditor.js`.
 9. `js/playerHeight.js` (pure player-height maths), `js/avatarRig.js` (the local player's procedural body), `js/djPerformer.js` (the DJ's live set, posed through the rig), `js/crowdDance.js` (the crowd's choreographer), `js/minglerClock.js` (the shared room-time round), then `js/sfuClient.js`, `js/networkClient.js`, `js/avatarManager.js` and `js/multiplayer.js` (`ClubMultiplayer`) — optional multiplayer (no instance until a guest connects)
 10. `js/club/01-core.js` through `js/club/11-audio-crowd.js`, in numeric order
 11. `js/club_hyperrealistic.js` — final public `VRClub` bridge and LED mixin
@@ -195,7 +195,10 @@ down (the body mesh is open at the neck). The body's height is the player's own 
 comes from `js/playerHeight.js` (pure maths, `window.PlayerHeight`): while standing (not Seated mode, not on room
 furniture) `Mezzanine._trackPlayerHeight()` feeds each XR frame's head height to a `HeightEstimator` (80th percentile of
 a 90 s window), and an estimate under 1.35 m is taken for sitting and ignored, so somebody who sits without Seated mode
-keeps the standard body. VR menu MEASURE HEIGHT takes the median of the final second of a three-second stand. Both save
+keeps the standard body. VR menu MEASURE EYE HEIGHT takes the median of the final second of a three-second stand
+from the physical base reference space, without virtual surface offsets or Seated mode's lift. It measures eye
+height, not crown-to-floor stature; an unexpectedly low reading requires checking the headset's physical floor
+calibration, not adding a guessed stature offset. Both save
 `vrclub.playerEyeHeight`. Sitting on tagged room furniture sets `pose.seated`; that separately lowers the pelvis
 onto `seatY`, fixes the body to the furniture's facing and plants both feet on its floor.
 
@@ -891,8 +894,31 @@ and fail `npm test`.
 
 ### ADE configurable character cast
 
+The detailed cast retains source-neutral facial expressions and a night-out wardrobe
+of fitted shirts, cropped tops, tailored layers, halter and cut-out dresses.
+Never paint or procedurally shape smiles, or bake them from generic face-shape sliders.
+Use expression changes only when verified official expression options are supplied
+for that avatar; none are currently integrated. The lightweight cast keeps its authored faces.
+`scripts/characters/generate.py` authors both base and optional wardrobe faces; rebuild
+both sources and production catalogs after changing their recipes. Standing-idle retargeting
+matches the source hip-to-neck direction rather than amplifying upper-spine pitch across
+different body proportions; contact, dance and work bends remain intentional.
+The DJ rig measures its headphone cup geometry in the Head frame and places its real palm
+on the shell through cue nods. See `ASSETS.md` and the character rig/retarget tests.
+
+Curated detailed outfits may combine separate tops and bottoms: source generation
+unions their body masks and merges them into the existing two garment colour regions.
+Measured eye landmarks use the source atlas cell recorded in each recipe, not an
+assumed 2x2 layout. Fashion pack hashes and attribution live in
+`design/characters/provenance.json`; Asha's crop top is explicitly CC BY 4.0 and its
+author-original source header hash is checked before generation. Unversioned CC-BY
+candidates and poorly fitting braid sources were not imported. New garments remain
+outside the procedural-print allow-list unless verified plain.
+
 **Personal wardrobe:** `AvatarAppearance` validates the complete versioned
-descriptor (base, hair, outfit and four hex colours), instantiates selected fitted
+descriptor (v1: base, hair, outfit and four hex colours; complete v2 additionally
+requires glasses, facialHair and hat, and permits bald hair; complete v3 adds
+`shoes` original/loafers/pumps/heels and `legwear` bare/sheer-black/sheer-nude), instantiates selected fitted
 parts with private factory materials and shared textures, and supplies preview
 models. `PersonalAppearance` is mixed into `VRClub`; it owns
 `vrclub.personalAppearance`, acknowledgement-based saves/resets and bounded,
@@ -905,10 +931,45 @@ source materials. The relay's optional `appearanceSelection` capability validate
 and retains descriptors only in membership/avatar frames, not every pose.
 Older relays must report unsupported sharing. Source generation uses
 `AVATAR_WARDROBE=1`; `npm run build:wardrobe` emits 17 optional GLBs and their
-catalog. About 45 MiB is optional, downloaded per selected base; total deployed
-payload measures 159 MiB (CI ceiling 165 MiB; source asset audit ceiling 160 MiB).
+catalog. About 47.9 MiB is optional, downloaded per selected base; total deployed
+payload measures 163.6 MiB (CI ceiling 165 MiB; source asset audit ceiling 160 MiB).
 No upload or avatar service. Every outfit selects its own authored skin-occlusion
 mesh so covered skin never pokes through clothing.
+Four-channel vertex colours on those three source skins are shoe-occlusion
+masks, disabled visually. Footwear selection filters indices on instance-owned
+geometry; never edit shared geometry. Each shoe option includes the eyes, so
+switching shoes adds no draw. Hosiery is an opaque leg-weight-only vertex tint,
+not alpha blending, an extra mesh or a per-frame updater. Detailed women wear
+sock-free loafers, flat ballet pumps or heeled ankle boots; lightweight shoes
+stay authored. The `heels` label must say heeled ankle boots, not pumps.
+`AvatarDetails` fits original procedural glasses, beards/stubble and hats to
+the real head/face: one opaque skinned vertex-colour mesh, no new textures
+or per-frame updater. Head accessories preserve first-person/mirror hiding.
+That same mesh also carries restrained garment prints on selected NPC shirts
+and sweaters in both styles, and on personal Casual outfits. Original orbit/wave
+motifs and hand-authored Japanese 音 (sound) / 光 (light) use no downloaded font.
+`_printGeometry()` clips ink to actual garment triangles and interpolates their
+skin weights (including small natural neck blends), never weights a shirt to
+the head. Changing outfit/top colour rebuilds this static geometry only; it
+must not add another mesh, texture, per-frame projection or descriptor field.
+Tailored Smart outfits stay plain. Baked MakeHuman graphics on casual shirts
+02/04/06 are neutralised before atlas generation. Catalog `printSurfaces` is
+the detailed/wardrobe print allow-list; unknown garments receive no overlay.
+See ASSETS.md for dictionary and footwear sources.
+The editor upgrades v1/v2 drafts to complete v3, offers accessories in desktop/phone
+and a VR subpage (never over 12 buttons), and hides fitted hair under headwear.
+The client negotiates `appearanceAccessories` for v2+ and
+`appearanceFootwear` for v3 in the existing acknowledged avatar frame; never
+put those versions in a join URL to an unnegotiated relay.
+Deploy both frontend and relay; unsupported sharing must preserve the saved look.
+NPC assignments are deterministic in both styles. The bouncer/Idris, Ellis and
+Ren are bald; the lightweight bouncer/m4/m7 (and derived vm4/vm5) retain their
+original scalp and eyebrows/side hair, with crown geometry removed offline.
+`AvatarDetails.phone()` fits the outside queue caller's single opaque phone
+mesh to the raised palm, parents it to the actual wrist and includes it in
+`npc.meshes` for scoped lights/visibility. Root disposal/style replacement owns
+it; never add a per-frame prop updater. Props above the head are excluded from
+player/preview body-sizing bounds.
 Wardrobe sources are shared while in use and retired after the final instance
 leaves; do not retain every visited base's decoded textures for the whole session.
 Physical-headset fit, controller feel and frame cost remain unmeasured.
@@ -929,7 +990,8 @@ host restores this device's preference. No reload, reconnect, manual-light takeo
 or tier/count change is part of switching.
 
 `characterCatalog.js` is generated by `npm run build:characters` from 34 verified
-CC0 adult bases/recipes under source-only `design/characters/`. It contains literal
+CC0 adult bases/recipes with an attributed CC BY 4.0 crop top on Asha under source-only
+`design/characters/`. It contains literal
 asset URLs for the production allow-list, measured eye landmarks, unique NPC
 assignments (14 dancers, 8 guests, bartender, bouncer, 8 queue, two alternative DJs)
 and a separate seventeen-ID player mapping preserving women/men pools. The relay's
@@ -1166,9 +1228,15 @@ cloth appearance and GPU/CPU cost on a physical Quest are unmeasured.
   and `female` (1.68 m) to `club-dj-male.glb` / `club-dj-female.glb`, built from CC0 Quaternius
   guests. `chooseDJ()` persists `vrclub.questDJ`; neither music nor remote podcast metadata selects
   a DJ. The male guest's beard is cut out by its exact vertices, and a Universal Base
-  Characters `Hair_Long`, shortened to shoulder length and trimmed of everything in front of the ears (its bangs read
-  as long eyebrows), goes over the short cap and shares its material, so
+  Characters `Hair_Long`, trimmed in front of the ears (its bangs read
+  as long eyebrows) and reworked into opaque nape waves, goes over the short cap and shares its material, so
   the optimiser still merges to ≤6 draws; optimise `club-dj-male.glb` and `club-dj-female.glb`.
+  The male also has softened cheek/jaw geometry and subtle age creases.
+  `node scripts/build-dj-glbs.mjs --refine-male` refreshes those changes idempotently without
+  source packs; the full build applies the same refinement. It preserves headphone geometry and bind matrices.
+  Detailed Jin separately uses age 0.82, mature male skin and `long01`-derived
+  `loose-nape-waves` (13 tapered curved clumps), preserving height, rig and three draws.
+  `AVATAR_ONLY=jin` limits both offline source generation and the character build to him.
   `setDJ(id)` queues behind `initPromise`, loads each DJ once, disposes the previous performer and
   collider, and tints garment and hair (`/^MI_Hair/`) on the DJ's own container so the crowd is
   unaffected. The DJ is then posed by `DJPerformer` through an `AvatarRig` (see `js/djPerformer.js` above); the GLB's
@@ -2373,6 +2441,12 @@ protocol only grew, so older clients keep working.
      tier (`setGraphicsTier(tier, { persist: false })`), and is paused around VR entry/exit and hidden tabs.
 
 ## Licensing
+
+The owner approves both CC0 and CC-BY assets for this app, including character,
+hair and clothing packs. Do not restrict asset selection to CC0. Verify each
+selected asset's exact licence and version, preserve its attribution and source,
+and document modifications. This approval does not extend automatically to
+CC-BY-SA, CC-BY-NC or other licences.
 
 Source code is MIT (`LICENSE`). Bundled 3D models, textures and animations are third-party
 works under their own terms — every one is recorded in `ASSETS.md`, and CC BY attribution

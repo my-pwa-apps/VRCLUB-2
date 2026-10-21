@@ -3,18 +3,45 @@
 class AvatarAppearance {
     static STORAGE_KEY = 'vrclub.personalAppearance';
     static FIELDS = ['v', 'base', 'hair', 'outfit', 'skin', 'hairColor', 'top', 'bottom'];
+    static ACCESSORIES = {
+        glasses: ['none', 'round', 'square', 'heart', 'star', 'sunglasses'],
+        facialHair: ['none', 'stubble', 'beard'],
+        hat: ['none', 'cap', 'beanie', 'fedora', 'bucket']
+    };
+    static FOOTWEAR = {
+        shoes: ['original', 'loafers', 'pumps', 'heels'],
+        legwear: ['bare', 'sheer-black', 'sheer-nude']
+    };
     static KEYS = new WeakMap();
     static sanitize(value) {
         if (value === null) return null;
+        const fields = [...this.FIELDS, ...(value?.v >= 2 ? Object.keys(this.ACCESSORIES) : []),
+            ...(value?.v === 3 ? Object.keys(this.FOOTWEAR) : [])];
         if (!value || typeof value !== 'object' || Array.isArray(value) ||
-            Object.keys(value).length !== this.FIELDS.length || this.FIELDS.some(key => !Object.hasOwn(value, key)) ||
-            value.v !== 1 || !/^(f[1-8]|m[1-9])$/.test(value.base) ||
-            !['original', 'short', 'long'].includes(value.hair) ||
+            Object.keys(value).length !== fields.length || fields.some(key => !Object.hasOwn(value, key)) ||
+            ![1, 2, 3].includes(value.v) || !/^(f[1-8]|m[1-9])$/.test(value.base) ||
+            !(value.v >= 2 ? ['original', 'short', 'long', 'bald'] : ['original', 'short', 'long']).includes(value.hair) ||
             !['original', 'casual', 'smart'].includes(value.outfit)) throw new TypeError('Choose a valid character, hairstyle and outfit.');
-        const result = { v: 1, base: value.base, hair: value.hair, outfit: value.outfit };
+        const result = { v: value.v, base: value.base, hair: value.hair, outfit: value.outfit };
         for (const key of ['skin', 'hairColor', 'top', 'bottom']) {
             if (typeof value[key] !== 'string' || !/^#[0-9a-f]{6}$/i.test(value[key])) throw new TypeError('Choose a valid six-digit colour.');
             result[key] = value[key].toLowerCase();
+        }
+        if (value.v >= 2) for (const [key, options] of Object.entries(this.ACCESSORIES)) {
+            if (value.v === 2 && key === 'facialHair' && ['moustache', 'handlebar'].includes(value[key])) {
+                result[key] = 'none';
+                continue;
+            }
+            if (value.v === 2 && key === 'hat' && value[key] === 'party') {
+                result[key] = 'bucket';
+                continue;
+            }
+            if (!options.includes(value[key])) throw new TypeError('Choose valid glasses, facial hair and headwear.');
+            result[key] = value[key];
+        }
+        if (value.v === 3) for (const [key, options] of Object.entries(this.FOOTWEAR)) {
+            if (!options.includes(value[key])) throw new TypeError('Choose valid shoes and legwear.');
+            result[key] = value[key];
         }
         return result;
     }
@@ -41,6 +68,10 @@ class AvatarAppearance {
 
     static prepare(container, maxLights = 3) {
         for (const group of container.animationGroups) group.stop();
+        for (const mesh of container.meshes) if (/wardrobe_skin_/.test(mesh.name)) {
+            mesh.useVertexColors = false;
+            mesh.hasVertexAlpha = false;
+        }
         for (const material of container.materials) {
             const hair = material.name.startsWith('wardrobe_hair_');
             material.maxSimultaneousLights = maxLights;
@@ -60,9 +91,14 @@ class AvatarAppearance {
 
     static instantiate(container, prefix, value, factory) {
         const appearance = this.sanitize(value);
+        const catalog = window.WardrobeCatalog[appearance.base];
+        if (appearance.v === 3 && (!catalog?.footwearMasks || !catalog.footwear?.includes(appearance.shoes))) {
+            throw new Error('This character needs updated footwear assets.');
+        }
         const entry = container.instantiateModelsToScene(name => `${prefix}${name}`, false, { doNotInstantiate: true });
         const materials = new Map();
         const meshes = entry.rootNodes.flatMap(root => root.getChildMeshes());
+        const skins = new Map();
         for (const mesh of meshes) {
             const source = mesh.material;
             if (!source) continue;
@@ -85,7 +121,29 @@ class AvatarAppearance {
             mesh.material = material;
             mesh.isPickable = false;
             mesh.alwaysSelectAsActiveMesh = true;
+            if (/wardrobe_skin_/.test(mesh.name) && catalog?.footwearMasks) {
+                const flags = mesh.getVerticesData(BABYLON.VertexBuffer.ColorKind);
+                if (!flags || flags.length !== mesh.getTotalVertices() * 4) {
+                    entry.dispose();
+                    for (const owned of materials.values()) owned.dispose(false, false);
+                    throw new Error('This character is missing its footwear skin masks.');
+                }
+                const joints = mesh.getVerticesData(BABYLON.VertexBuffer.MatricesIndicesKind);
+                const weights = mesh.getVerticesData(BABYLON.VertexBuffer.MatricesWeightsKind);
+                const legBones = new Set(mesh.skeleton.bones.filter(bone =>
+                    /^(upperleg|lowerleg|thigh|calf|foot|toe)[_.]/i.test(bone.name)).map(bone => bone.getIndex()));
+                const legs = new Float32Array(mesh.getTotalVertices());
+                for (let vertex = 0; vertex < legs.length; vertex++) {
+                    for (let slot = 0; slot < 4; slot++) {
+                        if (legBones.has(joints[vertex * 4 + slot])) legs[vertex] += weights[vertex * 4 + slot];
+                    }
+                }
+                skins.set(mesh, { flags: Float32Array.from(flags), indices: Array.from(mesh.getIndices()), legs,
+                    shoes: null, legwear: null });
+                mesh.makeGeometryUnique();
+            }
         }
+        const details = window.AvatarDetails.create(meshes, window.WardrobeCatalog[appearance.base], factory, prefix);
         const update = draft => {
             const next = this.sanitize(draft);
             if (next.base !== appearance.base) throw new Error('Load the selected base before applying its wardrobe.');
@@ -100,9 +158,13 @@ class AvatarAppearance {
                 const hair = mesh.name.match(/wardrobe_hair_(original|short|long)/);
                 const outfit = mesh.name.match(/wardrobe_outfit_(original|casual|smart)/);
                 const skin = mesh.name.match(/wardrobe_skin_(original|casual|smart)/);
-                mesh.setEnabled((!hair || hair[1] === next.hair) && (!outfit || outfit[1] === next.outfit) &&
-                    (!skin || skin[1] === next.outfit));
+                const shoes = mesh.name.match(/wardrobe_shoes_(original|loafers|pumps|heels)/);
+                const skinData = skins.get(mesh);
+                if (skinData) this._updateSkin(mesh, skinData, next.shoes || 'original', next.legwear || 'bare');
+                mesh.setEnabled((!hair || (hair[1] === next.hair && (!next.hat || next.hat === 'none'))) && (!outfit || outfit[1] === next.outfit) &&
+                    (!skin || skin[1] === next.outfit) && (!shoes || shoes[1] === (next.shoes || 'original')));
             }
+            details.update(next);
         };
         update(appearance);
         const originalDispose = entry.dispose.bind(entry);
@@ -114,6 +176,37 @@ class AvatarAppearance {
             for (const material of materials.values()) material.dispose(false, false);
         };
         return { entry, root: entry.rootNodes[0], update, dispose: () => entry.dispose() };
+    }
+
+    static _updateSkin(mesh, data, shoes, legwear) {
+        if (data.shoes !== shoes) {
+            const channel = this.FOOTWEAR.shoes.indexOf(shoes), indices = [];
+            for (let index = 0; index < data.indices.length; index += 3) {
+                const visible = vertex => data.flags[vertex * 4 + channel] < 0.5;
+                const triangle = data.indices.slice(index, index + 3);
+                // Keep the ankle seam intact; the boot shaft covers its boundary triangles.
+                if (shoes === 'heels' ? triangle.some(visible) : triangle.every(visible)) {
+                    indices.push(data.indices[index], data.indices[index + 1], data.indices[index + 2]);
+                }
+            }
+            mesh.setIndices(indices, mesh.getTotalVertices());
+            data.shoes = shoes;
+        }
+        if (data.legwear !== legwear) {
+            const tint = legwear === 'sheer-black' ? [0.45, 0.43, 0.46] :
+                legwear === 'sheer-nude' ? [0.9, 0.84, 0.8] : [1, 1, 1];
+            const colors = new Float32Array(data.legs.length * 4);
+            for (let vertex = 0; vertex < data.legs.length; vertex++) {
+                for (let channel = 0; channel < 3; channel++) {
+                    colors[vertex * 4 + channel] = 1 + (tint[channel] - 1) * data.legs[vertex];
+                }
+                colors[vertex * 4 + 3] = 1;
+            }
+            mesh.setVerticesData(BABYLON.VertexBuffer.ColorKind, colors);
+            mesh.useVertexColors = legwear !== 'bare';
+            mesh.hasVertexAlpha = false;
+            data.legwear = legwear;
+        }
     }
 
     static async loadPreview(scene, value, prefix = 'wardrobePreview_') {
@@ -129,7 +222,7 @@ class AvatarAppearance {
             node.rotationQuaternion = null;
             node.rotation.set(0, Math.PI, 0);
             node.computeWorldMatrix(true);
-            const bounds = node.getHierarchyBoundingVectors(true);
+            const bounds = node.getHierarchyBoundingVectors(true, mesh => !mesh.metadata?.vrclubAdornment);
             const scale = 1.75 / (bounds.max.y - bounds.min.y);
             node.scaling.setAll(scale);
             node.position.y = -bounds.min.y * scale;
@@ -186,6 +279,8 @@ window.PersonalAppearance = {
             return;
         }
         if (!mp.client.appearanceSelectionSupported) throw new Error('This relay needs an update before it can share your wardrobe.');
+        if (appearance?.v >= 2 && !mp.client.appearanceAccessoriesSupported) throw new Error('This relay needs an update before it can share bald styles and accessories.');
+        if (appearance?.v === 3 && !mp.client.appearanceFootwearSupported) throw new Error('This relay needs an update before it can share shoes and tights.');
         if (this._appearancePending) throw new Error('Please wait for your previous appearance change.');
         await new Promise((resolve, reject) => {
             const finish = callback => () => {
@@ -315,7 +410,11 @@ window.PersonalAppearance = {
     },
 
     _instantiatePlayer(container, prefix, appearance) {
-        if (!appearance) return container.instantiateModelsToScene(name => `${prefix}${name}`, false, { doNotInstantiate: true });
+        if (!appearance) {
+            const entry = container.instantiateModelsToScene(name => `${prefix}${name}`, false, { doNotInstantiate: true });
+            if (container.character) window.AvatarDetails.applyNPC(entry.rootNodes.flatMap(root => root.getChildMeshes()), container.character, this.materialFactory, prefix);
+            return entry;
+        }
         const entry = AvatarAppearance.instantiate(container, prefix, appearance, this.materialFactory).entry;
         const record = container._wardrobeRecord;
         if (record) {

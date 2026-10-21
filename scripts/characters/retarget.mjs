@@ -174,6 +174,16 @@ export function retarget(source, target, clip, options = {}) {
         for (const [from, to] of jointMap.filter(([, to]) => /pelvis|spine|neck|head|clavicle/.test(to))) {
             setRotation(to, delta(sn(from).q, sb(from).q).multiply(tb(to).q));
         }
+        if (/^(Idle|Idle_Loop|Idle_Talking_Loop|Idle_FoldArms_Loop|Idle_TalkingPhone_Loop)$/.test(clip.name)) {
+            // Detailed rigs put much more of their torso length above Chest. Copying the short source upper
+            // segment's pitch bowed the whole torso ~12 degrees. Match the measured hip-to-neck direction,
+            // retaining the authored spine motion and gaze. Contact poses and choreography are left alone.
+            const gaze = at('head').q.clone();
+            const direction = sn('Neck').p.subtract(sn('Body').p);
+            const current = at('neck_01').p.subtract(at('pelvis').p);
+            setRotation('pelvis', swing(current, direction).multiply(at('pelvis').q));
+            setRotation('head', gaze);
+        }
         setPosition('pelvis', tb('pelvis').p.add(sn('Body').p.subtract(sb('Body').p).scale(legScale)));
         const feet = {};
         let correction = 0;

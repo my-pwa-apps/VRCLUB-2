@@ -1,0 +1,29 @@
+NOCTURNE - MakeHuman night-out fashion derivatives
+
+"High Neck Crop Top" by punkduck
+Original asset: http://www.makehumancommunity.org/node/1088
+Official distribution: https://static.makehumancommunity.org/assets/assetpacks/shirts03.html
+Licence: Creative Commons Attribution 4.0 International (CC BY 4.0)
+https://creativecommons.org/licenses/by/4.0/
+
+The original punkduck_high_neck_crop_top.mhclo header explicitly declares
+"# license CC BY 4.0". The pack's generic CC-BY label is not used to infer
+the version.
+
+Changes for NOCTURNE: fitted to the fictional adult Asha and her personal
+wardrobe; recoloured, combined with cargo trousers, atlas-baked, simplified,
+skinned and retargeted to the club's animations. These derivatives retain
+the CC BY 4.0 attribution requirement; they are not CC0-only assets.
+No endorsement by the creator is implied.
+
+Additional CC0-1.0 derivatives:
+- MargaretToigo: Turtleneck Halter Top, Camisole Top, Fisherman Sweater,
+  Keyhole Tank Top, Basic Tucked T-shirt, Tiered Mini Skirt, Wool Pants,
+  Inverted Bob, Inverted Bob with Bangs, Curled-under Bob,
+  Blunt Bob with Bangs.
+- Cortu: Short Messy Hair, Cargo Pants.
+- namuhekam: Male Polo Shirt.
+
+CC0: https://creativecommons.org/publicdomain/zero/1.0/
+All individual source links, pack hashes and modifications are recorded
+in ASSETS.md and design/characters/provenance.json.

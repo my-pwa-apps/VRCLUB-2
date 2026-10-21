@@ -1416,7 +1416,7 @@ const VenueDressing = {
         // the player's eye height (read from its eye-coloured vertices; 93.5% of its height when it has none) with its feet
         // on the floor. The camera then sits in its head, and looking down shows exactly the person in the mirror.
         node.computeWorldMatrix(true);
-        const bounds = node.getHierarchyBoundingVectors(true);
+        const bounds = node.getHierarchyBoundingVectors(true, mesh => !mesh.metadata?.vrclubAdornment);
         const minY = bounds.min.y, raw = bounds.max.y - bounds.min.y;
         const eyeBind = container.character ? BABYLON.Vector3.FromArray(container.character.eye) : this._characterEyePoint(node, minY);
         const eyeRaw = eyeBind ? eyeBind.y - minY : raw * 0.935;

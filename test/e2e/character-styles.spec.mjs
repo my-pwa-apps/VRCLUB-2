@@ -19,9 +19,12 @@ test('Detailed characters replace every role and player live; lightweight restor
         window.__characterActors = new Map(club.npcAvatars.map(npc => [npc.name, npc]));
         window.__characterMingler = club._mingler?.mingle;
         window.__characterMusic = club.audioElement;
-        return { tier: club.graphicsTier, people: club.npcAvatars.length, style: club.getCharacterStyle() };
+        window.__originalCallerPhone = club.npcAvatars.find(npc => npc.name === 'queue5')?.meshes.find(mesh => mesh.metadata?.vrclubPhone);
+        return { tier: club.graphicsTier, people: club.npcAvatars.length, style: club.getCharacterStyle(),
+            phone: !!window.__originalCallerPhone && Math.abs(window.__originalCallerPhone.computeWorldMatrix(true).determinant()) > 0.5 };
     });
     expect(initial.style).toBe('quaternius');
+    expect(initial.phone).toBe(true);
     await expect.poll(() => page.evaluate(() => window.vrClub.npcAvatars.filter(n => n.name.startsWith('dancer')).length), { timeout: 120_000 }).toBe(14);
     const changed = await page.evaluate(() => window.vrClub.setCharacterStyle('diverse'));
     expect(changed).toBe(true);
@@ -32,6 +35,8 @@ test('Detailed characters replace every role and player live; lightweight restor
         club.avatarManager = manager;
         const peer = manager.ensurePeer('cast-test-peer', 'Guest', {});
         await manager.setAvatar('cast-test-peer', 'f5');
+        const caller = club.npcAvatars.find(npc => npc.name === 'queue5');
+        window.__detailedCallerPhone = caller?.meshes.find(mesh => mesh.metadata?.vrclubPhone);
         return {
             style: club.getCharacterStyle(), tier: club.graphicsTier,
             identities: club.npcAvatars.every(npc => window.__characterActors.get(npc.name) === npc),
@@ -46,11 +51,15 @@ test('Detailed characters replace every role and player live; lightweight restor
             sourceAnimations: club._avatarContainers.flatMap(container => container.animationGroups).filter(group => group.isPlaying).length,
             remote: peer.person?.character?.label,
             arms: !!peer.person?.arms,
-            eyeRaw: club._mirrorDouble.eyeRaw
+            eyeRaw: club._mirrorDouble.eyeRaw,
+            callerPhone: !!window.__detailedCallerPhone && Math.abs(window.__detailedCallerPhone.computeWorldMatrix(true).determinant()) > 0.5,
+            phoneScoped: club.scene.getLightByName('streetDoorLight').includedOnlyMeshes.includes(window.__detailedCallerPhone),
+            oldPhoneDisposed: window.__originalCallerPhone.isDisposed()
         };
     });
     expect(detailed).toMatchObject({ style: 'diverse', tier: 'ultra', identities: true, mingler: true, music: true,
-        dancers: 14, detailed: true, rigs: true, hair: true, sourceAnimations: 0, arms: true });
+        dancers: 14, detailed: true, rigs: true, hair: true, sourceAnimations: 0, arms: true,
+        callerPhone: true, phoneScoped: true, oldPhoneDisposed: true });
     expect(detailed.unique).toBe(detailed.people);
     expect(detailed.remote).toContain('Leila');
     expect(detailed.eyeRaw).toBeGreaterThan(1.4);
@@ -88,13 +97,17 @@ test('Detailed characters replace every role and player live; lightweight restor
     await page.waitForFunction(() => Array.from(window.vrClub.avatarManager.remotes.values()).every(peer => !!peer.person && !peer.person.character));
     const restored = await page.evaluate(() => {
         const club = window.vrClub;
+        const phone = club.npcAvatars.find(npc => npc.name === 'queue5')?.meshes.find(mesh => mesh.metadata?.vrclubPhone);
         return { style: club.getCharacterStyle(), selected: club.getRoomCharacterStyle(),
             identities: club.npcAvatars.every(npc => window.__characterActors.get(npc.name) === npc),
             detailed: club.npcAvatars.some(npc => !!npc.character),
             mingler: club._mingler.mingle === window.__characterMingler,
-            retainedDetailedSources: club._avatarContainers.filter(container => !!container.character).length };
+            retainedDetailedSources: club._avatarContainers.filter(container => !!container.character).length,
+            phone: !!phone && Math.abs(phone.computeWorldMatrix(true).determinant()) > 0.5,
+            oldPhoneDisposed: window.__detailedCallerPhone.isDisposed() };
     });
-    expect(restored).toEqual({ style: 'quaternius', selected: 'diverse', identities: true, detailed: false, mingler: true, retainedDetailedSources: 0 });
+    expect(restored).toEqual({ style: 'quaternius', selected: 'diverse', identities: true, detailed: false, mingler: true,
+        retainedDetailedSources: 0, phone: true, oldPhoneDisposed: true });
     expect(browserFailures.get(page)).toEqual([]);
 });
 

@@ -1,9 +1,11 @@
 import json
+import hashlib
 import math
 import os
 from pathlib import Path
 
 import addon_utils
+import bmesh
 import bpy
 import numpy as np
 from mathutils import Quaternion, Vector
@@ -31,15 +33,16 @@ set_preference("mpfb_second_root", str(ASSETS))
 LocationService.update_second_root()
 
 CAST = [
-    dict(id="amara", label="Amara", description="Young adult woman, fuller build, afro",
+    dict(id="amara", label="Amara", description="Adult woman, fuller build, afro, midnight cut-out dress",
          gender=0.0, age=0.52, weight=0.65, muscle=0.42, height=0.48, heightMetres=1.64,
          race=dict(african=0.85, asian=0.05, caucasian=0.10),
-         skin="young_african_female", hair="afro01", clothes="female_casualsuit01", shoes="shoes02"),
-    dict(id="jin", label="Jin", description="Mature fictional male DJ, lean build, ear-length dark hair, charcoal crew-neck tee and jeans",
-         gender=1.0, age=0.78, weight=0.43, muscle=0.45, height=0.50, heightMetres=1.78,
+         skin="young_african_female", hair="afro01", clothes="toigo_cut_out_dress", shoes="shoes02",
+         clothingTint=[0.035, 0.045, 0.09]),
+    dict(id="jin", label="Jin", description="Mature fictional male DJ, lean face, dark loosely parted wavy hair curling around the ears and nape, charcoal crew-neck tee and jeans",
+         gender=1.0, age=0.82, weight=0.38, muscle=0.42, height=0.50, heightMetres=1.78,
          race=dict(african=0.08, asian=0.12, caucasian=0.80),
-         skin="middleage_caucasian_male", hair="short03", clothes="male_casualsuit06", shoes="shoes01",
-         hairTint=[0.08, 0.06, 0.045], clothingTint=[0.055, 0.06, 0.07]),
+         skin="old_caucasian_male", hair="long01", clothes="male_casualsuit06", shoes="shoes01",
+         hairShape="loose-nape-waves", hairTint=[0.035, 0.026, 0.020], clothingTint=[0.055, 0.06, 0.07]),
     dict(id="ellis", label="Ellis", description="Older man, lean build, silver hair",
          gender=1.0, age=0.90, weight=0.38, muscle=0.35, height=0.58, heightMetres=1.87,
          race=dict(african=0.10, asian=0.10, caucasian=0.80),
@@ -64,20 +67,21 @@ CAST = [
          race=dict(african=0.15, asian=0.15, caucasian=0.70),
          skin="young_caucasian_female2", hair="ponytail01",
          clothes="toigo_shift_dress", shoes="shoes02", clothingTint=[0.38, 0.04, 0.10]),
-    dict(id="rosa", label="Rosa", description="Adult woman, curvy build, coral T-shirt and denim shorts",
+    dict(id="rosa", label="Rosa", description="Adult woman, curvy build, graphite cropped top and trousers",
          gender=0.0, age=0.62, weight=0.70, muscle=0.45, height=0.51, heightMetres=1.73,
          race=dict(african=0.35, asian=0.10, caucasian=0.55),
-         skin="middleage_caucasian_female", hair="braid01", clothes="female_casualsuit02", shoes="shoes02",
-         clothingTint=[0.60, 0.20, 0.14]),
-    dict(id="malik", label="Malik", description="Adult man, muscular build, green T-shirt and jeans",
+         skin="middleage_caucasian_female", hair="braid01", clothes="female_sportsuit01", shoes="shoes02",
+         clothingTint=[0.07, 0.085, 0.10]),
+    dict(id="malik", label="Malik", description="Adult man, muscular build, forest fitted shirt and trousers",
          gender=1.0, age=0.56, weight=0.58, muscle=0.85, height=0.56, heightMetres=1.85,
          race=dict(african=0.92, asian=0.04, caucasian=0.04),
-         skin="young_african_male", hair="short01", clothes="male_casualsuit04", shoes="shoes01",
+         skin="young_african_male", hair="short01", clothes="male_casualsuit01", shoes="shoes01",
          clothingTint=[0.08, 0.32, 0.18]),
-    dict(id="luca", label="Luca", description="Adult man, lean build, white T-shirt and jeans, longer hair",
+    dict(id="luca", label="Luca", description="Adult man, lean build, ivory long-sleeve top and dark trousers, longer hair",
          gender=1.0, age=0.60, weight=0.42, muscle=0.48, height=0.50, heightMetres=1.79,
          race=dict(african=0.08, asian=0.12, caucasian=0.80),
-         skin="young_caucasian_male2", hair="short03", clothes="male_casualsuit06", shoes="shoes01"),
+         skin="young_caucasian_male2", hair="short03", clothes="male_casualsuit02", shoes="shoes01",
+         clothingTint=[0.68, 0.65, 0.58]),
     dict(id="alex", label="Alex", description="Nonbinary adult, androgynous build, amber cropped T-shirt and trousers",
          identity="nonbinary", pronouns="they/them",
          gender=0.45, age=0.55, weight=0.48, muscle=0.55, height=0.48, heightMetres=1.72,
@@ -90,10 +94,10 @@ CAST = [
          race=dict(african=0.50, asian=0.10, caucasian=0.40),
          skin="middleage_african_male", hair="bob01", clothes="female_elegantsuit01", shoes="shoes02",
          clothingTint=[0.25, 0.07, 0.22]),
-    dict(id="asha", label="Asha", description="Adult woman, lean athletic build, amber tiered dress, bob",
+    dict(id="asha", label="Asha", description="Adult woman, lean athletic build, bronze cut-out dress, bob",
          gender=0.0, age=0.59, weight=0.44, muscle=0.62, height=0.54, heightMetres=1.76,
          race=dict(african=0.70, asian=0.20, caucasian=0.10),
-         skin="young_african_female", hair="bob01", clothes="toigo_dress_with_tiered_skirt", shoes="shoes04",
+         skin="young_african_female", hair="bob01", clothes="toigo_cut_out_dress", shoes="shoes04",
          clothingTint=[0.56, 0.28, 0.04]),
     dict(id="vera", label="Vera", description="Older woman, fuller build, silver braid, charcoal blouse and skirt",
          gender=0.0, age=0.92, weight=0.63, muscle=0.30, height=0.49, heightMetres=1.69,
@@ -110,10 +114,10 @@ CAST = [
          race=dict(african=0.08, asian=0.07, caucasian=0.85),
          skin="middleage_caucasian_female", hair="long01", clothes="male_casualsuit06", shoes="shoes05",
          hairTint=[0.65, 0.51, 0.30], clothingTint=[0.055, 0.06, 0.07]),
-    dict(id="iris", label="Iris", description="Adult woman, tall slender build, copper bob, light tee and shorts",
+    dict(id="iris", label="Iris", description="Adult woman, tall slender build, copper bob, silver cropped top and trousers",
          gender=0.0, age=0.53, weight=0.35, muscle=0.42, height=0.60, heightMetres=1.83,
          race=dict(african=0.10, asian=0.05, caucasian=0.85),
-         skin="young_caucasian_female2", hair="bob02", clothes="female_casualsuit02", shoes="shoes06",
+         skin="young_caucasian_female2", hair="bob02", clothes="female_sportsuit01", shoes="shoes06",
          hairTint=[0.38, 0.12, 0.04], clothingTint=[0.62, 0.58, 0.49]),
     dict(id="luz", label="Luz", description="Adult woman, shorter curvy build, red keyhole dress, ponytail",
          gender=0.0, age=0.65, weight=0.60, muscle=0.50, height=0.42, heightMetres=1.61,
@@ -125,10 +129,10 @@ CAST = [
          race=dict(african=0.10, asian=0.60, caucasian=0.30),
          skin="middleage_asian_female", hair="bob01", clothes="female_elegantsuit01", shoes="shoes03",
          clothingTint=[0.04, 0.24, 0.26]),
-    dict(id="eden", label="Eden", description="Adult woman, athletic build, plum strapless ruffle dress, bob",
+    dict(id="eden", label="Eden", description="Adult woman, athletic build, plum midi halter dress, bob",
          gender=0.0, age=0.60, weight=0.47, muscle=0.70, height=0.53, heightMetres=1.74,
          race=dict(african=0.40, asian=0.10, caucasian=0.50),
-         skin="young_african_female", hair="bob02", clothes="toigo_strapless_ruffle_top_dress", shoes="shoes04",
+         skin="young_african_female", hair="bob02", clothes="toigo_halter_dress_midi", shoes="shoes04",
          clothingTint=[0.30, 0.05, 0.23]),
     dict(id="owen", label="Owen", description="Adult man, sturdy build, denim-style button shirt and trousers",
          gender=1.0, age=0.58, weight=0.62, muscle=0.65, height=0.52, heightMetres=1.82,
@@ -179,12 +183,12 @@ CAST = [
          race=dict(african=0.12, asian=0.16, caucasian=0.72),
          skin="young_caucasian_male2", hair="long01", clothes="female_elegantsuit01", shoes="shoes03",
          clothingTint=[0.32, 0.38, 0.46]),
-    dict(id="robin", label="Robin", description="Nonbinary adult, short fuller build, mustard jacket and trousers",
+    dict(id="robin", label="Robin", description="Nonbinary adult, short fuller build, charcoal jacket and trousers",
          identity="nonbinary", pronouns="they/them",
          gender=0.50, age=0.64, weight=0.65, muscle=0.46, height=0.43, heightMetres=1.67,
          race=dict(african=0.12, asian=0.70, caucasian=0.18),
          skin="middleage_asian_male", hair="short02", clothes="male_casualsuit05", shoes="shoes05",
-         clothingTint=[0.43, 0.30, 0.05]),
+         clothingTint=[0.075, 0.085, 0.11]),
     dict(id="kai", label="Kai", description="Nonbinary adult, tall lean build, bob, violet tailored suit",
          identity="nonbinary", pronouns="they/them",
          gender=0.35, age=0.51, weight=0.43, muscle=0.52, height=0.55, heightMetres=1.78,
@@ -193,10 +197,10 @@ CAST = [
          clothingTint=[0.24, 0.09, 0.32]),
 ]
 CAST.extend([
-    dict(id="mara", label="Mara", description="Adult woman, tall broad build, copper braid, rose blouse and skirt",
+    dict(id="mara", label="Mara", description="Adult woman, tall broad build, copper braid, rose halter dress",
          gender=0.0, age=0.73, weight=0.61, muscle=0.58, height=0.56, heightMetres=1.79,
          race=dict(african=0.12, asian=0.58, caucasian=0.30),
-         skin="middleage_asian_female", hair="braid01", clothes="female_elegantsuit01", shoes="shoes03",
+         skin="middleage_asian_female", hair="braid01", clothes="toigo_halter_dress_with_fluted_skirt", shoes="shoes03",
          hairTint=[0.30, 0.11, 0.05], clothingTint=[0.48, 0.24, 0.32]),
     dict(id="jonas", label="Jonas", description="Older man, shorter stocky build, silver hair, indigo T-shirt and jeans",
          gender=1.0, age=0.86, weight=0.72, muscle=0.44, height=0.43, heightMetres=1.71,
@@ -204,6 +208,31 @@ CAST.extend([
          skin="old_asian_male", hair="short03", clothes="male_casualsuit04", shoes="shoes06",
          hairTint=[0.48, 0.47, 0.45], clothingTint=[0.08, 0.12, 0.40]),
 ])
+
+NIGHT_OUT = {
+    "asha": dict(clothes="punkduck_high_neck_crop_top", bottom="cortu_cargo_pants",
+                 hair="toigo_curled_under_bob", description="Adult woman, lean athletic build, bronze high-neck crop top and cargo trousers, curled-under bob"),
+    "iris": dict(clothes="toigo_turtleneck_halter_top", bottom="cortu_cargo_pants",
+                 hair="toigo_inverted_bob", description="Adult woman, tall slender build, copper inverted bob, stone halter top and cargo trousers"),
+    "rosa": dict(clothes="toigo_camisole_top", bottom="toigo_tiered_mini_skirt",
+                 hair="toigo_blunt_bob_with_bangs", description="Adult woman, curvy build, blunt bob with bangs, graphite camisole and tiered mini skirt"),
+    "vera": dict(clothes="toigo_fisherman_sweater", bottom="toigo_wool_pants",
+                 description="Older woman, fuller build, silver braid, charcoal knit sweater and tailored trousers"),
+    "alex": dict(clothes="toigo_keyhole_tank_top", bottom="cortu_cargo_pants",
+                 hair="cortu_short_messy_hair", description="Nonbinary adult, androgynous build, short textured hair, amber keyhole tank and cargo trousers"),
+    "noah": dict(clothes="namuhekam_male_polo_shirt", bottom="toigo_wool_pants",
+                 hair="cortu_short_messy_hair", description="Adult man, short fuller build, short textured hair, teal polo and tailored trousers"),
+    "owen": dict(clothes="toigo_basic_tucked_t-shirt", bottom="cortu_cargo_pants",
+                 description="Adult man, sturdy build, tucked T-shirt and cargo trousers"),
+    "leila": dict(hair="toigo_blunt_bob_with_bangs",
+                  description="Adult woman, flowing teal camisole dress, blunt bob with bangs"),
+    "mei": dict(hair="toigo_inverted_bob_with_bangs",
+                description="Older woman, silver inverted bob with bangs, blouse and skirt"),
+    "diego": dict(hair="cortu_short_messy_hair",
+                  description="Adult man, athletic build, russet T-shirt and trousers, short textured hair"),
+}
+for person in CAST:
+    person.update(NIGHT_OUT.get(person["id"], {}))
 
 
 def asset_path(category, name, suffix):
@@ -213,13 +242,123 @@ def asset_path(category, name, suffix):
     return str(path)
 
 
+def asset_license(name):
+    entry = license_manifest.get(name)
+    if entry and entry["license"] == "CC0":
+        return "CC0-1.0"
+    approved = attribution_assets.get(name)
+    if entry and entry["license"] == "CC-BY" and approved and approved.get("license") == "CC-BY-4.0":
+        source = Path(asset_path(entry["type"], name, "mhclo"))
+        if hashlib.sha256(source.read_bytes()).hexdigest() == approved["mhcloSha256"]:
+            return approved["license"]
+    raise RuntimeError(f"Unverified asset licence: {name}")
+
+
 def set_active(obj):
     bpy.ops.object.select_all(action="DESELECT")
     obj.select_set(True)
     bpy.context.view_layer.objects.active = obj
 
 
-def material_pixels(material, size, tint=None):
+PRINTED_TOPS = {"male_casualsuit02", "male_casualsuit04", "male_casualsuit06"}
+FOOTWEAR = {
+    "loafers": "shoes03",
+    "pumps": "toigo_ballet_flats",
+    "heels": "toigo_stiletto_booties",
+}
+WOMEN_FOOTWEAR = {
+    "amara": "pumps", "nia": "heels", "sofia": "pumps", "asha": "heels",
+    "leila": "loafers", "iris": "loafers", "rosa": "pumps", "mei": "loafers",
+    "luz": "heels", "hana": "pumps", "vera": "loafers", "alex": "loafers",
+    "sana": "loafers", "zara": "heels", "mara": "pumps", "eden": "pumps",
+}
+
+
+def add_footwear(body, character, style):
+    source = character["shoes"] if style == "original" else FOOTWEAR[style]
+    if source not in license_manifest or license_manifest[source]["license"] != "CC0":
+        raise RuntimeError(f"Unverified footwear asset: {source}")
+    obj = HumanService.add_mhclo_asset(asset_path("clothes", source, "mhclo"), body,
+                                      asset_type="Clothes", material_type="GAMEENGINE", subdiv_levels=0)
+    modern = style != "original" or character.get("footwearStyle") in FOOTWEAR
+    if modern and source == "shoes03":
+        mesh = bmesh.new()
+        mesh.from_mesh(obj.data)
+        remaining = set(mesh.verts)
+        components = []
+        while remaining:
+            pending = [remaining.pop()]
+            component = set(pending)
+            while pending:
+                for edge in pending.pop().link_edges:
+                    for vertex in edge.verts:
+                        if vertex in remaining:
+                            remaining.remove(vertex)
+                            component.add(vertex)
+                            pending.append(vertex)
+            components.append(component)
+        if sorted(map(len, components)) != [52] * 8 + [144] * 2 + [759] * 2:
+            raise RuntimeError("Unexpected shoes03 sock/lace topology")
+        bmesh.ops.delete(mesh, geom=[vertex for component in components if len(component) != 759
+                                     for vertex in component], context="VERTS")
+        mesh.to_mesh(obj.data)
+        mesh.free()
+        delete_group = body.vertex_groups.get("Delete.shoes03")
+        if delete_group:
+            delete_group.remove([vertex.index for vertex in body.data.vertices])
+            delete_group.add([vertex.index for vertex in body.data.vertices if vertex.co.z < 0.035], 1, "REPLACE")
+    if modern:
+        floor = min(vertex.co.z for vertex in obj.data.vertices)
+        if not -0.2 < floor < 0.05:
+            raise RuntimeError(f"Unexpected fitted footwear ground level: {source}: {floor}")
+        for vertex in obj.data.vertices:
+            vertex.co.z -= floor
+        if source == "shoes03":
+            mesh = bmesh.new()
+            mesh.from_mesh(obj.data)
+            bmesh.ops.bisect_plane(
+                mesh, geom=list(mesh.verts) + list(mesh.edges) + list(mesh.faces),
+                dist=0.000001, plane_co=(0, 0, 0.095), plane_no=(0, 0, 1),
+                clear_outer=True, clear_inner=False)
+            mesh.to_mesh(obj.data)
+            mesh.free()
+        # Leave leather thickness around the fitted foot after independent mesh decimation.
+        for side in (-1, 1):
+            vertices = [vertex for vertex in obj.data.vertices if vertex.co.x * side > 0]
+            centre_x = (min(vertex.co.x for vertex in vertices) + max(vertex.co.x for vertex in vertices)) / 2
+            centre_y = (min(vertex.co.y for vertex in vertices) + max(vertex.co.y for vertex in vertices)) / 2
+            for vertex in vertices:
+                vertex.co.x = centre_x + (vertex.co.x - centre_x) * 1.06
+                vertex.co.y = centre_y + (vertex.co.y - centre_y) * (1.12 if source == "shoes03" else 1.04)
+        if source == "toigo_stiletto_booties":
+            height = max(vertex.co.z for vertex in obj.data.vertices)
+            mesh = bmesh.new()
+            mesh.from_mesh(obj.data)
+            bmesh.ops.bisect_plane(
+                mesh, geom=list(mesh.verts) + list(mesh.edges) + list(mesh.faces),
+                dist=0.000001, plane_co=(0, 0, height * 0.8), plane_no=(0, 0, 1),
+                clear_outer=True, clear_inner=False)
+            mesh.to_mesh(obj.data)
+            mesh.free()
+            delete_group = body.vertex_groups.get(f"Delete.{source}")
+            if delete_group is None:
+                raise RuntimeError("The fitted ankle boots require their authored body mask")
+            cutoff = height * 0.35
+            delete_group.add([vertex.index for vertex in body.data.vertices if vertex.co.z < cutoff], 1, "REPLACE")
+        elif source == "toigo_ballet_flats":
+            delete_group = body.vertex_groups.get(f"Delete.{source}")
+            if delete_group:
+                delete_group.remove([vertex.index for vertex in body.data.vertices])
+        obj["experiment_footwear_colour"] = {
+            "shoes03": [0.055, 0.032, 0.024],
+            "toigo_ballet_flats": [0.035, 0.027, 0.038],
+            "toigo_stiletto_booties": [0.028, 0.024, 0.032],
+        }[source]
+    obj["experiment_source"] = source
+    return obj
+
+
+def material_pixels(material, size, tint=None, plain_top=False, footwear_colour=None):
     nodes = material.node_tree.nodes
     principled = next(node for node in nodes if node.type == "BSDF_PRINCIPLED")
     socket = principled.inputs["Base Color"]
@@ -240,9 +379,93 @@ def material_pixels(material, size, tint=None):
     else:
         pixels = np.empty((size, size, 4), dtype=np.float32)
         pixels[:] = socket.default_value[:]
+    if plain_top:
+        # These verified UV layouts put the shirt in the upper half and jeans below it.
+        fabric = np.median(pixels[int(size * 0.65):int(size * 0.9),
+                                  int(size * 0.04):int(size * 0.25), :3], axis=(0, 1))
+        pixels[size // 2:, :, :3] = fabric
+    if footwear_colour is not None:
+        pixels[:, :, :3] = footwear_colour
+        pixels[:, :, 3] = 1
     if tint:
         pixels[:, :, :3] = pixels[:, :, :3] * 0.25 + np.array(tint, dtype=np.float32) * 0.75
     return pixels
+
+
+def shape_dj_hair(hair, rig):
+    """Keep the CC0 parted roots and replace pageboy ends with head-skinned waves."""
+    head = rig.data.bones["head"]
+    crown = max(vertex.co.z for vertex in hair.data.vertices)
+    bottom = min(vertex.co.z for vertex in hair.data.vertices)
+    neck = head.head_local.z
+    cut = neck + 0.045
+    nape = neck - 0.055
+    mesh = bmesh.new()
+    mesh.from_mesh(hair.data)
+    bmesh.ops.bisect_plane(mesh, geom=list(mesh.verts) + list(mesh.edges) + list(mesh.faces),
+                          dist=0.00001, plane_co=(0, 0, cut), plane_no=(0, 0, 1),
+                          clear_inner=True)
+    if not bottom < nape < cut < crown or len(mesh.verts) < 100:
+        raise RuntimeError("The verified long01 hair no longer fits Jin's head landmarks")
+    uv_layer = mesh.loops.layers.uv.active
+    deform = mesh.verts.layers.deform.verify()
+    group = hair.vertex_groups.get("head") or hair.vertex_groups.new(name="head")
+    pixels = material_pixels(hair.data.materials[0], 64)
+    opaque = np.argwhere(pixels[:, :, 3] > 0.98)
+    if len(opaque) < 16:
+        raise RuntimeError("The verified long01 texture has no opaque curl colour")
+    row, column = opaque[len(opaque) // 2]
+    curl_uv = ((float(column) + 0.5) / 64, (float(row) + 0.5) / 64)
+    clumps = []
+    for side in (-1, 1):
+        for index, (x, y) in enumerate(((0.065, -0.040), (0.083, 0.005),
+                                       (0.075, 0.050), (0.050, 0.080))):
+            phase = index * 0.9
+            length = 0.135 if index == 0 else 0.185
+            def path(t, side=side, x=x, y=y, phase=phase, length=length):
+                wave = math.sin(math.tau * t + phase) * math.sin(math.pi * t)
+                return Vector((side * (x - 0.020 * (1 - t) ** 3 + 0.025 * math.sin(math.pi * t) + 0.016 * wave - 0.020 * t ** 4),
+                               head.head_local.y + y + 0.014 * wave,
+                               neck + 0.125 - length * t + 0.030 * t ** 6))
+            clumps.append(path)
+    for index in range(5):
+        x = (index - 2) * 0.030
+        def path(t, x=x, phase=index * 0.8):
+            wave = math.sin(math.tau * t + phase) * math.sin(math.pi * t)
+            return Vector((x + 0.012 * wave,
+                           head.head_local.y + 0.090 - 0.025 * (1 - t) ** 3 + 0.025 * math.sin(math.pi * t) - 0.025 * t ** 4,
+                           neck + 0.115 - 0.195 * t + 0.030 * t ** 6))
+        clumps.append(path)
+    for path in clumps:
+        rings = []
+        for step in range(19):
+            t = step / 18
+            centre = path(t)
+            tangent = (path(min(1, t + 0.001)) - path(max(0, t - 0.001))).normalized()
+            radial = Vector((centre.x, centre.y - head.head_local.y, 0)).normalized()
+            across = tangent.cross(radial).normalized()
+            normal = tangent.cross(across).normalized()
+            radius = 0.030 * math.sin(math.pi * t) ** 0.45 * (1 - t) ** 0.35 + 0.001
+            ring = []
+            for section in range(8):
+                angle = section / 8 * math.tau
+                vertex = mesh.verts.new(centre + radius * (across * math.cos(angle) + normal * math.sin(angle) * 0.22))
+                vertex[deform][group.index] = 1.0
+                ring.append(vertex)
+            if rings:
+                for section in range(8):
+                    face = mesh.faces.new((rings[-1][section], rings[-1][(section + 1) % 8],
+                                           ring[(section + 1) % 8], ring[section]))
+                    face.smooth = True
+                    for loop in face.loops:
+                        loop[uv_layer].uv = curl_uv
+            rings.append(ring)
+    bmesh.ops.recalc_face_normals(mesh, faces=list(mesh.faces))
+    mesh.to_mesh(hair.data)
+    mesh.free()
+    print("DJ_HAIR_FIT", json.dumps({"source": "long01", "style": "loose-nape-waves",
+          "originalBottom": bottom, "nape": nape, "neck": neck, "crown": crown,
+          "vertices": len(hair.data.vertices), "authoredWaveClumps": len(clumps)}), flush=True)
 
 
 def atlas_material(objects, name, transparent=False, tint=None, neutral=False):
@@ -258,8 +481,15 @@ def atlas_material(objects, name, transparent=False, tint=None, neutral=False):
     pixels = np.ones((size, size, 4), dtype=np.float32)
     for tile, (obj, index, material) in enumerate(slots):
         x, y = (tile % grid) * cell, (tile // grid) * cell
+        if index == 0:
+            obj["experiment_atlas_rect"] = [
+                (x + 4) / size, 1 - (y + cell - 4) / size,
+                (x + cell - 4) / size, 1 - (y + 4) / size,
+            ]
         # Padding plus inset UVs prevents neighbouring atlas cells bleeding at seams.
-        content = material_pixels(material, cell - 8, tint=obj.get("experiment_tint", tint))
+        content = material_pixels(material, cell - 8, tint=obj.get("experiment_tint", tint),
+                                  plain_top=obj.get("experiment_plain_top", False),
+                                  footwear_colour=obj.get("experiment_footwear_colour"))
         if neutral:
             grey = content[:, :, :3].mean(axis=2)
             reference = max(0.05, float(np.percentile(grey, 85)))
@@ -328,42 +558,59 @@ def generate_wardrobe(character, body, rig):
     parts = [body]
     eyes = HumanService.add_mhclo_asset(asset_path("eyes", "low-poly", "mhclo"), body,
                                       asset_type="Eyes", material_type="GAMEENGINE", subdiv_levels=0)
-    shoes = HumanService.add_mhclo_asset(asset_path("clothes", character["shoes"], "mhclo"), body,
-                                       asset_type="Clothes", material_type="GAMEENGINE", subdiv_levels=0)
-    parts.extend([eyes, shoes])
+    shoes = {}
+    shoe_groups = {}
+    for style in ("original", *FOOTWEAR):
+        shoe = add_footwear(body, character, style)
+        shoe.name = f"wardrobe_shoes_{style}"
+        shoes[style] = shoe
+        shoe_groups[style] = body.vertex_groups.get(f"Delete.{shoe['experiment_source']}")
+    parts.extend([eyes, *shoes.values()])
     variants = []
     outfits = {
-        "original": character["clothes"],
-        "casual": "male_casualsuit04" if character["clothes"] == "male_casualsuit06" else "male_casualsuit06",
-        "smart": "male_elegantsuit01" if character["clothes"] == "male_casualsuit01" else "male_casualsuit01",
+        "original": [character["clothes"], *([character["bottom"]] if character.get("bottom") else [])],
+        "casual": ["male_casualsuit04" if character["clothes"] == "male_casualsuit06" else "male_casualsuit06"],
+        "smart": ["male_elegantsuit01" if character["clothes"] == "male_casualsuit01" else "male_casualsuit01"],
     }
     for kind, choices in (
-        ("hair", dict(original=character["hair"],
-                      short="short02" if character["hair"] == "short03" else "short03",
-                      long="ponytail01" if character["hair"] == "long01" else "long01")),
+        ("hair", dict(original=[character["hair"]],
+                      short=[("toigo_inverted_bob" if character["hair"] == "toigo_blunt_bob_with_bangs" else
+                              "toigo_blunt_bob_with_bangs") if character["gender"] < 0.7 else
+                             "short03" if character["hair"] == "cortu_short_messy_hair" else "cortu_short_messy_hair"],
+                      long=["ponytail01" if character["hair"] == "long01" else "long01"])),
         ("outfit", outfits),
     ):
-        for option, name in choices.items():
-            if name not in license_manifest or license_manifest[name]["license"] != "CC0":
-                raise RuntimeError(f"Unverified wardrobe asset: {name}")
-            obj = HumanService.add_mhclo_asset(
-                asset_path("hair" if kind == "hair" else "clothes", name, "mhclo"), body,
-                asset_type="Hair" if kind == "hair" else "Clothes",
-                material_type="GAMEENGINE", subdiv_levels=0)
-            obj.name = f"wardrobe_{kind}_{option}"
-            variants.append((kind, option, obj))
-            parts.append(obj)
+        for option, names in choices.items():
+            objects = []
+            for name in names:
+                asset_license(name)
+                obj = HumanService.add_mhclo_asset(
+                    asset_path("hair" if kind == "hair" else "clothes", name, "mhclo"), body,
+                    asset_type="Hair" if kind == "hair" else "Clothes",
+                    material_type="GAMEENGINE", subdiv_levels=0)
+                obj.name = f"wardrobe_{kind}_{option}"
+                obj["experiment_plain_top"] = name in PRINTED_TOPS
+                objects.append(obj)
+                parts.append(obj)
+            variants.append((kind, option, objects))
     set_active(body)
     if body.data.shape_keys:
         bpy.ops.object.shape_key_remove(all=True, apply_mix=True)
     atlas_material([body], "wardrobe_skin", neutral=True)
+    colours = body.data.color_attributes.new(name="footwearMasks", type="FLOAT_COLOR", domain="POINT")
+    for vertex in body.data.vertices:
+        flags = []
+        for group in shoe_groups.values():
+            flags.append(float(group is not None and any(item.group == group.index and item.weight >= 0.5 for item in vertex.groups)))
+        colours.data[vertex.index].color = flags
+    body.data.color_attributes.active_color = colours
     skins = []
-    for option, outfit in outfits.items():
+    for option, garments in outfits.items():
         skin = body.copy()
         skin.data = body.data.copy()
         bpy.context.collection.objects.link(skin)
         skin.name = f"wardrobe_skin_{option}"
-        keep = {f"Delete.{outfit}", f"Delete.{character['shoes']}", "body"}
+        keep = {"body", *(f"Delete.{garment}" for garment in garments)}
         for modifier in list(skin.modifiers):
             if modifier.type == "SUBSURF" or modifier.type == "MASK" and modifier.vertex_group not in keep:
                 skin.modifiers.remove(modifier)
@@ -377,31 +624,43 @@ def generate_wardrobe(character, body, rig):
             if modifier.type in ("MASK", "SUBSURF"):
                 obj.modifiers.remove(modifier)
     parts.extend(skins)
-    atlas_material([eyes, shoes], "wardrobe_accessories")
-    for kind, option, obj in variants:
-        material = atlas_material([obj], f"wardrobe_{kind}_{option}", transparent=kind == "hair", neutral=True)
+    atlas_material([eyes, *shoes.values()], "wardrobe_accessories")
+    for kind, option, objects in variants:
+        material = atlas_material(objects, f"wardrobe_{kind}_{option}", transparent=kind == "hair", neutral=True)
         if kind == "outfit":
             bottom = material.copy()
             bottom.name = f"wardrobe_bottom_{option}"
             material.name = f"wardrobe_top_{option}"
-            obj.data.materials.append(bottom)
             height = max(vertex.co.z for vertex in skins[0].data.vertices)
-            for face in obj.data.polygons:
-                z = sum(obj.data.vertices[index].co.z for index in face.vertices) / len(face.vertices)
-                face.material_index = int(z < height * 0.52)
+            for index, obj in enumerate(objects):
+                obj.data.materials.append(bottom)
+                for face in obj.data.polygons:
+                    z = sum(obj.data.vertices[vertex].co.z for vertex in face.vertices) / len(face.vertices)
+                    face.material_index = index if len(objects) > 1 else int(z < height * 0.52)
+        if len(objects) > 1:
+            set_active(objects[0])
+            for obj in objects[1:]:
+                parts.remove(obj)
+                obj.select_set(True)
+            bpy.ops.object.join()
     for obj in parts:
         set_active(obj)
-        target = 4500 if obj in skins else 900 if obj in (eyes, shoes) or "hair" in obj.name else 2600
+        target = 4500 if obj in skins else 900 if obj == eyes or obj in shoes.values() or "hair" in obj.name else 2600
         triangles = sum(len(face.vertices) - 2 for face in obj.data.polygons)
         modifier = obj.modifiers.new("Wardrobe triangle budget", "DECIMATE")
         modifier.ratio = min(1.0, target / max(1, triangles))
         bpy.ops.object.modifier_apply(modifier=modifier.name)
         for face in obj.data.polygons:
             face.use_smooth = True
-    set_active(eyes)
-    shoes.select_set(True)
-    bpy.ops.object.join()
-    bpy.context.object.name = "wardrobe_accessories"
+    for shoe in shoes.values():
+        eye_copy = eyes.copy()
+        eye_copy.data = eyes.data.copy()
+        bpy.context.collection.objects.link(eye_copy)
+        set_active(shoe)
+        eye_copy.select_set(True)
+        bpy.ops.object.join()
+    parts.remove(eyes)
+    bpy.data.objects.remove(eyes, do_unlink=True)
     relax_arms(rig)
     bpy.context.view_layer.update()
     bpy.ops.object.select_all(action="DESELECT")
@@ -413,6 +672,7 @@ def generate_wardrobe(character, body, rig):
     bpy.ops.export_scene.gltf(filepath=str(OUTPUT / f"{character['id']}.glb"),
                               export_format="GLB", use_selection=True, export_animations=False,
                               export_morph=False, export_skins=True, export_def_bones=True,
+                              export_vertex_color="ACTIVE",
                               export_image_format="AUTO", export_extras=False, export_materials="EXPORT")
     print("WARDROBE_COMPLETE", character["id"], flush=True)
 
@@ -423,9 +683,17 @@ only = set(filter(None, os.environ.get("AVATAR_ONLY", "").split(",")))
 if only - {character["id"] for character in CAST}:
     raise ValueError(f"Unknown requested characters: {only}")
 license_manifest = {}
-for pack in ("makehuman_system_assets", "dress01"):
+for pack in ("makehuman_system_assets", "dress01", "shoes01", "hair01", "shirts01", "skirts01", "pants01", "shirts03"):
     license_manifest.update(json.loads((ASSETS / "packs" / f"{pack}.json").read_text()))
+attribution_assets = {
+    entry["id"]: entry
+    for pack in json.loads((ROOT / "design" / "characters" / "provenance.json").read_text())["fashionPacks"]
+    for entry in pack["selectedAssets"]
+}
 for character in CAST:
+    if character["id"] in WOMEN_FOOTWEAR:
+        character["footwearStyle"] = WOMEN_FOOTWEAR[character["id"]]
+        character["shoes"] = FOOTWEAR[character["footwearStyle"]]
     if WARDROBE and character["id"] not in {
         "nia", "asha", "sofia", "iris", "leila", "amara", "mei", "rosa",
         "tao", "luca", "diego", "ellis", "felix", "malik", "ren", "samir", "idris"
@@ -459,8 +727,8 @@ for character in CAST:
         ("eyes", "low-poly", "Eyes"),
         ("eyebrows", "eyebrow001", "Eyebrows"),
         ("hair", character["hair"], "Hair"),
-        ("clothes", character["clothes"], "Clothes"),
-        ("clothes", character["shoes"], "Clothes"),
+        *(("clothes", name, "Clothes") for name in
+          [character["clothes"], *([character["bottom"]] if character.get("bottom") else [])]),
     ):
         obj = HumanService.add_mhclo_asset(
             asset_path(category, name, "mhclo"), body, asset_type=kind,
@@ -469,11 +737,16 @@ for character in CAST:
         sources.append(name)
         if kind == "Hair":
             hair = obj
-        if name == character["clothes"] and character.get("clothingTint"):
+            if character.get("hairShape") == "loose-nape-waves":
+                shape_dj_hair(hair, rig)
+        if name in (character["clothes"], character.get("bottom")) and character.get("clothingTint"):
             obj["experiment_tint"] = character["clothingTint"]
-    for source in sources:
-        if source not in license_manifest or license_manifest[source]["license"] != "CC0":
-            raise RuntimeError(f"Unverified CC0 asset: {source}")
+        if name == character["clothes"]:
+            obj["experiment_plain_top"] = name in PRINTED_TOPS
+    shoe = add_footwear(body, character, "original")
+    parts.append(shoe)
+    sources.append(character["shoes"])
+    licences = list(dict.fromkeys(asset_license(source) for source in sources))
     # Freeze generated shape keys before the clothing masks and decimation.
     set_active(body)
     if body.data.shape_keys:
@@ -494,6 +767,7 @@ for character in CAST:
     bpy.data.objects.remove(brows, do_unlink=True)
     parts.remove(brows)
     atlas_material(opaque, f"{character['id']}_opaque")
+    eye_atlas = list(next(obj for obj in opaque if getattr(obj, "MPFB_GEN_object_type", "") == "Eyes")["experiment_atlas_rect"])
     atlas_material([hair], f"{character['id']}_hair", transparent=True,
                    tint=character.get("hairTint", (0.65, 0.65, 0.65) if character["id"] == "ellis" else None))
     total = sum(sum(len(face.vertices) - 2 for face in obj.data.polygons) for obj in parts)
@@ -550,7 +824,10 @@ for character in CAST:
         export_extras=False, export_materials="EXPORT",
     )
     existing[character["id"]] = {
-        **character, "sources": sources, "license": "CC0-1.0",
+        **character, "sources": sources, "license": " AND ".join(licences),
+        "eyeAtlas": eye_atlas,
+        "plainTop": character["clothes"] in PRINTED_TOPS,
+        "expression": {"style": "source-neutral", "targets": {}},
         "triangles": sum(sum(len(face.vertices) - 2 for face in obj.data.polygons)
                          for obj in (opaque_mesh, hair)),
         "materials": 2, "textureSizes": [1024, 512],

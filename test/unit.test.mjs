@@ -1019,6 +1019,15 @@ test('player height: MEASURE HEIGHT keeps the median of the last second and reje
     }
     assert.equal(club.playerEyeHeight, 1.81);
     assert.match(messages.at(-1), /1\.81 m/);
+    assert.match(messages.at(-1), /not body height/);
+    assert.match(messages.at(-1), /headset floor level/);
+    // A headset only reports its height above the runtime's floor. Even if the wearer is 1.65 m tall,
+    // neither a crown-to-eye allowance nor an incorrectly configured floor can be recovered from 1.40 alone.
+    club._finishHeightMeasure({ samples: [1.4, now - 0.5, 1.4, now] }, now);
+    assert.equal(club.playerEyeHeight, 1.4, 'never invent a stature or a floor correction');
+    club._finishHeightMeasure({ samples: [0.5, now] }, now);
+    assert.equal(club.playerEyeHeight, 1.4, 'an invalid measurement cannot replace the previous eye height');
+    assert.match(messages.at(-1), /Could not measure/);
     club.isInVRMode = false;
     assert.equal(club.startHeightMeasure(), false, 'height is measured in the headset');
 });
@@ -6435,7 +6444,7 @@ test('the VR menu: COMFORT holds how you move, ME holds who you are, and the cha
     const same = (a, b, message) => assert.equal(JSON.stringify(a), JSON.stringify(b), message);
     const comfort = labels('comfort');
     same(comfort, ['LOCOMOTION', 'SAFE MODE', 'QUALITY', 'AUTO QUALITY', 'ME', 'CREDITS / LICENCES', '\u2190 BACK', 'CLOSE']);
-    same(labels('me'), ['MY CHARACTER', 'EDIT MY CHARACTER', 'MEASURE HEIGHT', 'SEATED MODE', '\u2190 BACK', 'CLOSE']);
+    same(labels('me'), ['MY CHARACTER', 'EDIT MY CHARACTER', 'MEASURE EYE HEIGHT', 'SEATED MODE', '\u2190 BACK', 'CLOSE']);
     for (const page of ['comfort', 'me', 'character']) assert.ok(labels(page).length <= 12, `${page} fits the twelve slots`);
 
     // Page one: the default and the eight women; page two: the nine men. Each names the kind of person and what they wear.
@@ -7932,7 +7941,7 @@ test('XR head height preserves low valid poses, ignores missing poses and resets
             notify(value) { for (const fn of observers) fn(value); }
         };
     };
-    const manager = { onXRFrameObservable: observable(), onXRSessionInit: observable(), baseReferenceSpace: {}, worldScalingFactor: 1 };
+    const manager = { onXRFrameObservable: observable(), onXRSessionInit: observable(), baseReferenceSpace: {}, referenceSpace: {}, worldScalingFactor: 1 };
     const club = Object.assign(Object.create(window.Mezzanine), { vrHelper: { baseExperience: { sessionManager: manager } } });
     let sampledBeforeCamera = null;
     manager.onXRFrameObservable.add(() => { sampledBeforeCamera = club._xrEyeHeight; });
@@ -7962,6 +7971,15 @@ test('XR head height preserves low valid poses, ignores missing poses and resets
     club._updateVRWalkSurface(camera);
     assert.equal(camera.position.y, 3.5, 'low tracked height on the balcony stays on the deck');
     assert.equal(club._walkLevel, 3);
+    manager.worldScalingFactor = 1;
+    for (const virtualOffset of [0.25, 0.5, 2.8, 3, -0.25]) {
+        manager.onXRFrameObservable.notify({
+            getViewerPose: space => ({ transform: { position: {
+                y: space === manager.baseReferenceSpace ? 1.55 : 1.55 + virtualOffset
+            } } })
+        });
+        assert.equal(club._xrHeadHeight(), 1.55, 'virtual floor, teleport and recenter offsets must not alter measured eye height');
+    }
 });
 
 test('in VR the headset stands on the balcony, climbs its stair, steps off its edge and keeps the DJ riser', () => {

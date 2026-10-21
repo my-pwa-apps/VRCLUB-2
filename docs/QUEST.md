@@ -26,6 +26,23 @@ The old podcast source/Worker utilities and Mixamo GLBs are not part of this pay
 The bundled Apache licence, CC licences, MIT licence, asset register and notices must
 remain available. VR COMFORT → CREDITS / LICENCES returns to their setup-panel disclosure.
 
+### Headset eye-height measurement
+
+**ME → MEASURE EYE HEIGHT** records the headset's standing height above the
+runtime's physical floor, using the median of the final second of a three-second
+stand. This is **not crown-to-floor body height**: a person who is 1.65 m tall
+should not expect a 1.65 m eye-height reading. There is no fixed allowance that
+can reliably recover their stature.
+
+The measurement uses the XR **base** reference space, never the camera's world
+position or the offset reference space used by teleporting, the balcony, street
+and DJ riser. Seated mode's virtual lift is not included in the measurement.
+If a standing reading is unexpectedly low (for example 1.40 m), verify/reset the
+headset's physical floor level and retry while upright and looking ahead. The
+app cannot distinguish a bad runtime floor from a genuinely low headset, and
+pressing Measure cannot repair that floor. The Quest emulator tests virtual
+offset isolation and seated lift, not a physical headset's floor calibration.
+
 ## Prepare an Android wrapper
 
 > The scripted route is in [Build and publish the app](#build-and-publish-the-app-sidequest-or-meta-horizon-store):
