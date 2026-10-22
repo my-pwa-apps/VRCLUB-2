@@ -282,7 +282,9 @@ const mainExperience = document.getElementById('mainExperience');
 const splashRoomInvite = document.getElementById('splashRoomInvite');
 const splashRoomLabel = document.getElementById('splashRoomLabel');
 const splashGuestName = document.getElementById('splashGuestName');
-const invitedRoom = (typeof ClubMultiplayer !== 'undefined' && typeof ClubMultiplayer.inviteRoomFromLocation === 'function')
+const invitedEvent = typeof ClubMultiplayer !== 'undefined' ? ClubMultiplayer.inviteEventFromLocation() : null;
+const eventInviteRequested = new URLSearchParams(window.location.search).has('event');
+const invitedRoom = eventInviteRequested ? 'live-event' : (typeof ClubMultiplayer !== 'undefined' && typeof ClubMultiplayer.inviteRoomFromLocation === 'function')
     ? ClubMultiplayer.inviteRoomFromLocation()
     : null;
 
@@ -293,8 +295,8 @@ const invitedRoom = (typeof ClubMultiplayer !== 'undefined' && typeof ClubMultip
     const labelText = privateMatch
         ? `Private room ${privateMatch[1].slice(0, 3)} ${privateMatch[1].slice(3)}`
         : `Room "${invitedRoom}"`;
-    if (splashRoomLabel) splashRoomLabel.textContent = `Invited to ${labelText}`;
-    if (enterClubBtn) enterClubBtn.textContent = `JOIN ${privateMatch ? 'PRIVATE ROOM' : 'ROOM'}`;
+    if (splashRoomLabel) splashRoomLabel.textContent = invitedEvent ? 'Invited to a live DJ event' : `Invited to ${labelText}`;
+    if (enterClubBtn) enterClubBtn.textContent = invitedEvent ? 'JOIN EVENT' : `JOIN ${privateMatch ? 'PRIVATE ROOM' : 'ROOM'}`;
     if (splashGuestName) {
         let savedName = '';
         try { savedName = localStorage.getItem('vrclub.networkName') || ''; } catch (_) {}
@@ -464,10 +466,15 @@ if (enterClubBtn) {
 
         if (invitedRoom && window.vrClub.multiplayer) {
             const typedName = splashGuestName ? splashGuestName.value.trim() : '';
-            window.vrClub.multiplayer.connect({
-                room: invitedRoom,
-                name: typedName || window.vrClub.multiplayer.name
-            });
+            if (eventInviteRequested && !invitedEvent) {
+                window.vrClub.showErrorMessage('This live event invitation is invalid. Ask the event owner for a new audience link.');
+            } else {
+                window.vrClub.multiplayer.connect({
+                    room: invitedRoom,
+                    eventId: invitedEvent,
+                    name: typedName || window.vrClub.multiplayer.name
+                });
+            }
         }
 
         // Hide the splash only when init() has actually RESOLVED.
@@ -655,6 +662,14 @@ function initVJMenu() {
     function updateShowReadout() {
         if (!showReadout || !vrClubInstance.showDirector) return;
         const s = vrClubInstance.showDirector;
+        const holdLookButton = document.getElementById('vjHoldLookBtn');
+        if (holdLookButton) {
+            const held = s.isHeld();
+            const reason = vrClubInstance.isFollowingHost() ? 'HOST ONLY' : vrClubInstance.showLookHoldUnavailableReason();
+            holdLookButton.disabled = !!reason;
+            holdLookButton.textContent = reason ? `HOLD THIS LOOK: ${reason}` : held ? 'RELEASE THIS LOOK' : 'HOLD THIS LOOK';
+            setToggleState(holdLookButton, held);
+        }
         if (!s.enabled) { showReadout.textContent = 'OFF'; return; }
         const st = s.getStatus();
         let text = st.setPiece ? `⚡ ${st.setPiece}` : st.movement;
@@ -717,6 +732,13 @@ function initVJMenu() {
         });
     }
     const autoShowNow = document.getElementById('vjAutoShowBtn');
+    const holdLookNow = document.getElementById('vjHoldLookBtn');
+    if (holdLookNow) {
+        holdLookNow.addEventListener('click', () => {
+            vrClubInstance.toggleShowLookHold();
+            updateShowReadout();
+        });
+    }
     if (autoShowNow) {
         autoShowNow.addEventListener('click', () => {
             if (!vrClubInstance.guardHostControl('lights')) return;
@@ -791,7 +813,10 @@ function initVJMenu() {
         button.addEventListener('click', () => {
             const control = button.getAttribute('data-control');
             
-            if (control === 'changeColor') {
+            if (Object.prototype.hasOwnProperty.call(VRClubUI.SPOT_RIG_CONTROLS, control)) {
+                vrClubInstance.toggleLightControl(control);
+                updateButtonStates();
+            } else if (control === 'changeColor') {
                 const color = vrClubInstance.cycleSpotColor();
                 flashButton(button, `rgba(${color.r * 255}, ${color.g * 255}, ${color.b * 255}, 0.8)`);
 
@@ -1117,6 +1142,10 @@ function initVJMenu() {
         vjButtons.forEach(button => {
             const control = button.getAttribute('data-control');
             if (!control) return;
+            if (Object.prototype.hasOwnProperty.call(VRClubUI.SPOT_RIG_CONTROLS, control)) {
+                button.textContent = `${VRClubUI.SPOT_RIG_CONTROLS[control]}: ${vrClubInstance.spotRigControlValue(control)}`;
+                return;
+            }
             // Read the state from wherever it actually lives. The previous substring
             // test (`!control.includes('change'|'cycle'|'reverse')`) let `toggleShow`
             // fall into the generic branch and read `vrClubInstance.toggleShow`, which
@@ -1953,7 +1982,7 @@ function initAudioMenu() {
 function initRoomGuestLock(mp) {
     const club = vrClubInstance;
     const panels = [
-        { id: 'vjMenu', what: 'show controls', keep: '#vjSafeModeBtn, #vjVRComfortBtn, #vjMinimize, #vjClose, [data-open-panel], [data-vj-tab-target], [data-control="cycleGraphicsQuality"], [data-people], [data-hold], #vjHoldTiming, #djStyle, #myCharacter, #editPersonalAvatar, #vjAutoQualityBtn, #lightweightCharacters, #retryCharacterStyle' },
+        { id: 'vjMenu', what: 'show controls', keep: '#vjSafeModeBtn, #vjVRComfortBtn, #vjMinimize, #vjClose, [data-open-panel], [data-vj-tab-target], [data-control="cycleGraphicsQuality"], [data-control="cycleSpotTarget"], [data-people], [data-hold], #vjHoldTiming, #djStyle, #myCharacter, #editPersonalAvatar, #vjAutoQualityBtn, #lightweightCharacters, #retryCharacterStyle' },
         { id: 'audioMenu', what: 'music', keep: '#audioMinimize, #audioClose, #audioVolume, #crowdAmbience, [data-open-panel]' }
     ];
     const renders = [];
@@ -1974,7 +2003,7 @@ function initRoomGuestLock(mp) {
         const disableable = controls.filter(el => el.tagName === 'INPUT' || el.tagName === 'BUTTON');
 
         const block = (e) => {
-            if (!club.isFollowingHost()) return;
+            if (!club.isFollowingHost() && !(panel.what === 'music' && mp.hasLiveEvent)) return;
             const hit = e.target && e.target.closest ? e.target.closest('.host-owned') : null;
             if (!hit) return;
             e.preventDefault();
@@ -1985,11 +2014,13 @@ function initRoomGuestLock(mp) {
         uiTeardowns.push(() => { for (const type of ['click', 'keydown', 'input', 'change']) root.removeEventListener(type, block, true); });
 
         renders.push(() => {
-            const following = mp.following;
+            const eventMusic = panel.what === 'music' && mp.hasLiveEvent;
+            const following = mp.following || eventMusic;
             note.hidden = !following;
             if (following) {
                 const host = mp.hostName();
-                note.textContent = `${host || 'The host'} is the host: they choose the ${panel.what}, and yours follow. Leave the room to take over.`;
+                note.textContent = eventMusic ? 'The live event DJ supplies the music. Personal volume stays yours. Leave the event to play your own set.'
+                    : `${host || 'The host'} is the host: they choose the ${panel.what}, and yours follow. Leave the room to take over.`;
             }
             for (const el of disableable) {
                 // Preserve controls disabled for their own reasons when leaving the room.
@@ -2264,6 +2295,8 @@ function initNetworkMenu() {
     const roomsList = document.getElementById('networkRoomsList');
     const savedRoomInput = document.getElementById('networkSavedRoom');
     const saveRoom = document.getElementById('networkSaveRoom');
+    const live = Object.fromEntries(['Event', 'Status', 'Title', 'Create', 'Listen', 'Invite', 'DJ', 'Rotate', 'End', 'Private']
+        .map(key => [key, document.getElementById(`networkLive${key}`)]));
 
     if (!networkToggle || !networkMenu) return;
 
@@ -2437,6 +2470,21 @@ function initNetworkMenu() {
         if (roomActions) roomActions.hidden = !connected;
         for (const section of inRoomSections) section.hidden = !connected;
         if (hostTools) hostTools.hidden = !(connected && mp.isHost());
+        if (live.Event) {
+            const active = mp.hasLiveEvent, owner = active && mp.liveEvent.canManage;
+            live.Event.hidden = !(connected && mp.client.liveEventsSupported);
+            live.Status.textContent = mp.liveEventStatus();
+            live.Title.hidden = active || !mp.isHost();
+            live.Title.labels?.forEach(label => { label.hidden = live.Title.hidden; });
+            live.Create.hidden = active || !mp.isHost();
+            live.Listen.hidden = !active;
+            live.Invite.hidden = !active;
+            live.DJ.hidden = !owner;
+            live.Rotate.hidden = !owner;
+            live.End.hidden = !owner;
+            live.Private.hidden = !owner;
+            for (const key of ['Create', 'Invite', 'DJ', 'Rotate', 'End']) live[key].disabled = mp.liveEventBusy;
+        }
         if (roomInfo && connected) {
             const code = /^private-(\d{6})$/.exec(mp.currentRoom || '');
             roomInfo.textContent = code
@@ -2630,6 +2678,33 @@ function initNetworkMenu() {
                 vrClubInstance.showErrorMessage('Invite link copied: anyone who opens it joins this room');
             } catch (_) {
                 vrClubInstance.showErrorMessage(`Could not copy. Share the room code instead: ${mp.currentRoom}`);
+            }
+            let liveArmed = null;
+            const liveAction = async action => {
+                try {
+                    if (action === 'create' || action === 'rotate' || action === 'end') {
+                        if (action !== 'create') {
+                            if (liveArmed?.action !== action || liveArmed.until < Date.now()) {
+                                liveArmed = { action, until: Date.now() + 4000 };
+                                vrClubInstance.showErrorMessage(action === 'end'
+                                    ? 'Press End live event again within four seconds to disconnect its audio.'
+                                    : 'Press Replace DJ invitation again within four seconds to disconnect the current broadcaster.');
+                                return;
+                            }
+                            liveArmed = null;
+                        }
+                        await mp.manageLiveEvent(action, live.Title?.value || 'Live DJ set');
+                        vrClubInstance.showErrorMessage(action === 'end' ? 'Live event ended.' : 'Ready. Copy the private DJ link and send it only to your DJ.');
+                    } else if (action === 'listen') mp.retryLiveEventAudio();
+                    else {
+                        const url = action === 'dj' ? mp.publisherInviteUrl() : mp.inviteUrl();
+                        await navigator.clipboard.writeText(url);
+                        vrClubInstance.showErrorMessage(action === 'dj' ? 'Private DJ link copied. Do not send it to the audience.' : 'Live event audience link copied.');
+                    }
+                } catch (error) { vrClubInstance.showErrorMessage(error.message || 'The live event action failed.'); }
+            };
+            for (const [key, action] of Object.entries({ Create: 'create', Listen: 'listen', Invite: 'invite', DJ: 'dj', Rotate: 'rotate', End: 'end' })) {
+                live[key]?.addEventListener('click', () => { void liveAction(action); });
             }
         });
     }

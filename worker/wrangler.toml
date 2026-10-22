@@ -31,6 +31,14 @@ class_name = "ClubRoom"
 tag = "v1"
 new_classes = ["ClubRoom"]
 
+[[durable_objects.bindings]]
+name = "LIVE_AUDIO_EVENT"
+class_name = "LiveAudioEvent"
+
+[[migrations]]
+tag = "v2-live-audio-events"
+new_sqlite_classes = ["LiveAudioEvent"]
+
 # Comma-separated browser origins allowed to open a relay socket. Loopback and
 # private-LAN origins are always accepted (Quest over LAN IP during development).
 [vars]

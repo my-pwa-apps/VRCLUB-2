@@ -1,5 +1,6 @@
 import relay from './relay.js';
 export { ClubRoom } from './relay.js';
+export { LiveAudioEvent } from './liveEvents.js';
 
 export default {
     fetch(request, env, ctx) {

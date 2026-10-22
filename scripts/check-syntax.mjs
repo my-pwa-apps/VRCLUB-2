@@ -30,7 +30,7 @@ const files = [
     // by no syntax check and no lint config at all.
     ...['sw.js', 'serviceworker.js'].filter(f => existsSync(join(ROOT, f))),
     // The phone pairing page's script (a classic script outside js/).
-    ...['link/link.js'].filter(f => existsSync(join(ROOT, f))),
+    ...['link/link.js', 'broadcast/broadcast.js'].filter(f => existsSync(join(ROOT, f))),
     // The multiplayer relay (Cloudflare Worker, ES module - worker/package.json is
     // "type": "module", so `node --check` parses it as a module).
     ...(existsSync(join(ROOT, 'worker', 'src'))

@@ -52,6 +52,7 @@ function vjDeskLayout() {
     };
     const rowHeights = [92, 92, 92, 78, 70, 70];
     const show = grid(3, rowHeights);
+    const showActions = grid(4, rowHeights);
     const sections = grid(5, rowHeights);   // row 3 holds one button per show section
     const lights = grid(4, [82, 82, 82, 82, 82, 82]);
     const light = (id, label, control, col, row, colour, extra = {}) =>
@@ -89,9 +90,10 @@ function vjDeskLayout() {
         ({ id: `section-${id}`, panel: 'show', kind: 'section', section: id, label, rect: sections(col, 3), colour });
     return Object.freeze({
         show: Object.freeze([
-            { id: 'auto', panel: 'show', kind: 'auto', label: 'AUTO SHOW', rect: show(0, 0), colour: '#19c37d' },
-            { id: 'drop', panel: 'show', kind: 'drop', label: 'COUNTDOWN / DROP', rect: show(1, 0), colour: '#ff5d7a' },
-            { id: 'next', panel: 'show', kind: 'next', label: 'NEXT SECTION', rect: show(2, 0), colour: '#b48cff' },
+            { id: 'auto', panel: 'show', kind: 'auto', label: 'AUTO SHOW', rect: showActions(0, 0), colour: '#19c37d' },
+            { id: 'holdLook', panel: 'show', kind: 'holdLook', label: 'HOLD LOOK', rect: showActions(1, 0), colour: '#39d0ff' },
+            { id: 'drop', panel: 'show', kind: 'drop', label: 'COUNTDOWN / DROP', rect: showActions(2, 0), colour: '#ff5d7a' },
+            { id: 'next', panel: 'show', kind: 'next', label: 'NEXT SECTION', rect: showActions(3, 0), colour: '#b48cff' },
             { id: 'blackout', panel: 'show', kind: 'blackout', label: 'BLACKOUT', rect: show(0, 1), colour: '#9aa3b5' },
             { id: 'lock', panel: 'show', kind: 'lock', label: 'BEAMS TO FLOOR', rect: show(1, 1), colour: '#ffc247' },
             { id: 'tap', panel: 'show', kind: 'tap', label: 'TAP TEMPO', rect: show(2, 1), colour: '#ffc247' },
@@ -128,8 +130,18 @@ function vjDeskLayout() {
             { id: 'holdTiming', panel: 'lights', kind: 'holdTiming', label: 'TIMING', rect: lights(3, 4), colour: '#19c37d' },
             { id: 'laserColour', panel: 'lights', kind: 'light', label: 'LASER COLOUR', control: 'changeLaserColor', colour: '#38e870', rect: lights(0, 5), step: true },
             { id: 'mirrorColour', panel: 'lights', kind: 'light', label: 'MIRROR COLOUR', control: 'changeMirrorBallColor', colour: '#ffd23a', rect: lights(1, 5), step: true },
-            { id: 'matchColours', panel: 'lights', kind: 'light', label: 'MATCH ALL COLOURS', control: 'matchAllColors', colour: '#ffffff', rect: lights(2, 5, 2), step: true }
-        ]),
+            { id: 'matchColours', panel: 'lights', kind: 'light', label: 'MATCH ALL COLOURS', control: 'matchAllColors', colour: '#ffffff', rect: lights(2, 5), step: true },
+            { id: 'spotRigPage', panel: 'lights', kind: 'lightsPage', label: 'SPOT RIG', colour: '#ff8a1f', rect: lights(3, 5) }
+        ].map(button => Object.freeze({ ...button, page: 'fixtures' })).concat([
+            { id: 'spotTarget', panel: 'lights', page: 'rig', kind: 'spotRig', label: 'EDIT GROUP', control: 'cycleSpotTarget', colour: '#ff8a1f', rect: lights(0, 0, 4) },
+            { id: 'spotGroupOn', panel: 'lights', page: 'rig', kind: 'spotRig', label: 'GROUP ON/OFF', control: 'toggleSpotGroup', colour: '#ff8a1f', rect: lights(0, 1, 2) },
+            { id: 'spotGroupColour', panel: 'lights', page: 'rig', kind: 'spotRig', label: 'GROUP COLOUR (STEADY)', control: 'cycleSpotGroupColor', colour: '#ff8a1f', rect: lights(2, 1, 2) },
+            { id: 'spotGroupMotion', panel: 'lights', page: 'rig', kind: 'spotRig', label: 'GROUP MOVEMENT', control: 'cycleSpotGroupMotion', colour: '#ff8a1f', rect: lights(0, 2, 4) },
+            { id: 'spotSequence', panel: 'lights', page: 'rig', kind: 'spotRig', label: 'SEQUENCE (CARRIES SPOT COLOUR)', control: 'cycleSpotSequence', colour: '#ff8a1f', rect: lights(0, 3, 4) },
+            { id: 'spotRate', panel: 'lights', page: 'rig', kind: 'spotRig', label: 'STEP EVERY', control: 'cycleSpotSequenceRate', colour: '#ff8a1f', rect: lights(0, 4, 2) },
+            { id: 'spotReset', panel: 'lights', page: 'rig', kind: 'spotRig', label: 'RESET SPOT RIG', control: 'resetSpotRig', colour: '#ff8a1f', rect: lights(2, 4, 2) },
+            { id: 'spotRigBack', panel: 'lights', page: 'rig', kind: 'lightsPage', label: 'BACK TO ALL LIGHTS', colour: '#ffffff', rect: lights(0, 5, 4) }
+        ])),
         transport: Object.freeze([
             {
                 id: 'playerPage', panel: 'transport', kind: 'playerPage', label: 'FX',
@@ -492,7 +504,7 @@ const VJDesk = {
     },
 
     _vjDeskButtonOnPage(button) {
-        return !button.page || button.page === (this._vjDeskPlayerPage || 'player');
+        return !button.page || button.page === (button.panel === 'lights' ? this._vjDeskLightsPage || 'fixtures' : this._vjDeskPlayerPage || 'player');
     },
 
     _applyVJDeskPlayerVisibility() {
@@ -636,6 +648,7 @@ const VJDesk = {
 
     /** Why an effect control cannot be used right now (empty when it can); the panel shows the same words. */
     _vjDeskEffectBlocked() {
+        if (this.multiplayer?.hasLiveEvent) return 'LIVE EVENT DJ';
         if (this.isPeopleVisible('dj')) return 'SEND DJ HOME';
         if (this._audioKind === 'soundcloud') return 'PLAYER AUDIO ONLY';
         return this.isFollowingHost() ? 'HOST ONLY' : '';
@@ -796,6 +809,16 @@ const VJDesk = {
 
     _runVJDeskButton(button) {
         const toast = text => this.showErrorMessage(text);
+        if (button.kind === 'lightsPage') {
+            this._vjDeskLightsPage = this._vjDeskLightsPage === 'rig' ? 'fixtures' : 'rig';
+            if (this._vjDesk) this._vjDesk.dirty = true;
+            return;
+        }
+        if (button.kind === 'spotRig') {
+            this.toggleLightControl(button.control);
+            if (this._vjDesk) this._vjDesk.dirty = true;
+            return;
+        }
         // Guests can hide the resident DJ personally; the host's preference also decides the room's DJ presence.
         if (button.kind === 'dj') {
             const here = this.togglePeopleVisible('dj');
@@ -829,10 +852,11 @@ const VJDesk = {
         const driving = !!(show && show.isDriving());
         switch (button.kind) {
             case 'auto':
-                if (!this.vjManualMode) { toast('The automatic show already has the lights'); return; }
+                if (!this.vjManualMode && !show?.isHeld()) { toast('The automatic show already has the lights'); return; }
                 this.resumeAutoShow();
                 toast('The automatic show has the lights again');
                 return;
+            case 'holdLook': this.toggleShowLookHold(); return;
             case 'drop':
                 if (driving) show.triggerShowDrop();
                 else if (vj) vj.triggerDrop();
@@ -1155,6 +1179,8 @@ const VJDesk = {
 
     /** Why a button cannot do anything right now, or '' when it can. */
     _vjDeskDisabledReason(button) {
+        if (this.multiplayer?.hasLiveEvent && ['transport', 'seek', 'effect', 'crossfader', 'effectClear'].includes(button.kind)) return 'LIVE EVENT DJ';
+        if (button.kind === 'lightsPage' || button.control === 'cycleSpotTarget') return '';
         if (button.kind === 'dj' || button.kind === 'holdMode' || button.kind === 'safeMode') return '';
         if (button.kind === 'playerPage') return '';
         if (button.kind === 'holdTiming') return this.lightHold && this.lightHold.mode === 'keep' ? 'NOT USED WHEN KEPT' : '';
@@ -1175,6 +1201,7 @@ const VJDesk = {
             if (!info.seekable) return this._audioKind || (this.audioElement && this.audioElement.src) ? 'LIVE: NO TIMELINE' : 'NOTHING LOADED';
         }
         if (this.photosensitiveSafeMode && (button.control === 'strobesActive' || button.control === 'spotStrobeActive')) return 'SAFE MODE';
+        if (button.kind === 'holdLook') return this.showLookHoldUnavailableReason();
         if (button.kind === 'next' && !(this.showDirector && this.showDirector.isDriving())) return 'AUTO SHOW ONLY';
         if (button.kind === 'section' && !(this.showDirector && this.showDirector.enabled)) return 'AUTO SHOW ONLY';
         return '';
@@ -1187,9 +1214,15 @@ const VJDesk = {
         const onOff = on => { out.active = !!on; out.value = on ? 'ON' : 'OFF'; };
         const vj = this.vjDirector;
         switch (button.kind) {
+            case 'lightsPage': out.value = this._vjDeskLightsPage === 'rig' ? 'FIXTURES / COLOURS' : 'HEADS / ROWS / COLUMNS'; break;
+            case 'spotRig': out.value = this.spotRigControlValue(button.control); out.active = !out.disabled; break;
             case 'auto':
                 out.active = !this.vjManualMode;
-                out.value = out.active ? 'RUNNING' : 'TAP TO HAND BACK';
+                out.value = this.showDirector?.isHeld() ? 'RELEASE HELD LOOK' : out.active ? 'RUNNING' : 'TAP TO HAND BACK';
+                break;
+            case 'holdLook':
+                out.active = !!this.showDirector?.isHeld();
+                out.value = out.active ? 'HELD: TAP TO RELEASE' : 'KEEP THIS SEQUENCE';
                 break;
             case 'dj': {
                 const here = this.isPeopleVisible('dj');

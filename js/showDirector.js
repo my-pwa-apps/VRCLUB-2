@@ -447,6 +447,7 @@ class ShowDirector {
         const club = this.club;
         const safe = club.photosensitiveSafeMode;
 
+        if (typeof club.resetSpotRig === 'function') club.resetSpotRig();
         // Specialized cue modes must not leak into the next look when omitted.
         club.laserSheetActive = !!look.laserSheetActive;
         club.strobePattern = look.strobePattern || 'all';
@@ -655,6 +656,7 @@ class ShowDirector {
         const now = performance.now();
         const shuffleMs = policy.mode === 'shuffle' ? policy.shuffle * 1000 : 0;
         this._hold = {
+            explicit: policy.explicit === true,
             until: policy.mode === 'resume' ? now + policy.delay * 1000 : Infinity,
             shuffleMs,
             nextShuffle: shuffleMs ? now + shuffleMs : Infinity
@@ -669,7 +671,9 @@ class ShowDirector {
         if (!this._hold) return false;
         this._hold = null;
         const vj = this.club.vjDirector;
-        if (vj && typeof vj.unlockHue === 'function') vj.unlockHue();
+        const hue = this.looks[this._cue.look]?.hue;
+        if (typeof hue === 'number' && typeof vj?.setMasterHue === 'function') vj.setMasterHue(hue);
+        else if (vj && typeof vj.unlockHue === 'function') vj.unlockHue();
         return true;
     }
 
@@ -970,17 +974,45 @@ class ShowDirector {
                 fogIntensity: 1.2
             },
 
-            // Symmetry cue: heads mirror-sweep in isolation so the coordinated
-            // movement reads clearly instead of disappearing against the wall.
+            // Pass one colour between paired rows; staggered fans give each pass a spatial identity.
             sideways: {
                 intensity: 0.85, punch: 0.25, palette: 'analogous', ledHarmony: 'complement',
                 lightsActive: true, lasersActive: false,
                 strobesActive: true, strobePattern: 'chase', strobeSync: 'bar', strobeSpeed: 1.0,
                 mirrorBallActive: false, smokeActive: true,
                 ledWallActive: true, ledMonochrome: false, ledPattern: 12, ledWallSpeed: 1.0, ledLevel: 0.85,
-                spotlightPattern: 2, spotlightMode: 1, spotlightSpeed: [0.7, 1.0],
+                spotlightPattern: 6, spotlightMode: 1, spotlightSpeed: 1, spotSequence: 2, spotSequenceRate: 2,
                 goboEnabled: false,
                 fogIntensity: 1.0
+            },
+
+            rowWave: {
+                intensity: [0.66, 0.82], punch: 0.18, palette: 'analogous', hue: 0.08, ledHarmony: 'complement',
+                lightsActive: true, lasersActive: false, laserSheetActive: false,
+                strobesActive: false, mirrorBallActive: false, smokeActive: true,
+                ledWallActive: true, ledMonochrome: false, ledPattern: 11, ledWallSpeed: 0.5, ledLevel: 0.55,
+                spotlightPattern: 5, spotlightMode: 1, spotlightSpeed: 1,
+                goboEnabled: false, fogIntensity: 1.2
+            },
+
+            // A still white middle pair anchors the room while coloured outer rows take turns moving.
+            rowConversation: {
+                intensity: 0.78, punch: 0.20, palette: 'analogous', hue: 0.58, ledHarmony: 'analogous',
+                lightsActive: true, lasersActive: false, laserSheetActive: false,
+                strobesActive: false, mirrorBallActive: false, smokeActive: true,
+                ledWallActive: true, ledMonochrome: false, ledPattern: 12, ledWallSpeed: 0.5, ledLevel: 0.55,
+                spotlightPattern: 7, spotlightMode: 1, spotlightSpeed: 1,
+                spotHead1Color: 8, spotHead4Color: 8, spotHead1Motion: 2, spotHead4Motion: 2,
+                goboEnabled: false, fogIntensity: 1.2
+            },
+
+            rowBuild: {
+                intensity: [0.72, 0.94], punch: 0.30, palette: 'analogous', hue: 0.82, ledHarmony: 'complement',
+                lightsActive: true, lasersActive: false, laserSheetActive: false,
+                strobesActive: false, mirrorBallActive: false, smokeActive: true,
+                ledWallActive: true, ledMonochrome: false, ledPattern: 11, ledWallSpeed: 0.65, ledLevel: 0.65,
+                spotlightPattern: 6, spotlightMode: 1, spotlightSpeed: 1, spotSequence: 4, spotSequenceRate: 4,
+                goboEnabled: false, fogIntensity: 1.4
             },
 
             // Aerial only. Wall dark, gobos off, lasers alone in the heaviest haze
@@ -1156,7 +1188,7 @@ class ShowDirector {
                 mirrorBallActive: false,
                 smokeActive: true, ledWallActive: true, ledMonochrome: false,
                 ledPattern: 5, ledWallSpeed: 0.65,
-                spotlightPattern: 1, spotlightMode: 3, spotlightSpeed: 0.35,
+                spotlightPattern: 6, spotlightMode: 1, spotlightSpeed: 1, spotSequence: 3, spotSequenceRate: 4,
                 goboEnabled: false, laserSpeed: 0.55, mirrorBallSpeed: 0.3,
                 fogIntensity: 1.5
             },
@@ -1175,14 +1207,13 @@ class ShowDirector {
                 mirrorBallSpeed: 0.25, fogIntensity: 1.6, goboEnabled: false
             },
 
-            // Slow reassembly — heads fade back in on a drifting wave, flower
-            // gobo turning slowly. Sets up ARRIVAL to begin the cycle again.
+            // Slow reassembly: paired rows follow a drifting wave back into ARRIVAL.
             driftAway: {
                 intensity: [0.35, 0.62], punch: 0.15, palette: 'analogous', ledHarmony: 'analogous',
                 lightsActive: true, lasersActive: false, strobesActive: false,
                 mirrorBallActive: false, smokeActive: true,
                 ledWallActive: true, ledMonochrome: false, ledPattern: 4, ledWallSpeed: [0.4, 0.7], ledLevel: 0.85,
-                spotlightPattern: 0, spotlightMode: 1, spotlightSpeed: [0.25, 0.5],
+                spotlightPattern: 5, spotlightMode: 1, spotlightSpeed: 1,
                 goboEnabled: false,
                 mirrorBallSpeed: 0.35, fogIntensity: 1.4
             },
@@ -1223,14 +1254,14 @@ class ShowDirector {
                 fogIntensity: 1.7, goboEnabled: false
             },
 
-            // The rise. Heads pinwheel, spiral gobo and wall vortex all accelerate
-            // together and the colour turns hot. No strobes: the tension is speed.
+            // The rise: magenta fans accumulate by row over a quiet wall.
+            // No strobes; the fill and rising intensity carry the tension.
             bdRise: {
                 intensity: [0.62, 1.0], punch: 0.30, palette: 'complementary', colorLock: true, hue: 0.90,
                 lightsActive: true, lasersActive: false, strobesActive: false,
                 mirrorBallActive: false, smokeActive: true,
-                ledWallActive: true, ledMonochrome: false, ledPattern: 19, ledWallSpeed: [0.6, 2.0],
-                spotlightPattern: 2, spotlightMode: 1, spotlightSpeed: [0.5, 1.8],
+                ledWallActive: true, ledMonochrome: false, ledPattern: 11, ledWallSpeed: [0.6, 1.0], ledLevel: 0.70,
+                spotlightPattern: 6, spotlightMode: 1, spotlightSpeed: 1, spotSequence: 4, spotSequenceRate: 2,
                 goboEnabled: false,
                 fogIntensity: [1.5, 1.9]
             },
@@ -1312,7 +1343,7 @@ class ShowDirector {
                     { look: 'liquidPlane', bars: 4 },
                     { look: 'firstLight', bars: 8, punchIn: true },
                     { look: 'eclipse',    bars: 4 },
-                    { look: 'firstLight', bars: 8 }
+                    { look: 'firstLight', bars: 16 }
                 ]
             },
 
@@ -1321,11 +1352,11 @@ class ShowDirector {
                 minBars: 24,
                 cues: [
                     { look: 'theWave',   bars: 38 },
-                    { look: 'sideways',  bars: 16 },
+                    { look: 'rowWave',   bars: 16 },
                     { look: 'deepBlue',  bars: 8 },
                     { look: 'crossfire', bars: 4 },
                     { look: 'ceilingSidewash', bars: 4 },
-                    { look: 'firstLight', bars: 8 },
+                    { look: 'rowConversation', bars: 24 },
                     { look: 'sideways',  bars: 8 }
                 ]
             },
@@ -1334,7 +1365,7 @@ class ShowDirector {
                 title: 'III · ASCENT',
                 minBars: 16,
                 cues: [
-                    { look: 'theClimb',   bars: 8 },
+                    { look: 'rowBuild',   bars: 16 },
                     { look: 'heldBreath', bars: 8 },
                     { look: 'strobeHeartbeat', bars: 4 },
                     { look: 'sideways', bars: 4 },
@@ -1348,7 +1379,7 @@ class ShowDirector {
                 minBars: 16,
                 cues: [
                     { look: 'detonation', bars: 2 },
-                    { look: 'firstLight', bars: 8 },
+                    { look: 'rowConversation', bars: 12 },
                     { look: 'chromaticRoom', bars: 2 },
                     { look: 'laserStorm', bars: 4 },
                     { look: 'strobeFloor', bars: 4 },
@@ -1367,7 +1398,7 @@ class ShowDirector {
                 cues: [
                     { look: 'theVoid',   bars: 8 },
                     { look: 'eclipse',   bars: 4 },
-                    { look: 'liquidPlane', bars: 8 },
+                    { look: 'liquidPlane', bars: 16 },
                     { look: 'driftAway', bars: 12 },
                     { look: 'sunrise',   bars: 16 }
                 ]

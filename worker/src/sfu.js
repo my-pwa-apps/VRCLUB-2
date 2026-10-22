@@ -85,6 +85,7 @@ export class RoomMedia {
     }
 
     refresh() {
+        this.room._mediaChanged?.();
         for (const member of this.members.values()) {
             const tracks = [];
             for (const publisher of this.members.values()) {
@@ -117,11 +118,17 @@ export class RoomMedia {
             return;
         }
         queued.requests++;
+        const requestedAt = Date.now();
         void this._enqueue(async () => {
             const member = this.members.get(session.id);
             if (!member) { queued.requests--; return; }
             try {
+                if (this.room.mediaRequestDeadlineMs && Date.now() - requestedAt > this.room.mediaRequestDeadlineMs) {
+                    throw new Error('Media request expired');
+                }
+                if (this.room._authorizeMedia) await this.room._authorizeMedia(session);
                 const result = await this._request(member, msg);
+                if (this.room._authorizeMedia) await this.room._authorizeMedia(session);
                 this.send(session.id, { type: 'sfu-result', request: msg.request, result });
             } catch {
                 // Neither provider responses nor credential-bearing request URLs escape.

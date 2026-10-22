@@ -27,7 +27,7 @@ emits one minified, content-hashed production bundle with esbuild.
 7. `js/vjDirector.js`, then `js/showDirector.js`
 8. `js/ledPatterns.js`, then `js/barProps.js` (bottle geometry and label atlas; no club dependency), then `js/restroomArt.js` (the restroom's painted poster atlas and placement plan; needs `js/nocturneLogo.js` only at paint time), then `js/venueDressing.js` (entrance stair hall, bar, lounge couch and restroom), `js/mezzanine.js` (steel balcony and stair, and the walking-surface follow) and `js/cityDistrict.js` (the street outside, at street level) and `js/vjDesk.js` (the VJ desk's show, lights and set-player touch panels at the DJ table), all mixed into `VRClub.prototype`
    Then `js/characterCatalog.js` (generated licensed adult cast and assignments) and `js/characterStyles.js` (room style, local performance override and live model replacement, mixed into `VRClub.prototype`), followed by `js/wardrobeCatalog.js`, `js/avatarDetails.js`, `js/avatarAppearance.js` and `js/avatarEditor.js`.
-9. `js/playerHeight.js` (pure player-height maths), `js/avatarRig.js` (the local player's procedural body), `js/djPerformer.js` (the DJ's live set, posed through the rig), `js/crowdDance.js` (the crowd's choreographer), `js/minglerClock.js` (the shared room-time round), then `js/sfuClient.js`, `js/networkClient.js`, `js/avatarManager.js` and `js/multiplayer.js` (`ClubMultiplayer`) — optional multiplayer (no instance until a guest connects)
+9. `js/playerHeight.js` (pure player-height maths), `js/avatarRig.js` (the local player's procedural body), `js/djPerformer.js` (the DJ's live set, posed through the rig), `js/crowdDance.js` (the crowd's choreographer), `js/minglerClock.js` (the shared room-time round), then `js/sfuClient.js`, `js/liveAudioClient.js` (event-owned music; no connection until admitted), `js/networkClient.js`, `js/avatarManager.js` and `js/multiplayer.js` (`ClubMultiplayer`) — optional multiplayer (no instance until a guest connects)
 10. `js/club/01-core.js` through `js/club/11-audio-crowd.js`, in numeric order
 11. `js/club_hyperrealistic.js` — final public `VRClub` bridge and LED mixin
 12. `js/paymentGate.js` — public `window.VRPayment`, verified access/device management and prepared VR leases
@@ -379,7 +379,7 @@ keep it and a real tempo/phase shift is still followed within a few beats.
 The composed light show, and **the single source of truth for fixture state** whenever
 `showDirector.isDriving()` is true (i.e. the show is enabled and `vjManualMode` is off).
 
-Structure: **23 looks** → **5 movements** (`arrival`, `pulse`, `ascent`, `ignition`,
+Structure: **composed looks** → **5 movements** (`arrival`, `pulse`, `ascent`, `ignition`,
 `afterglow`) → **4 set-pieces** (`countdown`, `cutToBlack`, `breakdown`, `release`). A look
 is a flat map of
 `VRClub` fixture properties; a `[from, to]` value is a ramp resolved across the cue's bar
@@ -387,6 +387,16 @@ span. Movements are ordered cue lists; the next movement is chosen from a smooth
 energy EMA, but only on a bar boundary and only after `minBars` have elapsed.
 
 Rules when editing:
+- Paired-row spot aims (indices 5-7: wave, fans, call/response) use `spotRigBeat()`,
+  not wall-clock time multiplied by a changing speed. The wave is eight bars with
+  a one-bar delay per row; call/response opens and returns over two bars, then holds
+  for four. The new `rowWave`, `rowConversation` and `rowBuild` cues are spot-owned
+  with a quiet LED accompaniment; the conversation keeps the middle pair white and
+  static. Keep negative-space solos and full-wall moments between them. Shared
+  beat/tempo timestamps must travel even in Steady when a grouped aim is selected,
+  including an individual head's override. All three VJ surfaces use the same aim
+  and movement lists. Tests measure pair symmetry, lag, hold continuity, angular
+  speed and actual cue rendering; headset comfort and cost remain unmeasured.
 - **All structural decisions happen in `_onBar()`, never mid-bar.** Landing changes off the
   musical grid is exactly the failure this class exists to fix.
 - An automatic countdown requires energy to rise by at least 0.035 over four bars.
@@ -1367,11 +1377,13 @@ GLBs instanced once more, and `restroomLight` plus `restroomBackLight` are scope
   (`_scanRemoteToilets()` every 0.2 s, from the `seated` state frames guests already send, so no message is needed for that); or it
   was pushed shut by hand (`_doorsByHand`). **By hand**: the leaf, handle and lamp are pickable (`metadata.vrclubDoor`), and
   `_pressStallDoor()` (called from the pointer path before `_pressSeat`) toggles it, or stands up a guest sitting behind it; an
-  occupied door does not give (silently: its red lamp already says so). A hand push is **shared room state**: `NetworkClient.sendDoor()` sends
+  occupied door does not give and reports that the toilet is occupied; it never requests that a simulated occupant leave. A hand push is **shared room state**: `NetworkClient.sendDoor()` sends
   `{type:'door', door, shut}`; the relay (`worker/src/relay.js`, `MAX_DOORS`) lets any guest set it, relays it block-aware, keeps it
   for late joiners (`welcome.doors`) and clears it when the room empties; the client applies it with `setSharedDoor(s)` and resets
-  it on leaving the room. A shut door is solid (`checkCollisions`) except while somebody stands in its doorway, so it cannot trap
-  anyone; an ajar door is never solid. The lamp on the leaf is the lock: red only while somebody is sitting inside (this guest or a remote one), green otherwise, so a door closed by hand over a vacant toilet is not "locked". **The relay must be deployed for hand pushes to be
+  it on leaving the room. A shut door is solid (`checkCollisions`). Only a player already overlapping it when it finishes closing
+  gets clearance until first stepping clear; approaching a closed door never disables it. Collision changes update live XR
+  teleport blockers too. An ajar door is never solid. Occupied toilets also reject seat selection, including simulated occupants.
+  The lamp on the leaf is the lock: red only while somebody is sitting inside (this guest or a remote one), green otherwise, so a door closed by hand over a vacant toilet is not "locked". **The relay must be deployed for hand pushes to be
   seen by others** (an older relay drops the frame; the seat-driven doors need no relay change). Rule for new work: any visible
   change to the environment must be shared (derived from existing synced state, a relay-held room state like this, or host-owned
   like the lights and music), never local-only.
@@ -1388,7 +1400,9 @@ GLBs instanced once more, and `restroomLight` plus `restroomBackLight` are scope
   per eye and only while the mirror is in view: also listing it in `scene.customRenderTargets` drew it twice a frame, and a headset
   refresh of every other frame showed one eye's reflection to both and lagged the head. Do not reintroduce either. `refreshRate` is 0
   away from the restroom and 1 inside; `_restroomMirrorQuality()` sets size/MSAA per tier (desktop 1024/4 ultra, 1024/2 high, 512/1
-  balanced; VR 512/2, 512/2, 384/1). **The reflected body is also the player's own body.** `_mirrorDouble` is the player's
+  balanced; VR 1024/2, 512/2, 384/1). Ultra VR matches desktop resolution without raising headset MSAA; High and Balanced
+  keep their smaller targets. The additional per-eye GPU cost on a physical headset is unmeasured.
+  **The reflected body is also the player's own body.** `_mirrorDouble` is the player's
   character (the relay's assignment online, `getLocalCharacter()` offline; none = the mannequin shows in both): it is built
   whenever a character is known and `_syncMirrorDouble()`/`_updateMirrorDouble()` run every frame from `updateRestroomMirror`,
   not only near the restroom. It is drawn in the main view (`isVisible`), and `_updateLocalPlayerBody` hides and idles the
@@ -2079,6 +2093,46 @@ and Pages project. The exact development hosts `nocturnedev.mitwee.nl` and
 payment dialog; the development Worker refuses payments/admin routes. Never
 copy production Stripe secrets, entitlements or invitations into this environment.
 
+### Audio-only live DJ events
+
+`worker/src/liveEvents.js` owns the SQLite-backed `LiveAudioEvent` coordinator
+(`LIVE_AUDIO_EVENT`, migration `v2-live-audio-events`). Any admitted room host
+may create; creator pid retains rotation/end authority independently of later
+host changes. One event-owned SFU music publication goes directly to admitted
+members across at most eight rooms (up to 32 each). Overflow admission reserves
+authoritative capacity, never directory counts. Existing attendees never move;
+rooms retain separate social/voice contexts. This is not a measured 256-person
+or physical-headset performance guarantee.
+
+`LiveAudioClient` adapts `SFUClient` through a separate media facade, not social
+avatars. `/live/<UUID>/media` authenticates in its FIRST WebSocket frame;
+capabilities never go in its URL. Only `musicPub`/`musicRx` are allowed. Publisher
+tokens persist as hashes, expire at 12 hours, are issued only on create/rotate,
+and enter `broadcast/` through a fragment that is removed immediately. Listener
+tickets are private to admitted members and revoked on departure/moderation/
+applicable blocks. Locks/bans apply across overflow. Provider credentials and
+session locators remain private. Creation requires D1-backed issuance limits;
+never silently bypass them when a binding or operation fails.
+
+`ClubMultiplayer` owns event actions, invitations and listener lifecycle.
+`?event=<UUID>` uses desktop/immersive entry without entry music. Event audio
+uses `startNetworkMusic` and the real analyser/kick/rhythm/PA graph, separately
+from ordinary host music, surviving host changes. Active events gate ordinary
+music/FX controls on DOM, VR and desk, but not personal volume/Safe Mode or room
+lighting ownership. Interruptions never start the house set. End/expiry sends
+ended status before restoring ordinary music; old invites stay invalid and
+overflow stays unlisted.
+
+The lightweight broadcaster requests only audio: stereo/48 kHz preferred, voice
+processing off, actual format shown, two meters and clipping warning, no local
+speaker monitor/camera. Music-only SFU SDP/sender settings target stereo Opus at
+192 kbit/s; voice is unchanged. The builder derives this page's independent
+bundle from its own HTML scripts, never loads the 3D club, and emits hashed JS/CSS
+plus no-cache/noindex HTML. Stop/input loss/pagehide/revocation/final retry failure
+release capture/context/media resources. Updated Worker/frontends and a real
+provider/venue/headset rehearsal are required; see `docs/SCALING.md`. No Twitch
+extraction, video screen or artist likeness is part of this feature.
+
 ### Integrated safety and 32-person rollout
 
 These distribution branches integrate QuestProtect safety (`486d2ae`, `20d8c60`) and QuestDev
@@ -2192,7 +2246,7 @@ Optional and opt-in: nothing connects until a guest clicks **Connect** in the Mu
 in the VR quick menu. The relay stays the same Cloudflare Worker (`vrclub-network.garfieldapp.workers.dev`); the
 protocol only grew, so older clients keep working.
 
-- `worker/src/relay.js` (entry `worker/src/index.js` re-exports only `ClubRoom` and the default handler, because the
+- `worker/src/relay.js` (entry `worker/src/index.js` re-exports only `ClubRoom`, `LiveAudioEvent` and the default handler, because the
   runtime rejects any other export) — Cloudflare Worker + `ClubRoom` Durable Object relay, one object per
   room. It holds sessions, the host id, bans, the lock and the shared music state in memory only. The file
   header documents the JSON protocol. The relay treats every client as hostile. It

@@ -6,6 +6,7 @@ import { handlePayments, resolveAppOrigin } from './payments.js';
 import { handleInvitationAdmin } from './invitationAdmin.js';
 
 export { ClubRoom };
+export { LiveAudioEvent } from './liveEvents.js';
 
 export default {
     async fetch(request, env, ctx) {

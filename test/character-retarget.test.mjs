@@ -8,6 +8,42 @@ import { skeleton, sampler, pose, retarget, addAnimation } from '../scripts/char
 
 const io = new NodeIO().registerExtensions(ALL_EXTENSIONS);
 
+test('Shipped stool and low-seat clips keep elbows bent and hands close instead of reaching straight ahead', async () => {
+    for (const folder of ['avatars', 'characters', 'wardrobe']) {
+        const directory = new URL(`../js/models/${folder}/`, import.meta.url);
+        let checked = 0;
+        for (const file of readdirSync(fileURLToPath(directory)).filter(file =>
+            file.endsWith('.glb') && (folder !== 'avatars' || /^club-crowd-/.test(file)))) {
+            const doc = await io.read(fileURLToPath(new URL(file, directory))), sk = skeleton(doc);
+            for (const animation of doc.getRoot().listAnimations().filter(animation =>
+                ['Seated_Loop', 'Seated_Low_Loop'].includes(animation.getName()))) {
+                const clip = sampler(animation);
+                const initial = pose(sk, clip, 0);
+                const fixed = ['Body', 'Foot.L', 'Foot.R'].map(name => [name, initial.get(sk.named.get(name)).p]);
+                for (let frame = 0; frame <= 12; frame++) {
+                    const current = pose(sk, clip, clip.duration * frame / 12);
+                    const at = name => current.get(sk.named.get(name)).p;
+                    for (const [name, position] of fixed) {
+                        assert.ok(at(name).subtract(position).length() < 0.02,
+                            `${folder}/${file}/${clip.name}: ${name} lost its seated contact`);
+                    }
+                    for (const side of ['L', 'R']) {
+                        const shoulder = at(`UpperArm.${side}`), elbow = at(`LowerArm.${side}`), wrist = at(`Wrist.${side}`);
+                        const a = shoulder.subtract(elbow).normalize(), b = wrist.subtract(elbow).normalize();
+                        const angle = Math.acos(Math.max(-1, Math.min(1, a.x * b.x + a.y * b.y + a.z * b.z))) * 180 / Math.PI;
+                        const label = `${folder}/${file}/${clip.name}/${side}/${frame}`;
+                        assert.ok(angle > 65 && angle < 155, `${label}: elbow ${angle.toFixed(1)} degrees`);
+                        assert.ok(wrist.y < shoulder.y - 0.15, `${label}: hands raised out in front`);
+                        assert.ok(Math.abs(wrist.z - shoulder.z) < 0.30, `${label}: hands reach beyond the lap`);
+                    }
+                }
+                checked++;
+            }
+        }
+        assert.ok(checked >= (folder === 'wardrobe' ? 34 : 30), `${folder}: real shipped seated clips required`);
+    }
+});
+
 test('Standing detailed idles follow anatomical source torso directions without accumulating bind-axis lean', async () => {
     const sourceDoc = await io.read(fileURLToPath(new URL('../js/models/avatars/club-crowd-m6.glb', import.meta.url)));
     const source = skeleton(sourceDoc);

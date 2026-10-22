@@ -10,9 +10,15 @@
     "database_id": "c9daa987-721e-47c5-beb8-54b3e1e2b0aa"
   }],
   "durable_objects": {
-    "bindings": [{ "name": "CLUB_ROOM", "class_name": "ClubRoom" }]
+    "bindings": [
+      { "name": "CLUB_ROOM", "class_name": "ClubRoom" },
+      { "name": "LIVE_AUDIO_EVENT", "class_name": "LiveAudioEvent" }
+    ]
   },
-  "migrations": [{ "tag": "v1", "new_sqlite_classes": ["ClubRoom"] }],
+  "migrations": [
+    { "tag": "v1", "new_sqlite_classes": ["ClubRoom"] },
+    { "tag": "v2-live-audio-events", "new_sqlite_classes": ["LiveAudioEvent"] }
+  ],
   "vars": {
     "ALLOWED_ORIGINS": "https://nocturnedev.mitwee.nl,https://nocturne-dev.pages.dev",
     "APP_ORIGIN": "https://nocturnedev.mitwee.nl",

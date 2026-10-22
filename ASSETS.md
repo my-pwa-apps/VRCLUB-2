@@ -208,6 +208,16 @@ these face and silhouette changes belong to the optional detailed cast and wardr
 | `js/models/characters/jin.glb` | Jin | Male DJ |
 | `js/models/characters/zara.glb` | Zara | Female DJ |
 
+Generic stool and low-seat clips use reachable, relaxed hand targets close to the
+lap with bent elbows, rather than straight arms reaching for an assumed counter.
+The low-seat pose adds a small forward lean; feet and pelvis retain their authored
+seat contacts. The bar regular's separate counter-and-bottle clips are unchanged.
+After editing generic seated poses, `node scripts/build-crowd-glbs.mjs --refresh-static --seated-only --optimize`
+refreshes only those two clips on the lightweight cast, then `npm run build:characters`
+and `npm run build:wardrobe` transfer them to detailed bodies and personal outfits.
+The shipped-rig and browser seated-pose tests check elbows and foot stability;
+browser screenshots provide front and side inspection views.
+
 The two fictional DJs' current styling takes broad hair, wardrobe and build cues
 from reference photographs supplied by the owner: mature, lean, loose dark waves
 around the ears and into the nape, and a charcoal crew-neck tee for the male; long side-parted blonde hair and a

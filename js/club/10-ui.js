@@ -1,4 +1,6 @@
 'use strict';
+const VR_MUSIC_ACTIONS = new Set(['seek', 'playPause', 'play', 'pause', 'stop', 'sourceStep', 'folderMode',
+    'savedSet', 'setStep', 'musicSetup']);
 class VRClubUI extends VRClubAnimationFinish {
     static isLocalAudioFile(file) {
         return !!file && (
@@ -199,6 +201,10 @@ class VRClubUI extends VRClubAnimationFinish {
      * @returns {boolean} true when the caller may go ahead
      */
     guardHostControl(what) {
+        if (what === 'music' && this.multiplayer?.hasLiveEvent) {
+            this.showErrorMessage('The live event DJ controls the music. Leave the event to play your own set.');
+            return false;
+        }
         if (!this.isFollowingHost()) return true;
         const now = performance.now();
         if (!this._hostGuardAt || now - this._hostGuardAt > 1500) {
@@ -339,7 +345,103 @@ class VRClubUI extends VRClubAnimationFinish {
     }
 
     static get SPOT_PATTERN_NAMES() {
-        return this._spotPatternNames || (this._spotPatternNames = Object.freeze(['RANDOM', 'STATIC DOWN', 'MIRROR SWEEP', 'CROSSED BEAMS']));
+        return this._spotPatternNames || (this._spotPatternNames = Object.freeze(['RANDOM', 'STATIC DOWN', 'MIRROR SWEEP', 'CROSSED BEAMS', 'INDEPENDENT', 'ROW WAVE', 'ROW FANS', 'ROW CALL / RESPONSE']));
+    }
+
+    static get SPOT_GROUPS() {
+        return this._spotGroups || (this._spotGroups = Object.freeze([
+            ['ALL SIX', [0, 1, 2, 3, 4, 5]], ['FRONT ROW', [0, 3]], ['MIDDLE ROW', [1, 4]], ['REAR ROW', [2, 5]],
+            ['LEFT COLUMN', [0, 1, 2]], ['RIGHT COLUMN', [3, 4, 5]],
+            ['FRONT LEFT', [0]], ['MIDDLE LEFT', [1]], ['REAR LEFT', [2]],
+            ['FRONT RIGHT', [3]], ['MIDDLE RIGHT', [4]], ['REAR RIGHT', [5]]
+        ].map(([name, heads]) => Object.freeze({ name, heads: Object.freeze(heads) }))));
+    }
+
+    static get SPOT_MOTIONS() {
+        return this._spotMotions || (this._spotMotions = Object.freeze(['FOLLOW RIG', 'INDEPENDENT', 'STATIC DOWN', 'MIRROR SWEEP', 'CROSSED BEAMS', 'ROW WAVE', 'ROW FANS', 'ROW CALL / RESPONSE']));
+    }
+
+    static get SPOT_SEQUENCES() {
+        return this._spotSequences || (this._spotSequences = Object.freeze(['STEADY', 'HEAD CHASE', 'ROW CHASE', 'COLUMN CHASE', 'ROW FILL', 'COLUMN FILL', 'HEAD FILL']));
+    }
+
+    static get SPOT_RIG_CONTROLS() {
+        return this._spotRigControls || (this._spotRigControls = Object.freeze({
+            cycleSpotTarget: 'EDIT GROUP', toggleSpotGroup: 'GROUP ON/OFF', cycleSpotGroupColor: 'GROUP COLOUR',
+            cycleSpotGroupMotion: 'GROUP MOVEMENT', cycleSpotSequence: 'SEQUENCE', cycleSpotSequenceRate: 'STEP EVERY',
+            resetSpotRig: 'RESET SPOT RIG'
+        }));
+    }
+
+    resetSpotRig() {
+        this.spotSequence = 0;
+        this.spotSequenceRate = 2;
+        for (let i = 0; i < 6; i++) {
+            this[`spotHead${i}Enabled`] = true;
+            this[`spotHead${i}Color`] = -1;
+            this[`spotHead${i}Motion`] = 0;
+        }
+    }
+
+    /** One validated edit path for heads, rows and columns on every control surface. */
+    setSpotGroup(target, patch) {
+        if (!this.guardHostControl('lights')) return false;
+        const group = VRClubUI.SPOT_GROUPS[target];
+        if (!Number.isInteger(target) || !group || !patch || typeof patch !== 'object' ||
+            Object.keys(patch).some(key => !['enabled', 'color', 'motion'].includes(key)) ||
+            ('enabled' in patch && typeof patch.enabled !== 'boolean') ||
+            ('color' in patch && (!Number.isInteger(patch.color) || patch.color < -1 || patch.color >= this.spotColorList.length)) ||
+            ('motion' in patch && (!Number.isInteger(patch.motion) || patch.motion < 0 || patch.motion >= VRClubUI.SPOT_MOTIONS.length))) {
+            this.showErrorMessage('That spotlight group setting is unavailable.');
+            return false;
+        }
+        for (const i of group.heads) {
+            if ('enabled' in patch) this[`spotHead${i}Enabled`] = patch.enabled;
+            if ('color' in patch) this[`spotHead${i}Color`] = patch.color;
+            if ('motion' in patch) this[`spotHead${i}Motion`] = patch.motion;
+        }
+        if ('color' in patch && patch.color >= 0) this.colorLockActive = false;
+        this.takeLightControl();
+        return true;
+    }
+
+    spotRigControlValue(control) {
+        const group = VRClubUI.SPOT_GROUPS[this._spotEditTarget || 0];
+        const common = suffix => {
+            const value = this[`spotHead${group.heads[0]}${suffix}`] ?? (suffix === 'Enabled' ? true : suffix === 'Color' ? -1 : 0);
+            return group.heads.every(i => (this[`spotHead${i}${suffix}`] ?? (suffix === 'Enabled' ? true : suffix === 'Color' ? -1 : 0)) === value) ? value : null;
+        };
+        if (control === 'cycleSpotTarget') return group.name;
+        if (control === 'cycleSpotSequence') return VRClubUI.SPOT_SEQUENCES[this.spotSequence || 0];
+        if (control === 'cycleSpotSequenceRate') return `${this.spotSequenceRate || 2} BEAT${this.spotSequenceRate === 1 ? '' : 'S'}`;
+        if (control === 'resetSpotRig') return 'ALL ON / FOLLOW RIG';
+        const value = common(control === 'toggleSpotGroup' ? 'Enabled' : control === 'cycleSpotGroupColor' ? 'Color' : 'Motion');
+        if (value === null) return 'MIXED';
+        if (control === 'toggleSpotGroup') return value ? 'ON' : 'OFF';
+        if (control === 'cycleSpotGroupMotion') return VRClubUI.SPOT_MOTIONS[value];
+        return value === -1 ? 'FOLLOW SPOT COLOUR' : ['RED', 'BLUE', 'GREEN', 'MAGENTA', 'YELLOW', 'CYAN', 'ORANGE', 'PURPLE', 'WHITE'][value];
+    }
+
+    _stepSpotRigControl(control) {
+        if (control === 'cycleSpotTarget') {
+            this._spotEditTarget = ((this._spotEditTarget || 0) + 1) % VRClubUI.SPOT_GROUPS.length;
+            return;
+        }
+        const target = this._spotEditTarget || 0, first = VRClubUI.SPOT_GROUPS[target].heads[0];
+        if (control === 'toggleSpotGroup') {
+            this.setSpotGroup(target, { enabled: this.spotRigControlValue(control) !== 'ON' });
+        } else if (control === 'cycleSpotGroupColor') {
+            this.setSpotGroup(target, { color: ((this[`spotHead${first}Color`] ?? -1) + 2) % (this.spotColorList.length + 1) - 1 });
+        } else if (control === 'cycleSpotGroupMotion') {
+            this.setSpotGroup(target, { motion: ((this[`spotHead${first}Motion`] || 0) + 1) % VRClubUI.SPOT_MOTIONS.length });
+        } else {
+            if (control === 'cycleSpotSequence') this.spotSequence = ((this.spotSequence || 0) + 1) % VRClubUI.SPOT_SEQUENCES.length;
+            else if (control === 'cycleSpotSequenceRate') {
+                const rates = [1, 2, 4, 8];
+                this.spotSequenceRate = rates[(rates.indexOf(this.spotSequenceRate || 2) + 1) % rates.length];
+            } else this.resetSpotRig();
+            this.takeLightControl();
+        }
     }
 
     /** The on/off light controls a person may flip by name (never `this[anything]`). */
@@ -363,6 +465,29 @@ class VRClubUI extends VRClubAnimationFinish {
         this.vjManualMode = false;
         this.lastVJInteraction = 0;
         if (this.showDirector && typeof this.showDirector.releaseHold === 'function') this.showDirector.releaseHold();
+    }
+
+    showLookHoldUnavailableReason() {
+        const show = this.showDirector;
+        if (show?.follower) return 'HOST ONLY';
+        if (!show?.isDriving()) return 'AUTO SHOW ONLY';
+        return show._setPiece ? 'WAIT FOR TRANSITION' : '';
+    }
+
+    toggleShowLookHold() {
+        if (!this.guardHostControl('lights')) return null;
+        const reason = this.showLookHoldUnavailableReason();
+        if (reason) {
+            this.showErrorMessage(reason === 'AUTO SHOW ONLY' ? 'Start the automatic show before holding a look'
+                : reason === 'HOST ONLY' ? 'The host controls the lighting' : 'Let the current countdown or transition finish first');
+            return null;
+        }
+        const show = this.showDirector, held = !show.isHeld();
+        if (held) show.holdLook({ mode: 'keep', explicit: true });
+        else show.releaseHold();
+        this.showErrorMessage(held ? 'Holding this look: its movement continues. Press again to release'
+            : 'Look released: automatic changes resume on the next bar');
+        return held;
     }
 
     // ---- What happens after a hand-made change: keep it, return to the automatic show, or shuffle the colours ----
@@ -400,7 +525,7 @@ class VRClubUI extends VRClubAnimationFinish {
         // A fresh countdown from the moment the choice is made, not from the last touch.
         if (this.vjManualMode) this.lastVJInteraction = performance.now() / 1000;
         if (this.vjDirector) this.vjDirector._shuffleAt = 0;
-        if (this.showDirector && typeof this.showDirector.isHeld === 'function' && this.showDirector.isHeld()) {
+        if (this.showDirector && typeof this.showDirector.isHeld === 'function' && this.showDirector.isHeld() && !this.showDirector._hold?.explicit) {
             this.showDirector.holdLook(next);
         }
         return next;
@@ -474,7 +599,15 @@ class VRClubUI extends VRClubAnimationFinish {
      * @returns {boolean} true when something changed
      */
     toggleLightControl(control) {
+        if (control === 'cycleSpotTarget') {
+            this._stepSpotRigControl(control);
+            return true;
+        }
         if (!this.guardHostControl('lights')) return false;
+        if (Object.prototype.hasOwnProperty.call(VRClubUI.SPOT_RIG_CONTROLS, control)) {
+            this._stepSpotRigControl(control);
+            return true;
+        }
         switch (control) {
             case 'changeColor': this.cycleSpotColor(); break;
             case 'changeLaserColor': this.cycleLaserColor(); break;
@@ -592,6 +725,7 @@ class VRClubUI extends VRClubAnimationFinish {
      */
     resetVJControls() {
         Object.assign(this, VRClubUI.VJ_DEFAULTS);
+        this.resetSpotRig();
         if (this.goboEnabled && typeof this.toggleGobo === 'function') this.toggleGobo();
         if (this.vjDirector && typeof this.vjDirector.setMasterIntensity === 'function') {
             this.vjDirector.setMasterIntensity(1);
@@ -672,12 +806,21 @@ class VRClubUI extends VRClubAnimationFinish {
 
     /** Can this button do nothing right now? (It still answers a press, with a message saying why.) */
     _isVRButtonDisabled(button) {
+        if (this.multiplayer?.hasLiveEvent && VR_MUSIC_ACTIONS.has(button.action)) return true;
         if (this.isFollowingHost() && this._isHostOwnedVRButton(button)) return true;
         // The time belongs to RETURN TO AUTO and SHUFFLE COLOURS; KEEP IT has none.
         if (button.action === 'holdTiming') return this.lightHold.mode === 'keep';
+        if (button.action === 'holdLook') return !!this.showLookHoldUnavailableReason();
         if (button.action !== 'net' && button.action !== 'person') return false;
         const mp = this._multiplayer();
         if (!mp) return true;
+        if (button.op?.startsWith('event')) {
+            if (!mp.connected || !mp.client.liveEventsSupported) return true;
+            if (mp.liveEventBusy && button.op !== 'eventListen') return true;
+            if (button.op === 'eventCreate') return !mp.isHost() || mp.hasLiveEvent;
+            if (['eventRotate', 'eventEnd', 'eventDJ'].includes(button.op)) return !mp.hasLiveEvent || !mp.liveEvent.canManage;
+            return !mp.hasLiveEvent;
+        }
         if (button.op === 'joinListedRoom') return !!(button.locked || button.full || mp.roomDirectory.loading || mp.connecting);
         if (button.op === 'browseRooms' || button.op === 'moreRooms') return mp.roomDirectory.loading;
         if (button.op === 'safetyInfo') return true;
@@ -697,6 +840,7 @@ class VRClubUI extends VRClubAnimationFinish {
             return VRClubCore.peopleCategories(button.people).every(name => this.isPeopleVisible(name));
         }
         if (button.action === 'autoShow') return !this.vjManualMode;
+        if (button.action === 'holdLook') return !!this.showDirector?.isHeld();
         if (button.action === 'dj') return (this._djWanted || this._djId || this._initialDJId()) === button.dj;
         if (button.action === 'playPause' || button.action === 'play') return this.getPlaybackInfo().playing;
         if (button.action === 'showSection') {
@@ -713,13 +857,18 @@ class VRClubUI extends VRClubAnimationFinish {
 
     /** Buttons that change the room's music or lights: in someone else's room they belong to the host. */
     _isHostOwnedVRButton(button) {
+        if (button.control === 'cycleSpotTarget') return false;
         if (button.action === 'characterStyle') return true;
-        if (['seek', 'playPause', 'play', 'pause', 'stop', 'sourceStep', 'folderMode', 'savedSet', 'setStep',
-            'musicSetup', 'autoShow', 'reset', 'cycle', 'nextSection', 'showDrop', 'showSection'].includes(button.action)) return true;
+        if (VR_MUSIC_ACTIONS.has(button.action) ||
+            ['autoShow', 'holdLook', 'reset', 'cycle', 'nextSection', 'showDrop', 'showSection'].includes(button.action)) return true;
         return !!button.control && !button.action && !['vrComfortMode', 'vrSeatedMode', 'autoQuality', 'photosensitiveSafeMode'].includes(button.control);
     }
 
     _vrQuickMenuButtonValue(button, active) {
+        if (this.multiplayer?.hasLiveEvent && VR_MUSIC_ACTIONS.has(button.action)) return 'LIVE EVENT DJ';
+        if (Object.prototype.hasOwnProperty.call(VRClubUI.SPOT_RIG_CONTROLS, button.control)) {
+            return this.isFollowingHost() && button.control !== 'cycleSpotTarget' ? 'HOST ONLY' : this.spotRigControlValue(button.control);
+        }
         if (button.action === 'lightweightCharacters') return this.characterStyleStatus().lightweight ? 'ON: QUATERNIUS FOR ME' : 'OFF: FOLLOW ROOM STYLE';
         if (button.action === 'characterStyle') {
             const state = this.characterStyleStatus();
@@ -810,7 +959,8 @@ class VRClubUI extends VRClubAnimationFinish {
             const held = this.showDirector && this.showDirector.isHeld && this.showDirector.isHeld();
             return active ? (held ? 'PLAYING \u2022 KEPT' : 'PLAYING') : 'TAP TO JUMP HERE';
         }
-        if (button.action === 'autoShow') return active ? 'ON' : 'MANUAL';
+        if (button.action === 'holdLook') return this.showLookHoldUnavailableReason() || (active ? 'HELD: PRESS TO RELEASE' : 'MOVEMENT KEEPS RUNNING');
+        if (button.action === 'autoShow') return this.showDirector?.isHeld() ? 'RELEASE HELD LOOK' : active ? 'ON' : 'MANUAL';
         if (button.control) return active ? 'ON' : 'OFF';
         return '';
     }
@@ -892,10 +1042,15 @@ class VRClubUI extends VRClubAnimationFinish {
                 { label: 'LASER COLOUR', control: 'changeLaserColor', action: 'cycle' },
                 { label: 'MIRROR COLOUR', control: 'changeMirrorBallColor', action: 'cycle' },
                 { label: 'MATCH ALL COLOURS', control: 'matchAllColors', action: 'cycle' },
-                { label: 'SPOT MODE', control: 'cycleSpotMode', action: 'cycle' },
-                { label: 'SPOT AIM PATH', control: 'cyclePattern', action: 'cycle' },
+                { label: 'SPOT RIG', target: 'spotRig', action: 'page' },
                 common.back,
                 common.close
+            ],
+            spotRig: [
+                ...Object.entries(VRClubUI.SPOT_RIG_CONTROLS).map(([control, label]) => ({ label, control, action: 'cycle' })),
+                { label: 'SPOT MODE', control: 'cycleSpotMode', action: 'cycle' },
+                { label: 'SPOT AIM PATH', control: 'cyclePattern', action: 'cycle' },
+                common.back, common.close
             ],
             effects: [
                 { label: 'STROBES', control: 'strobesActive' },
@@ -959,6 +1114,7 @@ class VRClubUI extends VRClubAnimationFinish {
                 { label: 'AUTO SHOW', action: 'autoShow' },
                 { label: 'COUNTDOWN / DROP', action: 'showDrop' },
                 { label: 'NEXT SECTION', action: 'nextSection' },
+                { label: 'HOLD THIS LOOK', action: 'holdLook' },
                 { label: 'CHOOSE SECTION', action: 'page', target: 'showSections' },
                 // What happens after a change of yours: keep it, return to auto after a time, or shuffle the colours.
                 { label: 'AFTER MY CHANGE', action: 'holdMode' },
@@ -1103,6 +1259,7 @@ class VRClubUI extends VRClubAnimationFinish {
             // What each page is for, in plain words: the first thing a new visitor reads.
             const about = {
                 lights: 'FIXTURES, COLOURS AND SPOT MOVEMENT',
+                spotRig: 'EDIT A GROUP; CHASE CARRIES SPOT COLOUR',
                 effects: 'LED WALL, STROBES, SMOKE, BEAMS AND GOBOS',
                 show: 'THE AUTOMATIC SHOW THAT FOLLOWS THE MUSIC',
                 showSections: 'JUMP TO A MOVEMENT AND KEEP IT BY YOUR HOLD RULE',
@@ -1130,7 +1287,9 @@ class VRClubUI extends VRClubAnimationFinish {
                 musicSources: 'SAVED LINKS AND THIS SESSION\u2019S LOCAL FOLDER',
                 onlineSafety: 'KEEP DETAILS PRIVATE \u2022 LEAVE \u2022 REPORT + BLOCK'
             };
-            const subtitle = immersiveText ? immersiveText.subtitle : hostOwned
+            const subtitle = immersiveText ? immersiveText.subtitle
+                : page === 'music' && this.multiplayer?.hasLiveEvent ? 'THE LIVE EVENT DJ SUPPLIES THE MUSIC'
+                : hostOwned
                 ? `${host} IS THE HOST: THEIR MUSIC AND LIGHTS`
                 : about[page] || this._vrNetSubtitle(page) || `${this.graphicsTier.toUpperCase()} QUALITY  \u2022  POINT + TRIGGER`;
             // Large enough to read in a headset (it was 30 px, about 1 degree); long lines shrink to fit instead of overflowing.
@@ -1384,7 +1543,7 @@ class VRClubUI extends VRClubAnimationFinish {
         return typeof ClubMultiplayer !== 'undefined' ? new ClubMultiplayer(this) : null;
     }
 
-    static get VR_NET_PAGES() { return ['onlineSafety', 'online', 'rooms', 'gestures', 'chat', 'people', 'person', 'report', 'safety', 'room', 'look', 'voiceAudience', 'chatAudience']; }
+    static get VR_NET_PAGES() { return ['onlineSafety', 'online', 'liveEvent', 'rooms', 'gestures', 'chat', 'people', 'person', 'report', 'safety', 'room', 'look', 'voiceAudience', 'chatAudience']; }
 
     /** Babylon's default layer mask plus one extra bit: the quick menu is on both, the world only on the first. */
     static get MENU_LAYER_MASK() { return 0x1FFFFFFF; }
@@ -1418,8 +1577,20 @@ class VRClubUI extends VRClubAnimationFinish {
                 net('NEW PRIVATE ROOM', 'privateRoom'),
                 { label: 'JOIN ROOM', action: 'page', target: 'room' },
                 net('BROWSE ROOMS', 'browseRooms'),
+                ...(mp.connected && mp.client?.liveEventsSupported
+                    ? [{ label: 'LIVE DJ EVENT', action: 'page', target: 'liveEvent' }] : []),
                 common.back,
                 common.close
+            ];
+        }
+        if (page === 'liveEvent') {
+            return [
+                net(mp.hasLiveEvent ? 'LISTEN AGAIN' : 'CREATE LIVE EVENT', mp.hasLiveEvent ? 'eventListen' : 'eventCreate'),
+                net('COPY AUDIENCE LINK', 'eventInvite'),
+                net('COPY PRIVATE DJ LINK', 'eventDJ'),
+                net('REPLACE DJ INVITATION', 'eventRotate'),
+                net('END LIVE EVENT', 'eventEnd'),
+                back('online'), common.close
             ];
         }
         if (page === 'rooms') {
@@ -1532,6 +1703,7 @@ class VRClubUI extends VRClubAnimationFinish {
 
     /** What the second line of the header says on the ONLINE pages: the room and who is in it, or whom the page is about. */
     _vrNetSubtitle(page) {
+        if (page === 'liveEvent') return this._multiplayer()?.liveEventStatus().slice(0, 65).toUpperCase() || 'LIVE DJ AUDIO';
         if (!VRClubUI.VR_NET_PAGES.includes(page)) return '';
         const mp = this._multiplayer();
         if (!mp) return '';
@@ -1590,6 +1762,14 @@ class VRClubUI extends VRClubAnimationFinish {
     _vrNetValue(button, active) {
         const mp = this._multiplayer();
         if (!mp) return '';
+        if (button.op?.startsWith('event')) {
+            if (!mp.connected) return 'JOIN A ROOM FIRST';
+            if (!mp.client.liveEventsSupported) return 'UPDATE RELAY';
+            if (mp.liveEventBusy) return 'WORKING...';
+            if (button.op === 'eventCreate') return mp.isHost() ? 'UP TO 8 ROOMS' : 'HOST ONLY';
+            if (['eventDJ', 'eventRotate', 'eventEnd'].includes(button.op) && !mp.liveEvent?.canManage) return 'EVENT OWNER ONLY';
+            return button.op === 'eventDJ' ? 'PRIVATE: DJ ONLY' : mp.hasLiveEvent ? 'EVENT AUDIO' : 'CREATE EVENT FIRST';
+        }
         switch (button.op) {
             case 'joinListedRoom': return button.locked ? 'LOCKED' : button.full ? 'FULL' : button.inactive ? 'START ROOM' : `${button.people}/${button.capacity} HERE`;
             case 'peerHost': return !mp.isHost() ? 'HOST ONLY' : !mp.client.hostTransferSupported ? 'UPDATE RELAY' : 'YOU STAY IN ROOM';
@@ -1631,6 +1811,34 @@ class VRClubUI extends VRClubAnimationFinish {
             return true;
         };
         switch (button.op) {
+            case 'eventListen':
+                if (needConnection()) return;
+                mp.retryLiveEventAudio();
+                this.showErrorMessage(mp.liveEventStatus());
+                return;
+            case 'eventCreate': case 'eventRotate': case 'eventEnd': case 'eventInvite': case 'eventDJ': {
+                if (needConnection()) return;
+                try {
+                    if (button.op === 'eventInvite' || button.op === 'eventDJ') {
+                        if (!mp.hasLiveEvent) throw new Error('Create a live event first.');
+                        await navigator.clipboard.writeText(button.op === 'eventDJ' ? mp.publisherInviteUrl() : mp.inviteUrl());
+                        this.showErrorMessage(button.op === 'eventDJ' ? 'Private DJ link copied. Send it only to the DJ.' : 'Audience link copied.');
+                    } else {
+                        if (button.op !== 'eventCreate') {
+                            if (!this._vrArmed || this._vrArmed.key !== button.op || this._vrArmed.until < Date.now()) {
+                                this._vrArmed = { key: button.op, until: Date.now() + 4000 };
+                                this.showErrorMessage('Press again within four seconds to confirm.');
+                                return;
+                            }
+                            this._vrArmed = null;
+                        }
+                        await mp.manageLiveEvent(button.op === 'eventCreate' ? 'create' : button.op === 'eventRotate' ? 'rotate' : 'end');
+                        this.showErrorMessage(mp.liveEventStatus());
+                    }
+                } catch (error) { this.showErrorMessage(error.message); }
+                this._showVRQuickMenuPage('liveEvent');
+                return;
+            }
             case 'safetyAccept':
                 mp.acceptOnlineSafety();
                 this._showVRQuickMenuPage('online');
@@ -1894,8 +2102,7 @@ class VRClubUI extends VRClubAnimationFinish {
                 .catch(error => this.showErrorMessage(error.message));
             return;
         }
-        if (['seek', 'playPause', 'play', 'pause', 'stop', 'sourceStep', 'folderMode',
-            'savedSet', 'setStep', 'musicSetup'].includes(button.action)) {
+        if (VR_MUSIC_ACTIONS.has(button.action)) {
             this._runVRMusicAction(button);
             return;
         }
@@ -1927,6 +2134,11 @@ class VRClubUI extends VRClubAnimationFinish {
         if (button.action === 'nextSection') {
             const title = this.nextShowSection();
             if (title) this.showErrorMessage(`Section: ${title}. ${this.lightHoldSummary().toLowerCase()}`);
+            this._refreshVRQuickMenu();
+            return;
+        }
+        if (button.action === 'holdLook') {
+            this.toggleShowLookHold();
             this._refreshVRQuickMenu();
             return;
         }
@@ -2017,7 +2229,7 @@ class VRClubUI extends VRClubAnimationFinish {
 
         // The remaining show controls are host-owned in someone else's room (the legacy "lights" guard name is
         // retained for multiplayer protocol compatibility).
-        if (!this.guardHostControl('lights')) return;
+        if (button.control !== 'cycleSpotTarget' && !this.guardHostControl('lights')) return;
         this.toggleLightControl(button.control);
         this._refreshVRQuickMenu();
     }
@@ -2442,6 +2654,14 @@ class VRClubUI extends VRClubAnimationFinish {
 
     sitAtSeat(seat) {
         if (!seat || !Number.isFinite(seat.x) || !Number.isFinite(seat.z)) return false;
+        const door = this._restroomDoors?.find(door => door.seatId === seat.id);
+        if (door) {
+            this._scanRemoteToilets();
+            if (door.remote) {
+                this.showErrorMessage('This toilet is occupied');
+                return false;
+            }
+        }
         const occupant = this._simulatedSeatOccupant(seat.id);
         if (occupant) {
             this._cancelDevSeatWait();
@@ -2596,6 +2816,7 @@ class VRClubUI extends VRClubAnimationFinish {
     }
 
     _recoverAudioStream(reason) {
+        if (this.multiplayer?.hasLiveEvent) return;
         const audio = this.audioElement;
         const recovery = this._streamRecovery;
         if (!audio || !recovery || this._disposed) return;
@@ -2628,7 +2849,7 @@ class VRClubUI extends VRClubAnimationFinish {
         log.warn(`🎵 Stream ${reason}; reconnect attempt ${recovery.attempts} in ${delay} ms`);
         recovery.timer = setTimeout(() => {
             recovery.timer = null;
-            if (this._disposed || this._audioKind !== 'stream' || !this._audioStreamUrl) return;
+            if (this._disposed || this.multiplayer?.hasLiveEvent || this._audioKind !== 'stream' || !this._audioStreamUrl) return;
             audio.src = this._audioStreamUrl;
             if (resumeAt > 0) {
                 audio.addEventListener('loadedmetadata', () => { audio.currentTime = resumeAt; }, { once: true });
@@ -2690,6 +2911,7 @@ class VRClubUI extends VRClubAnimationFinish {
 
     /** @param {{ onDemand?: boolean, resumeAt?: number, quietBlock?: boolean }} [options] an on-demand episode plays once instead of looping; `quietBlock` makes a blocked autoplay silent (it is retried on the first gesture) */
     startAudioStream(url, options = {}) {
+        if (this.multiplayer?.hasLiveEvent) return Promise.reject(new Error('The live event DJ controls the music. Leave the event to play your own set.'));
         if (!this._isSafeAudioUrl(url)) {
             log.warn(`🎵 Rejected unsafe audio URL: ${url}`);
             this.showErrorMessage('Invalid audio URL. Use http://, https:// or blob: only.');
@@ -2729,6 +2951,7 @@ class VRClubUI extends VRClubAnimationFinish {
     }
 
     async startSoundCloud(url, label = 'SoundCloud set') {
+        if (this.multiplayer?.hasLiveEvent) throw new Error('The live event DJ controls the music. Leave the event to play your own set.');
         const parsed = new URL(String(url));
         if (parsed.protocol !== 'https:' || !/(^|\.)soundcloud\.com$/.test(parsed.hostname) ||
             parsed.username || parsed.password) {
@@ -2822,6 +3045,7 @@ class VRClubUI extends VRClubAnimationFinish {
     }
 
     startAudioFromFile(file, options = {}) {
+        if (this.multiplayer?.hasLiveEvent) return Promise.reject(new Error('The live event DJ controls the music. Leave the event to play your own set.'));
         if (!VRClubUI.isLocalAudioFile(file)) {
             return Promise.reject(new TypeError('Choose an MP3, M4A, OGG, FLAC, WAV, AAC, Opus or WebM audio file.'));
         }

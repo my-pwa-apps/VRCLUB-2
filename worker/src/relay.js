@@ -94,6 +94,7 @@ import { handleRoomDirectory, publishRoom, privateRoomName, ROOM_DIRECTORY_REFRE
 import { RoomMedia, mediaTransport } from './sfu.js';
 import { DEV_ROOM, DEV_OWNER_HEADER, devRoomAccess } from './devRoomAccess.js';
 import { DevAttendees } from './devAttendees.js';
+import { LIVE_EVENT_ID, liveEventsEnabled, liveEventCall, liveEventStub, consumeLiveRate } from './liveEvents.js';
 
 export const MAX_NAME_LENGTH = 32;
 export const MAX_ROOM_NAME_LENGTH = 64;
@@ -193,6 +194,7 @@ export const DEFAULT_ALLOWED_ORIGINS = Object.freeze([
 
 // Sustained rate / burst per connection. `rtc-signal` bursts during ICE gathering.
 export const RATE_LIMITS = Object.freeze({
+    event: { rate: 0.2, burst: 2 },
     state: { rate: 20, burst: 30 },
     emoji: { rate: 2, burst: 4 },
     gesture: { rate: 1, burst: 3 },
@@ -436,6 +438,10 @@ export class ClubRoom {
         this._simulation = null;
         this._simulatedPids = new Map();
         this._removedSimulated = new Set();
+        this._liveEvent = null;
+        this._liveReady = state.storage?.get('liveEvent').then(value => { this._liveEvent = value || null; }) || Promise.resolve();
+        this._liveQueue = Promise.resolve();
+        this._lastEventCreated = 0;
     }
 
     async alarm() {
@@ -443,6 +449,9 @@ export class ClubRoom {
     }
 
     async fetch(request) {
+        await this._liveReady;
+        const path = new URL(request.url).pathname;
+        if (path.startsWith('/live-')) return this._liveInternal(request, path);
         if (new URL(request.url).pathname === '/directory-status') {
             return Response.json(this.capacity === 8 ? { people: this.sessions.size, locked: this.locked } :
                 roomStatus(this._roomName, this.sessions.size, this.locked, this.capacity));
@@ -452,7 +461,7 @@ export class ClubRoom {
         }
 
         const url = new URL(request.url);
-        if (this.media && url.searchParams.get('sfu') !== '1') {
+        if (this.media && url.searchParams.get('sfu') !== '1' && url.searchParams.get('media') !== 'sfu') {
             return new Response('Update the club app to join an SFU room.', { status: 426 });
         }
         this._roomName = (url.searchParams.get('room') || 'lobby').slice(0, MAX_ROOM_NAME_LENGTH);
@@ -475,9 +484,37 @@ export class ClubRoom {
         const uid = url.searchParams.get('uid');
         const pid = await derivePid(UID_PATTERN.test(uid || '') ? uid : crypto.randomUUID());
 
+        let admission = null;
+        if (liveEventsEnabled(this.env) && (this._liveEvent || request.headers.has('X-Live-Event'))) {
+            const eventId = this._liveEvent?.id || request.headers.get('X-Live-Event');
+            if (!LIVE_EVENT_ID.test(eventId)) return new Response('Invalid live event', { status: 403 });
+            if (this.banned.has(pid) || this.locked) return new Response('Room admission denied', { status: 403 });
+            if (this.sessions.size >= this.capacity) return new Response('Room full', { status: 409 });
+            let reservation = request.headers.get('X-Live-Reservation');
+            try {
+                if (!reservation) ({ reservation } = await liveEventCall(this.env, eventId, 'reserve', { pid, room: this._roomName }));
+                const id = crypto.randomUUID();
+                const result = await liveEventCall(this.env, eventId, 'admit', { pid, room: this._roomName, member: id, reservation });
+                admission = { id, event: result.event };
+                if (this.sessions.size >= this.capacity || this.locked || this.banned.has(pid)) {
+                    await liveEventCall(this.env, eventId, 'leave', { member: id });
+                    return new Response('Room admission changed', { status: this.locked || this.banned.has(pid) ? 403 : 409 });
+                }
+                if (!this._liveEvent) {
+                    this._liveEvent = { id: eventId };
+                    await this.state.storage.put('liveEvent', this._liveEvent);
+                }
+            } catch (error) { return new Response(error.message, { status: error.status || 503 }); }
+        }
+        if (this._eventCreating && !admission) return new Response('Event setup in progress. Retry joining.', { status: 503 });
+        if (admission && (this.sessions.size >= this.capacity || this.locked || this.banned.has(pid))) {
+            await liveEventCall(this.env, admission.event.id, 'leave', { member: admission.id });
+            return new Response('Room admission changed', { status: this.locked || this.banned.has(pid) ? 403 : 409 });
+        }
         const pair = new WebSocketPair();
         const [client, server] = Object.values(pair);
-        this._acceptSession(server, name, pid, sanitizePool(url.searchParams.get('avatars')), url.searchParams.get('poseBatch') === '1', null, avatar, appearance);
+        const accepted = this._acceptSession(server, name, pid, sanitizePool(url.searchParams.get('avatars')), url.searchParams.get('poseBatch') === '1', null, avatar, appearance, admission);
+        if (accepted) accepted.liveIp = request.headers.get('CF-Connecting-IP');
         return new Response(null, { status: 101, webSocket: client });
     }
 
@@ -517,7 +554,7 @@ export class ClubRoom {
             ...(session.simulated ? { simulated: true } : {}) };
     }
 
-    _acceptSession(ws, name, pid = null, avatarPool = 'any', poseBatch = false, simulation = null, avatar = null, appearance = null) {
+    _acceptSession(ws, name, pid = null, avatarPool = 'any', poseBatch = false, simulation = null, avatar = null, appearance = null, admission = null) {
         const simulated = simulation !== null;
         if (!simulated) ws.accept();
         pid = PID_PATTERN.test(pid || '') ? pid : Array.from(crypto.getRandomValues(new Uint8Array(8)), b => b.toString(16).padStart(2, '0')).join('');
@@ -538,7 +575,7 @@ export class ClubRoom {
             return null;
         }
 
-        const id = crypto.randomUUID();
+        const id = admission?.id || crypto.randomUUID();
         const now = Date.now();
         if (!this.sessions.size) {
             this.world = { v: 1, startedAt: now, seed: crypto.getRandomValues(new Uint32Array(1))[0] };
@@ -548,6 +585,7 @@ export class ClubRoom {
         const session = { id, pid, name, avatar: AVATARS.includes(avatar) ? avatar : this._pickAvatar(null, avatarPool), avatarPool, blocked: new Set(), lastState: null, buckets, dropped: 0, lastSeen: now, pinger: false,
             poseBatch, poseSent: new Map() };
         session.appearance = sanitizeAppearance(appearance, session.avatar) || null;
+        if (admission) session.liveEvent = admission.event;
         if (simulated) {
             session.simulated = true;
             session.simulatedIndex = simulation.index;
@@ -588,6 +626,8 @@ export class ClubRoom {
             capacity: this.capacity,
             poseBatch: true,
             mediaTransport: this.mediaTransport,
+            ...(liveEventsEnabled(this.env) ? { liveEvents: true, room: this._roomName,
+                ...(session.liveEvent ? { liveEvent: session.liveEvent } : {}) } : {}),
             peers,
             music: this.musicState,
             show: this.showState,
@@ -667,10 +707,14 @@ export class ClubRoom {
         if (evt.data.length > MAX_FRAME_BYTES && (msg.type !== 'sfu' || !this.media)) return;
         if (this._throttle(ws, session, msg.type)) {
             if (msg.type === 'avatar' && this.sessions.has(ws)) this._send(ws, { type: 'avatar-error', reason: 'rate-limit' });
+            if (msg.type === 'event' && Number.isSafeInteger(msg.request)) this._send(ws, { type: 'event-result', request: msg.request, error: 'Event rate limit exceeded. Try again shortly.' });
             return;
         }
 
         switch (msg.type) {
+            case 'event':
+                this._liveRequest(ws, session, msg);
+                break;
             case 'state': {
                 const state = sanitizeState(msg.state);
                 if (!state) return;
@@ -771,6 +815,7 @@ export class ClubRoom {
             }
 
             case 'music': {
+                if (this._liveEvent) return;
                 // Only the room's current host may drive the shared "now playing" state,
                 // otherwise any guest could hijack everyone else's audio.
                 if (session.id !== this.hostId) return;
@@ -820,11 +865,13 @@ export class ClubRoom {
             }
 
             case 'sfu':
+                if (this._liveEvent && msg.slot?.startsWith('music')) return;
                 if (this.media) this.media.request(session, msg);
                 break;
 
             case 'media-control':
                 if (this.media) {
+                    if (this._liveEvent) msg = { ...msg, music: undefined, listen: false };
                     if (msg.voice !== undefined && msg.voice !== null && !privateRoomName(this._roomName)) return;
                     this.media.control(session, msg);
                 }
@@ -860,6 +907,7 @@ export class ClubRoom {
                 const targetWs = this._findSocketById(msg.target);
                 const target = targetWs && this.sessions.get(targetWs);
                 if (!target) return;
+                if (this._liveEvent) this._livePolicy({ denied: target.pid });
                 if (msg.type === 'ban') {
                     if (this.banned.size >= MAX_BANNED) return;
                     this.banned.add(target.pid);
@@ -895,6 +943,7 @@ export class ClubRoom {
             case 'lock':
                 if (session.id !== this.hostId) return;
                 this.locked = !!msg.locked;
+                if (this._liveEvent) this._livePolicy({ locked: this.locked });
                 this._broadcast({ type: 'room', locked: this.locked });
                 this._publishDirectory();
                 break;
@@ -906,6 +955,7 @@ export class ClubRoom {
 
     /** After `session`'s block list changed: tell both sides whoever became invisible has left, and whoever reappeared has joined. */
     _applyBlockChanges(session, before) {
+        if (this._liveEvent) this._liveHeartbeat();
         if (this.media) { this.media.refresh(); this.media.reconcile(); }
         const sessionWs = this._findSocketById(session.id);
         for (const [ws, other] of this.sessions) {
@@ -954,6 +1004,7 @@ export class ClubRoom {
      * keep talking: after IDLE_CLOSE_MS of silence it is closed, so the next guest becomes host promptly.
      */
     _sweep(now = Date.now()) {
+        if (this._liveEvent) this._liveHeartbeat();
         for (const [ws, session] of [...this.sessions]) {
             if (!session.pinger || now - session.lastSeen <= IDLE_CLOSE_MS) continue;
             try { ws.close(CLOSE_IDLE, 'no heartbeat'); } catch { /* already closed */ }
@@ -971,6 +1022,10 @@ export class ClubRoom {
 
     _onClose(ws, session) {
         if (!this.sessions.has(ws)) return;
+        if (this._liveEvent && !session.simulated) {
+            const eventId = this._liveEvent.id;
+            this._liveTask(() => liveEventCall(this.env, eventId, 'leave', { member: session.id }));
+        }
         this.sessions.delete(ws);
         if (session.simulated) this._simulation?.remove(session.simulatedIndex);
         else if (this.media) this.media.remove(session);
@@ -1022,6 +1077,131 @@ export class ClubRoom {
         this.state.waitUntil(this._directoryWrite);
     }
 
+    _liveTask(task) {
+        const result = this._liveQueue.then(task);
+        this._liveQueue = result.catch(() => {});
+        this.state.waitUntil(this._liveQueue);
+        return result;
+    }
+
+    _liveMembers() {
+        return [...this.sessions.values()].filter(s => !s.simulated)
+            .map(s => ({ id: s.id, pid: s.pid, blocked: [...s.blocked] }));
+    }
+
+    _liveHeartbeat() {
+        const id = this._liveEvent.id;
+        const members = this._liveMembers();
+        this._liveTask(() => liveEventCall(this.env, id, 'heartbeat', { room: this._roomName, members }));
+    }
+
+    _livePolicy(policy) {
+        const id = this._liveEvent.id;
+        this._liveTask(() => liveEventCall(this.env, id, 'policy', { room: this._roomName, ...policy }));
+    }
+
+    _liveRequest(ws, session, msg) {
+        if (!Number.isSafeInteger(msg.request) || msg.request < 1) return;
+        const reply = result => this._send(ws, { type: 'event-result', request: msg.request, ...result });
+        if (!liveEventsEnabled(this.env)) {
+            reply({ error: !this.env.DB && this.env.LIVE_AUDIO_EVENT && this.mediaTransport === 'sfu'
+                ? 'Live events require a D1 DB binding for durable usage limits.'
+                : 'Live events require the configured SFU relay.' });
+            return;
+        }
+        if (session._eventPending) { reply({ error: 'Event request in progress.' }); return; }
+        session._eventPending = true;
+        this._liveTask(async () => {
+            try {
+                if (!this.sessions.has(ws)) return;
+                if (!['create', 'info', 'rotate', 'end'].includes(msg.action)) throw new Error('Unknown event action.');
+                let result;
+                if (msg.action === 'create') {
+                    if (session.id !== this.hostId) throw new Error('Only the admitted room host can create a live event.');
+                    this._eventCreating = true;
+                    if (!(await consumeLiveRate(this.env, 'create-global', 'all', 60, 3600000)) ||
+                        !(await consumeLiveRate(this.env, 'create-pid', session.pid, 3, 3600000)) ||
+                        !(await consumeLiveRate(this.env, 'create-ip', session.liveIp || 'unknown', 5, 3600000))) {
+                        throw new Error('Event creation rate limit exceeded.');
+                    }
+                    if (this._liveEvent) {
+                        const previous = await liveEventCall(this.env, this._liveEvent.id, 'info', { pid: session.pid, room: this._roomName });
+                        if (!previous.event.ended || previous.event.roomIndex !== 0) throw new Error('This room already has a live event.');
+                    }
+                    const last = await this.state.storage?.get('lastEventCreated') || this._lastEventCreated;
+                    if (Date.now() - last < 60000) throw new Error('Wait one minute before creating another event.');
+                    const id = crypto.randomUUID();
+                    this._lastEventCreated = Date.now();
+                    await this.state.storage?.put('lastEventCreated', this._lastEventCreated);
+                    if (!this.sessions.has(ws) || session.id !== this.hostId) throw new Error('Room host changed during event creation.');
+                    result = await liveEventCall(this.env, id, 'create', { id, owner: session.pid,
+                        ownerBlocks: [...session.blocked], room: this._roomName, title: msg.title,
+                        capacity: this.capacity, locked: this.locked, banned: [...this.banned], members: this._liveMembers() });
+                    this._liveEvent = { id };
+                    await this.state.storage.put('liveEvent', this._liveEvent);
+                    for (const ticket of result.tickets) {
+                        const memberWs = this._findSocketById(ticket.member);
+                        const member = memberWs && this.sessions.get(memberWs);
+                        if (member) {
+                            member.liveEvent = ticket.event;
+                            this._send(memberWs, { type: 'event-state', event: member.liveEvent });
+                        } else await liveEventCall(this.env, id, 'leave', { member: ticket.member });
+                    }
+                    delete result.tickets;
+                    result.event = session.liveEvent || result.event;
+                    // Event audio replaces room-local music, including an existing local-file SFU publication.
+                    this.musicState = null;
+                    if (this.media) {
+                        for (const member of this.media.members.values()) { member.music = null; member.listen = false; }
+                        this.media.reconcile();
+                        for (const member of this.media.members.values()) {
+                            void this.media._enqueue(() => this.media._retire(member, 'musicPub'));
+                        }
+                    }
+                } else {
+                    if (!this._liveEvent) throw new Error('This room has no live event.');
+                    result = await liveEventCall(this.env, this._liveEvent.id, msg.action, { pid: session.pid, room: this._roomName });
+                    result.event = { ...result.event, ...(session.liveEvent?.listenerToken ?
+                        { listenerToken: session.liveEvent.listenerToken } : {}) };
+                }
+                reply(result);
+            } catch (error) { reply({ error: error.message || 'Live event request failed.' }); }
+            finally { session._eventPending = false; this._eventCreating = false; }
+        });
+    }
+
+    async _liveInternal(request, path) {
+        if (!liveEventsEnabled(this.env) || request.method !== 'POST') return new Response('Not found', { status: 404 });
+        const body = await request.json();
+        if (path === '/live-member') {
+            const member = this.sessions.get(this._findSocketById(body.member));
+            return new Response(null, { status: this._liveEvent?.id === body.event && member?.pid === body.pid ? 204 : 403 });
+        }
+        if (path === '/live-access') {
+            return Response.json({ locked: this.locked, banned: this.banned.has(body.pid) });
+        }
+        if (path === '/live-deny' && this._liveEvent?.id === body.event) {
+            for (const [ws, member] of [...this.sessions]) if (member.pid === body.pid) {
+                try { ws.close(CLOSE_BANNED, 'Removed from the live event'); } catch { /* already closed */ }
+                this._onClose(ws, member);
+            }
+            return new Response(null, { status: 204 });
+        }
+        if (path === '/live-state' && this._liveEvent?.id === body.event?.id) {
+            for (const [ws, member] of this.sessions) {
+                if (!member.liveEvent) continue;
+                member.liveEvent = { ...member.liveEvent, ...body.event };
+                this._send(ws, { type: 'event-state', event: member.liveEvent });
+            }
+            if (body.event.ended) {
+                this._liveEvent = null;
+                await this.state.storage.put('liveEvent', null);
+            }
+            return new Response(null, { status: 204 });
+        }
+        return new Response('Not found', { status: 404 });
+    }
+
     _findSocketById(id) {
         if (!id) return null;
         for (const [ws, session] of this.sessions) {
@@ -1057,6 +1237,18 @@ export default {
         if (!isAllowedOrigin(origin, allowed)) {
             return new Response('origin not allowed', { status: 403 });
         }
+        if (url.pathname.startsWith('/live-')) return new Response('not found', { status: 404 });
+        const mediaPath = /^\/live\/([^/]+)\/media$/.exec(url.pathname);
+        if (mediaPath) {
+            if (!liveEventsEnabled(env) || !LIVE_EVENT_ID.test(mediaPath[1]) || url.search) return new Response('Invalid live event', { status: 400 });
+            try {
+                if (!(await consumeLiveRate(env, 'media-global', 'all', 4000, 60000)) ||
+                    !(await consumeLiveRate(env, 'media-ip', request.headers.get('CF-Connecting-IP') || 'unknown', 300, 60000))) {
+                    return new Response('Event connection rate exceeded', { status: 429 });
+                }
+            } catch { return new Response('Event admission unavailable', { status: 503 }); }
+            return liveEventStub(env, mediaPath[1]).fetch(request);
+        }
 
         // The podcast routes (feed and episode stream) answer the same allow-listed origins.
         const podcast = await handlePodcast(request, url, new URL(origin).origin);
@@ -1067,9 +1259,49 @@ export default {
         if (request.headers.get('Upgrade') !== 'websocket') return new Response('expected a websocket upgrade', { status: 426 });
 
         const room = (url.searchParams.get('room') || 'lobby').slice(0, MAX_ROOM_NAME_LENGTH);
+        if (!url.searchParams.has('event') && room.startsWith('private-live-')) return new Response('Join through the event invitation', { status: 403 });
         const forwarded = new Request(request);
         const headers = forwarded.headers;
         headers.delete(DEV_OWNER_HEADER);
+        headers.delete('X-Live-Event');
+        headers.delete('X-Live-Reservation');
+        if (url.searchParams.has('event')) {
+            const eventId = url.searchParams.get('event');
+            if (!liveEventsEnabled(env) || !LIVE_EVENT_ID.test(eventId)) return new Response('Invalid live event', { status: 400 });
+            const uid = url.searchParams.get('uid');
+            if (!UID_PATTERN.test(uid || '')) return new Response('Event admission requires a stable browser identity', { status: 400 });
+            const pid = await derivePid(uid);
+            const exclude = [];
+            for (let attempt = 0; attempt < 8; attempt++) {
+                let reserved;
+                try { reserved = await liveEventCall(env, eventId, 'reserve', { pid, exclude }); }
+                catch (error) { return new Response(error.message, { status: error.status || 503 }); }
+                const target = new URL(request.url);
+                target.searchParams.delete('event');
+                target.searchParams.set('room', reserved.room);
+                const eventHeaders = new Headers(headers);
+                eventHeaders.delete('Cookie');
+                eventHeaders.set('X-Live-Event', eventId);
+                eventHeaders.set('X-Live-Reservation', reserved.reservation);
+                if (reserved.ownerOnlyRoot) {
+                    const denied = await devRoomAccess(request, env);
+                    if (denied) {
+                        await liveEventCall(env, eventId, 'cancel', { pid, reservation: reserved.reservation });
+                        return new Response('Original room authorization required', { status: 403 });
+                    }
+                    eventHeaders.set(DEV_OWNER_HEADER, 'verified');
+                }
+                let response;
+                try {
+                    response = await env.CLUB_ROOM.get(env.CLUB_ROOM.idFromName(reserved.room)).fetch(new Request(target, { headers: eventHeaders }));
+                } catch { response = new Response('Event room unavailable', { status: 503 }); }
+                if (response.status === 101) return response;
+                try { await liveEventCall(env, eventId, 'cancel', { pid, reservation: reserved.reservation }); } catch { /* expires after 15 s */ }
+                if (response.status !== 409) return response;
+                exclude.push(reserved.room);
+            }
+            return new Response('All event rooms are full', { status: 409 });
+        }
         if (room === DEV_ROOM) {
             const denied = await devRoomAccess(request, env);
             if (denied) return Response.json(denied, { status: denied.status, headers: { 'cache-control': 'no-store' } });

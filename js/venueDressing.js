@@ -1036,8 +1036,8 @@ const VenueDressing = {
      * The two cubicle doors: hinged leaves in the front plane of the stalls. Each hangs from the end of its opening that
      * is next to a side wall and stands ajar on the hall side (folded toward that wall, clear of the opening and of the
      * washbasins), swings shut while somebody sits on its toilet, and can be pushed shut or ajar by hand (a click or a
-     * controller ray on it), a state the whole room shares (see setSharedDoor). A shut door is solid unless somebody is
-     * standing in its doorway, so it can never trap anyone. A small lamp on the outer face is the lock: red only while
+     * controller ray on it), a state the whole room shares (see setSharedDoor). A shut door is solid; somebody overlapping
+     * it as it closes gets clearance only until they first step clear. A small lamp on the outer face is the lock: red only while
      * somebody is sitting inside, green otherwise, even when the door has been pushed shut by hand over a vacant toilet.
      */
     _createStallDoors(material, scoped) {
@@ -1066,7 +1066,7 @@ const VenueDressing = {
             const leaf = makeBox(`restroomStallDoor${index}`, hinge, T, top - bottom, width, 0, (top + bottom) / 2, leafSign * width / 2, material, index);
             makeBox(`restroomStallHandle${index}`, hinge, 0.02, 0.12, 0.035, T / 2 + 0.01, 1.0, leafSign * (width - 0.1), chrome, index);
             const lamp = makeBox(`restroomStallLamp${index}`, hinge, 0.008, 0.05, 0.05, T / 2 + 0.004, 1.12, leafSign * (width - 0.1), free, index);
-            const door = { index, seatId: `toilet-${index}`, hinge, leaf, lamp, free, busy, leafSign, frontX, opening: [from, to], t: 1, open: 1, remote: false, occupied: false };
+            const door = { index, seatId: `toilet-${index}`, hinge, leaf, lamp, free, busy, leafSign, frontX, opening: [from, to], t: 1, open: 1, remote: false, occupied: false, clearancePending: false };
             this._poseStallDoor(door);
             this._paintDoorLamp(door);
             return door;
@@ -1100,7 +1100,11 @@ const VenueDressing = {
     pushStallDoor(index) {
         const door = this._restroomDoors && this._restroomDoors[index];
         if (!door) return false;
-        if (door.remote && !(this._activeSeat && this._activeSeat.id === door.seatId)) return false;
+        this._scanRemoteToilets();
+        if (door.remote && !(this._activeSeat && this._activeSeat.id === door.seatId)) {
+            this.showErrorMessage('This toilet is occupied');
+            return false;
+        }
         const shut = !this._doorsByHand[index];
         this.setSharedDoor(index, shut);
         const mp = this.multiplayer;
@@ -1120,7 +1124,6 @@ const VenueDressing = {
             this.standFromSeat(true);
             return true;
         }
-        if (this._requestDevSeatYield?.(door.seatId)) return true;
         this.pushStallDoor(index);
         return true;
     },
@@ -1157,7 +1160,7 @@ const VenueDressing = {
         }
         const seatId = this._activeSeat ? this._activeSeat.id : null;
         const byHand = this._doorsByHand;
-        let pos = null;
+        let camera = null, pos = null;
         for (let i = 0; i < doors.length; i++) {
             const door = doors[i];
             // Locked means occupied: somebody (this guest, or one the room shows) is sitting on its toilet. A door pushed shut by
@@ -1165,22 +1168,41 @@ const VenueDressing = {
             door.occupied = seatId === door.seatId || door.remote;
             this._paintDoorLamp(door);
             const target = door.occupied || (byHand && byHand[i]) ? 0 : 1;
+            const wasShut = door.t === 0;
             if (door.t !== target) {
                 const step = dt / VENUE_RESTROOM.doorSeconds;
                 door.t = target > door.t ? Math.min(1, door.t + step) : Math.max(0, door.t - step);
                 this._poseStallDoor(door);
             }
-            // A shut door is solid, unless somebody stands in its doorway: then it stays soft until they step clear.
             let solid = false;
             if (door.t === 0) {
-                if (!pos) {
-                    const cam = this._playerCamera ? this._playerCamera() : this.camera;
-                    pos = cam && (cam.globalPosition || cam.position) || null;
+                if (!camera) {
+                    camera = this._playerCamera ? this._playerCamera() : this.camera;
+                    pos = camera && (camera.globalPosition || camera.position) || null;
                 }
-                const inDoorway = !!pos && Math.abs(pos.x - door.frontX) < 0.6 && pos.z > door.opening[0] - 0.3 && pos.z < door.opening[1] + 0.3;
-                solid = !inDoorway;
+                const radiusX = camera?.ellipsoid?.x ?? 0.25, radiusZ = camera?.ellipsoid?.z ?? 0.25;
+                const overlapping = !!pos && Math.abs(pos.x - door.frontX) < radiusX + 0.04 &&
+                    pos.z > door.opening[0] - radiusZ && pos.z < door.opening[1] + radiusZ;
+                if (!wasShut) door.clearancePending = overlapping;
+                else if (!overlapping) door.clearancePending = false;
+                solid = !door.clearancePending;
+            } else {
+                door.clearancePending = false;
             }
-            if (door.leaf.checkCollisions !== solid) door.leaf.checkCollisions = solid;
+            if (door.leaf.checkCollisions !== solid) {
+                door.leaf.checkCollisions = solid;
+                const teleport = this.vrHelper?.teleportation;
+                if (teleport?.addBlockerMesh && teleport?.removeBlockerMesh) {
+                    teleport.removeBlockerMesh(door.leaf);
+                    if (solid) teleport.addBlockerMesh(door.leaf);
+                }
+                const blockers = this._xrTeleportBlockers;
+                if (blockers) {
+                    const index = blockers.indexOf(door.leaf);
+                    if (solid && index < 0) blockers.push(door.leaf);
+                    else if (!solid && index >= 0) blockers.splice(index, 1);
+                }
+            }
         }
     },
 
@@ -1671,7 +1693,7 @@ const VenueDressing = {
      */
     _restroomMirrorQuality() {
         const table = this.isInVRMode
-            ? { ultra: [512, 2], high: [512, 2], balanced: [384, 1] }
+            ? { ultra: [1024, 2], high: [512, 2], balanced: [384, 1] }
             : { ultra: [1024, 4], high: [1024, 2], balanced: [512, 1] };
         const [size, samples] = table[this.graphicsTier] || table.high;
         return { size, samples };

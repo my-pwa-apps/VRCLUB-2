@@ -172,7 +172,7 @@ export default [
     },
     {
         // First-party browser scripts (classic, shared global scope).
-        files: ['js/**/*.js'],
+        files: ['js/**/*.js', 'broadcast/**/*.js'],
         languageOptions: {
             ecmaVersion: 2023,
             sourceType: 'script',

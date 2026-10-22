@@ -326,6 +326,20 @@
             
             <!-- Gobo Filter Controls -->
             <div class="vj-section" data-vj-tab-panel="lights" hidden>
+                <div class="vj-section-title">Individual spots, rows and columns</div>
+                <p class="vj-help">Choose a group, then change its on/off state, colour or movement. Rows run front to back; columns are left and right. Chase moves SPOT COLOUR between groups; Fill adds groups, then fades out. Individual colours return in Steady. Every step follows the music.</p>
+                <div class="vj-button-grid">
+                    <button class="vj-button vj-button-wide" type="button" data-control="cycleSpotTarget">EDIT GROUP: ALL SIX</button>
+                    <button class="vj-button" type="button" data-control="toggleSpotGroup">GROUP ON/OFF: ON</button>
+                    <button class="vj-button" type="button" data-control="cycleSpotGroupColor">GROUP COLOUR: FOLLOW SPOT COLOUR</button>
+                    <button class="vj-button vj-button-wide" type="button" data-control="cycleSpotGroupMotion">GROUP MOVEMENT: FOLLOW RIG</button>
+                    <button class="vj-button vj-button-wide" type="button" data-control="cycleSpotSequence">SEQUENCE: STEADY</button>
+                    <button class="vj-button" type="button" data-control="cycleSpotSequenceRate">STEP EVERY: 2 BEATS</button>
+                    <button class="vj-button" type="button" data-control="resetSpotRig">RESET SPOT RIG</button>
+                </div>
+            </div>
+
+            <div class="vj-section" data-vj-tab-panel="lights" hidden>
                 <div class="vj-section-title">Projected gobo images</div>
                 <p class="vj-help">A gobo replaces each spotlight's soft pool with a rotating image projected where its beam meets the floor or wall. Open means the normal soft pool.</p>
                 <div class="vj-button-grid">
@@ -378,6 +392,8 @@
                     <button class="vj-button" type="button" data-control="nextMovement" title="Skip to the next section of the show (ARRIVAL / PULSE / ASCENT / IGNITION / AFTERGLOW).">NEXT SECTION</button>
                 </div>
                 <button class="vj-button vj-button-wide" type="button" data-control="showCountdown" title="Fire THE COUNTDOWN: four bars of escalating strobe into one beat of total blackout, then the drop.">COUNTDOWN</button>
+                <button class="vj-button vj-button-wide" id="vjHoldLookBtn" type="button" aria-pressed="false">HOLD THIS LOOK</button>
+                <p class="vj-help">Keep the current lighting sequence running without changing looks. Press again to release it, or choose Auto show now. Countdowns and transitions finish first.</p>
                 <div class="vj-slider-label vj-slider-label-secondary">
                     <span>Now playing</span>
                     <span id="showMovementReadout">I · ARRIVAL</span>
@@ -675,6 +691,22 @@
             </div>
 
             <!-- In a room: everything below is only shown while connected. -->
+            <div class="audio-section" id="networkLiveEvent" hidden>
+                <div class="vj-section-title">Live DJ event</div>
+                <p class="network-help" id="networkLiveStatus" role="status"></p>
+                <p class="network-help">One live audio feed, with automatic overflow into up to eight rooms. Each room has its own people and conversation. Only broadcast music you have permission to perform and share.</p>
+                <label for="networkLiveTitle">Event title</label>
+                <input class="audio-input" id="networkLiveTitle" maxlength="80" value="Live DJ set">
+                <div class="vj-button-grid">
+                    <button class="audio-button" id="networkLiveCreate" type="button">Create live event</button>
+                    <button class="audio-button" id="networkLiveListen" type="button">Listen again</button>
+                    <button class="audio-button" id="networkLiveInvite" type="button">Copy audience link</button>
+                    <button class="audio-button" id="networkLiveDJ" type="button">Copy private DJ link</button>
+                    <button class="audio-button" id="networkLiveRotate" type="button">Replace DJ invitation</button>
+                    <button class="audio-button network-danger" id="networkLiveEnd" type="button">End live event</button>
+                </div>
+                <p class="network-help" id="networkLivePrivate" hidden>The private DJ link grants broadcast access. Share it only with your DJ, not your audience. Replacing it disconnects the previous broadcaster.</p>
+            </div>
             <div class="audio-section" id="networkRoomActions" hidden>
                 <p class="network-help" id="networkRoomInfo"></p>
                 <div class="network-row">
@@ -1075,6 +1107,7 @@
          Babylon-side remote-avatar/voice/emoji renderer it drives. Both are opt-in -
          VRClub only creates instances once a guest connects from the Multiplayer panel. -->
     <script src="js/sfuClient.js?v=20261021-5"></script>
+    <script src="js/liveAudioClient.js?v=20261021-5"></script>
     <script src="js/networkClient.js?v=20261021-5"></script>
     <script src="js/avatarManager.js?v=20261021-5"></script>
     <script src="js/multiplayer.js?v=20261021-5"></script>
