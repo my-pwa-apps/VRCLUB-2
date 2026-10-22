@@ -7174,6 +7174,79 @@ test('base-scene compilation waits behind the splash but has a diagnostic timeou
     assert.equal(diagnostics[0][0], 'render');
 });
 
+test('mirror-ball incident beams, housings and reflections follow in-place colours on the same VR frame', () => {
+    const BABYLON = require('../js/vendor/babylon.js');
+    const Core = loadClassic('js/club/07-animation-core.js', {
+        BABYLON, VRClubEffects: class {}
+    }).window.VRClubAnimationCore;
+    const effects = loadClassic('js/club/06-effects.js', {
+        BABYLON, VRClubFixtures: class {}
+    }).window.VRClubEffects.prototype;
+    const material = () => ({ emissiveColor: new BABYLON.Color3() });
+    const mesh = () => ({ setEnabled() {} });
+    const club = Object.assign(Object.create(Core.prototype), {
+        mirrorBallActive: true, vjManualMode: true, mirrorBallRotation: 0,
+        isInVRMode: true, tierSettings: { vrMirrorUpdateHz: 45 }, masterIntensity: 1,
+        mirrorBallSpotlightColor: new BABYLON.Color3(1, 0, 0),
+        mirrorBallSpotlights: [null],
+        mirrorBallBeams: [{ mesh: mesh(), material: material() }],
+        mirrorBallHousings: [{
+            material: material(), lensMaterial: material(), sourceMaterial: material(), flareMaterial: material()
+        }],
+        mirrorBallCachedColors: {
+            housingGlow: new BABYLON.Color3(), lensBright: new BABYLON.Color3(),
+            sourceVeryBright: new BABYLON.Color3(), flareMedium: new BABYLON.Color3()
+        },
+        mirrorReflectionBatch: { spots: mesh(), rays: mesh(), spotMat: material(), rayMat: material() },
+        reflectionUpdates: 0,
+        _updateMirrorReflectionColors: effects._updateMirrorReflectionColors,
+        _updateMirrorReflectionBatch() {
+            this.reflectionUpdates++;
+            this._updateMirrorReflectionColors();
+        },
+        cachedColors: { black: new BABYLON.Color3() }
+    });
+    const tick = () => club.updateMirrorBall({ time: 1, dt: 1 / 120, dtScale: 0.5 });
+    const matches = () => {
+        const color = club.mirrorBallSpotlightColor;
+        assert.ok(club.mirrorBallBeams[0].material.emissiveColor.equals(color), 'incident beam retained an old hue');
+        assert.ok(club.mirrorReflectionBatch.rayMat.emissiveColor.equals(color), 'VR cadence delayed the reflected hue');
+        assert.ok(club.mirrorBallCachedColors.housingGlow.equals(color.scale(0.2)), 'housing cache retained an old hue');
+        assert.ok(club.mirrorBallCachedColors.lensBright.equals(color.scale(8)), 'lens cache retained an old hue');
+    };
+    tick();
+    matches();
+    const beamBuffer = club.mirrorBallBeams[0].material.emissiveColor;
+    const housingBuffer = club.mirrorBallCachedColors.housingGlow;
+    const updates = club.reflectionUpdates;
+    tick();
+    assert.equal(club.reflectionUpdates, updates, 'unchanged colours bypassed the VR upload budget');
+    club._mirrorReflectionClock = 0;
+    club.mirrorBallSpotlightColor.set(0, 1, 0);
+    tick();
+    matches();
+    assert.equal(club.reflectionUpdates, updates, 'a hue change rebuilt the reflection geometry before its cadence');
+    club.mirrorBallSpotlightColor = new BABYLON.Color3(0, 0, 1);
+    tick();
+    matches();
+    club.mirrorBallActive = false;
+    tick();
+    club.mirrorBallSpotlightColor.set(1, 0.25, 0);
+    club.mirrorBallActive = true;
+    tick();
+    matches();
+    assert.equal(club.mirrorBallBeams[0].material.emissiveColor, beamBuffer);
+    assert.equal(club.mirrorBallCachedColors.housingGlow, housingBuffer);
+    club.vjManualMode = false;
+    club.mirrorBall = { rotation: { y: 0 } };
+    club.mirrorBallColors = [club.mirrorBallSpotlightColor, new BABYLON.Color3(0.25, 0, 1)];
+    club.mirrorBallColorIndex = 0;
+    club._mirrorColorSwitchTime = -10;
+    tick();
+    matches();
+    assert.equal(club.mirrorBallColorIndex, 1);
+});
+
 test('mirror reflections use analytic room hits and thin-instance tier counts', () => {
     const BABYLON = require('../js/vendor/babylon.js');
     const { window } = loadClassic('js/club/07-animation-core.js', {
@@ -7240,6 +7313,7 @@ test('mirror reflections use analytic room hits and thin-instance tier counts', 
         _writeMirrorSpotMatrix: effects._writeMirrorSpotMatrix,
         _writeMirrorRayMatrix: effects._writeMirrorRayMatrix,
         _updateMirrorReflectionBatch: effects._updateMirrorReflectionBatch,
+        _updateMirrorReflectionColors: effects._updateMirrorReflectionColors,
         scene: { pickWithRay() { throw new Error('mirror batching must not scene-raycast'); } }
     };
     update.call(club, { time: 1, dtScale: 1 });
@@ -10499,6 +10573,65 @@ test('spot rig: the automatic show composes group sequences and clears manual he
     assert.equal(club.spotSequence, 0, 'a sequence leaked into the next cue');
 });
 
+test('column choreography: the automatic show includes stationary fill and shared beat-synced column sweeps', () => {
+    const { club } = spotRigHarness();
+    const { ShowDirector } = loadClassic('js/showDirector.js').window;
+    const looks = ShowDirector._buildLooks(), movements = ShowDirector._buildMovements();
+    const show = Object.assign(Object.create(ShowDirector.prototype), { club });
+    let beat = 0;
+    club.spotRigBeat = () => beat;
+    const pose = (head, at, time = 0, speed = 1) => {
+        beat = at;
+        club._updateSpotRig(club.spotlights[head], head, time, 1);
+        return club._solveSpotDirection(head, time, 1.35, speed, {});
+    };
+    for (const name of ['columnFill', 'columnFillSweep']) {
+        assert.ok(looks[name], `${name} is missing`);
+        assert.equal(looks[name].spotSequence, 5);
+        assert.equal(looks[name].spotSequenceRate, 4);
+        assert.ok(Object.values(movements).some(m => m.cues.some(c => c.look === name && c.bars >= 12)),
+            `${name} has no readable passage in the running show`);
+        for (const key of ['lasersActive', 'laserSheetActive', 'strobesActive', 'mirrorBallActive']) {
+            assert.equal(looks[name][key], false, `${name}: competing headline ${key}`);
+        }
+        assert.ok(looks[name].ledWallActive && looks[name].ledLevel <= 0.65);
+        show._applyLook(looks[name]);
+        for (const at of [0, 4, 8, 12, 24, 48]) {
+            for (let head = 0; head < 6; head++) {
+                const target = pose(head, at);
+                if (name === 'columnFill') assert.deepEqual(target, { x: 0, z: 0 });
+                else {
+                    const first = pose(head < 3 ? 0 : 3, at);
+                    assert.deepEqual(target, first, 'heads in one column lost sweep sync');
+                    assert.deepEqual(pose(head, at, 9999, 2), target, 'wall time or speed ramp changed the beat pose');
+                    const opposite = pose((head + 3) % 6, at);
+                    assert.equal(target.x, -opposite.x);
+                    assert.equal(target.z, opposite.z);
+                }
+            }
+        }
+        const start = pose(0, 0), end = pose(0, 48);
+        assert.ok(Math.abs(start.x - end.x) < 1e-12 && Math.abs(start.z - end.z) < 1e-12,
+            'the musical sweep does not loop');
+    }
+    show._applyLook(looks.columnFillSweep);
+    assert.notDeepEqual(pose(0, 0), pose(0, 12), 'the sweep never moves');
+    let previous = pose(0, 0);
+    for (let frame = 1; frame <= 960; frame++) {
+        const next = pose(0, frame * 3 / 60);
+        const dot = (previous.x * next.x + 1 + previous.z * next.z) /
+            (Math.hypot(previous.x, 1, previous.z) * Math.hypot(next.x, 1, next.z));
+        assert.ok(Math.acos(Math.max(-1, Math.min(1, dot))) * 60 < 0.4, 'the column sweep races at 180 BPM');
+        previous = next;
+    }
+    club.photosensitiveSafeMode = true;
+    show._applyLook(looks.columnFillSweep);
+    for (let frame = 0; frame < 600; frame++) pose(0, frame / 20);
+    assert.ok(club.spotlights[0]._rigLevel < 0.5);
+    show._applyLook(looks.firstLight);
+    assert.equal(club.spotSequence, 0, 'column fill leaked into the next cue');
+});
+
 test('row choreography: mirrored pairs follow musical waves, hold between answers, and never jump or race', () => {
     const { club, VRClubUI } = spotRigHarness();
     let beat = 0;
@@ -10597,7 +10730,9 @@ function deskHarness() {
         static get STROBE_PATTERN_NAMES() { return { all: 'ALL AT ONCE', chase: 'CHASE' }; }
     };
     const { VRClubUI } = loadClassic('js/club/10-ui.js', { VRClubAnimationFinish: finish, VRClubCore, localStorage, BABYLON: {}, performance }).window;
-    const { VJDesk, VJDeskLayout } = loadClassic('js/vjDesk.js', { BABYLON: {}, VRClubUI, performance }).window;
+    const deskWindow = loadClassic('js/vjDesk.js', { BABYLON: {}, VRClubUI, performance }).window;
+    deskWindow.LightingPresets = loadClassic('js/lightingPresets.js', { AbortController: globalThis.AbortController, localStorage }).window.LightingPresets;
+    const { VJDesk, VJDeskLayout } = deskWindow;
     const club = Object.create(VRClubUI.prototype);
     Object.assign(club, VJDesk);
     const toasts = [], calls = [], people = { dj: true };
@@ -10605,6 +10740,7 @@ function deskHarness() {
         lightsActive: true, lasersActive: false, laserSheetActive: false, mirrorBallActive: false, ledWallActive: true,
         ledMonochrome: false, strobesActive: true, smokeActive: false, spotStrobeActive: true,
         spotlightMode: 0, spotlightPattern: 0, vjManualMode: false, lastVJInteraction: 0, VJ_TIMEOUT: 60,
+        lightHold: { mode: 'resume', delay: 60, shuffle: 15 },
         photosensitiveSafeMode: false, multiplayer: null,
         showErrorMessage: text => toasts.push(text),
         isPeopleVisible: name => people[name] !== false,
@@ -10753,13 +10889,12 @@ test('spot rig: the desk and VR pages delegate the same edits, stay within twelv
 test('the VJ desk: touching a light hands you the lights, AUTO SHOW hands them back, and the header says who has them', () => {
     const { club, press, calls, toasts } = deskHarness();
     assert.equal(club._vjDeskStatus().title, 'AUTOMATIC SHOW');
-    assert.match(club._vjDeskStatus().detail, /NOCTURNE: PULSE/);
-    assert.equal(club._vjDeskButtonState(deskHarness().button('auto')).value, 'RUNNING');
-
-    press('drop');
-    assert.deepEqual(calls, ['showDrop'], 'under the automatic show DROP fires its countdown');
-    press('next');
-    assert.equal(calls.at(-1), 'next');
+    assert.match(club._vjDeskStatus().detail, /AUTO SHOW IS ON/);
+    assert.equal(club._vjDeskButtonState(deskHarness().button('auto')).value, 'ON: TAP TO TURN OFF');
+    press('auto');
+    assert.equal(club.vjManualMode, true, 'Auto show is a real on/off toggle');
+    press('auto');
+    assert.equal(club.vjManualMode, false);
 
     press('spots');
     assert.equal(club.lightsActive, false);
@@ -10774,12 +10909,8 @@ test('the VJ desk: touching a light hands you the lights, AUTO SHOW hands them b
     assert.equal(club.mirrorBallRaysActive, false, 'MIRROR BEAMS leaves the reflected surface spots on their own');
 
     calls.length = 0;
-    press('drop');
-    assert.deepEqual(calls, ['vjDrop'], 'by hand DROP slams the peak look');
-    const before = toasts.length;
-    press('next');
-    assert.ok(!calls.includes('next') && toasts.length > before, 'NEXT SECTION is the automatic show\'s');
-    assert.equal(club._vjDeskDisabledReason(deskHarness().button('next')), 'AUTO SHOW ONLY');
+    assert.deepEqual(calls, []);
+    assert.ok(toasts.length > 0);
 
     press('auto');
     assert.equal(club.vjManualMode, false);
@@ -10820,7 +10951,8 @@ test('the VJ desk in someone else\'s room: the lights and music are the host\'s,
     assert.equal(club._vjDeskStatus().title, 'BO HAS THE LIGHTS');
     press('dj');
     assert.equal(people.dj, false, 'who is in your club is your own choice');
-    assert.equal(club._vjDeskButtonState(button('dj')).value, 'SENT HOME');
+    assert.equal(club._vjDeskButtonState(button('dj')).value, 'AT HOME');
+    assert.equal(club._vjDeskButtonState(button('dj')).label, 'BRING DJ BACK');
     assert.equal(club._vjDeskButtonState(button('dj')).disabled, false);
 });
 
@@ -10871,6 +11003,24 @@ test('the VJ desk set player delegates source steps, play/pause and stop, then s
     assert.deepEqual(calls, ['sourceStep -1', 'playback true', 'playback false', 'stop', 'sourceStep 1', 'seekFraction 0.25']);
     assert.equal(club._vjDeskPlayerStatus().title, 'SET PLAYER');
     assert.match(club._vjDeskPlayerStatus().detail, /PAUSED.*15:00 \/ 60:00/);
+});
+
+test('the desk never labels a mixer test or live event as an old paused file, and immersive presets do not promise an XR exit', () => {
+    const { club, button } = deskHarness();
+    club.liveInput = { active: true, live: false };
+    assert.equal(club._vjDeskPlayerStatus().title, 'MIXER INPUT');
+    assert.match(club._vjDeskPlayerStatus().detail, /PRIVATE TEST/);
+    club.liveInput.live = true;
+    assert.match(club._vjDeskPlayerStatus().detail, /BROADCASTING/);
+    club.liveInput = null;
+    club.multiplayer = { hasLiveEvent: true, liveEvent: { live: false } };
+    assert.match(club._vjDeskPlayerStatus().detail, /WAITING/);
+    club.multiplayer.liveEvent.live = true;
+    assert.match(club._vjDeskPlayerStatus().detail, /LIVE AUDIO/);
+    club.isInVRMode = true;
+    assert.equal(club._vjDeskButtonState(button('presetManage')).value, 'LEAVES VR');
+    club._immersive = { mode: 'member' };
+    assert.equal(club._vjDeskButtonState(button('presetManage')).value, 'USE DESKTOP / PHONE');
 });
 
 test('the VJ desk set player explains live and host-owned controls instead of pretending they worked', () => {
@@ -13091,12 +13241,15 @@ test('the hold policy is saved, validated and falls back to the old behaviour', 
 
 test('the hold policy decides whether the automatic show comes back after a hand-made change', () => {
     const { window } = loadClassic('js/club/08-animation-fixtures.js', { BABYLON: makeBabylonStub(), VRClubAnimationCore: class {}, log: { info() {} } });
+    const { VRClubUI } = loadClassic('js/club/10-ui.js', { VRClubAnimationFinish: class {} }).window;
     const proto = window.VRClubAnimationFixtures.prototype;
     const club = hold => ({
         lightHold: hold, VJ_TIMEOUT: 60, vjManualMode: true, lastVJInteraction: 0, spotlightPattern: 2,
-        showDirector: { released: 0, isDriving: () => false, releaseHold() { this.released++; } },
+        showDirector: { released: 0, recomposed: 0, isDriving: () => false, releaseHold() { this.released++; },
+            onPhotosensitiveModeChanged() { this.recomposed++; } },
         colorTransitionProgress: 1, lastColorChange: 0, energyLevel: 0,
-        lightHandBackSeconds: proto.lightHandBackSeconds
+        lightHandBackSeconds: proto.lightHandBackSeconds,
+        resumeAutoShow: VRClubUI.prototype.resumeAutoShow
     });
     assert.equal(proto.lightHandBackSeconds.call(club({ mode: 'resume', delay: 120 })), 120);
     assert.equal(proto.lightHandBackSeconds.call(club({ mode: 'keep', delay: 120 })), Infinity);
@@ -13111,6 +13264,7 @@ test('the hold policy decides whether the automatic show comes back after a hand
     const back = after({ mode: 'resume', delay: 30 }, 31);
     assert.equal(back.vjManualMode, false, 'RETURN TO AUTO did not return');
     assert.equal(back.showDirector.released, 1, 'a held show section is released with it');
+    assert.equal(back.showDirector.recomposed, 1, 'the automatic cue must immediately replace recalled/manual fixtures');
     assert.equal(after({ mode: 'keep', delay: 30 }, 100000).vjManualMode, true, 'KEEP IT handed the lights back');
     assert.equal(after({ mode: 'shuffle', delay: 30, shuffle: 10 }, 100000).vjManualMode, true, 'SHUFFLE COLOURS handed the lights back');
 });
@@ -13295,13 +13449,12 @@ test('show look hold: a current cue keeps moving past the personal timer and rel
     assert.match(club.error, /countdown or transition/);
 });
 
-test('show look hold: the desk and VR controls use the shared action and Auto show releases an automatic hold', () => {
+test('show look hold stays in VR and DOM, while the desk offers only the automatic show toggle', () => {
     const h = deskHarness(), { club } = h;
     club.lightHold = { mode: 'resume', delay: 60, shuffle: 15 };
-    assert.equal(club._vjDeskDisabledReason(h.button('holdLook')), '');
-    h.press('holdLook');
+    assert.equal(h.button('holdLook'), undefined);
+    club.toggleShowLookHold();
     assert.equal(club.showDirector.isHeld(), true);
-    assert.match(club._vjDeskButtonState(h.button('holdLook')).value, /RELEASE/);
     h.press('auto');
     assert.equal(club.showDirector.isHeld(), false, 'Auto show ignored an automatically driven hold');
     let toggles = 0;
@@ -13309,12 +13462,10 @@ test('show look hold: the desk and VR controls use the shared action and Auto sh
     club._refreshVRQuickMenu = () => {};
     club._activateVRQuickMenuButton({ action: 'holdLook' });
     assert.equal(toggles, 1);
-    h.press('holdLook');
-    assert.equal(toggles, 2);
+    assert.equal(toggles, 1);
     assert.equal(club._isHostOwnedVRButton({ action: 'holdLook' }), true);
     club.showDirector._setPiece = {};
     assert.equal(club._isVRButtonDisabled({ action: 'holdLook' }), true);
-    assert.equal(club._vjDeskDisabledReason(h.button('holdLook')), 'WAIT FOR TRANSITION');
     const dom = readFileSync(join(ROOT, 'js/ui-init.js'), 'utf8');
     assert.match(dom, /holdLookNow\.addEventListener\('click',[\s\S]*?vrClubInstance\.toggleShowLookHold\(\)/);
 });
@@ -13499,19 +13650,16 @@ test('a host\u2019s strobe pattern reaches guests through the allow-listed fixtu
     mp._applyFixtures({ strobePatternIndex: 30 });
     assert.equal(mp.club.strobePattern, 'chase', 'an index this build does not have is ignored');
 });
-test('the VJ desk: section buttons, strobe pattern and the after-my-change hold are on the panels and work', () => {
+test('the VJ desk: stages are absent, strobe patterns work and the personal hold policy lives in light settings', () => {
     const { club, press, button, calls, toasts, VJDeskLayout } = deskHarness();
     club.lightHold = { mode: 'resume', delay: 60, shuffle: 15 };
-    club.showDirector.pickSection = name => { calls.push(`pick ${name}`); return name.toUpperCase(); };
     club.showDirector.isHeld = () => false;
     club.resumeAutoShow = () => { calls.push('resume'); club.vjManualMode = false; };
-    const sections = VJDeskLayout.buttons.show.filter(b => b.kind === 'section').map(b => b.section);
-    assert.deepEqual([...sections], ['arrival', 'pulse', 'ascent', 'ignition', 'afterglow']);
-
-    press('section-ignition');
-    assert.deepEqual(calls, ['pick ignition']);
-    assert.equal(club._vjDeskButtonState(button('section-pulse')).active, true, 'the playing section lights up');
-    assert.equal(club._vjDeskButtonState(button('section-ignition')).active, false);
+    assert.ok(VJDeskLayout.buttons.show.every(b => b.kind === 'auto' || b.kind === 'dj' || b.kind.startsWith('preset')));
+    assert.equal(button('brightness').page, 'settings');
+    assert.equal(button('speed').page, 'settings');
+    assert.equal(button('safeMode').panel, 'lights');
+    assert.equal(button('holdMode').page, 'settings');
 
     // The hold policy is personal: it cycles and persists without the host.
     club.multiplayer = { isHost: () => false, following: true };
@@ -13527,7 +13675,7 @@ test('the VJ desk: section buttons, strobe pattern and the after-my-change hold 
     press('holdTiming');
     assert.notEqual(club.lightHold.shuffle, before, 'the timing steps the shuffle interval');
     assert.match(toasts.at(-1), /After my change/);
-    assert.equal(club._vjDeskButtonState(button('section-pulse')).value, 'HOST ONLY', 'sections belong to the host');
+    assert.equal(club._vjDeskButtonState(button('auto')).value, 'HOST ONLY');
 
     club.isFollowingHost = () => false;
     club.strobePattern = 'all';

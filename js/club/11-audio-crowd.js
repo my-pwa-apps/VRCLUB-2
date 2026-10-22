@@ -698,8 +698,6 @@ class VRClubAudioCrowd extends VRClubUI {
                 if (this.reverbSend) {
                     this.airAbsorptionFilter.connect(this.reverbSend);
                 }
-            } else if (this.audioCompressor) {
-                this.audioAnalyser.connect(this.audioCompressor);
             }
             this._connectMusicInput(this.audioSource);
             log.info('🎚️ Audio analyser and 3D spatial acoustics connected');
@@ -708,13 +706,14 @@ class VRClubAudioCrowd extends VRClubUI {
         }
     }
 
-    _connectMusicInput(source) {
+    _connectMusicInput(source, monitor = null) {
         source.connect(this.audioAnalyser);
         if (this.kickFilter) source.connect(this.kickFilter);
         if (this.rhythmFilter) source.connect(this.rhythmFilter);
-        let audible = source;
+        let audible = monitor || source;
+        if (monitor) source.connect(monitor);
         if (this.djFxInput && this.djFxOutput) {
-            source.connect(this.djFxInput);
+            audible.connect(this.djFxInput);
             audible = this.djFxOutput;
         }
         if (this.pannerLeft && this.pannerRight && this.airAbsorptionFilter && this.audioCompressor) {
@@ -724,6 +723,8 @@ class VRClubAudioCrowd extends VRClubUI {
                 audible.connect(this.monitorPannerRight);
             }
             if (this.subFilter && this.subGain) audible.connect(this.subFilter);
+        } else if (this.audioCompressor) {
+            audible.connect(this.audioCompressor);
         }
     }
 
@@ -736,13 +737,15 @@ class VRClubAudioCrowd extends VRClubUI {
         this._stopSoundCloudPlayer();
         const source = this.audioContext.createMediaStreamSource(stream);
         const gain = this.audioContext.createGain();
-        gain.gain.value = state?.playing ? (this._audioVolume ?? 1) : 0;
+        gain.gain.value = state?.localInput ? 1 : state?.playing ? (this._audioVolume ?? 1) : 0;
+        const monitor = state?.localInput ? this.audioContext.createGain() : null;
+        if (monitor) monitor.gain.value = 0;
         const element = document.createElement('audio');
         element.muted = true;
         element.srcObject = stream;
         source.connect(gain);
-        this._connectMusicInput(gain);
-        const remote = { source, gain, element, previousKind: this._audioKind, previousTitle: this.nowPlayingLabel };
+        this._connectMusicInput(gain, monitor);
+        const remote = { source, gain, monitor, element, previousKind: this._audioKind, previousTitle: this.nowPlayingLabel };
         this._networkMusic = remote;
         this._writeDJEffects();
         this._audioKind = 'network';
@@ -757,6 +760,7 @@ class VRClubAudioCrowd extends VRClubUI {
     stopNetworkMusic(remote) {
         remote.source.disconnect();
         remote.gain.disconnect();
+        remote.monitor?.disconnect();
         remote.element.pause();
         remote.element.srcObject = null;
         if (this._networkMusic === remote) {
@@ -1187,7 +1191,8 @@ class VRClubAudioCrowd extends VRClubUI {
         if (!Number.isFinite(v)) return this._audioVolume ?? 1;
         this._audioVolume = v;
         if (this.audioElement) this.audioElement.volume = v;
-        if (this._networkMusic && this.multiplayer?._broadcastState?.playing) this._networkMusic.gain.gain.value = v;
+        if (this.liveInput?.monitoring) this.liveInput.setMonitoring(true);
+        if (this._networkMusic && !this._networkMusic.monitor && this.multiplayer?._broadcastState?.playing) this._networkMusic.gain.gain.value = v;
         return v;
     }
 

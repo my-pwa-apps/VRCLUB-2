@@ -1212,6 +1212,11 @@ class VRClubEffects extends VRClubFixtures {
         batch.rays.thinInstanceCount = rayCount;
         batch.spots.thinInstanceBufferUpdated('matrix');
         batch.rays.thinInstanceBufferUpdated('matrix');
+        this._updateMirrorReflectionColors();
+    }
+
+    _updateMirrorReflectionColors() {
+        const batch = this.mirrorReflectionBatch;
         const master = this.masterIntensity == null ? 1 : Math.min(1, Math.max(0, this.masterIntensity));
         this.mirrorBallSpotlightColor.scaleToRef(1.2 * master * (1 + (this.kickPulse || 0) * 0.35), batch.spotMat.emissiveColor);
         this.mirrorBallSpotlightColor.scaleToRef(master, batch.rayMat.emissiveColor);

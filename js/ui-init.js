@@ -96,7 +96,8 @@ function initAudioSourceTabs() {
     const panels = {
         link: document.getElementById('audioSourceLink'),
         file: document.getElementById('audioSourceFile'),
-        folder: document.getElementById('audioSourceFolder')
+        folder: document.getElementById('audioSourceFolder'),
+        live: document.getElementById('audioSourceLive')
     };
     const select = tab => {
         const target = tab.dataset.audioSource;
@@ -596,9 +597,14 @@ function initMenus() {
     initVJMenu();
     initAudioMenu();
     initNetworkMenu();
+    vrClubInstance.initLiveInputMenu();
     initPanelSwitchers();
     initVJTabs();
     initAudioSourceTabs();
+    if (new URLSearchParams(window.location.search).get('liveInput') === '1') {
+        window.openMusicSetup();
+        document.getElementById('audioSourceTabLive').click();
+    }
     initKeyboardShortcuts();
     uiLog.info('VJ/Audio menus initialized');
 }
@@ -1364,6 +1370,102 @@ function initAudioMenu() {
         if (remembered && vrClubInstance._isSafeAudioUrl(remembered)) streamUrl.value = remembered;
     }
 
+    vrClubInstance.initLiveInputMenu = function () {
+        const club = vrClubInstance;
+        const root = document.getElementById('audioSourceLive');
+        if (!root || !club.multiplayer) return;
+        const el = Object.fromEntries(['Device', 'Discover', 'Test', 'Stop', 'Status', 'Signal', 'Format', 'Left', 'Right', 'Monitor', 'Title', 'Go', 'Pause', 'Invite']
+            .map(key => [key, document.getElementById(`liveInput${key}`)]));
+        let discovering = false, discoveryRevision = 0;
+        const render = () => {
+            const input = club.liveInput, mp = club.multiplayer;
+            const blocked = mp.hasLiveEvent ? !input.retainsInputFor(mp.liveEvent) && !input.canTest : club.isFollowingHost();
+            const busy = input.busy || input.goingLive || discovering;
+            el.Status.textContent = input.status;
+            el.Signal.textContent = input.signal || '';
+            el.Format.textContent = input.format;
+            el.Left.value = input.levels[0];
+            el.Right.value = input.levels[1];
+            el.Device.disabled = busy || !!input.stream || blocked;
+            el.Discover.disabled = busy || !!input.stream || blocked;
+            el.Test.disabled = busy || !!input.stream || blocked;
+            el.Stop.disabled = !input.active && !input.goingLive;
+            el.Monitor.disabled = !input.stream;
+            el.Monitor.setAttribute('aria-pressed', String(input.monitoring));
+            el.Monitor.textContent = `Hear test audio: ${input.monitoring ? 'ON' : 'OFF'}`;
+            el.Go.disabled = !input.stream || busy || !!input.publisher || blocked;
+            el.Go.textContent = input.goingLive ? 'Connecting...' : input.live ? 'You are live' : 'Go live';
+            el.Pause.disabled = !input.publisher || input.goingLive;
+            el.Invite.disabled = !input.live || !mp.hasLiveEvent;
+            if (blocked && !input.stream) el.Status.textContent = 'The session host supplies the music. Leave the session to test your own input.';
+        };
+        const input = club.liveInput = new window.LiveInput(club, render);
+        const report = error => {
+            input.status = window.LiveInput.inputError(error);
+            if (input.stream && !input.live) input.status += ' Your input is still a private test.';
+            club.showErrorMessage(input.status);
+            render();
+        };
+        const populate = async () => {
+            const selected = el.Device.value;
+            const devices = await navigator.mediaDevices.enumerateDevices();
+            el.Device.replaceChildren(new Option('Default audio input', ''));
+            for (const [index, device] of devices.filter(device => device.kind === 'audioinput').entries()) {
+                el.Device.add(new Option(device.label || `Audio input ${index + 1}`, device.deviceId));
+            }
+            if ([...el.Device.options].some(option => option.value === selected)) el.Device.value = selected;
+        };
+        el.Discover.addEventListener('click', async () => {
+            if (discovering || input.active) return;
+            const revision = ++discoveryRevision;
+            discovering = true;
+            input.status = 'Allow microphone permission to see your audio inputs. Nothing will be broadcast.';
+            render();
+            let permission;
+            try {
+                if (!navigator.mediaDevices?.getUserMedia) throw new Error('Use HTTPS or localhost to access an audio input.');
+                permission = await navigator.mediaDevices.getUserMedia(window.LiveInput.constraints());
+                if (revision !== discoveryRevision) return;
+                await populate();
+                if (revision !== discoveryRevision) return;
+                input.status = 'Choose your mixer from the list, then press Test my input.';
+            } catch (error) { if (revision === discoveryRevision) report(error); }
+            finally {
+                for (const track of permission?.getTracks() || []) track.stop();
+                if (revision === discoveryRevision) { discovering = false; render(); }
+            }
+        });
+        el.Test.addEventListener('click', async () => {
+            try { await input.start(el.Device.value); await populate(); }
+            catch (error) { report(error); }
+        });
+        el.Stop.addEventListener('click', () => input.stop());
+        el.Monitor.addEventListener('click', () => input.setMonitoring(!input.monitoring));
+        el.Go.addEventListener('click', async () => {
+            try { await input.goLive(el.Title.value); }
+            catch (error) {
+                report(error);
+                if (error.code === 'online-safety' && document.getElementById('networkMenu').classList.contains('hidden')) {
+                    document.getElementById('networkToggle').click();
+                }
+            }
+        });
+        el.Pause.addEventListener('click', () => input.stopBroadcast());
+        el.Invite.addEventListener('click', async () => {
+            try {
+                await navigator.clipboard.writeText(club.multiplayer.inviteUrl());
+                input.status = 'Guest link copied. Send it to your guests; they hear your set when they join.';
+                render();
+            } catch (error) { report(new Error(`Could not copy the guest link: ${error.message}. Use Online to share the invitation.`)); }
+        });
+        uiTeardowns.push(club.multiplayer.onChange(render));
+        const pageHide = () => { ++discoveryRevision; };
+        window.addEventListener('pagehide', pageHide);
+        uiTeardowns.push(() => window.removeEventListener('pagehide', pageHide));
+        uiTeardowns.push(() => { ++discoveryRevision; input.dispose(); });
+        render();
+    };
+
     /**
      * The Link tab's buttons follow the link in the field and what is playing: "Play now" saves and plays it, "Save to my
      * sets" only saves it (so another set can keep playing). Pause and resume live in Transport, not here.
@@ -1799,6 +1901,7 @@ function initAudioMenu() {
         const info = vrClubInstance.getPlaybackInfo();
         const hasSource = !!(vrClubInstance._audioKind ||
             (vrClubInstance.audioElement && vrClubInstance.audioElement.src));
+        if (transportSection) transportSection.hidden = !!vrClubInstance.liveInput?.active;
         if (transportSection) transportSection.setAttribute('aria-disabled', String(!hasSource));
         transportButtons.forEach(button => { button.disabled = !hasSource; });
         // Keep the link buttons honest when something else (the VR menu, a media key) changed what is playing.
@@ -1999,7 +2102,7 @@ function initRoomGuestLock(mp) {
     const club = vrClubInstance;
     const panels = [
         { id: 'vjMenu', what: 'show controls', keep: '#vjSafeModeBtn, #vjVRComfortBtn, #vjMinimize, #vjClose, [data-open-panel], [data-vj-tab-target], [data-control="cycleGraphicsQuality"], [data-control="cycleSpotTarget"], [data-people], [data-hold], #vjHoldTiming, #djStyle, #myCharacter, #editPersonalAvatar, #vjAutoQualityBtn, #lightweightCharacters, #retryCharacterStyle' },
-        { id: 'audioMenu', what: 'music', keep: '#audioMinimize, #audioClose, #audioVolume, #crowdAmbience, [data-open-panel]' }
+        { id: 'audioMenu', what: 'music', keep: '#audioMinimize, #audioClose, #audioVolume, #crowdAmbience, [data-open-panel], #audioSourceTabLive, #audioSourceLive button, #audioSourceLive input, #audioSourceLive select' }
     ];
     const renders = [];
     for (const panel of panels) {

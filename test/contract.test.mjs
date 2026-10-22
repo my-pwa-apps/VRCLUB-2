@@ -158,6 +158,10 @@ test('script load order honours the dependency contract', () => {
         'sfuClient must precede networkClient');
     assert.ok(idx('js/liveAudioClient.js') > idx('js/sfuClient.js') &&
         idx('js/liveAudioClient.js') < idx('js/networkClient.js'), 'event audio must load after SFU and before networkClient');
+    assert.ok(idx('js/liveInput.js') > idx('js/liveAudioClient.js') &&
+        idx('js/liveInput.js') < idx('js/networkClient.js'), 'mixer setup must load after event media');
+    assert.ok(idx('js/lightingPresets.js') > idx('js/multiplayer.js') &&
+        idx('js/lightingPresets.js') < idx(clubLayers[0]), 'presets reuse the shared lighting schema before the club loads');
     assert.ok(idx('js/vjDirector.js') < idx('js/showDirector.js'), 'vjDirector must precede showDirector');
     // ui-init drives the splash screen and instantiates VRClub.
     assert.ok(idx('js/ui-init.js') > main, 'ui-init.js must load after club_hyperrealistic.js');
@@ -194,7 +198,8 @@ test('every class used across files is exported onto window', () => {
         'js/sfuClient.js': ['SFUClient'],
         'js/networkClient.js': ['NetworkClient'],
         'js/avatarManager.js': ['AvatarManager'],
-        'js/multiplayer.js': ['ClubMultiplayer']
+        'js/multiplayer.js': ['ClubMultiplayer'],
+        'js/lightingPresets.js': ['LightingPresets']
     };
     for (const [file, names] of Object.entries(required)) {
         const source = readFileSync(join(ROOT, file), 'utf8');

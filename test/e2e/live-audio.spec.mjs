@@ -268,3 +268,90 @@ test('input discovery cannot overlap broadcasting and releases its temporary cap
     expect(await page.evaluate(() => window.__capturedStream.getTracks().every(track => track.readyState === 'ended'))).toBe(true);
     await page.evaluate(() => { window.__inputSource.stop(); return window.__inputContext.close(); });
 });
+
+test('standalone sound check works without an invitation and never connects to a relay', async ({ page }) => {
+    await syntheticInput(page);
+    const sockets = [];
+    page.on('websocket', socket => sockets.push(socket.url()));
+    await page.goto('/broadcast/');
+    await expect(page.locator('#status')).toContainText('Only you');
+    await page.getByRole('button', { name: 'Test my input' }).click();
+    await expect(page.locator('#status')).toContainText('not broadcast');
+    await expect(page.locator('#leftValue')).not.toHaveText('Silent');
+    expect(sockets).toEqual([]);
+    await page.locator('#stop').click();
+    expect(await page.evaluate(() => window.__capturedStream.getTracks().every(track => track.readyState === 'ended'))).toBe(true);
+    await page.evaluate(() => { window.__inputSource.stop(); return window.__inputContext.close(); });
+});
+
+test('guided mixer setup tests privately in the club and publishes the same input only after Go live', async ({ page, context }) => {
+    const unusedListener = await context.newPage();
+    const bridge = await mediaBridge(page, unusedListener);
+    await syntheticInput(page);
+    await page.addInitScript(relay => localStorage.setItem('vrclub.networkServerUrl', relay), relay);
+    const roomRequests = [];
+    await page.routeWebSocket(`${relay}/?*`, socket => {
+        roomRequests.push(true);
+        socket.send(JSON.stringify({ type: 'welcome', id: 'owner', pid: '2'.repeat(16), hostId: 'owner', peers: [],
+            room: 'private-guided-live-test', capacity: 32, mediaTransport: 'sfu', liveEvents: true, serverTime: Date.now() }));
+        socket.onMessage(raw => {
+            const message = JSON.parse(String(raw));
+            if (message.type === 'event') {
+                const liveEvent = { ...event, canManage: true, roomIndex: 1, listenerToken };
+                socket.send(JSON.stringify({ type: 'event-state', event: liveEvent }));
+                socket.send(JSON.stringify({ type: 'event-result', request: message.request, event: liveEvent, publisherToken }));
+            } else if (message.type === 'ping') {
+                socket.send(JSON.stringify({ type: 'pong', time: message.time, serverTime: Date.now() }));
+            }
+        });
+    });
+    try {
+        await page.goto('/?liveInput=1');
+        await page.locator('#enterClubBtn').click();
+        await page.waitForFunction(() => window.vrClub?.ready, null, { timeout: 180000 });
+        await page.evaluate(() => {
+            const club = window.vrClub;
+            club.engine.stopRenderLoop();
+            club.engine.getDeltaTime = () => 1000 / 60;
+            window.__eventTicker = setInterval(() => { club.updateAnimations(); club.scene.animate(); }, 1000 / 60);
+            club.multiplayer.acceptOnlineSafety();
+            window.__inputOnsets = club.vjDirector.realOnsetCount;
+        });
+        await expect(page.locator('#audioSourceLive')).toBeVisible();
+        await page.locator('#liveInputTest').click();
+        await expect(page.locator('#liveInputStatus')).toContainText('Only you');
+        await expect(page.locator('#audioTransportSection')).toBeHidden();
+        await expect.poll(() => page.locator('#liveInputLeft').evaluate(node => node.value)).toBeGreaterThan(0.01);
+        await expect.poll(() => page.evaluate(() => window.vrClub.vjDirector.realOnsetCount - window.__inputOnsets), { timeout: 45000 }).toBeGreaterThan(6);
+        expect(roomRequests).toEqual([]);
+        expect(bridge.replies).toEqual([]);
+        expect(await page.evaluate(() => ({ monitor: window.vrClub.liveInput.remote.monitor.gain.value,
+            publishing: !!window.vrClub.liveInput.publisher, following: window.vrClub.multiplayer.connected })))
+            .toEqual({ monitor: 0, publishing: false, following: false });
+        await page.locator('#liveInputMonitor').click();
+        await expect(page.locator('#liveInputMonitor')).toHaveAttribute('aria-pressed', 'true');
+        await page.locator('#liveInputMonitor').click();
+        await page.locator('#liveInputGo').click();
+        await expect(page.locator('#liveInputStatus')).toContainText('Live - guests', { timeout: 45000 });
+        await expect(page.locator('#liveInputInvite')).toBeEnabled();
+        expect(roomRequests).toHaveLength(1);
+        expect(bridge.replies.some(reply => reply.slot === 'musicPub' && reply.action === 'publish')).toBe(true);
+        expect(bridge.replies.every(reply => reply.slot !== 'musicRx')).toBe(true);
+        expect(await page.evaluate(() => window.__captureRequests.length)).toBe(1);
+        await page.locator('#liveInputPause').click();
+        await expect(page.locator('#liveInputStatus')).toContainText('Only you');
+        expect(await page.evaluate(() => window.__capturedStream.getTracks().every(track => track.readyState === 'live'))).toBe(true);
+        await page.locator('#liveInputStop').click();
+        expect(await page.evaluate(() => window.__capturedStream.getTracks().every(track => track.readyState === 'ended'))).toBe(true);
+        expect(bridge.failures).toEqual([]);
+    } finally {
+        await page.evaluate(() => {
+            clearInterval(window.__eventTicker);
+            window.vrClub?.liveInput?.stop();
+            window.vrClub?.multiplayer?.disconnect();
+        });
+        await bridge.dispose();
+        await page.evaluate(() => { window.__inputSource?.stop(); return window.__inputContext?.close(); });
+        await unusedListener.close();
+    }
+});

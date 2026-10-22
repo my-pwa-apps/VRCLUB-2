@@ -223,7 +223,11 @@ test('row choreography: the automatic running order renders delayed pairs, a whi
         const waveCue = show._cue.look;
         const wave = drawAt(0), waveLater = drawAt(4);
         club.scene.render();
-        bars(16 + 8 + 4 + 4);
+        bars(16);
+        const columnCue = show._cue.look;
+        const columnFill = [0, 4, 8, 12].map(beat => drawAt(beat));
+        club.scene.render();
+        bars(12 + 8 + 4 + 4);
         const conversationCue = show._cue.look;
         const answer = drawAt(4), hold = drawAt(12), rearAnswer = drawAt(20);
         club.scene.render();
@@ -234,20 +238,48 @@ test('row choreography: the automatic running order renders delayed pairs, a whi
         const buildCue = show._cue.look;
         const fill = [0, 4, 8, 12].map(beat => drawAt(beat));
         club.scene.render();
+        bars(16);
+        const sweepCue = show._cue.look;
+        const columnSweep = [0, 4, 8, 12].map(beat => drawAt(beat));
+        club.scene.render();
         club.setPhotosensitiveSafeMode(true);
         for (const spot of club.spotlights) spot._rigLevel = 0;
         const safe = drawAt(8, 120);
         const safeStrobes = club.strobesActive;
         club.masterIntensity = 0;
         const black = drawAt(8, 1);
-        return { seen: [...seen], waveCue, wave, waveLater, conversationCue, answer, hold, rearAnswer,
-            chaseCue, chaseSequence, buildCue, fill, safe, safeStrobes, black };
+        club.vjManualMode = true;
+        club.masterIntensity = 1;
+        club.mirrorBallActive = true;
+        const mirrorColours = [];
+        const source = new BABYLON.Color3(1, 0, 0);
+        club.mirrorBallSpotlightColor = source;
+        for (const rgb of [[1, 0, 0], [0, 1, 0], [0, 0, 1], [0.8, 0.2, 0.6]]) {
+            source.set(...rgb);
+            club.updateMirrorBall({ time: 200, dt: 1 / 120, dtScale: 0.5 });
+            club.scene.render();
+            const hue = color => {
+                const peak = Math.max(color.r, color.g, color.b);
+                return [color.r / peak, color.g / peak, color.b / peak];
+            };
+            mirrorColours.push({
+                expected: hue(source), incident: club.mirrorBallBeams.map(beam => hue(beam.material.emissiveColor)),
+                reflected: hue(club.mirrorReflectionBatch.rayMat.emissiveColor),
+                spots: hue(club.mirrorReflectionBatch.spotMat.emissiveColor),
+                housings: club.mirrorBallHousings.map(housing => hue(housing.material.emissiveColor))
+            });
+        }
+        club.vjManualMode = false;
+        return { seen: [...seen], waveCue, wave, waveLater, columnCue, columnFill, conversationCue, answer, hold, rearAnswer,
+            chaseCue, chaseSequence, buildCue, fill, sweepCue, columnSweep, safe, safeStrobes, black, mirrorColours };
     });
     expect(result.waveCue).toBe('rowWave');
     expect(result.conversationCue).toBe('rowConversation');
     expect(result.chaseCue).toBe('sideways');
     expect(result.chaseSequence).toBe(2);
     expect(result.buildCue).toBe('rowBuild');
+    expect(result.columnCue).toBe('columnFill');
+    expect(result.sweepCue).toBe('columnFillSweep');
     expect(result.seen).toContain('theWave');
     expect(result.seen).toContain('deepBlue');
     for (let axis = 0; axis < 3; axis++) expect(result.wave[0].direction[axis]).toBeCloseTo(result.waveLater[1].direction[axis], 7);
@@ -268,6 +300,24 @@ test('row choreography: the automatic running order renders delayed pairs, a whi
             if (step < 3 && head % 3 <= step) expect(result.fill[step][head].level).toBeGreaterThan(0.99);
             else expect(result.fill[step][head].level).toBe(0);
         }
+        for (let step = 0; step < 4; step++) {
+            for (let head = 0; head < 6; head++) {
+                const lit = step % 3 < 2 && Math.floor(head / 3) <= step % 3;
+                for (const look of [result.columnFill, result.columnSweep]) {
+                    if (lit) expect(look[step][head].level).toBeGreaterThan(0.99);
+                    else expect(look[step][head].level).toBe(0);
+                }
+                expect(result.columnFill[step][head].direction).toEqual([0, -1, 0]);
+                const first = head < 3 ? 0 : 3;
+                expect(result.columnSweep[step][head].direction).toEqual(result.columnSweep[step][first].direction);
+            }
+        }
+        expect(result.columnSweep[0][0].direction).not.toEqual(result.columnSweep[3][0].direction);
+        for (const colours of result.mirrorColours) {
+            for (const actual of [...colours.incident, ...colours.housings, colours.reflected, colours.spots]) {
+                for (let axis = 0; axis < 3; axis++) expect(actual[axis]).toBeCloseTo(colours.expected[axis], 7);
+            }
+        }
     }
     expect(result.safeStrobes).toBe(false);
     for (const spot of result.safe) expect(spot.level).toBeLessThanOrEqual(0.45);
@@ -284,14 +334,14 @@ test('row choreography: the automatic running order renders delayed pairs, a whi
         club.camera.position.set(0, 1.7, -4);
         club.camera.setTarget(new window.BABYLON.Vector3(0, 4.5, -14));
         const images = [];
-        for (const name of ['rowWave', 'rowConversation', 'rowBuild']) {
+        for (const name of ['columnFill', 'columnFillSweep']) {
             show._applyCue({ look: name, bars: 16 });
             for (let frame = 0; frame < 24; frame++) {
                 club.updateAnimations();
                 club.scene.render();
                 await new Promise(requestAnimationFrame);
             }
-            club.vjDirector.beatNumber = 8;
+            club.vjDirector.beatNumber = 4;
             club.barPhase = 0;
             for (let frame = 0; frame < 90; frame++) club.updateSpotlights({
                 time: 104, dt: 1 / 60, dtScale: 1,

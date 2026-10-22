@@ -9,6 +9,7 @@
     let token = '';
     try { token = decodeURIComponent(window.location.hash.slice(1)); }
     catch { el.status.textContent = 'This DJ invitation is malformed. Ask the event owner for a replacement.'; }
+    const localOnly = !params.has('event') && !params.has('server') && !window.location.hash;
     window.history.replaceState(null, '', window.location.pathname + window.location.search);
     let revision = 0, client = null, capture = null, context = null, frame = null, valid = false, clipUntil = 0;
     const status = (message, error = false) => {
@@ -16,21 +17,24 @@
         el.status.dataset.error = String(error);
     };
     try {
-        window.LiveAudioClient.mediaUrl(serverUrl, eventId);
-        if (!token || token.length > 512) throw new Error('Open the private DJ link supplied by the event owner. An audience link cannot broadcast.');
-        if (!navigator.mediaDevices?.getUserMedia || !window.RTCPeerConnection) throw new Error('Use a current browser on HTTPS or localhost to broadcast audio.');
+        if (!localOnly) {
+            window.LiveAudioClient.mediaUrl(serverUrl, eventId);
+            if (!token || token.length > 512) throw new Error('This invitation is incomplete. Ask the event owner for a new private DJ link.');
+        }
+        if (!navigator.mediaDevices?.getUserMedia || (!localOnly && !window.RTCPeerConnection)) throw new Error('Use a current browser on HTTPS or localhost to access your audio input.');
         valid = true;
         el.start.disabled = false;
-        status('Private invitation loaded. Select your mixer input, then start broadcasting.');
+        if (localOnly) {
+            el.start.textContent = 'Test my input';
+            el.stop.textContent = 'Stop test';
+        }
+        status(localOnly ? 'Only you - test your mixer here without joining a session. Nothing will be broadcast.'
+            : 'Private DJ invitation ready. Choose your mixer, then press Start broadcasting when you are ready for guests to hear it.');
     } catch (error) { status(error.message, true); }
 
-    const audioConstraints = () => ({
-        ...(el.input.value ? { deviceId: { exact: el.input.value } } : {}),
-        channelCount: { ideal: 2 }, sampleRate: { ideal: 48000 },
-        echoCancellation: false, noiseSuppression: false, autoGainControl: false
-    });
+    const audioConstraints = () => window.LiveInput.constraints(el.input.value).audio;
 
-    async function stop(message = 'Broadcast stopped. You can start again while this invitation is valid.', error = false) {
+    async function stop(message = localOnly ? 'Test stopped. Nothing was broadcast.' : 'Broadcast stopped. You can start again while this invitation is valid.', error = false) {
         revision++;
         const previous = client;
         client = null;
@@ -148,6 +152,10 @@
                 el.format.textContent += ' Warning: the browser kept voice processing enabled; use a music-capable input/browser.';
             }
             meter(stream, audioContext);
+            if (localOnly) {
+                status('Only you - your input is being tested, not broadcast. Check that both bars move. Open the club to test its crowd and lights.');
+                return;
+            }
             status('Connecting your private live audio feed...');
             const live = new window.LiveAudioClient({
                 serverUrl, eventId, token, role: 'publisher',
@@ -168,7 +176,7 @@
             if (revision !== current) return;
             status(`Broadcasting live: ${live.event.title}. Check both input meters and ask an audience member to confirm reception.`);
         } catch (error) {
-            if (revision === current) await stop(`Could not broadcast: ${error.message}`, true);
+            if (revision === current) await stop(window.LiveInput.inputError(error), true);
         }
     });
     el.stop.addEventListener('click', () => { void stop(); });

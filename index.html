@@ -482,6 +482,23 @@
         </div>
     </div>
     
+    <dialog id="lightingPresetDialog" class="lighting-presets" aria-labelledby="lightingPresetTitle">
+        <h2 id="lightingPresetTitle">Lighting presets</h2>
+        <p>Save and recall lighting at the VJ desk. Presets never change music, DJ presence or your Safe Mode choice.</p>
+        <label for="lightingPresetSlot">Preset slot</label>
+        <select id="lightingPresetSlot" data-preset-slots></select>
+        <label for="lightingPresetName">Preset name (up to 32 characters)</label>
+        <input id="lightingPresetName" data-preset-name type="text" maxlength="32" autocomplete="off">
+        <button type="button" data-preset-rename>Save name</button>
+        <hr>
+        <button type="button" data-preset-export>Export all presets</button>
+        <label for="lightingPresetFile">Import a NOCTURNE preset backup</label>
+        <input id="lightingPresetFile" data-preset-file type="file" accept=".json,application/json">
+        <button type="button" data-preset-import disabled>Replace all 12 slots from backup</button>
+        <p data-preset-status role="status" aria-live="polite"></p>
+        <button type="button" data-preset-close>Close</button>
+    </dialog>
+
     <!-- Enter VR. Promoted to a top-level control: burying the headline action of a
          WebXR app behind an unlabelled gear icon meant nobody on a Quest found it. -->
     <button id="vrButton" type="button" title="Enter immersive VR" hidden>🥽 Enter VR</button>
@@ -521,6 +538,7 @@
                     <button class="audio-source-tab active" type="button" role="tab" id="audioSourceTabLink" data-audio-source="link" aria-selected="true" aria-controls="audioSourceLink">Link</button>
                     <button class="audio-source-tab" type="button" role="tab" id="audioSourceTabFile" data-audio-source="file" aria-selected="false" aria-controls="audioSourceFile">File</button>
                     <button class="audio-source-tab" type="button" role="tab" id="audioSourceTabFolder" data-audio-source="folder" aria-selected="false" aria-controls="audioSourceFolder">Folder</button>
+                    <button class="audio-source-tab" type="button" role="tab" id="audioSourceTabLive" data-audio-source="live" aria-selected="false" aria-controls="audioSourceLive">Live input</button>
                 </div>
 
                 <div id="audioSourceLink" class="audio-source-panel" role="tabpanel" aria-labelledby="audioSourceTabLink">
@@ -561,6 +579,44 @@
                             <li>YouTube and Spotify pages are not playable audio.</li>
                             <li>The club's own original house set plays until you add music of your own.</li>
                         </ul>
+                    </details>
+                </div>
+
+                <div id="audioSourceLive" class="audio-source-panel" role="tabpanel" aria-labelledby="audioSourceTabLive" hidden>
+                    <p class="network-help">Play from your mixer or audio interface. Test on your own first, then invite guests when you are ready.</p>
+                    <h3 class="vj-section-title">1. Choose your sound</h3>
+                    <p class="network-help">Connect your mixer to this computer. Your browser calls audio access “microphone permission”; we never use a camera.</p>
+                    <label for="liveInputDevice">Mixer or audio input</label>
+                    <select id="liveInputDevice" class="audio-input"><option value="">Default audio input</option></select>
+                    <button id="liveInputDiscover" class="audio-button" type="button">Find my audio inputs</button>
+                    <h3 class="vj-section-title">2. Test privately</h3>
+                    <p class="network-help">Play a track on your mixer. The bars, crowd and lights should respond. Nothing is sent to guests.</p>
+                    <div class="audio-input-group">
+                        <button id="liveInputTest" class="audio-button audio-primary-button" type="button">Test my input</button>
+                        <button id="liveInputStop" class="audio-button" type="button" disabled>Stop input</button>
+                    </div>
+                    <p id="liveInputStatus" class="network-help" role="status" aria-live="polite"></p>
+                    <div class="live-input-meters">
+                        <label for="liveInputLeft">Left</label><progress id="liveInputLeft" max="1" value="0"></progress>
+                        <label for="liveInputRight">Right</label><progress id="liveInputRight" max="1" value="0"></progress>
+                    </div>
+                    <p id="liveInputSignal" class="network-help" role="status"></p>
+                    <p id="liveInputFormat" class="network-help"></p>
+                    <button id="liveInputMonitor" class="audio-button" type="button" aria-pressed="false" disabled>Hear test audio: OFF</button>
+                    <p class="network-help">Use headphones before switching this on to avoid feedback. It only changes what you hear, not what guests receive.</p>
+                    <h3 class="vj-section-title">3. Share your live set</h3>
+                    <label for="liveInputTitle">Name of your set</label>
+                    <input id="liveInputTitle" class="audio-input" maxlength="80" value="My live DJ set">
+                    <p class="network-help">Go live starts a private session if needed. Only broadcast music you have permission to share. Guests hear your input automatically when they join your audience link.</p>
+                    <div class="audio-input-group">
+                        <button id="liveInputGo" class="audio-button audio-primary-button" type="button" disabled>Go live</button>
+                        <button id="liveInputPause" class="audio-button" type="button" disabled>Stop broadcast</button>
+                        <button id="liveInputInvite" class="audio-button" type="button" disabled>Copy guest link</button>
+                    </div>
+                    <details class="audio-help">
+                        <summary>No sound or need help?</summary>
+                        <p class="network-help">Choose the mixer or interface, not the laptop microphone. Check its USB cable and turn up its recording output. If your DJ software offers “loopback”, select that output. Some interfaces need a virtual audio cable; the browser cannot directly capture an ASIO-only output.</p>
+                        <p class="network-help">Your mixer must be connected to the device running this page. To perform from another computer, create an event in Online and send that computer the private DJ link.</p>
                     </details>
                 </div>
 
@@ -1148,9 +1204,11 @@
          VRClub only creates instances once a guest connects from the Multiplayer panel. -->
     <script src="js/sfuClient.js?v=20261021-5"></script>
     <script src="js/liveAudioClient.js?v=20261021-5"></script>
+    <script src="js/liveInput.js?v=20261021-5"></script>
     <script src="js/networkClient.js?v=20261021-5"></script>
     <script src="js/avatarManager.js?v=20261021-5"></script>
     <script src="js/multiplayer.js?v=20261021-5"></script>
+    <script src="js/lightingPresets.js?v=20261021-5"></script>
 
     <!-- VRClub implementation layers. Each extends the previous class; keep this order. -->
     <script src="js/club/01-core.js?v=20261021-5"></script>

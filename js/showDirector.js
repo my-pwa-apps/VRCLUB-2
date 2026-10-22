@@ -1015,6 +1015,24 @@ class ShowDirector {
                 goboEnabled: false, fogIntensity: 1.4
             },
 
+            columnFill: {
+                intensity: [0.68, 0.84], punch: 0.20, palette: 'analogous', hue: 0.10, ledHarmony: 'complement',
+                lightsActive: true, lasersActive: false, laserSheetActive: false,
+                strobesActive: false, mirrorBallActive: false, smokeActive: true,
+                ledWallActive: true, ledMonochrome: false, ledPattern: 12, ledWallSpeed: 0.5, ledLevel: 0.55,
+                spotlightPattern: 1, spotlightMode: 3, spotlightSpeed: 1, spotSequence: 5, spotSequenceRate: 4,
+                goboEnabled: false, fogIntensity: 1.2
+            },
+
+            columnFillSweep: {
+                intensity: [0.74, 0.94], punch: 0.28, palette: 'analogous', hue: 0.82, ledHarmony: 'complement',
+                lightsActive: true, lasersActive: false, laserSheetActive: false,
+                strobesActive: false, mirrorBallActive: false, smokeActive: true,
+                ledWallActive: true, ledMonochrome: false, ledPattern: 11, ledWallSpeed: 0.6, ledLevel: 0.60,
+                spotlightPattern: 2, spotlightMode: 1, spotlightSpeed: 1, spotSequence: 5, spotSequenceRate: 4,
+                goboEnabled: false, fogIntensity: 1.4
+            },
+
             // Aerial only. Wall dark, gobos off, lasers alone in the heaviest haze
             // in the show. With no lit surface anywhere the room stops being a
             // room and becomes pure volumetric geometry — and the cue that
@@ -1353,6 +1371,7 @@ class ShowDirector {
                 cues: [
                     { look: 'theWave',   bars: 38 },
                     { look: 'rowWave',   bars: 16 },
+                    { look: 'columnFill', bars: 12 },
                     { look: 'deepBlue',  bars: 8 },
                     { look: 'crossfire', bars: 4 },
                     { look: 'ceilingSidewash', bars: 4 },
@@ -1366,6 +1385,7 @@ class ShowDirector {
                 minBars: 16,
                 cues: [
                     { look: 'rowBuild',   bars: 16 },
+                    { look: 'columnFillSweep', bars: 12 },
                     { look: 'heldBreath', bars: 8 },
                     { look: 'strobeHeartbeat', bars: 4 },
                     { look: 'sideways', bars: 4 },
@@ -1380,6 +1400,7 @@ class ShowDirector {
                 cues: [
                     { look: 'detonation', bars: 2 },
                     { look: 'rowConversation', bars: 12 },
+                    { look: 'columnFillSweep', bars: 12 },
                     { look: 'chromaticRoom', bars: 2 },
                     { look: 'laserStorm', bars: 4 },
                     { look: 'strobeFloor', bars: 4 },
