@@ -79,7 +79,7 @@ await writeFile(path.join(dist, 'broadcast', 'index.html'), broadcastHtml
     .replace(/<script\s+src="[^"]+"\s*><\/script>/g, '')
     .replace('</body>', `<script src="../assets/${broadcastName}"></script>\n</body>`));
 
-let html = indexHtml
+const html = indexHtml
     .replace(/<link rel="stylesheet" href="css\/styles\.css\?v=[^"]+">/, `<link rel="stylesheet" href="assets/${cssName}">`)
     .replace(/(js\/vendor\/[^"?]+)\?v=[^"]+/g, '$1')
     .replace(/manifest\.json\?v=[^"]+/g, 'manifest.json')

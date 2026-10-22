@@ -37,8 +37,8 @@ class ClubMultiplayer {
     });
 
     static ONLINE_SAFETY_VERSION = '1';
-    static HOSTED_RELAY = window.location.hostname === 'nocturnedev.mitwee.nl' ||
-        window.location.hostname === 'nocturne-dev.pages.dev'
+    static HOSTED_RELAY = window.location?.hostname === 'nocturnedev.mitwee.nl' ||
+        window.location?.hostname === 'nocturne-dev.pages.dev'
         ? 'wss://vrclub-network-dev.garfieldapp.workers.dev'
         : 'wss://vrclub-network.garfieldapp.workers.dev';
     static EMOJI = Object.freeze(['🎉', '🔥', '❤️', '😂', '👋', '🙌', '💃', '🕺']);
@@ -99,7 +99,12 @@ class ClubMultiplayer {
         spotlightMode: [0, 7], spotlightPattern: [0, 7], goboPatternIndex: [0, 31], ledPattern: [0, 63], spotColorIndex: [0, 63],
         goboRotationSpeed: [-10, 10], spotlightSpeed: [0, 10], laserSpeed: [0, 10], mirrorBallSpeed: [0, 10],
         ledWallSpeed: [0, 10], strobeSpeed: [0, 10], vjMaster: [0, 1], strobePatternIndex: [0, 31],
-        currentColorIndex: [0, 2], colorLockActive: 'b'
+        currentColorIndex: [0, 2], colorLockActive: 'b',
+        ledMulti: 'b', ledWallLevel: [0, 1], kickDepth: [0, 1], fogIntensity: [0, 2],
+        laserSheetOrigin: ['both', 'ceilingLeft', 'ceilingRight'], laserSheetMotion: ['vertical', 'lateral'],
+        strobeSync: ['free', 'beat', 'offbeat', 'bar', 'roll'],
+        spotRed: [0, 1], spotGreen: [0, 1], spotBlue: [0, 1],
+        mirrorRed: [0, 1], mirrorGreen: [0, 1], mirrorBlue: [0, 1]
     });
     /** A dance ends when the guest walks this far from where it started. */
     static DANCE_BREAK_DISTANCE = 0.6;
@@ -374,6 +379,12 @@ class ClubMultiplayer {
                 this.club._streamRecovery.hasPlayed = false;
             }
             this.club._stopSoundCloudPlayer?.();
+            if (this.club.liveInput?.retainsInputFor(event)) {
+                this._stopLiveAudio();
+                this._emit();
+                return;
+            }
+            this.club.liveInput?.stop('The live event DJ supplies the music. Your input has been stopped.');
             if (previous?.id !== event.id || previous?.listenerToken !== event.listenerToken || !this._liveAudio) {
                 if (previous?.id !== event.id) this._publisherToken = null;
                 this.retryLiveEventAudio();
@@ -383,6 +394,7 @@ class ClubMultiplayer {
     }
 
     retryLiveEventAudio() {
+        if (this.club.liveInput?.retainsInputFor(this.liveEvent)) return;
         this._stopLiveAudio();
         if (!this.hasLiveEvent) return;
         const event = this.liveEvent;
@@ -1342,9 +1354,13 @@ class ClubMultiplayer {
             const value = key === 'vjMaster' ? (club.vjDirector && club.vjDirector.targetMasterIntensity)
                 : key === 'strobePatternIndex'
                     ? (typeof VRClubAnimationFinish !== 'undefined' ? VRClubAnimationFinish.STROBE_PATTERNS.indexOf(club.strobePattern) : -1)
+                    : /^(spot|mirror)(Red|Green|Blue)$/.test(key)
+                        ? (key.startsWith('spot') ? club.currentSpotColor : club.mirrorBallSpotlightColor)?.[
+                            key.endsWith('Red') ? 'r' : key.endsWith('Green') ? 'g' : 'b']
                     : club[key];
             if (key === 'strobePatternIndex' && !(value >= 0)) continue;
-            if (spec === 'b' ? typeof value === 'boolean' : (typeof value === 'number' && Number.isFinite(value))) out[key] = value;
+            if (spec === 'b' ? typeof value === 'boolean' : typeof spec[0] === 'string'
+                ? spec.includes(value) : (typeof value === 'number' && Number.isFinite(value))) out[key] = value;
         }
         return out;
     }
@@ -1459,6 +1475,8 @@ class ClubMultiplayer {
             let value = fx[key];
             if (spec === 'b') {
                 if (typeof value !== 'boolean') continue;
+            } else if (typeof spec[0] === 'string') {
+                if (!spec.includes(value)) continue;
             } else {
                 if (typeof value !== 'number' || !Number.isFinite(value)) continue;
                 value = Math.min(spec[1], Math.max(spec[0], value));
@@ -1492,6 +1510,9 @@ class ClubMultiplayer {
                     if (list && value < list.length) club.strobePattern = list[value];
                     break;
                 }
+                case 'spotRed': case 'spotGreen': case 'spotBlue':
+                case 'mirrorRed': case 'mirrorGreen': case 'mirrorBlue':
+                    break;
                 default:
                     if (key in club) club[key] = value;
             }
@@ -1505,8 +1526,22 @@ class ClubMultiplayer {
             club._spotRemoteBeat = fx.spotSequenceBeat + age * club._spotRemoteBpm / 60;
             club._spotRemoteAt = performance.now() / 1000;
         }
-        if (!rigOnly && club.colorLockActive && typeof club.matchAllLightColors === 'function') {
-            club.matchAllLightColors(false);
+        if (!rigOnly) {
+            const colour = prefix => {
+                const rgb = ['Red', 'Green', 'Blue'].map(channel => fx[prefix + channel]);
+                return rgb.every(value => Number.isFinite(value) && value >= 0 && value <= 1)
+                    ? new BABYLON.Color3(...rgb) : null;
+            };
+            const spot = colour('spot'), mirror = colour('mirror');
+            if (!spot && club.colorLockActive && typeof club.matchAllLightColors === 'function') club.matchAllLightColors(false);
+            if (spot) {
+                club.currentSpotColor = spot;
+                club.colorTransitionProgress = 1;
+                club.vjDirector?.refreshLedColor?.();
+                if (club.vjDirector) club.vjDirector.lastPhraseBeat = club.vjDirector.beatNumber;
+            }
+            if (mirror) club._setMirrorBallColor?.(mirror);
+            if ('laserSheetOrigin' in fx || 'laserSheetMotion' in fx) club.configureLaserSheetVariant?.();
         }
     }
 

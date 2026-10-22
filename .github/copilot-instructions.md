@@ -27,7 +27,7 @@ emits one minified, content-hashed production bundle with esbuild.
 7. `js/vjDirector.js`, then `js/showDirector.js`
 8. `js/ledPatterns.js`, then `js/barProps.js` (bottle geometry and label atlas; no club dependency), then `js/restroomArt.js` (the restroom's painted poster atlas and placement plan; needs `js/nocturneLogo.js` only at paint time), then `js/venueDressing.js` (entrance stair hall, bar, lounge couch and restroom), `js/mezzanine.js` (steel balcony and stair, and the walking-surface follow) and `js/cityDistrict.js` (the street outside, at street level) and `js/vjDesk.js` (the VJ desk's show, lights and set-player touch panels at the DJ table), all mixed into `VRClub.prototype`
    Then `js/characterCatalog.js` (generated licensed adult cast and assignments) and `js/characterStyles.js` (room style, local performance override and live model replacement, mixed into `VRClub.prototype`), followed by `js/wardrobeCatalog.js`, `js/avatarDetails.js`, `js/avatarAppearance.js` and `js/avatarEditor.js`.
-9. `js/playerHeight.js` (pure player-height maths), `js/avatarRig.js` (the local player's procedural body), `js/djPerformer.js` (the DJ's live set, posed through the rig), `js/crowdDance.js` (the crowd's choreographer), `js/minglerClock.js` (the shared room-time round), then `js/sfuClient.js`, `js/liveAudioClient.js` (event-owned music; no connection until admitted), `js/networkClient.js`, `js/avatarManager.js` and `js/multiplayer.js` (`ClubMultiplayer`) — optional multiplayer (no instance until a guest connects)
+9. `js/playerHeight.js` (pure player-height maths), `js/avatarRig.js` (the local player's procedural body), `js/djPerformer.js` (the DJ's live set, posed through the rig), `js/crowdDance.js` (the crowd's choreographer), `js/minglerClock.js` (the shared room-time round), then `js/sfuClient.js`, `js/liveAudioClient.js` (event-owned music; no connection until admitted), `js/liveInput.js` (private mixer testing and explicit publishing), `js/networkClient.js`, `js/avatarManager.js` and `js/multiplayer.js` (`ClubMultiplayer`), then `js/lightingPresets.js` (validated local lighting snapshots reusing the multiplayer fixture schema).
 10. `js/club/01-core.js` through `js/club/11-audio-crowd.js`, in numeric order
 11. `js/club_hyperrealistic.js` — final public `VRClub` bridge and LED mixin
 12. `js/paymentGate.js` — public `window.VRPayment`, verified access/device management and prepared VR leases
@@ -397,6 +397,18 @@ Rules when editing:
   including an individual head's override. All three VJ surfaces use the same aim
   and movement lists. Tests measure pair symmetry, lag, hold continuity, angular
   speed and actual cue rendering; headset comfort and cost remain unmeasured.
+- `columnFill` and `columnFillSweep` give the two physical columns twelve-bar
+  passages: left column, both columns, dark reset, with four beats per fill step.
+  The first holds straight down; the second combines Column Fill (sequence 5)
+  with Mirror Sweep (aim 2). That combination uses `spotRigBeat()` for a shared
+  twelve-bar sweep, identical within each column and mirrored between columns;
+  wall-clock time and speed ramps must not move its musical phase. Other manual
+  Mirror Sweep combinations retain their existing motion.
+- Mirror-ball incident beams and housing caches compare RGB values as well as
+  the source reference: palette fades can mutate a `Color3` in place. Reflected
+  colour updates on that same frame, even between VR geometry updates.
+  `_updateMirrorReflectionColors()` must not rebuild or upload instance matrices;
+  the tier's reflection-geometry cadence remains unchanged.
 - **All structural decisions happen in `_onBar()`, never mid-bar.** Landing changes off the
   musical grid is exactly the failure this class exists to fix.
 - An automatic countdown requires energy to rise by at least 0.035 over four bars.
@@ -1898,19 +1910,31 @@ show changes (a signature checked every 0.2 s), and a press is
 mapped from the pick point into the panel's own plane to a button rect, like the VR seek bar. A mouse click and a
 controller ray therefore use the same path (`pressVJDesk` / `dragVJDesk` / `releaseVJDesk`, from
 `setupVJControlInteraction`).
-- **SHOW** (left): the header always says who has the lights (AUTOMATIC SHOW with the NOCTURNE movement, YOU ARE THE
-  VJ, or THE HOST HAS THE LIGHTS in someone else's room). Buttons: AUTO SHOW, DROP (the show's countdown
-  while it drives, else the director's peak look), NEXT SECTION (automatic show only, and says so), BLACKOUT,
-  BEAMS TO FLOOR, TAP TEMPO, RESIDENT DJ (`togglePeopleVisible('dj')`, a personal hide for guests and room presence for the host), SAFE MODE
-  (also personal) and RESET LIGHTS, then a row of five section buttons (ARRIVAL..AFTERGLOW, `pickShowSection`; the playing
-  one lights and says KEPT while held), plus BRIGHTNESS (the director's master) and MOVEMENT SPEED faders.
+- **SHOW** (left): only AUTO SHOW on/off, SEND DJ HOME / BRING DJ BACK and twelve lighting preset slots.
+  No stage buttons, macros, look hold, faders or Safe Mode on this panel. Auto off keeps the current moving look;
+  Auto on enables and recomposes the current cue immediately. Both manual changes and preset recall retain the
+  existing return/keep/shuffle policy and booth hold. The DJ toggle remains personal for guests and shared for the host;
+  it explicitly says when the host has sent the room DJ home.
+  `LightingPresets` owns `vrclub.lightingPresets` (version 1, twelve nullable named slots), lazily constructed by
+  `_lightingPresetStore()` and disposed with the club. Save is local and never takes control; recall is host-gated.
+  Capture/application reuse `ClubMultiplayer._captureFixtures/_applyFixtures`, including exact spot/mirror RGB,
+  independent heads, wall level/multicolour, sheet origin/motion, strobe sync, fog and kick depth. Automatic brightness
+  is captured from the current show level. Do not store beat phases, music/audio effects, DJ presence, people,
+  safety, room state or credentials. Recall respects personal Safe Mode and the room flash governor.
+  Selection alone does not recall. Overwrite/delete require a second matching press within four seconds.
+  NAME / TRANSFER opens `#lightingPresetDialog` for rename/export/import; it says LEAVES VR before exiting and
+  holds the setup lease. Immersive-only apps never exit for it. Imports validate the complete bounded schema
+  and current colour/pattern availability, then explicitly replace all twelve slots; writes are atomic with
+  respect to in-memory state, and storage/corruption errors surface without overwriting unreadable data.
 - **LIGHTS** (right): every fixture on/off, plus steppers for spot colour (with a swatch), movement mode, spot aim
-  path, projected gobo image, wall picture (n of 20) and mirror colour, and a last row: STROBE PATTERN, AFTER MY CHANGE
-  (keep / return to auto / shuffle colours) and TIMING, followed by LASER COLOUR (lasers and sheet) and MATCH ALL
-  COLOURS. MIRROR BEAMS independently removes the outgoing rays while leaving the reflected surface spots. The two
+  path, projected gobo image, wall picture (n of 20) and mirror colour, STROBE PATTERN, LASER COLOUR (lasers and sheet)
+  and MATCH ALL COLOURS. SPOT RIG opens the head/row/column editor; SETTINGS opens BRIGHTNESS, MOVEMENT SPEED,
+  SAFE MODE, RESET LIGHTS, AFTER MY CHANGE (keep / return to auto / shuffle) and TIMING. Each subpage has
+  BACK TO ALL LIGHTS. MIRROR BEAMS independently removes the outgoing rays while leaving the reflected surface spots. The two
   hold buttons are personal (never
   host-gated); TIMING is grey while the mode is keep. Every button's second line is its live value; unavailable ones are grey and say
-  why (HOST ONLY, SAFE MODE, AUTO SHOW ONLY). Buttons under 90 px tall use smaller type.
+  why (HOST ONLY, SAFE MODE, EMPTY SLOT). Disabled desk presses report that reason without running the action.
+  Buttons under 90 px tall use smaller type.
 - **SET PLAYER** (centre): shown only while the resident DJ is sent home. One corner button switches the same compact
   surface between PLAYER and FX pages. PLAYER has previous, combined play/pause, stop and next symbols above a full-width
   position slider. Previous/next enable only when an active local folder or the saved-set library has more than one source and
@@ -2103,6 +2127,19 @@ members across at most eight rooms (up to 32 each). Overflow admission reserves
 authoritative capacity, never directory counts. Existing attendees never move;
 rooms retain separate social/voice contexts. This is not a measured 256-person
 or physical-headset performance guarantee.
+
+`LiveInput` owns the Music panel's guided mixer setup. Capture is gesture-only and
+ephemeral. Tests use the real detector taps without connecting or publishing;
+`startNetworkMusic(..., {localInput:true})` adds a muted local monitor AFTER the
+detector taps. Monitor/volume changes must never affect the published raw stream.
+Go live explicitly creates a private session when needed (never bypassing the
+Online safety guide), creates the event and publishes the already tested input.
+An event owner using this local input must not also subscribe to their own feed:
+`retainsInputFor` gates the normal event-listener path. Room loss returns to local
+testing; source changes, input loss, pagehide and disposal stop capture. The
+standalone broadcaster reuses the input constraints/error guidance and permits
+a private meter check without an invitation. Malformed invitations never authorize
+publication. See the live-input unit and live-audio browser tests.
 
 `LiveAudioClient` adapts `SFUClient` through a separate media facade, not social
 avatars. `/live/<UUID>/media` authenticates in its FIRST WebSocket frame;

@@ -465,6 +465,10 @@ class VRClubUI extends VRClubAnimationFinish {
         this.vjManualMode = false;
         this.lastVJInteraction = 0;
         if (this.showDirector && typeof this.showDirector.releaseHold === 'function') this.showDirector.releaseHold();
+        if (this.showDirector) {
+            this.showDirector.enabled = true;
+            this.showDirector.onPhotosensitiveModeChanged?.();
+        }
     }
 
     showLookHoldUnavailableReason() {
@@ -806,6 +810,9 @@ class VRClubUI extends VRClubAnimationFinish {
 
     /** Can this button do nothing right now? (It still answers a press, with a message saying why.) */
     _isVRButtonDisabled(button) {
+        if (this.liveInput?.active && VR_MUSIC_ACTIONS.has(button.action)) {
+            return !['stop', 'musicSetup'].includes(button.action);
+        }
         if (this.multiplayer?.hasLiveEvent && VR_MUSIC_ACTIONS.has(button.action)) return true;
         if (this.isFollowingHost() && this._isHostOwnedVRButton(button)) return true;
         // The time belongs to RETURN TO AUTO and SHUFFLE COLOURS; KEEP IT has none.
@@ -865,6 +872,9 @@ class VRClubUI extends VRClubAnimationFinish {
     }
 
     _vrQuickMenuButtonValue(button, active) {
+        if (this.liveInput?.active && VR_MUSIC_ACTIONS.has(button.action)) {
+            return button.action === 'stop' ? 'STOP INPUT' : button.action === 'musicSetup' ? 'LIVE INPUT SETUP' : 'MIXER INPUT';
+        }
         if (this.multiplayer?.hasLiveEvent && VR_MUSIC_ACTIONS.has(button.action)) return 'LIVE EVENT DJ';
         if (Object.prototype.hasOwnProperty.call(VRClubUI.SPOT_RIG_CONTROLS, button.control)) {
             return this.isFollowingHost() && button.control !== 'cycleSpotTarget' ? 'HOST ONLY' : this.spotRigControlValue(button.control);
@@ -1479,6 +1489,8 @@ class VRClubUI extends VRClubAnimationFinish {
     }
 
     async _runVRMusicAction(button) {
+        if (this.liveInput?.active && button.action === 'stop') { this.stopAudioPlayback(); return; }
+        if (this.liveInput?.active && button.action === 'musicSetup') { await this._openQuestPanel('music'); return; }
         if (!this.guardHostControl('music')) return;
         const library = this.musicLibrary;
         if (button.action === 'seek') {
@@ -2816,7 +2828,7 @@ class VRClubUI extends VRClubAnimationFinish {
     }
 
     _recoverAudioStream(reason) {
-        if (this.multiplayer?.hasLiveEvent) return;
+        if (this.multiplayer?.hasLiveEvent || this.liveInput?.active) return;
         const audio = this.audioElement;
         const recovery = this._streamRecovery;
         if (!audio || !recovery || this._disposed) return;
@@ -2849,7 +2861,7 @@ class VRClubUI extends VRClubAnimationFinish {
         log.warn(`🎵 Stream ${reason}; reconnect attempt ${recovery.attempts} in ${delay} ms`);
         recovery.timer = setTimeout(() => {
             recovery.timer = null;
-            if (this._disposed || this.multiplayer?.hasLiveEvent || this._audioKind !== 'stream' || !this._audioStreamUrl) return;
+            if (this._disposed || this.multiplayer?.hasLiveEvent || this.liveInput?.active || this._audioKind !== 'stream' || !this._audioStreamUrl) return;
             audio.src = this._audioStreamUrl;
             if (resumeAt > 0) {
                 audio.addEventListener('loadedmetadata', () => { audio.currentTime = resumeAt; }, { once: true });
@@ -2867,6 +2879,7 @@ class VRClubUI extends VRClubAnimationFinish {
      *        end so the caller can queue the next one. `resumeAt` restores a finite saved set after a reload.
      */
     _playAudio(src, kind, label, options = {}) {
+        if (this.liveInput?.active) this.liveInput.stop('Input stopped because you chose another music source.');
         this._stopSoundCloudPlayer();
         const audio = this._ensureAudioElement();
         this._stoppedAudioSource = null;
@@ -2952,6 +2965,7 @@ class VRClubUI extends VRClubAnimationFinish {
 
     async startSoundCloud(url, label = 'SoundCloud set') {
         if (this.multiplayer?.hasLiveEvent) throw new Error('The live event DJ controls the music. Leave the event to play your own set.');
+        if (this.liveInput?.active) this.liveInput.stop('Input stopped because you chose another music source.');
         const parsed = new URL(String(url));
         if (parsed.protocol !== 'https:' || !/(^|\.)soundcloud\.com$/.test(parsed.hostname) ||
             parsed.username || parsed.password) {
@@ -3149,7 +3163,7 @@ class VRClubUI extends VRClubAnimationFinish {
      */
     getPlaybackInfo() {
         if (this._audioKind === 'network') {
-            return { seekable: false, position: 0, duration: 0, playing: !!this.multiplayer?._broadcastState?.playing };
+            return { seekable: false, position: 0, duration: 0, playing: !!this.liveInput?.stream || !!this.multiplayer?._eventAudio || !!this.multiplayer?._broadcastState?.playing };
         }
         if (this._audioKind === 'soundcloud') {
             return { seekable: false, position: 0, duration: 0, playing: !!this._soundCloudPlaying };
@@ -3191,6 +3205,10 @@ class VRClubUI extends VRClubAnimationFinish {
 
     /** Explicit play/pause used by the VR transport and the desktop panel. */
     setAudioPlayback(playing) {
+        if (this.liveInput?.active) {
+            this.showErrorMessage('Your mixer controls the music. Use Live input to stop testing or broadcasting.');
+            return false;
+        }
         if (!this.guardHostControl('music')) return false;
         if (this._audioKind === 'soundcloud') {
             this.showErrorMessage('Use the official SoundCloud player in Music to play or pause this set.');
@@ -3225,6 +3243,7 @@ class VRClubUI extends VRClubAnimationFinish {
 
     /** Stop finite media at its beginning; disconnect a live stream so it no longer downloads until Play is pressed. */
     stopAudioPlayback() {
+        if (this.liveInput?.active) { this.liveInput.stop(); return true; }
         if (!this.guardHostControl('music')) return false;
         if (this._audioKind === 'soundcloud') {
             if (this._soundCloudWidget) {

@@ -135,7 +135,7 @@ test('Show and Lights progressively owns show, fixture, effect and club controls
 test('Music presents one source path at a time and disables transport until playback starts', () => {
     const html = read('index.html');
     assert.deepEqual([...html.matchAll(/data-audio-source="([^"]+)"/g)].map(match => match[1]),
-        ['link', 'file', 'folder']);
+        ['link', 'file', 'folder', 'live']);
     const addMusic = /<div class="vj-section-title">Add music<\/div>([\s\S]*?)<details class="audio-help">/.exec(html)?.[1] || '';
     assert.ok(addMusic.indexOf('id="setName"') < addMusic.indexOf('id="playStreamBtn"'),
         'the optional name is chosen before Save & play');

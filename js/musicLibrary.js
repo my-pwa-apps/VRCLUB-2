@@ -401,6 +401,7 @@ class MusicLibrary {
      */
     async playDefault() {
         const club = this.club;
+        if (club.liveInput?.active) return false;
         if (club.multiplayer?.hasLiveEvent) return false;
         if (this.items.length || (club.isFollowingHost && club.isFollowingHost())) return false;
         const info = club.getPlaybackInfo ? club.getPlaybackInfo() : null;
@@ -477,6 +478,7 @@ class MusicLibrary {
      * Returns whether the club's set started. It never throws: this is the safety net.
      */
     async fallBackToDefault(error) {
+        if (this.club.liveInput?.active) return false;
         if (error && error.name === 'NotAllowedError') return false;
         const club = this.club;
         if (club.multiplayer?.hasLiveEvent) return false;

@@ -50,7 +50,7 @@ was needed.
 | SideQuest | <https://sidequest-nocturne.mitwee.nl> | <https://ad86734c.nocturne-sidequest.pages.dev> |
 | Quest | <https://nocturne.mitwee.nl> | <https://145b514d.nocturne-vr.pages.dev> |
 
-All custom domains serve `assets/app-f3e3210b9c00.js` and the expected hashed
+At that rollout, all custom domains served `assets/app-f3e3210b9c00.js` and the expected hashed
 broadcaster JavaScript/CSS. Verification checked their bytes, broadcaster
 no-cache/noindex and camera/microphone policy, ADE non-indexing and ordinary-site
 canonical metadata. Quest's Pages-injected analytics tag was excluded only from
@@ -63,7 +63,70 @@ exercise provider media forwarding, or measure headset/venue performance.
 These were direct deployments from this worktree, not merges into the Quest or
 SideQuest source branches.
 
+#### ADE-only guided setup and VJ desk update
+
+Later on 22 October, the current worktree was deployed to ADE only:
+<https://3039e125.nocturne-ade.pages.dev>, live at
+<https://nocturne-ade.mitwee.nl>. It includes guided private mixer testing,
+explicit Go live, the simplified VJ desk and twelve local lighting preset slots.
+The custom domain was verified against the built bytes for
+`assets/app-df88dab50f8e.js`, `assets/styles-5a943b7e2519.css`,
+`assets/broadcast-ea7137db29e0.js`, the broadcaster CSS and the service worker.
+The new UI and ADE noindex response headers were also checked.
+Quest, SideQuest and the shared Worker were not redeployed for this update.
+
+#### All-site lighting and guided-setup update
+
+Later on 22 October, the current worktree was deployed to all three frontends:
+
+| Site | Production host | Deployment |
+|------|-----------------|------------|
+| ADE | <https://nocturne-ade.mitwee.nl> | <https://1a91aa9f.nocturne-ade.pages.dev> |
+| Quest | <https://nocturne.mitwee.nl> | <https://20e4b936.nocturne-vr.pages.dev> |
+| SideQuest | <https://sidequest-nocturne.mitwee.nl> | <https://eac94284.nocturne-sidequest.pages.dev> |
+
+All three custom domains were verified against the built bytes for
+`assets/app-9b997ac32705.js`, `assets/styles-5a943b7e2519.css`,
+the broadcaster assets and each build's service worker. This release includes
+the guided live-input setup, simplified VJ desk, twelve local lighting presets,
+mirror-ball colour-cache fix and stationary/beat-synced column-fill show looks.
+ADE retains its non-indexing headers; Quest and SideQuest retain ordinary-site
+canonical metadata. The shared Worker was unchanged. These direct deployments
+do not merge the worktree into the Quest or SideQuest source branches.
+
 ### DJ and audience workflow
+
+#### Guided setup on the mixer computer
+
+**Music / Live input** is deployed on ADE, Quest and SideQuest in the
+all-site update above.
+
+1. Connect the mixer/interface and open **Music / Live input** without joining a room.
+2. Choose **Find my audio inputs**, allow the browser's microphone permission,
+   and select the mixer rather than the laptop microphone.
+3. Press **Test my input** and play a track. Left/right meters, signal/clipping
+   guidance, the crowd and the lights use the actual input. No room connection
+   or publication is created by a test.
+4. Monitoring starts **OFF**. Use headphones before enabling **Hear test audio**;
+   this local switch and personal volume do not mute or change the published feed.
+5. Press **Go live** explicitly. If needed, review the existing Online safety
+   guide, return to Music, and press it again. An offline host gets a fresh
+   private session automatically; an existing session must permit event creation
+   or management. A currently broadcasting different DJ is never silently replaced.
+6. Use **Copy guest link**. Admitted guests automatically receive the event audio.
+7. **Stop broadcast** returns to private testing, without ending the event.
+   **Stop input** releases the recording device. Room loss stops publication and
+   leaves only the local test; input loss/page exit/disposal releases capture.
+   Testing another source stops the input, and playback controls cannot resume an
+   old track over it.
+
+The input is not persisted and no permission is requested until a setup button
+is pressed. In VR the mixer must still be connected to the device capturing it:
+use the existing Music setup exit to the DOM panel, or the separate-computer flow below.
+The standalone `broadcast/` page without an invitation also permits a local-only
+meter check; an incomplete or invalid invitation never silently becomes a broadcast.
+
+#### A DJ performing from a separate computer
 
 1. Join a room as its host. In **Online / Live DJ event**, enter a title and
    choose **Create live event**. VR has the same actions under

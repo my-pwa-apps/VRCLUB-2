@@ -74,10 +74,10 @@ test('the VJ desk: every button is where it is drawn, and presses hand the light
         const afterAuto = { manual: club.vjManualMode, title: club._vjDeskStatus().title };
         club.showDirector.forceMovement('pulse');
         club.showDirector._advanceCue();
-        press('holdLook');
-        const lookHeld = club.showDirector.isHeld();
         press('auto');
-        const lookReleased = !club.showDirector.isHeld();
+        const autoOff = club.vjManualMode;
+        press('auto');
+        const autoOn = !club.vjManualMode;
         const djAfter = club.isPeopleVisible('dj');
         press('playerPage');
         const fxPage = club._vjDeskPlayerPage;
@@ -181,7 +181,7 @@ test('the VJ desk: every button is where it is drawn, and presses hand the light
             misses, facingDot: BABYLON.Vector3.Dot(facing, toEye), up: facing.y,
             lightsBefore, afterSpots, redrawn, afterAuto, djBefore, djAfter, djBack: club.isPeopleVisible('dj'),
             playerHiddenWithDJ, playerHiddenOnReturn, fxPage, pageOnReturn, effectsChanged, effectsOnReturn,
-            mirrorRaysBefore, mirrorRaysAfter, mirrorRaysBack: club.mirrorBallRaysActive, lookHeld, lookReleased,
+            mirrorRaysBefore, mirrorRaysAfter, mirrorRaysBack: club.mirrorBallRaysActive,             autoOff, autoOn,
             clearance: {
                 left: transport.minimumWorld.x - show.maximumWorld.x,
                 right: lights.minimumWorld.x - transport.maximumWorld.x,
@@ -201,6 +201,91 @@ test('the VJ desk: every button is where it is drawn, and presses hand the light
             oldDesk: scene.meshes.filter(mesh => /^toggleBtn_|speedSlider|audioStreamBtn|vjConsole$/.test(mesh.name)).length
         };
     });
+
+    async function verifyLightingPresets() {
+        await enterClub(page);
+        const initial = await page.evaluate(async () => {
+            const c = window.vrClub;
+            await c.modelLoadPromise;
+            c.takeLightControl();
+            c.vjDirector.setMasterIntensity(0.52);
+            c.lightsActive = true;
+            c.lasersActive = false;
+            c.laserSheetActive = true;
+            c.laserSheetOrigin = 'ceilingRight';
+            c.laserSheetMotion = 'lateral';
+            c.spotHead1Motion = 6;
+            c.spotHead4Enabled = false;
+            c.spotHead0Color = 5;
+            c.spotSequence = 4;
+            c.spotSequenceRate = 4;
+            c.spotlightSpeed = 0.45;
+            c.laserSpeed = 0.65;
+            c.ledWallLevel = 0.38;
+            c.ledPattern = 7;
+            c.currentSpotColor = new BABYLON.Color3(0.23, 0.48, 0.91);
+            c._setMirrorBallColor(new BABYLON.Color3(0.75, 0.25, 0.8));
+            const buttons = window.VJDeskLayout.buttons.show;
+            const press = id => c._runVJDeskButton(buttons.find(button => button.id === id));
+            press('presetSave');
+            const store = c._lightingPresetStore();
+            const saved = JSON.parse(store.export());
+            c.spotHead1Motion = 0;
+            c.spotHead4Enabled = true;
+            c.spotSequence = 0;
+            c.ledPattern = 1;
+            c.ledWallLevel = 1;
+            c.currentSpotColor.set(1, 0, 0);
+            c.vjDirector.setMasterIntensity(1);
+            const dj = c.isPeopleVisible('dj'), safe = c.photosensitiveSafeMode;
+            press('presetRecall');
+            const after = c.multiplayer._captureFixtures();
+            const expected = saved.slots[0].fx;
+            if (safe) {
+                expected.strobesActive = false;
+                expected.spotStrobeActive = false;
+            }
+            const mismatches = Object.keys(expected).filter(key => Math.abs(after[key] - expected[key]) > 1e-7
+                || (typeof expected[key] !== 'number' && after[key] !== expected[key]));
+            await store.openManager();
+            return { saved: !!saved.slots[0], mismatches, dj: c.isPeopleVisible('dj') === dj,
+                safe: c.photosensitiveSafeMode === safe, manual: c.vjManualMode };
+        });
+        expect(initial).toEqual({ saved: true, mismatches: [], dj: true, safe: true, manual: true });
+        const dialog = page.locator('#lightingPresetDialog');
+        await expect(dialog).toBeVisible();
+        await dialog.locator('[data-preset-name]').fill('Violet rows');
+        await dialog.locator('[data-preset-rename]').click();
+        await expect(dialog.locator('[data-preset-slots] option:checked')).toHaveText('1. Violet rows');
+        const backup = await page.evaluate(() => window.vrClub.lightingPresets.export());
+        const downloadEvent = page.waitForEvent('download');
+        await dialog.locator('[data-preset-export]').click();
+        const download = await downloadEvent;
+        expect(download.suggestedFilename()).toBe('nocturne-lighting-presets.json');
+        const stream = await download.createReadStream();
+        const chunks = [];
+        for await (const chunk of stream) chunks.push(chunk);
+        expect(Buffer.concat(chunks).toString('utf8')).toBe(backup);
+        await dialog.locator('[data-preset-close]').click();
+        await enterClub(page);
+        await page.evaluate(() => window.vrClub._lightingPresetStore().openManager());
+        await expect(dialog.locator('[data-preset-name]')).toHaveValue('Violet rows');
+        const file = dialog.locator('[data-preset-file]');
+        await file.setInputFiles({ name: 'invalid.json', mimeType: 'application/json', buffer: Buffer.from('{"version":999}') });
+        await expect(dialog.locator('[data-preset-status]')).toContainText('Could not import presets');
+        await expect(dialog.locator('[data-preset-import]')).toBeDisabled();
+        expect(await page.evaluate(() => window.vrClub.lightingPresets.export())).toBe(backup);
+        const imported = JSON.parse(backup);
+        imported.slots[0].name = 'Imported look';
+        await file.setInputFiles({ name: 'presets.json', mimeType: 'application/json', buffer: Buffer.from(JSON.stringify(imported)) });
+        await expect(dialog.locator('[data-preset-import]')).toBeEnabled();
+        await expect(dialog.locator('[data-preset-name]')).toHaveValue('Violet rows');
+        await dialog.locator('[data-preset-import]').click();
+        await expect(dialog.locator('[data-preset-name]')).toHaveValue('Imported look');
+        await expect(dialog.locator('[data-preset-status]')).toContainText('All 12 preset slots replaced');
+        await dialog.locator('[data-preset-close]').click();
+        await expectHealthyRuntime(page);
+    }
     console.log('VJ_DESK', JSON.stringify(result));
     expect(result.misses, 'a ray at a button lands somewhere else').toEqual([]);
     expect(result.facingDot, 'the panel must face the person at the desk').toBeGreaterThan(0.5);
@@ -210,8 +295,8 @@ test('the VJ desk: every button is where it is drawn, and presses hand the light
     expect(result.afterSpots.title).toBe('YOU ARE THE VJ');
     expect(result.redrawn, 'the LIGHTS panel did not redraw after a change').toBe(true);
     expect(result.afterAuto).toEqual({ manual: false, title: 'AUTOMATIC SHOW' });
-    expect(result.lookHeld).toBe(true);
-    expect(result.lookReleased).toBe(true);
+    expect(result.autoOff).toBe(true);
+    expect(result.autoOn).toBe(true);
     expect(result.djBefore).toBe(true);
     expect(result.djAfter, 'the RESIDENT DJ button must send the DJ home').toBe(false);
     expect(result.djBack).toBe(true);
@@ -253,7 +338,8 @@ test('the VJ desk: every button is where it is drawn, and presses hand the light
         ['vj-desk-player', 0, 0],
         ['vj-desk-fx', 0, 0, 'fx'],
         ['vj-desk-lights', 0.75, 1.28],
-        ['vj-desk-spot-rig', 0.75, 1.28, undefined, 'rig']
+        ['vj-desk-spot-rig', 0.75, 1.28, undefined, 'rig'],
+        ['vj-desk-light-settings', 0.75, 1.28, undefined, 'settings']
     ]) {
         await page.evaluate(({ eyeX, lookX, fx, lightsPage }) => {
             const club = window.vrClub;
@@ -288,4 +374,5 @@ test('the VJ desk: every button is where it is drawn, and presses hand the light
     await expect(holdButton).toHaveAttribute('aria-pressed', 'false');
     await expect.poll(() => page.evaluate(() => window.vrClub.showDirector.isHeld())).toBe(false);
     await expectHealthyRuntime(page);
+    await verifyLightingPresets();
 });

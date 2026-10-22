@@ -464,8 +464,21 @@ body:has(.panel:not(.hidden)) .payment-toggle,
 }
 
 .audio-source-tabs {
-    grid-template-columns: repeat(3, 1fr);
+    grid-template-columns: repeat(4, 1fr);
     margin-top: 8px;
+}
+
+.live-input-meters {
+    display: grid;
+    grid-template-columns: auto 1fr;
+    gap: 8px;
+    align-items: center;
+    margin: 12px 0;
+}
+
+.live-input-meters progress {
+    width: 100%;
+    accent-color: #7ce3c4;
 }
 
 /* 44px: the practical minimum for a Quest raycast pointer, which jitters far more
@@ -2705,3 +2718,31 @@ button:active,
 .payment-close:focus-visible { outline: 2px solid #00ffff; outline-offset: 3px; }
 .payment-status { min-height: 1.25em; color: #9fe9d0; }
 .payment-status.error { color: #ff9e9e; }
+.lighting-presets {
+    box-sizing: border-box;
+    width: min(520px, calc(100vw - 32px));
+    max-height: calc(100dvh - 32px);
+    overflow: auto;
+    padding: 24px;
+    border: 1px solid #66758f;
+    border-radius: 16px;
+    background: #10151f;
+    color: #eef2fa;
+}
+.lighting-presets::backdrop { background: rgb(0 0 0 / 70%); }
+.lighting-presets label { display: block; margin-top: 16px; }
+.lighting-presets input, .lighting-presets select, .lighting-presets button {
+    box-sizing: border-box;
+    width: 100%;
+    min-height: 44px;
+    margin-top: 8px;
+    padding: 10px;
+    border: 1px solid #66758f;
+    border-radius: 8px;
+    background: #192334;
+    color: #eef2fa;
+    font: inherit;
+}
+.lighting-presets button:disabled { opacity: 0.5; }
+.lighting-presets :focus-visible { outline: 3px solid #39d0ff; outline-offset: 2px; }
+.lighting-presets [data-preset-status] { min-height: 3em; line-height: 1.5; }

@@ -811,12 +811,16 @@ class VRClubAnimationCore extends VRClubEffects {
     _refreshMirrorBallColorCache() {
         const source = this.mirrorBallSpotlightColor;
         const cache = this.mirrorBallCachedColors;
-        if (!source || !cache || this.mirrorBallCachedColorSource === source) return;
+        if (!source || !cache || (this.mirrorBallCachedColorSource === source &&
+            this._mirrorCachedR === source.r && this._mirrorCachedG === source.g && this._mirrorCachedB === source.b)) return;
         source.scaleToRef(0.2, cache.housingGlow);
         source.scaleToRef(8, cache.lensBright);
         source.scaleToRef(16, cache.sourceVeryBright);
         cache.flareMedium.set(3 + source.r * 10, 3 + source.g * 10, 3 + source.b * 10);
         this.mirrorBallCachedColorSource = source;
+        this._mirrorCachedR = source.r;
+        this._mirrorCachedG = source.g;
+        this._mirrorCachedB = source.b;
     }
 
     /** Mirror ball: rotation, fixture glow, outgoing rays and reflection spots. */
@@ -826,6 +830,11 @@ class VRClubAnimationCore extends VRClubEffects {
         // === MIRROR BALL EFFECT ===
         if (this.mirrorBallActive) {
             const showDriving = !!(this.showDirector && this.showDirector.isDriving());
+            if (this.mirrorBall && !this.vjManualMode && !showDriving && time - (this._mirrorColorSwitchTime || 0) > 3) {
+                this._mirrorColorSwitchTime = time;
+                this.mirrorBallColorIndex = (this.mirrorBallColorIndex + 1) % this.mirrorBallColors.length;
+                this.mirrorBallSpotlightColor = this.mirrorBallColors[this.mirrorBallColorIndex];
+            }
             // Mirror ball is now INDEPENDENT - doesn't disable other lights
             // All lights (spotlights, lasers, LED wall, strobes) can run simultaneously
             // VJ has full control to enable any combination
@@ -839,8 +848,15 @@ class VRClubAnimationCore extends VRClubEffects {
             if (this.mirrorBallBeams) {
                 this.mirrorBallBeams.forEach(beam => beam.mesh.setEnabled(true));
             }
-            if (this._mirrorAppliedColorSource !== this.mirrorBallSpotlightColor) {
-                this._mirrorAppliedColorSource = this.mirrorBallSpotlightColor;
+            const color = this.mirrorBallSpotlightColor;
+            // Palette fades can mutate the same Color3; identity alone leaves incident beams on the old hue.
+            const colorChanged = this._mirrorAppliedColorSource !== color ||
+                this._mirrorAppliedR !== color?.r || this._mirrorAppliedG !== color?.g || this._mirrorAppliedB !== color?.b;
+            if (colorChanged) {
+                this._mirrorAppliedColorSource = color;
+                this._mirrorAppliedR = color.r;
+                this._mirrorAppliedG = color.g;
+                this._mirrorAppliedB = color.b;
                 if (this.mirrorBallSpotlights) {
                     this.mirrorBallSpotlights.forEach(light => {
                         if (light) light.diffuse.copyFrom(this.mirrorBallSpotlightColor);
@@ -870,42 +886,6 @@ class VRClubAnimationCore extends VRClubEffects {
                 const speedMultiplier = this.mirrorBallSpeed || 1.0;
                 this.mirrorBallRotation -= 0.003 * speedMultiplier * dtScale * (1 + (this.kickPulse || 0) * 1.2); // the ball lurches on the kick
                 this.mirrorBall.rotation.y = this.mirrorBallRotation;
-                
-                // AUTOMATIC COLOR CYCLING for Mirror Ball (if not manually set).
-                // Wall clock, not `frameCounter % 180`: the frame-counter version fired
-                // every 1.5 s at 120 Hz and every 6 s at 30 Hz, so the ball kept a
-                // different musical tempo on every device.
-                if (!this.vjManualMode && !showDriving && time - (this._mirrorColorSwitchTime || 0) > 3) {
-                    this._mirrorColorSwitchTime = time;
-                    this.mirrorBallColorIndex = (this.mirrorBallColorIndex + 1) % this.mirrorBallColors.length;
-                    this.mirrorBallSpotlightColor = this.mirrorBallColors[this.mirrorBallColorIndex];
-                    
-                    // Update spotlight diffuse colors (the actual lights pointing at the ball)
-                    if (this.mirrorBallSpotlights) {
-                        this.mirrorBallSpotlights.forEach(light => {
-                            if (light) light.diffuse.copyFrom(this.mirrorBallSpotlightColor);
-                        });
-                    }
-                    
-                    // Update beam colors (visual beams from fixtures to ball)
-                    if (this.mirrorBallBeams) {
-                        this.mirrorBallBeams.forEach(beam => {
-                            beam.material.emissiveColor.copyFrom(this.mirrorBallSpotlightColor);
-                        });
-                    }
-                    
-                    // Update housing colors immediately
-                    if (this.mirrorBallHousings) {
-                        this._refreshMirrorBallColorCache();
-                        
-                        this.mirrorBallHousings.forEach(housing => {
-                            housing.material.emissiveColor = this.mirrorBallCachedColors.housingGlow;
-                            housing.lensMaterial.emissiveColor = this.mirrorBallCachedColors.lensBright;
-                            housing.sourceMaterial.emissiveColor = this.mirrorBallCachedColors.sourceVeryBright;
-                            housing.flareMaterial.emissiveColor = this.mirrorBallCachedColors.flareMedium;
-                        });
-                    }
-                }
             }
             
             if (this.mirrorReflectionBatch) {
@@ -921,6 +901,8 @@ class VRClubAnimationCore extends VRClubEffects {
                     else this._mirrorReflectionClock = 0;
                     this._updateMirrorReflectionBatch();
                     this._mirrorReflectionReady = true;
+                } else if (colorChanged) {
+                    this._updateMirrorReflectionColors();
                 }
             }
         } else {

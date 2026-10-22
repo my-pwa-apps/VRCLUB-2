@@ -13,13 +13,13 @@
     <main>
         <p class="eyebrow">NOCTURNE / LIVE AUDIO</p>
         <h1>Your set. One live feed.</h1>
-        <p class="intro">Send your mixer or audio interface to everyone in this event. The club's dancers and lights follow the music your audience actually hears.</p>
+        <p class="intro">Check your mixer before guests arrive. With a private DJ invitation, this page also sends your set to everyone in the live session.</p>
         <section aria-labelledby="setup">
-            <h2 id="setup">Connect your mixer</h2>
+            <h2 id="setup">1. Connect and check your sound</h2>
             <ol>
-                <li>Route your master output to an operating-system recording input, interface loopback or virtual audio cable. A browser cannot read an ASIO-only output directly.</li>
+                <li>Connect your mixer or audio interface to this computer and play a track. Choose its recording input below, not the laptop microphone.</li>
                 <li>Choose that input below. The browser calls recording permission “microphone”; this page never requests a camera.</li>
-                <li>Monitor on your mixer or interface, not through the club. There is deliberately no local audio monitor here.</li>
+                <li>Check that both bars move. Listen on your mixer or headphones; this page does not play sound through the computer speakers.</li>
             </ol>
             <button id="discover" type="button">Allow audio and find inputs</button>
             <label for="input">Audio input</label>
@@ -29,22 +29,28 @@
                 <button id="stop" class="secondary" type="button" disabled>Stop broadcasting</button>
             </div>
             <p id="status" role="status" aria-live="polite">Checking your private DJ invitation...</p>
-            <p id="format"></p>
+            <details><summary>Audio input details</summary><p id="format"></p></details>
             <div class="meter"><label for="left">Left</label><progress id="left" max="1" value="0"></progress><output id="leftValue">Silent</output></div>
             <div class="meter"><label for="right">Right</label><progress id="right" max="1" value="0"></progress><output id="rightValue">Silent</output></div>
             <p id="clipping" role="status">Keep peaks below clipping.</p>
         </section>
         <section aria-labelledby="remember">
-            <h2 id="remember">Keep this page open</h2>
+            <h2 id="remember">2. Ready for guests?</h2>
+            <p>Without a private DJ invitation, this is only a sound check. In the club, use Music → Live input to test the dancers and lights and choose Go live when you are ready.</p>
             <p>You can switch to your DJ software, but do not close this tab or let this computer sleep. Stopping here pauses the feed for every event room; it does not end the event.</p>
             <p>Use headphones or hardware monitoring to avoid feedback. Start your music and check both meters before sharing the audience link.</p>
             <p>Only perform and broadcast music you are authorized to share. This is a direct audio broadcast, not a Twitch extractor or a recording service.</p>
             <p class="private">This private link grants broadcast access. Do not share it with your audience. Its secret is removed from the address bar after loading; keep the original invitation if you need to reopen this page. The event owner can replace it or end the event.</p>
-            <a href="../">Open the club</a>
+            <details>
+                <summary>My mixer is not in the list, or there is no sound</summary>
+                <p>Check the cable and the mixer's recording volume. If your interface offers a loopback input, choose that. An ASIO-only output may need a virtual audio cable before a browser can receive it.</p>
+            </details>
+            <a href="../?liveInput=1">Open Live input in the club</a>
         </section>
     </main>
     <script src="../js/sfuClient.js"></script>
     <script src="../js/liveAudioClient.js"></script>
+    <script src="../js/liveInput.js"></script>
     <script src="broadcast.js"></script>
 </body>
 </html>

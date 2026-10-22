@@ -370,9 +370,7 @@ class VRClubAnimationFixtures extends VRClubAnimationCore {
         // The automatic show returns once nobody has touched the lights for the guest's chosen time. Not at all when
         // they chose to keep their lights or to shuffle the colours: those end with AUTO SHOW.
         if (this.vjManualMode && (time - this.lastVJInteraction) > this.lightHandBackSeconds()) {
-            this.vjManualMode = false;
-            this.spotlightPattern = 0; // Switch to automated pattern
-            if (this.showDirector && typeof this.showDirector.releaseHold === 'function') this.showDirector.releaseHold();
+            this.resumeAutoShow();
             log.info('🤖 Automated patterns resumed - no VJ interaction for the chosen time');
         }
     }
@@ -731,6 +729,12 @@ class VRClubAnimationFixtures extends VRClubAnimationCore {
             out.z = 0;
             
         } else if (pattern === 2) {
+            if (this.spotSequence === 5) {
+                const phase = (this.spotlights?.[i]?._rigBeat || 0) * Math.PI / 24;
+                out.x = (i < 3 ? 1 : -1) * (0.32 + 0.22 * Math.sin(phase));
+                out.z = 0.18 * Math.cos(phase);
+                return out;
+            }
             // PATTERN 2: MIRROR SWEEP - Left and right sides sweep toward/away from each other
             // Creates synchronized converging (toward center) and diverging (away from center) motion
             const sweepPhase = globalPhase * speedMultiplier;

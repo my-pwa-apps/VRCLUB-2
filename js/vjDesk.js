@@ -2,7 +2,7 @@
 // The VJ desk at the DJ table: two angled touch panels either side of the DJ controller, for whoever takes over from
 // the DJ. Mixed into VRClub.prototype by club_hyperrealistic.js.
 //
-//   left  SHOW    who runs the lights, show navigation, live moments, personal safety and two faders
+//   left  SHOW    automatic show on/off, DJ presence and twelve personal lighting presets
 //   right LIGHTS  every fixture on or off, plus spotlight movement, aim path, projected gobo image and wall picture
 //   centre PLAYER previous, play/pause, stop and next symbols above a seek strip in front of the mixer
 //
@@ -50,10 +50,9 @@ function vjDeskLayout() {
             w: Math.round(width * span + gap * (span - 1)), h: rows[row].height
         });
     };
-    const rowHeights = [92, 92, 92, 78, 70, 70];
+    const rowHeights = [112, 100, 100, 100];
     const show = grid(3, rowHeights);
-    const showActions = grid(4, rowHeights);
-    const sections = grid(5, rowHeights);   // row 3 holds one button per show section
+    const showActions = grid(2, rowHeights);
     const lights = grid(4, [82, 82, 82, 82, 82, 82]);
     const light = (id, label, control, col, row, colour, extra = {}) =>
         ({ id, panel: 'lights', kind: 'light', label, control, colour, rect: lights(col, row), ...extra });
@@ -86,27 +85,17 @@ function vjDeskLayout() {
         id: 'clearFx', panel: 'transport', page: 'fx', kind: 'effectClear', label: 'CLEAR FX', colour,
         rect: { x: playerMargin + crossfaderWidth + playerGap, y: 244, w: fxRowWidth - crossfaderWidth - playerGap, h: 50 }
     });
-    const sectionButton = (id, label, col, colour) =>
-        ({ id: `section-${id}`, panel: 'show', kind: 'section', section: id, label, rect: sections(col, 3), colour });
     return Object.freeze({
         show: Object.freeze([
             { id: 'auto', panel: 'show', kind: 'auto', label: 'AUTO SHOW', rect: showActions(0, 0), colour: '#19c37d' },
-            { id: 'holdLook', panel: 'show', kind: 'holdLook', label: 'HOLD LOOK', rect: showActions(1, 0), colour: '#39d0ff' },
-            { id: 'drop', panel: 'show', kind: 'drop', label: 'COUNTDOWN / DROP', rect: showActions(2, 0), colour: '#ff5d7a' },
-            { id: 'next', panel: 'show', kind: 'next', label: 'NEXT SECTION', rect: showActions(3, 0), colour: '#b48cff' },
-            { id: 'blackout', panel: 'show', kind: 'blackout', label: 'BLACKOUT', rect: show(0, 1), colour: '#9aa3b5' },
-            { id: 'lock', panel: 'show', kind: 'lock', label: 'BEAMS TO FLOOR', rect: show(1, 1), colour: '#ffc247' },
-            { id: 'tap', panel: 'show', kind: 'tap', label: 'TAP TEMPO', rect: show(2, 1), colour: '#ffc247' },
-            { id: 'dj', panel: 'show', kind: 'dj', label: 'RESIDENT DJ', rect: show(0, 2), colour: '#7aa7ff' },
-            { id: 'safeMode', panel: 'show', kind: 'safeMode', label: 'SAFE MODE', rect: show(1, 2), colour: '#39d0ff' },
-            { id: 'reset', panel: 'show', kind: 'reset', label: 'RESET LIGHTS', rect: show(2, 2), colour: '#9aa3b5' },
-            sectionButton('arrival', 'ARRIVAL', 0, '#7aa7ff'),
-            sectionButton('pulse', 'PULSE', 1, '#39d0ff'),
-            sectionButton('ascent', 'ASCENT', 2, '#b48cff'),
-            sectionButton('ignition', 'IGNITION', 3, '#ff5d7a'),
-            sectionButton('afterglow', 'AFTERGLOW', 4, '#ffc247'),
-            { id: 'brightness', panel: 'show', kind: 'fader', fader: 'brightness', label: 'BRIGHTNESS', rect: show(0, 4, 3), colour: '#ffffff' },
-            { id: 'speed', panel: 'show', kind: 'fader', fader: 'speed', label: 'MOVEMENT SPEED', rect: show(0, 5, 3), colour: '#39d0ff' }
+            { id: 'dj', panel: 'show', kind: 'dj', label: 'SEND DJ HOME', rect: showActions(1, 0), colour: '#7aa7ff' },
+            { id: 'presetSelect', panel: 'show', kind: 'presetSelect', label: 'CHOOSE PRESET', rect: show(0, 1, 3), colour: '#b48cff' },
+            { id: 'presetPrevious', panel: 'show', kind: 'presetPrevious', label: 'PREVIOUS SLOT', rect: show(0, 2), colour: '#b48cff' },
+            { id: 'presetRecall', panel: 'show', kind: 'presetRecall', label: 'RECALL PRESET', rect: show(1, 2), colour: '#19c37d' },
+            { id: 'presetNext', panel: 'show', kind: 'presetNext', label: 'NEXT SLOT', rect: show(2, 2), colour: '#b48cff' },
+            { id: 'presetSave', panel: 'show', kind: 'presetSave', label: 'SAVE LIGHTING', rect: show(0, 3), colour: '#39d0ff' },
+            { id: 'presetDelete', panel: 'show', kind: 'presetDelete', label: 'DELETE PRESET', rect: show(1, 3), colour: '#ff5d7a' },
+            { id: 'presetManage', panel: 'show', kind: 'presetManage', label: 'NAME / TRANSFER', rect: show(2, 3), colour: '#b48cff' }
         ]),
         lights: Object.freeze([
             light('spots', 'SPOTS', 'lightsActive', 0, 0, '#ff8a1f'),
@@ -126,12 +115,11 @@ function vjDeskLayout() {
             light('mirrorRays', 'MIRROR BEAMS', 'mirrorBallRaysActive', 2, 3, '#ffd23a'),
             light('goboShape', 'GOBO IMAGE', 'cycleGoboPattern', 3, 3, '#39e0c8', { step: true }),
             { id: 'strobePattern', panel: 'lights', kind: 'light', label: 'STROBE PATTERN', control: 'cycleStrobePattern', colour: '#f2f4ff', rect: lights(0, 4, 2), step: true },
-            { id: 'holdMode', panel: 'lights', kind: 'holdMode', label: 'AFTER MY CHANGE', rect: lights(2, 4), colour: '#19c37d' },
-            { id: 'holdTiming', panel: 'lights', kind: 'holdTiming', label: 'TIMING', rect: lights(3, 4), colour: '#19c37d' },
+            { id: 'spotRigPage', panel: 'lights', kind: 'lightsPage', targetPage: 'rig', label: 'SPOT RIG', colour: '#ff8a1f', rect: lights(2, 4, 2) },
             { id: 'laserColour', panel: 'lights', kind: 'light', label: 'LASER COLOUR', control: 'changeLaserColor', colour: '#38e870', rect: lights(0, 5), step: true },
             { id: 'mirrorColour', panel: 'lights', kind: 'light', label: 'MIRROR COLOUR', control: 'changeMirrorBallColor', colour: '#ffd23a', rect: lights(1, 5), step: true },
             { id: 'matchColours', panel: 'lights', kind: 'light', label: 'MATCH ALL COLOURS', control: 'matchAllColors', colour: '#ffffff', rect: lights(2, 5), step: true },
-            { id: 'spotRigPage', panel: 'lights', kind: 'lightsPage', label: 'SPOT RIG', colour: '#ff8a1f', rect: lights(3, 5) }
+            { id: 'lightSettings', panel: 'lights', kind: 'lightsPage', targetPage: 'settings', label: 'SETTINGS', colour: '#ffffff', rect: lights(3, 5) }
         ].map(button => Object.freeze({ ...button, page: 'fixtures' })).concat([
             { id: 'spotTarget', panel: 'lights', page: 'rig', kind: 'spotRig', label: 'EDIT GROUP', control: 'cycleSpotTarget', colour: '#ff8a1f', rect: lights(0, 0, 4) },
             { id: 'spotGroupOn', panel: 'lights', page: 'rig', kind: 'spotRig', label: 'GROUP ON/OFF', control: 'toggleSpotGroup', colour: '#ff8a1f', rect: lights(0, 1, 2) },
@@ -140,7 +128,14 @@ function vjDeskLayout() {
             { id: 'spotSequence', panel: 'lights', page: 'rig', kind: 'spotRig', label: 'SEQUENCE (CARRIES SPOT COLOUR)', control: 'cycleSpotSequence', colour: '#ff8a1f', rect: lights(0, 3, 4) },
             { id: 'spotRate', panel: 'lights', page: 'rig', kind: 'spotRig', label: 'STEP EVERY', control: 'cycleSpotSequenceRate', colour: '#ff8a1f', rect: lights(0, 4, 2) },
             { id: 'spotReset', panel: 'lights', page: 'rig', kind: 'spotRig', label: 'RESET SPOT RIG', control: 'resetSpotRig', colour: '#ff8a1f', rect: lights(2, 4, 2) },
-            { id: 'spotRigBack', panel: 'lights', page: 'rig', kind: 'lightsPage', label: 'BACK TO ALL LIGHTS', colour: '#ffffff', rect: lights(0, 5, 4) }
+            { id: 'spotRigBack', panel: 'lights', page: 'rig', kind: 'lightsPage', targetPage: 'fixtures', label: 'BACK TO ALL LIGHTS', colour: '#ffffff', rect: lights(0, 5, 4) },
+            { id: 'brightness', panel: 'lights', page: 'settings', kind: 'fader', fader: 'brightness', label: 'BRIGHTNESS', rect: lights(0, 0, 4), colour: '#ffffff' },
+            { id: 'speed', panel: 'lights', page: 'settings', kind: 'fader', fader: 'speed', label: 'MOVEMENT SPEED', rect: lights(0, 1, 4), colour: '#39d0ff' },
+            { id: 'safeMode', panel: 'lights', page: 'settings', kind: 'safeMode', label: 'SAFE MODE', rect: lights(0, 2, 2), colour: '#39d0ff' },
+            { id: 'reset', panel: 'lights', page: 'settings', kind: 'reset', label: 'RESET LIGHTS', rect: lights(2, 2, 2), colour: '#9aa3b5' },
+            { id: 'holdMode', panel: 'lights', page: 'settings', kind: 'holdMode', label: 'AFTER MY CHANGE', rect: lights(0, 3, 2), colour: '#19c37d' },
+            { id: 'holdTiming', panel: 'lights', page: 'settings', kind: 'holdTiming', label: 'RETURN / SHUFFLE TIMING', rect: lights(2, 3, 2), colour: '#19c37d' },
+            { id: 'settingsBack', panel: 'lights', page: 'settings', kind: 'lightsPage', targetPage: 'fixtures', label: 'BACK TO ALL LIGHTS', colour: '#ffffff', rect: lights(0, 5, 4) }
         ])),
         transport: Object.freeze([
             {
@@ -532,6 +527,8 @@ const VJDesk = {
         // A hand already holds a control by touch: the trigger is its fine control, not a new grab.
         if (this._vjDeskDrag && this._vjDeskDrag.direct) return true;
         const button = hit.button;
+        const reason = this._vjDeskDisabledReason(button);
+        if (reason) { this.showErrorMessage(reason); return true; }
         this._vjDeskPressed = { id: button.id, until: performance.now() + VJ_DESK.pressMs };
         if (button.kind === 'fader') {
             if (this._vjDeskSetFader(button, hit.x)) this._vjDeskLockSlider({ panel: hit.panel, button }, pickResult);
@@ -648,6 +645,7 @@ const VJDesk = {
 
     /** Why an effect control cannot be used right now (empty when it can); the panel shows the same words. */
     _vjDeskEffectBlocked() {
+        if (this.liveInput?.active) return 'MIXER INPUT';
         if (this.multiplayer?.hasLiveEvent) return 'LIVE EVENT DJ';
         if (this.isPeopleVisible('dj')) return 'SEND DJ HOME';
         if (this._audioKind === 'soundcloud') return 'PLAYER AUDIO ONLY';
@@ -809,11 +807,13 @@ const VJDesk = {
 
     _runVJDeskButton(button) {
         const toast = text => this.showErrorMessage(text);
+        if (!['presetSave', 'presetDelete'].includes(button.kind)) this._vjPresetConfirm = null;
         if (button.kind === 'lightsPage') {
-            this._vjDeskLightsPage = this._vjDeskLightsPage === 'rig' ? 'fixtures' : 'rig';
+            this._vjDeskLightsPage = button.targetPage;
             if (this._vjDesk) this._vjDesk.dirty = true;
             return;
         }
+        if (button.kind.startsWith('preset')) { this._runVJDeskPreset(button); return; }
         if (button.kind === 'spotRig') {
             this.toggleLightControl(button.control);
             if (this._vjDesk) this._vjDesk.dirty = true;
@@ -848,36 +848,62 @@ const VJDesk = {
             return;
         }
         if (!this.guardHostControl('lights')) return;
-        const vj = this.vjDirector, show = this.showDirector;
-        const driving = !!(show && show.isDriving());
+        const show = this.showDirector;
         switch (button.kind) {
             case 'auto':
-                if (!this.vjManualMode && !show?.isHeld()) { toast('The automatic show already has the lights'); return; }
-                this.resumeAutoShow();
-                toast('The automatic show has the lights again');
+                if (!this.vjManualMode && show?.enabled !== false) {
+                    if (Number.isFinite(this.masterIntensity)) this.vjDirector?.setMasterIntensity(this.masterIntensity);
+                    this.takeLightControl();
+                    toast(`Auto show off: the current lighting keeps moving. ${this.lightHoldSummary()}`);
+                } else {
+                    this.resumeAutoShow();
+                    toast('Auto show on: the automatic show has the lights again');
+                }
                 return;
-            case 'holdLook': this.toggleShowLookHold(); return;
-            case 'drop':
-                if (driving) show.triggerShowDrop();
-                else if (vj) vj.triggerDrop();
-                return;
-            case 'blackout': if (vj) vj.blackout(800); return;
-            case 'next':
-                if (!driving) { toast('Next section is part of the automatic show: press AUTO SHOW first'); return; }
-                toast(`Next section: ${this.nextShowSection()}`);
-                return;
-            case 'section': {
-                const title = this.pickShowSection(button.section);
-                if (title) toast(`Section: ${title}`);
-                return;
-            }
-            case 'tap': if (vj) vj.tapTempo(); return;
-            case 'lock': if (vj) vj.lockToCenter(4000); return;
             case 'reset':
                 this.resetVJControls();
                 toast('Lights reset: the automatic show has them again');
                 return;
             case 'light': this.toggleLightControl(button.control); return;
+        }
+    },
+
+    _lightingPresetStore() {
+        return this.lightingPresets || (this.lightingPresets = new window.LightingPresets(this));
+    },
+
+    _runVJDeskPreset(button) {
+        try {
+            const presets = this._lightingPresetStore(), slot = presets.selected;
+            if (button.kind === 'presetManage') {
+                presets.openManager().catch(error => this.showErrorMessage(`Could not open presets: ${error.message}`));
+                return;
+            }
+            if (['presetPrevious', 'presetNext', 'presetSelect'].includes(button.kind)) {
+                presets.selected = (slot + (button.kind === 'presetPrevious' ? 11 : 1)) % 12;
+                this._vjPresetConfirm = null;
+            } else if (button.kind === 'presetRecall') {
+                presets.recall(slot);
+                this._vjPresetConfirm = null;
+            } else {
+                const replacing = button.kind === 'presetSave' && !!presets.slots[slot];
+                const deleting = button.kind === 'presetDelete';
+                if (replacing || deleting) {
+                    const pending = this._vjPresetConfirm;
+                    if (!pending || pending.kind !== button.kind || pending.slot !== slot || performance.now() > pending.until) {
+                        this._vjPresetConfirm = { kind: button.kind, slot, until: performance.now() + 4000 };
+                        this.showErrorMessage(`Press ${deleting ? 'DELETE PRESET' : 'SAVE LIGHTING'} again within 4 seconds to ${deleting ? 'delete' : 'replace'} slot ${slot + 1}`);
+                        return;
+                    }
+                }
+                if (deleting) presets.remove(slot);
+                else presets.save(slot);
+                this._vjPresetConfirm = null;
+                this.showErrorMessage(deleting ? `Preset slot ${slot + 1} cleared` : `Lighting saved in slot ${slot + 1}. Your lights have not changed.`);
+            }
+            if (this._vjDesk) this._vjDesk.dirty = true;
+        } catch (error) {
+            this.showErrorMessage(`Could not use presets: ${error.message}`);
         }
     },
 
@@ -1140,18 +1166,23 @@ const VJDesk = {
         }
         const show = this.showDirector;
         if (show && show.enabled) {
-            const movement = show.movements && show.movements[show._movementName];
-            const title = movement && movement.title ? movement.title.toUpperCase() : '';
             if (typeof show.isHeld === 'function' && show.isHeld()) {
                 const left = show.holdSecondsLeft();
-                return { tone: 'auto', title: 'AUTOMATIC SHOW', detail: `HOLDING ${title || 'THIS SECTION'}${left === null ? ' UNTIL YOU PRESS AUTO SHOW' : `: CARRIES ON IN ${left} S`}.` };
+                return { tone: 'auto', title: 'AUTOMATIC SHOW', detail: `HOLDING THIS LOOK${left === null ? '' : `: CARRIES ON IN ${left} S`}.` };
             }
-            return { tone: 'auto', title: 'AUTOMATIC SHOW', detail: `NOCTURNE${title ? `: ${title}` : ''}. TOUCH ANY CONTROL TO TAKE OVER.` };
+            return { tone: 'auto', title: 'AUTOMATIC SHOW', detail: 'AUTO SHOW IS ON. CHANGE A LIGHT OR RECALL A PRESET TO TAKE OVER.' };
         }
         return { tone: 'auto', title: 'AUTOMATIC SHOW', detail: 'CLASSIC LIGHT CYCLE. TOUCH ANY CONTROL TO TAKE OVER.' };
     },
 
     _vjDeskPlayerStatus() {
+        if (this.liveInput?.active) {
+            return { tone: 'music', title: 'MIXER INPUT', detail: `${this.liveInput.live ? 'BROADCASTING' : 'PRIVATE TEST'}. MANAGE IT IN MUSIC > LIVE INPUT.` };
+        }
+        if (this.multiplayer?.hasLiveEvent) {
+            return { tone: 'music', title: 'LIVE DJ EVENT', detail: this.multiplayer.liveEvent?.live
+                ? 'LIVE AUDIO. THE EVENT DJ CONTROLS THE SET.' : 'WAITING FOR THE EVENT DJ TO GO LIVE.' };
+        }
         if (this._vjDeskPlayerPage === 'fx') {
             const drag = this._vjDeskDrag;
             if (drag && drag.knob) {
@@ -1179,7 +1210,16 @@ const VJDesk = {
 
     /** Why a button cannot do anything right now, or '' when it can. */
     _vjDeskDisabledReason(button) {
+        if (this.liveInput?.active && ['transport', 'seek', 'effect', 'crossfader', 'effectClear'].includes(button.kind)) return 'MIXER INPUT';
         if (this.multiplayer?.hasLiveEvent && ['transport', 'seek', 'effect', 'crossfader', 'effectClear'].includes(button.kind)) return 'LIVE EVENT DJ';
+        if (button.kind.startsWith('preset')) {
+            const store = this._lightingPresetStore();
+            if (button.kind === 'presetRecall' && this.isFollowingHost()) return 'HOST ONLY';
+            if (['presetRecall', 'presetDelete'].includes(button.kind) && !store.slots[store.selected]) return 'EMPTY SLOT';
+            if (['presetSave', 'presetDelete', 'presetRecall'].includes(button.kind) && store.error) return 'RESTORE A BACKUP FIRST';
+            return '';
+        }
+        if (button.kind === 'dj' && this._roomDJVisible === false) return 'HOST SENT DJ HOME';
         if (button.kind === 'lightsPage' || button.control === 'cycleSpotTarget') return '';
         if (button.kind === 'dj' || button.kind === 'holdMode' || button.kind === 'safeMode') return '';
         if (button.kind === 'playerPage') return '';
@@ -1201,9 +1241,6 @@ const VJDesk = {
             if (!info.seekable) return this._audioKind || (this.audioElement && this.audioElement.src) ? 'LIVE: NO TIMELINE' : 'NOTHING LOADED';
         }
         if (this.photosensitiveSafeMode && (button.control === 'strobesActive' || button.control === 'spotStrobeActive')) return 'SAFE MODE';
-        if (button.kind === 'holdLook') return this.showLookHoldUnavailableReason();
-        if (button.kind === 'next' && !(this.showDirector && this.showDirector.isDriving())) return 'AUTO SHOW ONLY';
-        if (button.kind === 'section' && !(this.showDirector && this.showDirector.enabled)) return 'AUTO SHOW ONLY';
         return '';
     },
 
@@ -1214,22 +1251,37 @@ const VJDesk = {
         const onOff = on => { out.active = !!on; out.value = on ? 'ON' : 'OFF'; };
         const vj = this.vjDirector;
         switch (button.kind) {
-            case 'lightsPage': out.value = this._vjDeskLightsPage === 'rig' ? 'FIXTURES / COLOURS' : 'HEADS / ROWS / COLUMNS'; break;
+            case 'lightsPage': out.value = button.targetPage === 'rig' ? 'HEADS / ROWS / COLUMNS' : button.targetPage === 'settings' ? 'BRIGHTNESS / SPEED / SAFETY' : 'FIXTURES / COLOURS'; break;
             case 'spotRig': out.value = this.spotRigControlValue(button.control); out.active = !out.disabled; break;
             case 'auto':
-                out.active = !this.vjManualMode;
-                out.value = this.showDirector?.isHeld() ? 'RELEASE HELD LOOK' : out.active ? 'RUNNING' : 'TAP TO HAND BACK';
-                break;
-            case 'holdLook':
-                out.active = !!this.showDirector?.isHeld();
-                out.value = out.active ? 'HELD: TAP TO RELEASE' : 'KEEP THIS SEQUENCE';
+                out.active = !this.vjManualMode && this.showDirector?.enabled !== false;
+                out.value = out.active ? 'ON: TAP TO TURN OFF' : 'OFF: TAP TO TURN ON';
                 break;
             case 'dj': {
                 const here = this.isPeopleVisible('dj');
                 out.active = here;
-                out.value = here ? 'PLAYING' : this._roomDJVisible === false ? 'HOST SENT HOME' : 'SENT HOME';
+                out.label = here ? 'SEND DJ HOME' : 'BRING DJ BACK';
+                out.value = here ? 'IN THE CLUB' : 'AT HOME';
                 break;
             }
+            case 'presetSelect': {
+                const store = this._lightingPresetStore();
+                out.label = `PRESET ${store.selected + 1} OF 12`;
+                out.value = store.slots[store.selected]?.name || 'EMPTY SLOT: SAVE YOUR LIGHTING HERE';
+                break;
+            }
+            case 'presetPrevious': out.value = 'CHOOSE ONLY'; break;
+            case 'presetNext': out.value = 'CHOOSE ONLY'; break;
+            case 'presetRecall': out.value = 'APPLY SAVED LIGHTING'; break;
+            case 'presetSave': case 'presetDelete': {
+                const store = this._lightingPresetStore(), pending = this._vjPresetConfirm;
+                const confirm = pending?.kind === button.kind && pending.slot === store.selected && performance.now() <= pending.until;
+                out.value = confirm ? 'PRESS AGAIN TO CONFIRM' : button.kind === 'presetDelete' ? 'REMOVE THIS SLOT' : store.slots[store.selected] ? 'REPLACE THIS SLOT' : 'SAVE IN THIS SLOT';
+                break;
+            }
+            case 'presetManage':
+                out.value = this.isInVRMode ? this._immersive && this._immersive.mode !== 'manual' ? 'USE DESKTOP / PHONE' : 'LEAVES VR' : 'RENAME / IMPORT / EXPORT';
+                break;
             case 'music': {
                 const info = this.getPlaybackInfo();
                 const loaded = !!(this.audioElement && this.audioElement.src);
@@ -1287,22 +1339,6 @@ const VJDesk = {
                 out.value = info.seekable ? `${vjDeskClock(position)} / ${vjDeskClock(info.duration)}` : 'NO TIMELINE';
                 break;
             }
-            case 'drop': out.value = this.showDirector && this.showDirector.isDriving() ? 'COUNTDOWN, THEN DROP' : 'PEAK LOOK NOW'; break;
-            case 'blackout': out.value = 'ALL DARK, ONE MOMENT'; break;
-            case 'next': {
-                const show = this.showDirector;
-                const movement = show && show.movements && show.movements[show._movementName];
-                out.value = movement && movement.title ? `NOW: ${movement.title.toUpperCase()}` : 'NEXT PART OF THE SHOW';
-                break;
-            }
-            case 'tap': out.value = `TAP ON THE BEAT: ${Math.round((vj && vj.bpm) || this.vjBPM || 120)} BPM`; break;
-            case 'section': {
-                const show = this.showDirector;
-                const playing = !!(show && show.isDriving() && show._movementName === button.section);
-                out.active = playing;
-                out.value = playing ? (typeof show.isHeld === 'function' && show.isHeld() ? 'KEPT' : 'PLAYING') : 'TAP TO JUMP';
-                break;
-            }
             case 'holdMode': {
                 const hold = this.lightHold || { mode: 'resume' };
                 out.value = hold.mode === 'keep' ? 'KEEP IT' : hold.mode === 'shuffle' ? 'SHUFFLE COLOURS' : 'RETURN TO AUTO';
@@ -1313,15 +1349,15 @@ const VJDesk = {
                 out.value = hold.mode === 'keep' ? '' : VRClubUI.lightHoldSecondsName(hold.mode === 'shuffle' ? hold.shuffle : hold.delay);
                 break;
             }
-            case 'lock': out.value = 'ALL HEADS DOWN, 4 S'; break;
             case 'reset': out.value = 'DEFAULTS + AUTO SHOW'; break;
             case 'fader':
                 if (button.fader === 'brightness') {
-                    const level = vj && Number.isFinite(vj.targetMasterIntensity) ? vj.targetMasterIntensity : 1;
+                    const level = this.showDirector?.isDriving() && Number.isFinite(this.masterIntensity)
+                        ? this.masterIntensity : vj && Number.isFinite(vj.targetMasterIntensity) ? vj.targetMasterIntensity : 1;
                     out.level = level;
                     out.value = `${Math.round(level * 100)}%`;
                 } else {
-                    const speed = this.spotlightSpeed || 1;
+                    const speed = this.spotlightSpeed ?? 1;
                     out.level = (speed - 0.1) / 1.9;
                     out.value = `${speed.toFixed(1)}x`;
                 }
@@ -1368,7 +1404,7 @@ const VJDesk = {
         for (const button of panel.buttons) {
             if (!this._vjDeskButtonOnPage(button)) continue;
             const s = this._vjDeskButtonState(button);
-            signature += `|${s.value}${s.active ? 1 : 0}${s.disabled ? 1 : 0}${s.pressed ? 1 : 0}${s.grabbed ? 1 : 0}${s.hover ? 1 : 0}${s.swatch || ''}${s.level == null ? '' : s.level.toFixed(3)}`;
+            signature += `|${s.label || button.label}|${s.value}${s.active ? 1 : 0}${s.disabled ? 1 : 0}${s.pressed ? 1 : 0}${s.grabbed ? 1 : 0}${s.hover ? 1 : 0}${s.swatch || ''}${s.level == null ? '' : s.level.toFixed(3)}`;
         }
         return signature;
     },
@@ -1395,13 +1431,22 @@ const VJDesk = {
         ctx.fillStyle = toneColour;
         ctx.font = 'bold 50px sans-serif';
         const headerWidth = panel.id === 'transport' ? W - 340 : W - 120;
-        ctx.fillText(status ? status.title : 'LIGHTS', 68, 50, headerWidth);
+        ctx.fillText(status ? status.title : this._vjDeskLightsPage === 'rig' ? 'SPOT RIG' : this._vjDeskLightsPage === 'settings' ? 'LIGHT SETTINGS' : 'LIGHTS', 68, 50, headerWidth);
         ctx.fillStyle = '#c3cad6';
         ctx.font = 'bold 28px sans-serif';
-        ctx.fillText(status ? status.detail : 'TOUCH A LIGHT TO SWITCH IT ON OR OFF, OR TO STEP TO THE NEXT ONE', 68, 98, headerWidth);
+        ctx.fillText(status ? status.detail : this._vjDeskLightsPage === 'rig' ? 'CHOOSE A GROUP, THEN SET ITS COLOUR, MOVEMENT OR SEQUENCE'
+            : this._vjDeskLightsPage === 'settings' ? 'YOUR RETURN-TO-AUTO PREFERENCE ALSO APPLIES TO RECALLED PRESETS'
+                : 'SWITCH FIXTURES ON / OFF. COLOUR AND PICTURE BUTTONS STEP TO THE NEXT OPTION', 68, 98, headerWidth);
 
         for (const button of panel.buttons) {
             if (this._vjDeskButtonOnPage(button)) this._drawVJDeskButton(ctx, button, this._vjDeskButtonState(button));
+        }
+        if (panel.id === 'show') {
+            ctx.textAlign = 'left';
+            ctx.fillStyle = '#c3cad6';
+            ctx.font = 'bold 30px sans-serif';
+            ctx.fillText('PRESETS SAVE LIGHTING ONLY, NOT MUSIC OR DJ PRESENCE.', 40, 635, W - 80);
+            ctx.fillText(`AFTER RECALL: ${this.lightHoldSummary()}. CHANGE THIS IN LIGHTS > SETTINGS.`, 40, 680, W - 80);
         }
         panel.texture.update();
     },
@@ -1649,7 +1694,7 @@ const VJDesk = {
         ctx.fillStyle = ink;
         const small = h < 90;
         ctx.font = `bold ${small ? 34 : 40}px sans-serif`;
-        ctx.fillText(button.label, x + 20, y + h * (small ? 0.32 : 0.36), textWidth);
+        ctx.fillText(state.label || button.label, x + 20, y + h * (small ? 0.32 : 0.36), textWidth);
         ctx.fillStyle = sub;
         ctx.font = `bold ${small ? 24 : 27}px sans-serif`;
         ctx.fillText(state.value, x + 20, y + h * (small ? 0.72 : 0.74), textWidth);
