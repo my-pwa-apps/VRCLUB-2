@@ -156,6 +156,8 @@ test('script load order honours the dependency contract', () => {
     // ShowDirector reads the beat grid VJDirector publishes.
     assert.ok(idx('js/sfuClient.js') > -1 && idx('js/sfuClient.js') < idx('js/networkClient.js'),
         'sfuClient must precede networkClient');
+    assert.ok(idx('js/liveAudioClient.js') > idx('js/sfuClient.js') &&
+        idx('js/liveAudioClient.js') < idx('js/networkClient.js'), 'event audio must load after SFU and before networkClient');
     assert.ok(idx('js/vjDirector.js') < idx('js/showDirector.js'), 'vjDirector must precede showDirector');
     // ui-init drives the splash screen and instantiates VRClub.
     assert.ok(idx('js/ui-init.js') > main, 'ui-init.js must load after club_hyperrealistic.js');

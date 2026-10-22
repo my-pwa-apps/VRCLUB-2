@@ -403,6 +403,50 @@ class VRClubAnimationFixtures extends VRClubAnimationCore {
         return (hold && hold.delay) || this.VJ_TIMEOUT || 60;
     }
 
+    static spotSequenceTarget(sequence, head, step) {
+        if (sequence === 1) return head === step % 6;
+        if (sequence === 2) return head % 3 === step % 3;
+        if (sequence === 3) return Math.floor(head / 3) === step % 2;
+        if (sequence === 4) return step % 4 < 3 && head % 3 <= step % 4;
+        if (sequence === 5) return step % 3 < 2 && Math.floor(head / 3) <= step % 3;
+        if (sequence === 6) return step % 7 < 6 && head <= step % 7;
+        return true;
+    }
+
+    /** Use the host's musical position for shared sequences, including manual lighting. */
+    spotRigBeat(time = performance.now() / 1000) {
+        const bpm = this.vjDirector?.remoteDriven && this._spotRemoteBpm ? this._spotRemoteBpm : this.vjBPM || 120;
+        if (this.vjDirector?.remoteDriven && Number.isFinite(this._spotRemoteBeat)) {
+            return this._spotRemoteBeat + Math.max(0, time - this._spotRemoteAt) * bpm / 60;
+        }
+        const vj = this.vjDirector;
+        if (!vj || !Number.isFinite(vj.beatNumber)) return time * bpm / 60 + (this._spotBeatOffset || 0);
+        const inBar = ((vj.beatNumber % 4) + 4) % 4;
+        return vj.beatNumber + Math.max(0, Math.min(1, (this.barPhase || 0) * 4 - inBar)) + (this._spotBeatOffset || 0);
+    }
+
+    _updateSpotRig(spot, i, time, dtScale) {
+        if (!spot._rigKeys) spot._rigKeys = [`spotHead${i}Enabled`, `spotHead${i}Color`, `spotHead${i}Motion`];
+        const sequence = this.spotSequence || 0;
+        const rate = this.spotSequenceRate || 2;
+        // Above 150 BPM a one-beat chase uses alternate beats, never an extra flash source.
+        const bpm = this.vjDirector?.remoteDriven && this._spotRemoteBpm ? this._spotRemoteBpm : this.vjBPM || 120;
+        const stride = Math.max(1, Math.ceil(0.4 * bpm / (60 * rate)));
+        spot._rigBeat = this.spotRigBeat(time);
+        const step = Math.max(0, Math.floor(spot._rigBeat / (rate * stride)));
+        const on = this[spot._rigKeys[0]] !== false && VRClubAnimationFixtures.spotSequenceTarget(sequence, i, step);
+        const target = on ? (sequence && this.photosensitiveSafeMode ? 0.45 : 1) : 0;
+        const previous = spot._rigLevel == null ? (sequence ? 0 : 1) : spot._rigLevel;
+        const ease = 1 - Math.exp(-dtScale / (60 * (this.photosensitiveSafeMode ? 0.5 : 0.12)));
+        spot._rigLevel = previous + (target - previous) * ease;
+        if (spot._rigLevel < 0.001) spot._rigLevel = 0;
+        const color = this[spot._rigKeys[1]] ?? -1;
+        // A chase carries SPOT COLOUR through the groups; STEADY restores their individual colours.
+        spot._rigColor = !this.colorLockActive && !sequence && color >= 0
+            ? this.spotColorList[color] || this.currentSpotColor : this.currentSpotColor;
+        spot._rigMotion = this[spot._rigKeys[2]] || 0;
+    }
+
     /** Moving-head spotlights: pan/tilt, beams, floor pools, gobos and fixtures. */
     updateSpotlights(ctx) {
         const { time, dtScale, audio: audioData } = ctx;
@@ -452,12 +496,8 @@ class VRClubAnimationFixtures extends VRClubAnimationCore {
         
         if (this.spotlights && this.lightsActive) {
             
-            // SYNCHRONIZED SWEEPING - recreate iconic club vibe
-            // All lights move together, sweeping their beams across the dance floor
-            
             this.spotlights.forEach((spot, i) => {
-                // VJ PATTERN CONTROL - spotlightPattern: 0=random, 1=static down, 2=mirror sweep, 3=crossed beams
-                // Apply speed multiplier to all animated patterns
+                this._updateSpotRig(spot, i, time, dtScale);
                 const speedMultiplier = this.spotlightSpeed || 1.0;
                 
                 const dirOut = this._solveSpotDirection(i, globalPhase, audioSpeedMultiplier, speedMultiplier,
@@ -516,9 +556,11 @@ class VRClubAnimationFixtures extends VRClubAnimationCore {
                 // `specular` may safely alias currentSpotColor (we own it and never let
                 // anyone else mutate it). `diffuse` needs a scaled copy, so scale into a
                 // per-spot buffer rather than allocating a Color3 per spotlight per frame.
-                spot.light.specular = this.currentSpotColor;
+                if (!spot._specularBuf) spot._specularBuf = new BABYLON.Color3(0, 0, 0);
+                spot._specularBuf.copyFrom(spot._rigColor);
+                spot.light.specular = spot._specularBuf;
                 if (!spot._diffuseBuf) spot._diffuseBuf = new BABYLON.Color3(0, 0, 0);
-                this.currentSpotColor.scaleToRef(this.isInVRMode ? 0.45 : 0.40, spot._diffuseBuf);
+                spot._rigColor.scaleToRef(this.isInVRMode ? 0.45 : 0.40, spot._diffuseBuf);
                 spot.light.diffuse = spot._diffuseBuf;
                 
                 const lightEnabled = this.lightsActive && spot.beamVisible !== false;
@@ -526,7 +568,7 @@ class VRClubAnimationFixtures extends VRClubAnimationCore {
                 // light slots (shader recompiles on cue changes, a scene walk per
                 // spot-strobe flash). See the note where the spots are created.
                 spot.light.intensity = lightEnabled
-                    ? (baseIntensity + smoothPulse) * (1 + (this.kickPulse || 0) * 0.9) * master
+                    ? (baseIntensity + smoothPulse) * (1 + (this.kickPulse || 0) * 0.9) * master * spot._rigLevel
                     : 0;
 
                 // Photometric origin is the lens, not the yoke. Snapshot before the
@@ -539,6 +581,12 @@ class VRClubAnimationFixtures extends VRClubAnimationCore {
                     spot._photoPos = new BABYLON.Vector3();
                     spot._photoDir = new BABYLON.Vector3();
                 }
+                if (!spot._photoDiffuse) {
+                    spot._photoDiffuse = new BABYLON.Color3();
+                    spot._photoSpecular = new BABYLON.Color3();
+                }
+                spot._photoDiffuse.copyFrom(spot.light.diffuse);
+                spot._photoSpecular.copyFrom(spot.light.specular);
                 spot._photoPos.copyFrom(spot.light.position);
                 spot._photoDir.copyFrom(spot.light.direction);
                 spot._photoIntensity = spot.light.intensity;
@@ -571,13 +619,14 @@ class VRClubAnimationFixtures extends VRClubAnimationCore {
         // Update truss-mounted light fixtures so they EXACTLY match their beams
         // Rule: fixture stays lit with current color when lightsActive=true (beam strobe doesn't affect fixture)
         if (this.spotlights && this.spotlights.length > 0) {
-            // Use the GLOBAL currentSpotColor for ALL fixtures - they must all match
-            const targetColor = this.currentSpotColor;
+            // Lens colour and dimming follow the physical head, not the remapped shading slot.
             const lensIntensity = 1.6;
             
             for (let i = 0; i < this.spotlights.length; i++) {
                 const spot = this.spotlights[i];
                 if (!spot) continue;
+                const targetColor = spot._rigColor || this.currentSpotColor;
+                const level = spot._rigLevel == null ? 1 : spot._rigLevel;
 
                 // Fixture should be lit when lights are active
                 const fixtureVisible = this.lightsActive && master > 0.001;
@@ -600,9 +649,9 @@ class VRClubAnimationFixtures extends VRClubAnimationCore {
                     }
                     if (fixtureVisible) {
                         mat.emissiveColor.copyFromFloats(
-                            targetColor.r * lensIntensity * master,
-                            targetColor.g * lensIntensity * master,
-                            targetColor.b * lensIntensity * master
+                            targetColor.r * lensIntensity * master * level,
+                            targetColor.g * lensIntensity * master * level,
+                            targetColor.b * lensIntensity * master * level
                         );
                     } else {
                         mat.emissiveColor.copyFromFloats(0, 0, 0);
@@ -651,12 +700,37 @@ class VRClubAnimationFixtures extends VRClubAnimationCore {
     _solveSpotDirection(i, globalPhase, audioSpeedMultiplier, speedMultiplier, out) {
         out.x = undefined;
         out.z = undefined;
-        if (this.spotlightPattern === 1) {
+        const motion = this.spotlights?.[i]?._rigMotion || 0;
+        const pattern = motion ? (motion >= 5 ? motion : motion === 1 ? 4 : motion - 1) : this.spotlightPattern;
+        if (pattern >= 5 && pattern <= 7) {
+            const beat = this.spotlights?.[i]?._rigBeat || 0;
+            const row = i % 3, side = i < 3 ? 1 : -1;
+            if (pattern === 5) {
+                // Eight bars per wave; the next mirrored pair follows one bar behind.
+                const phase = (beat - row * 4) * Math.PI / 16;
+                out.x = side * (0.38 + 0.18 * Math.sin(phase));
+                out.z = -0.08 + 0.18 * Math.cos(phase);
+            } else if (pattern === 6) {
+                const phase = beat * Math.PI / 16 + row * Math.PI * 2 / 3;
+                out.x = side * (0.42 + 0.20 * Math.sin(phase));
+                out.z = (row - 1) * 0.12 + 0.12 * Math.cos(phase);
+            } else {
+                // Two bars to open and return, then four bars held; no pose jump at the hand-off.
+                const local = ((beat - row * 8) % 24 + 24) % 24;
+                const swing = local < 8 ? Math.sin(local * Math.PI / 8) ** 2 : 0;
+                out.x = side * (0.32 + 0.22 * swing);
+                out.z = -0.10 + 0.18 * swing;
+            }
+        } else if (pattern === 4) {
+            const phase = globalPhase * speedMultiplier * audioSpeedMultiplier * 0.32;
+            out.x = Math.sin(phase * (0.65 + i * 0.073) + i * 1.71) * 0.58;
+            out.z = Math.cos(phase * (0.47 + i * 0.061) + i * 2.13) * 0.40;
+        } else if (pattern === 1) {
             // PATTERN 1: STATIC DOWN - All lights point straight down
             out.x = 0;
             out.z = 0;
             
-        } else if (this.spotlightPattern === 2) {
+        } else if (pattern === 2) {
             // PATTERN 2: MIRROR SWEEP - Left and right sides sweep toward/away from each other
             // Creates synchronized converging (toward center) and diverging (away from center) motion
             const sweepPhase = globalPhase * speedMultiplier;
@@ -674,7 +748,7 @@ class VRClubAnimationFixtures extends VRClubAnimationCore {
             const zSweep = Math.sin(sweepPhase * 0.3) * 0.25;
             out.z = zSweep;
             
-        } else if (this.spotlightPattern === 3) {
+        } else if (pattern === 3) {
             // PATTERN 3: CROSSED BEAMS - Outer gobos cross over middle gobo
             // Each side has 3 lights: front (0,3), middle (1,4), back (2,5)
             // The front and back gobos sweep across, crossing over the middle one
@@ -879,6 +953,8 @@ class VRClubAnimationFixtures extends VRClubAnimationCore {
             if (!src || !src._photoPos || !dst || !dst.position || !dst.direction) continue;
             dst.position.copyFrom(src._photoPos);
             dst.direction.copyFrom(src._photoDir);
+            if (src._photoDiffuse && dst.diffuse) dst.diffuse.copyFrom(src._photoDiffuse);
+            if (src._photoSpecular && dst.specular) dst.specular.copyFrom(src._photoSpecular);
             dst.intensity = src._photoIntensity || 0;
             if (src._photoAngle != null) dst.angle = src._photoAngle;
             if (src._photoRange != null) dst.range = src._photoRange;
@@ -1190,7 +1266,8 @@ class VRClubAnimationFixtures extends VRClubAnimationCore {
     /** Beam visibility (strobe), glow beam and emissive colour/alpha. Returns the per-spot beam state. */
     _updateSpotBeamAppearance(spot, i, time, globalPhase, audioSpeedMultiplier, g) {
         const { beamMidpoint, beamLength, baseScale, tiltStretch } = g;
-        const master = this.masterIntensity == null ? 1 : Math.min(1, Math.max(0, this.masterIntensity));
+        const master = (this.masterIntensity == null ? 1 : Math.min(1, Math.max(0, this.masterIntensity))) *
+            (spot._rigLevel == null ? 1 : spot._rigLevel);
         // UPDATE GLOW BEAM - Match main beam positioning (unparent and world space)
         // Beam visibility and color - HYPERREALISTIC with subtle variation + FLASHING
         // Strobe is controlled by both toggle button AND spotlight mode
@@ -1232,9 +1309,9 @@ class VRClubAnimationFixtures extends VRClubAnimationCore {
             
             // CRITICAL: Sync glow visibility with strobe/beam visibility
             spot.beamGlow.visibility = beamVisible ? 1.0 : 0;
-            // Use global color for perfect sync
+            // Keep the glow on the physical head's colour and level.
             if (!spot._beamGlowEmisBuf) spot._beamGlowEmisBuf = new BABYLON.Color3();
-            this.currentSpotColor.scaleToRef(
+            (spot._rigColor || this.currentSpotColor).scaleToRef(
                 0.15 * master * Math.sqrt(physicsIntensity), spot._beamGlowEmisBuf);
             spot.beamGlowMat.emissiveColor = spot._beamGlowEmisBuf;
         }
@@ -1247,7 +1324,7 @@ class VRClubAnimationFixtures extends VRClubAnimationCore {
         
         // The additive cone carries the palette colour directly; visibility belongs
         // in alpha so its core stays defined instead of washing into a soft glow.
-        const spotColor = this.currentSpotColor;
+        const spotColor = spot._rigColor || this.currentSpotColor;
         if (!spot._beamEmisBuf) spot._beamEmisBuf = new BABYLON.Color3(0, 0, 0);
         spotColor.scaleToRef(master, spot._beamEmisBuf);
         spot.beamMat.emissiveColor = spot._beamEmisBuf;

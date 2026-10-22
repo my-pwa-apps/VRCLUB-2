@@ -49,6 +49,21 @@ descriptors, negotiating `appearanceAccessories` before publishing them.
 Deploy the frontend and relay together for shared accessories; old relays
 report unsupported sharing without discarding the device preference.
 
+### Audio-only live DJ events
+
+A room host can create a live event from **Online / Live DJ event** and issue a
+private DJ link. Its lightweight [broadcaster](broadcast/index.html) takes a
+mixer/interface recording input, without a camera or local speaker monitor.
+An audience invite joins an available room automatically: up to eight rooms
+of 32 people share the same event-owned SFU music feed, while each room keeps
+its own conversation. The actual received audio drives the crowd and lights.
+These are admission bounds, not a 256-person performance or latency claim.
+
+The Worker and frontend changes must both be deployed before this is available.
+See [the live-audio runbook](docs/SCALING.md#live-audio-events-and-automatic-overflow)
+for permissions, sound setup, private invitations, revocation, limits and validation.
+There is no Twitch audio extraction, video or artist likeness.
+
 ### Live-event / ADE exploration
 
 This branch contains an **independent pitch concept**, not a working venue broadcast
@@ -60,7 +75,8 @@ Close the panel with its Close button or Escape; Event concept
 reopens it. Signs sit on the side/front walls, the DJ table carries a
 branded fascia, and signs and two hanging flags flank the street entrance. The LED
 wall is left clear. The black XXX key visuals and the video-screen feature have
-been removed. The resident DJ remains fictional; no live capture is connected.
+been removed. The resident DJ remains fictional. The optional branding concept
+does not capture media; live audio is a separate, explicitly created event.
 
 Without the query parameter the normal club is unchanged. Concept dressing turns
 off in multiplayer rooms because this preview is not shared event state.
@@ -169,6 +185,7 @@ js/djPerformer.js          The DJ's live set as a pose for AvatarRig: mixing, cu
 js/crowdDance.js           The crowd's choreographer: who dances which move, on the beat; claps in a build, hands up on a drop, sway or stand when the kick goes
 js/minglerClock.js         Shared room-time mingler round: deterministic positions, activities and clip phase, independent of host, startup and graphics tier
 js/sfuClient.js            Room-authorised SFU audio transport; loaded before networkClient
+js/liveAudioClient.js      Event-owned live music, private publisher/listener authorization and bounded media reconnects
 js/networkClient.js        Multiplayer WebSocket/WebRTC client (presence, mesh/SFU voice, emoji, shared music)
 js/avatarManager.js        Remote guests as clip-driven Quaternius people: idle/walk/run, wave, nod, dance; name tags, spatial voice, mute and the personal-space bubble
 js/multiplayer.js          One multiplayer session for the whole club (DOM panel and VR menu): connect, mic, gestures, block, mute, kick/ban/lock, shared music

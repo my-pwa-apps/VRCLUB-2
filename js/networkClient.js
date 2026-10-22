@@ -117,8 +117,13 @@ class NetworkClient {
      * @param {object|null} [options.appearance] complete v1 wardrobe, paired with its exact base on join/reconnect
      * @param {string[]} [options.blocked] public ids to keep invisible, from the user's saved block list
      */
-    constructor({ serverUrl, room = 'lobby', name = 'Guest', uid = null, blocked = [], avatarPool = 'any', avatar = null, appearance = null } = {}) {
+    constructor({ serverUrl, room = 'lobby', eventId = null, name = 'Guest', uid = null, blocked = [], avatarPool = 'any', avatar = null, appearance = null } = {}) {
         this.serverUrl = serverUrl;
+        this.eventId = eventId;
+        this.liveEventsSupported = false;
+        this.liveEvent = null;
+        this._eventRequests = new Map();
+        this._eventRequestId = 0;
         this.room = String(room || 'lobby').slice(0, 64);
         this.name = String(name || 'Guest').slice(0, 32);
         /** Which people this guest may be handed: 'any', 'women' or 'men'. */
@@ -197,6 +202,7 @@ class NetworkClient {
         this.onMusicBroadcast = () => {};
         this.onRemoteMusic = () => {};
         this.onError = () => {};
+        this.onLiveEvent = () => {};
     }
 
     get connected() { return this.status === 'connected'; }
@@ -217,6 +223,30 @@ class NetworkClient {
         return true;
     }
 
+    eventCommand(action, title) {
+        if (!this.connected || !this.liveEventsSupported) return Promise.reject(new Error('This relay does not support live audio events. Update the relay first.'));
+        if (!['create', 'info', 'rotate', 'end'].includes(action)) return Promise.reject(new Error('Unknown live event action.'));
+        const request = ++this._eventRequestId;
+        return new Promise((resolve, reject) => {
+            const timer = setTimeout(() => {
+                this._eventRequests.delete(request);
+                reject(new Error('The live event request timed out. Check its status before trying again.'));
+            }, 15000);
+            this._eventRequests.set(request, { resolve, reject, timer });
+            this._send({ type: 'event', request, action, ...(typeof title === 'string' ? { title: title.slice(0, 120) } : {}) });
+        });
+    }
+
+    _cancelEventRequests() {
+        for (const pending of this._eventRequests.values()) {
+            clearTimeout(pending.timer);
+            pending.reject(new Error('The room disconnected before confirming the live event request.'));
+        }
+        this._eventRequests.clear();
+        this.liveEvent = null;
+        this.liveEventsSupported = false;
+    }
+
     connect() {
         if (this.ws || this._opening || this._reconnectTimer !== null) return;
         this._closedByUser = false;
@@ -227,6 +257,7 @@ class NetworkClient {
     }
 
     disconnect() {
+        this._cancelEventRequests();
         this._closedByUser = true;
         this._openRevision = (this._openRevision || 0) + 1;
         this._opening = false;
@@ -284,6 +315,12 @@ class NetworkClient {
             return;
         }
         url.searchParams.set('room', this.room);
+        if (this.eventId) {
+            url.searchParams.set('event', this.eventId);
+            url.searchParams.delete('room');
+        } else {
+            url.searchParams.delete('event');
+        }
         url.searchParams.set('name', this.name);
         if (this.uid) url.searchParams.set('uid', this.uid);
         if (this.avatarPool !== 'any') url.searchParams.set('avatars', this.avatarPool);
@@ -330,6 +367,7 @@ class NetworkClient {
     }
 
     _onSocketClosed(evt) {
+        this._cancelEventRequests();
         this.ws = null;
         this.appearanceSelectionSupported = false;
         this.appearanceAccessoriesSupported = false;
@@ -413,6 +451,9 @@ class NetworkClient {
                 this._hasConnected = true;
                 this._reconnectAttempts = 0;
                 this.selfId = msg.id;
+                if (typeof msg.room === 'string') this.room = msg.room.slice(0, 64);
+                this.liveEventsSupported = msg.liveEvents === true;
+                this.liveEvent = msg.liveEvent || null;
                 this.selfPid = NetworkClient.PID.test(msg.pid) ? msg.pid : null;
                 this.avatar = typeof msg.avatar === 'string' ? msg.avatar : null;
                 this.avatarSelectionSupported = msg.avatarSelection === true;
@@ -462,6 +503,7 @@ class NetworkClient {
                     this.requestAvatar(this.avatarPool, this.preferredAvatar);
                 }
                 for (const peer of msg.peers || []) this._addPeer(peer);
+                if (this.liveEvent) this.onLiveEvent(this.liveEvent);
                 if (msg.music) this.onMusic(msg.music);
                 if (msg.show) this.onShow(msg.show);
                 if (Array.isArray(msg.doors)) this.onDoors(msg.doors.slice(0, NetworkClient.MAX_DOORS).map(shut => shut === true));
@@ -472,6 +514,27 @@ class NetworkClient {
                     if (this.micEnabled) void this.sfu.publish('voice', this.micStream);
                 }
                 break;
+
+            case 'event-state':
+                this.liveEvent = msg.event || null;
+                this.onLiveEvent(this.liveEvent);
+                break;
+
+            case 'event-result': {
+                const pending = this._eventRequests.get(msg.request);
+                if (!pending) break;
+                this._eventRequests.delete(msg.request);
+                clearTimeout(pending.timer);
+                if (msg.error) pending.reject(new Error(msg.error));
+                else {
+                    if (msg.event) {
+                        this.liveEvent = msg.event;
+                        this.onLiveEvent(this.liveEvent);
+                    }
+                    pending.resolve(msg);
+                }
+                break;
+            }
 
             case 'pong': {
                 const now = performance.now(), rtt = now - msg.time;

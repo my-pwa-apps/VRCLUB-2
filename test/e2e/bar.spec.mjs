@@ -236,6 +236,24 @@ test('the entrance vestibule and the bar are built, lit by their own accents and
         result.firstUntouched = doors[0].open === 1;
         manager.updatePeerState('guest-b', 'Guest B', frame(false));
         result.remoteReopened = await until(() => doors[1].open === 1);
+        manager.updatePeerState('guest-b', 'Guest B', {
+            x: seat.x, y: 1.1, z: seat.z, rotY: Math.PI / 2, seated: true, floorY: 0
+        });
+        result.occupiedShut = await until(() => doors[0].open === 0);
+        const door = doors[0];
+        club.camera.position.set(door.frontX + 0.9, 1.7, (door.opening[0] + door.opening[1]) / 2);
+        const step = new BABYLON.Vector3(-0.08, 0, 0);
+        for (let i = 0; i < 32; i++) {
+            club.camera.getViewMatrix(true);
+            club._updateRestroomDoors(1 / 60);
+            club.camera._collideWithWorld(step);
+        }
+        result.lockedDoorStop = club.camera.position.x - door.frontX;
+        result.lockedDoorRadius = club.camera.ellipsoid.x;
+        club._pressStallDoor({ pickedMesh: door.leaf });
+        result.lockedAfterPress = door.remote && !club._doorsByHand[0] && door.leaf.checkCollisions;
+        manager.updatePeerState('guest-b', 'Guest B', frame(false));
+        await until(() => door.open === 1);
         manager.dispose();
         club.avatarManager = null;
         // By hand, through the real pointer path: a ray at the door's leaf from the hall reaches it, a press pushes it shut
@@ -258,6 +276,10 @@ test('the entrance vestibule and the bar are built, lit by their own accents and
     expect(dressed.mirrorRendersPerFrame, 'the mirror renders once per frame').toBeLessThanOrEqual(1.05);
     expect(dressed.mirrorRendersPerFrame).toBeGreaterThanOrEqual(0.9);
     expect(dressed.mirrorSize).toBeGreaterThanOrEqual(512);
+    expect(dressed.occupiedShut).toBe(true);
+    expect(dressed.lockedDoorStop, 'walking stops at the torso radius outside the door').toBeGreaterThan(dressed.lockedDoorRadius);
+    expect(dressed.lockedDoorStop, 'the actual leaf, not some other obstacle, stops the camera').toBeLessThan(dressed.lockedDoorRadius + 0.05);
+    expect(dressed.lockedAfterPress).toBe(true);
     expect(dressed.art, 'posters, light box and both doors carry art').toEqual([true, true, true, true]);
     expect(dressed.atlas).toEqual({ width: 2048, height: 1024 });
     expect(dressed.litByBack, 'every fixture takes the back light as well').toBe(true);

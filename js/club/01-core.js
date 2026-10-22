@@ -531,6 +531,13 @@ class VRClubCore {
         this.targetSpotColor = this.spotColorList[0];
         this.spotColorIndex = 0;
         this.lastColorChange = 0;
+        this.spotSequence = 0;
+        this.spotSequenceRate = 2;
+        for (let i = 0; i < 6; i++) {
+            this[`spotHead${i}Enabled`] = true;
+            this[`spotHead${i}Color`] = -1;
+            this[`spotHead${i}Motion`] = 0;
+        }
         
         // Initialize lighting control state
         this.lightsActive = true;

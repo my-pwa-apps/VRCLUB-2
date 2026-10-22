@@ -6,6 +6,27 @@
  * or choose provider session/track locators.
  */
 class SFUClient {
+    static musicDescription(value) {
+        let sdp = value.sdp;
+        const opus = /^a=rtpmap:(\d+) opus\/48000\/2\r?$/im.exec(sdp);
+        if (!opus) throw new Error('The music connection did not offer stereo-capable Opus.');
+        const pattern = new RegExp(`^a=fmtp:${opus[1]} ([^\\r\\n]*)`, 'm');
+        const previous = pattern.exec(sdp);
+        const parameters = new Map((previous?.[1] || '').split(';').map(part => part.trim())
+            .filter(Boolean).map(part => {
+                const at = part.indexOf('=');
+                return at < 0 ? [part, ''] : [part.slice(0, at), part.slice(at + 1)];
+            }));
+        for (const [key, setting] of Object.entries({ stereo: '1', 'sprop-stereo': '1', maxaveragebitrate: '192000' })) {
+            parameters.set(key, setting);
+        }
+        const line = `a=fmtp:${opus[1]} ${[...parameters].map(([key, setting]) => setting ? `${key}=${setting}` : key).join(';')}`;
+        sdp = previous ? sdp.replace(pattern, line)
+            : sdp.replace(new RegExp(`^a=rtpmap:${opus[1]} [^\\r\\n]*(?:\\r?\\n|$)`, 'im'),
+                text => `${text.replace(/\r?\n$/, '')}\r\n${line}\r\n`);
+        return { type: value.type, sdp };
+    }
+
     constructor(client) {
         this.client = client;
         this.slots = new Map();
@@ -139,6 +160,7 @@ class SFUClient {
         if (!stream || !stream.getAudioTracks().length) return this.closeSlot(name);
         return this._run(name, async slot => {
             const track = stream.getAudioTracks()[0];
+            if (kind === 'music') track.contentHint = 'music';
             if (slot.published) {
                 await slot.sender.replaceTrack(track);
                 slot.stream = stream;
@@ -147,13 +169,22 @@ class SFUClient {
             const transceiver = slot.pc.addTransceiver(track, { direction: 'sendonly', streams: [stream] });
             slot.sender = transceiver.sender;
             slot.stream = stream;
-            await slot.pc.setLocalDescription(await slot.pc.createOffer());
+            const offer = await slot.pc.createOffer();
+            await slot.pc.setLocalDescription(kind === 'music' ? SFUClient.musicDescription(offer) : offer);
             await this._gather(slot.pc);
             const result = await this.request(name, 'publish', {
                 mid: transceiver.mid, description: slot.pc.localDescription
             });
             if (this.slots.get(name) !== slot) return;
-            await slot.pc.setRemoteDescription(result.sessionDescription);
+            await slot.pc.setRemoteDescription(kind === 'music'
+                ? SFUClient.musicDescription(result.sessionDescription) : result.sessionDescription);
+            if (kind === 'music') {
+                const parameters = slot.sender.getParameters();
+                if (parameters.encodings?.length) {
+                    for (const encoding of parameters.encodings) encoding.maxBitrate = 192000;
+                    await slot.sender.setParameters(parameters);
+                }
+            }
             await this._wait(slot.pc, 'connectionstatechange', () => slot.pc.connectionState === 'connected', 30000);
             if (this.slots.get(name) !== slot) return;
             await this.request(name, 'ready');
@@ -187,7 +218,8 @@ class SFUClient {
                     if (this.slots.get(name) !== slot) return;
                     for (const track of result.tracks) slot.mids.set(track.mid, track);
                     await slot.pc.setRemoteDescription(result.sessionDescription);
-                    await slot.pc.setLocalDescription(await slot.pc.createAnswer());
+                    const answer = await slot.pc.createAnswer();
+                    await slot.pc.setLocalDescription(kind === 'music' ? SFUClient.musicDescription(answer) : answer);
                     await this._gather(slot.pc);
                     if (this.slots.get(name) !== slot) return;
                     await this.request(name, 'answer', { description: slot.pc.localDescription });

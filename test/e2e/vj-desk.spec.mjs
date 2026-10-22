@@ -35,12 +35,14 @@ test('the VJ desk: every button is where it is drawn, and presses hand the light
         club.togglePeopleVisible('dj');
         for (const panelId of ['show', 'lights']) {
             for (const button of buttons[panelId]) {
+                if (panelId === 'lights') club._vjDeskLightsPage = button.page || 'fixtures';
                 const pick = pickAt(panelId, button);
                 const hit = club._vjDeskHit(pick);
                 if (!hit || !hit.button || hit.button.id !== button.id) {
                     misses.push(`${button.id} -> ${pick && pick.pickedMesh ? pick.pickedMesh.name : 'nothing'} ${hit && hit.button ? hit.button.id : ''}`);
                 }
             }
+            club._vjDeskLightsPage = 'fixtures';
         }
         for (const pageName of ['player', 'fx']) {
             club._vjDeskPlayerPage = pageName;
@@ -70,6 +72,12 @@ test('the VJ desk: every button is where it is drawn, and presses hand the light
         const redrawn = club._vjDesk.panels[1].signature !== signatureBefore;
         press('auto');
         const afterAuto = { manual: club.vjManualMode, title: club._vjDeskStatus().title };
+        club.showDirector.forceMovement('pulse');
+        club.showDirector._advanceCue();
+        press('holdLook');
+        const lookHeld = club.showDirector.isHeld();
+        press('auto');
+        const lookReleased = !club.showDirector.isHeld();
         const djAfter = club.isPeopleVisible('dj');
         press('playerPage');
         const fxPage = club._vjDeskPlayerPage;
@@ -173,7 +181,7 @@ test('the VJ desk: every button is where it is drawn, and presses hand the light
             misses, facingDot: BABYLON.Vector3.Dot(facing, toEye), up: facing.y,
             lightsBefore, afterSpots, redrawn, afterAuto, djBefore, djAfter, djBack: club.isPeopleVisible('dj'),
             playerHiddenWithDJ, playerHiddenOnReturn, fxPage, pageOnReturn, effectsChanged, effectsOnReturn,
-            mirrorRaysBefore, mirrorRaysAfter, mirrorRaysBack: club.mirrorBallRaysActive,
+            mirrorRaysBefore, mirrorRaysAfter, mirrorRaysBack: club.mirrorBallRaysActive, lookHeld, lookReleased,
             clearance: {
                 left: transport.minimumWorld.x - show.maximumWorld.x,
                 right: lights.minimumWorld.x - transport.maximumWorld.x,
@@ -202,6 +210,8 @@ test('the VJ desk: every button is where it is drawn, and presses hand the light
     expect(result.afterSpots.title).toBe('YOU ARE THE VJ');
     expect(result.redrawn, 'the LIGHTS panel did not redraw after a change').toBe(true);
     expect(result.afterAuto).toEqual({ manual: false, title: 'AUTOMATIC SHOW' });
+    expect(result.lookHeld).toBe(true);
+    expect(result.lookReleased).toBe(true);
     expect(result.djBefore).toBe(true);
     expect(result.djAfter, 'the RESIDENT DJ button must send the DJ home').toBe(false);
     expect(result.djBack).toBe(true);
@@ -238,25 +248,44 @@ test('the VJ desk: every button is where it is drawn, and presses hand the light
     expect(result.oldDesk, 'the old unlabelled buttons are still in the scene').toBe(0);
 
     // What the person who replaced the DJ sees, one panel at a time (kept with the test results for review).
-    for (const [name, eyeX, lookX, fx] of [
+    for (const [name, eyeX, lookX, fx, lightsPage] of [
         ['vj-desk-show', -0.75, -1.28],
         ['vj-desk-player', 0, 0],
         ['vj-desk-fx', 0, 0, 'fx'],
-        ['vj-desk-lights', 0.75, 1.28]
+        ['vj-desk-lights', 0.75, 1.28],
+        ['vj-desk-spot-rig', 0.75, 1.28, undefined, 'rig']
     ]) {
-        await page.evaluate(({ eyeX, lookX, fx }) => {
+        await page.evaluate(({ eyeX, lookX, fx, lightsPage }) => {
             const club = window.vrClub;
             if (club.isPeopleVisible('dj')) club.togglePeopleVisible('dj');
             club.camera.position.set(eyeX, 2.25, -19.75);
             club.camera.setTarget(new BABYLON.Vector3(lookX, 1.6, -18.65));
             club._vjDeskPlayerPage = fx || 'player';
+            club._vjDeskLightsPage = lightsPage || 'fixtures';
             if (fx === 'fx') for (const [effect, value] of [['lowpass', 0.55], ['echo', 0.3], ['reverb', 0.8], ['phaser', 0.4], ['sweep', 0.75], ['gater', 0.5], ['channel', 0.7]]) club.setDJEffect(effect, value);
             club._vjDesk.dirty = true;
-        }, { eyeX, lookX, fx });
+        }, { eyeX, lookX, fx, lightsPage });
         await page.waitForTimeout(3000);
         await page.screenshot({ path: test.info().outputPath(`${name}.png`) });
     }
     await page.evaluate(() => { window.vrClub.resetDJEffects(); window.vrClub._vjDeskPlayerPage = 'player'; });
     await page.evaluate(() => { if (!window.vrClub.isPeopleVisible('dj')) window.vrClub.togglePeopleVisible('dj'); });
+    await page.evaluate(() => {
+        const club = window.vrClub;
+        club.resumeAutoShow();
+        club.showDirector.forceMovement('pulse');
+        club.showDirector._advanceCue();
+    });
+    await page.locator('#vjToggle').click();
+    await page.locator('#vjTabShow').click();
+    const holdButton = page.locator('#vjHoldLookBtn');
+    await expect(holdButton).toBeEnabled();
+    await holdButton.click();
+    await expect(holdButton).toHaveAttribute('aria-pressed', 'true');
+    await expect(holdButton).toHaveText('RELEASE THIS LOOK');
+    await expect.poll(() => page.evaluate(() => window.vrClub.showDirector.isHeld())).toBe(true);
+    await page.locator('#vjAutoShowBtn').click();
+    await expect(holdButton).toHaveAttribute('aria-pressed', 'false');
+    await expect.poll(() => page.evaluate(() => window.vrClub.showDirector.isHeld())).toBe(false);
     await expectHealthyRuntime(page);
 });

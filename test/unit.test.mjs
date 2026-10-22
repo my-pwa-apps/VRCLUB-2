@@ -7435,6 +7435,8 @@ test('master dimming scales moving heads, ceiling lasers and the laser sheet con
                 };
             },
             _updateSpotBeamAppearance: fixtures._updateSpotBeamAppearance,
+            _updateSpotRig: fixtures._updateSpotRig,
+            spotRigBeat: fixtures.spotRigBeat,
             _updateSpotLightPool() {},
             _updateSpotGoboProjection() {},
             _bindPhotometricSlots() {}
@@ -8609,7 +8611,7 @@ test('the DJ booth Yamaha HS8 monitor speakers and restroom fixtures are one-dra
             assert.ok(onDivider, `partition vertex (${vx.toFixed(2)}, ${vy.toFixed(2)}, ${vz.toFixed(2)}) intrudes into toilet stall`);
         }
     }
-    // The stall doors are hinged leaves, never collidable or pickable, so nothing can catch on one. Ajar they fold toward
+    // The stall doors are hinged leaves, pickable and solid when shut. Ajar they fold toward
     // the side wall clear of the toilet, the cubicle opening and the washbasins; seated, they shut across the opening.
     const worldVertices = (door, meshName) => {
         door.hinge.computeWorldMatrix(true);
@@ -8696,12 +8698,17 @@ test('the DJ booth Yamaha HS8 monitor speakers and restroom fixtures are one-dra
     assert.equal(club._restroomDoors[0].open, 1);
     club.avatarManager = null;
 
-    // By hand: a click on a door pushes it shut or ajar for the whole room; a shut door is solid unless somebody stands in its
-    // doorway; an occupied door does not give; the guest sitting behind a shut door stands up instead of pushing it.
+    // Only overlap at closure grants clearance, never approaching an already shut door.
     const sent = [], messages = [];
     club.multiplayer = { connected: true, client: { sendDoor: (index, shut) => sent.push([index, shut]) } };
     club.showErrorMessage = text => messages.push(text);
     club.camera = { position: new BABYLON.Vector3(-10, 1.7, -3) };
+    const teleportBlockers = new Set();
+    club.vrHelper = { teleportation: {
+        addBlockerMesh: mesh => teleportBlockers.add(mesh),
+        removeBlockerMesh: mesh => teleportBlockers.delete(mesh)
+    } };
+    club._xrTeleportBlockers = [];
     const leaf0 = scene.getMeshByName('restroomStallDoor0');
     assert.equal(leaf0.isPickable, true, 'a door can be pushed by a click or a ray');
     assert.equal(leaf0.checkCollisions, false, 'ajar, it is not solid');
@@ -8713,18 +8720,59 @@ test('the DJ booth Yamaha HS8 monitor speakers and restroom fixtures are one-dra
     assert.equal(club._restroomDoors[0].occupied, false);
     assert.equal(JSON.stringify(sent), JSON.stringify([[0, true]]), 'and shared with the room');
     assert.equal(leaf0.checkCollisions, true, 'a shut door is solid');
+    assert.ok(teleportBlockers.has(leaf0), 'closing updates the already enabled teleport feature');
+    assert.ok(club._xrTeleportBlockers.includes(leaf0));
     club.camera.position.set(-14.4, 1.7, -5.4);
     club._updateRestroomDoors(0.1);
-    assert.equal(leaf0.checkCollisions, false, 'but not around somebody standing in its doorway');
+    assert.equal(leaf0.checkCollisions, true, 'approaching a closed door never disables its collision');
     club.camera.position.set(-10, 1.7, -3);
     club._updateRestroomDoors(0.1);
     assert.equal(leaf0.checkCollisions, true);
+
+    const door0 = club._restroomDoors[0];
+    worldVertices(door0, leaf0.name);
+    const closedRay = scene.pickWithRay(new BABYLON.Ray(
+        new BABYLON.Vector3(door0.frontX + 0.9, 0.9, (door0.opening[0] + door0.opening[1]) / 2),
+        new BABYLON.Vector3(-1, 0, 0), 2), mesh => mesh === leaf0);
+    assert.ok(closedRay.hit, 'the closed leaf must physically span the walking path');
+    const walker = BABYLON.MeshBuilder.CreateBox('stallCollisionProbe', { size: 0.01 }, scene);
+    walker.ellipsoid = new BABYLON.Vector3(0.25, 0.5, 0.25);
+    walker.position.set(door0.frontX + 0.9, 0.9, (door0.opening[0] + door0.opening[1]) / 2);
+    for (let i = 0; i < 24; i++) {
+        club.camera.position.set(walker.position.x, 1.7, walker.position.z);
+        club._updateRestroomDoors(1 / 60);
+        assert.equal(leaf0.checkCollisions, true, 'collision stays enabled throughout the approach');
+        walker.computeWorldMatrix(true);
+        walker.moveWithCollisions(new BABYLON.Vector3(-0.08, 0, 0));
+    }
+    assert.ok(walker.position.x > door0.frontX + 0.25 && walker.position.x < door0.frontX + 0.35,
+        `actual ellipsoid movement must stop at the shut leaf, got ${walker.position.x - door0.frontX} m from the doorway`);
+    walker.dispose();
+    club.camera.position.set(-10, 1.7, -3);
     assert.equal(club._pressStallDoor({ pickedMesh: scene.getMeshByName('restroomStallHandle0') }), true, 'the handle is part of the door');
     club._updateRestroomDoors(1);
     assert.equal(club._restroomDoors[0].open, 1, 'pushed ajar again');
     assert.equal(leaf0.checkCollisions, false);
+    assert.ok(!teleportBlockers.has(leaf0), 'opening removes the live teleport blocker');
+    assert.ok(!club._xrTeleportBlockers.includes(leaf0));
     assert.equal(JSON.stringify(sent), JSON.stringify([[0, true], [0, false]]));
     assert.equal(club._pressStallDoor({ pickedMesh: { metadata: {} } }), false, 'anything else is not a door');
+
+    club.camera.position.set(door0.frontX, 1.7, (door0.opening[0] + door0.opening[1]) / 2);
+    club.pushStallDoor(0);
+    club._updateRestroomDoors(1);
+    assert.equal(leaf0.checkCollisions, false, 'a leaf closing around the player cannot trap them');
+    assert.ok(!teleportBlockers.has(leaf0), 'clearance also permits teleporting out');
+    club.camera.position.x += 0.8;
+    club._updateRestroomDoors(0.1);
+    assert.equal(leaf0.checkCollisions, true, 'first stepping clear restores collision');
+    club.camera.position.x = door0.frontX + 0.1;
+    club._updateRestroomDoors(0.1);
+    assert.equal(leaf0.checkCollisions, true, 'the clearance cannot be reactivated by approaching again');
+    assert.ok(teleportBlockers.has(leaf0));
+    club.camera.position.set(-10, 1.7, -3);
+    club.pushStallDoor(0);
+    club._updateRestroomDoors(1);
     // A door the room's relay says is shut is shut here, and back to ajar when the room says so.
     club.setSharedDoors([false, true]);
     club._updateRestroomDoors(1);
@@ -8737,10 +8785,18 @@ test('the DJ booth Yamaha HS8 monitor speakers and restroom fixtures are one-dra
     // Occupied by somebody else: it does not give.
     peers.set('e', seatedAt(restroom.toiletSeatX, restroom.toiletZ[0]));
     club.avatarManager = { remotes: peers };
-    club._updateRestroomDoors(1);
     sent.length = 0;
     assert.equal(club.pushStallDoor(0), false);
-    assert.deepEqual(messages, [], 'it refuses silently: the red lamp already says it is occupied');
+    assert.deepEqual(messages, ['This toilet is occupied'], 'occupancy is checked immediately, without waiting for the next scan');
+    club._requestDevSeatYield = () => { throw new Error('An occupied toilet must never request that its guest leave'); };
+    assert.equal(club._pressStallDoor({ pickedMesh: leaf0 }), true);
+    const { window: uiWindow } = loadClassic('js/club/10-ui.js', { BABYLON, VRClubAnimationFinish: class {} });
+    assert.equal(uiWindow.VRClubUI.prototype.sitAtSeat.call(club, {
+        id: door0.seatId, x: restroom.toiletSeatX, z: restroom.toiletZ[0]
+    }), false, 'seat selection must not bypass an occupied lock either');
+    club._updateRestroomDoors(1);
+    assert.equal(door0.open, 0);
+    assert.ok(door0.lamp.material === door0.busy);
     assert.equal(sent.length, 0);
     peers.delete('e');
     club.avatarManager = null;
@@ -8885,13 +8941,15 @@ test('the mirror reflection does not buzz with headset tremor, keeps its walk cl
     assert.equal(double.root.position.x, -3);
 });
 
-test('the mirror gets a sharper, antialiased texture on desktop and a headset-sized one in VR, per tier', () => {
+test('the mirror matches desktop resolution on Ultra VR and retains lighter High and Balanced targets', () => {
     const BABYLON = require('../js/vendor/babylon.js');
     const { window: venueWindow } = loadClassic('js/venueDressing.js', { BABYLON, log: { info() {}, warn() {}, error() {} } });
     const quality = (tier, vr) => venueWindow.VenueDressing._restroomMirrorQuality.call({ graphicsTier: tier, isInVRMode: vr });
+    const vrSizes = { ultra: 1024, high: 512, balanced: 384 };
     for (const tier of ['ultra', 'high', 'balanced']) {
         const desktop = quality(tier, false), vr = quality(tier, true);
-        assert.ok(vr.size <= desktop.size && vr.size <= 512, `${tier}: the headset draws the mirror twice per frame, so it stays small`);
+        assert.equal(vr.size, vrSizes[tier], `${tier}: exact headset resolution policy`);
+        assert.ok(vr.size <= desktop.size);
         assert.ok(vr.samples <= 2, `${tier}: headset MSAA stays modest`);
     }
     assert.ok(quality('ultra', false).size >= 1024 && quality('ultra', false).samples >= 4);
@@ -10265,6 +10323,269 @@ test('VR menu: the LOOK page picks a pool and rerolls, and the online page still
 // The VJ desk at the DJ table (js/vjDesk.js) and the VR menu's CROWD page
 // ---------------------------------------------------------------------------
 
+function spotRigHarness() {
+    const BABYLON = require('../js/vendor/babylon.js');
+    const fixtures = loadClassic('js/club/08-animation-fixtures.js', { BABYLON, VRClubAnimationCore: class {} }).window.VRClubAnimationFixtures;
+    const { VRClubUI } = loadClassic('js/club/10-ui.js', { BABYLON, VRClubAnimationFinish: fixtures }).window;
+    const club = Object.assign(Object.create(VRClubUI.prototype), {
+        currentSpotColor: new BABYLON.Color3(1, 0, 0),
+        spotColorList: Array.from({ length: 9 }, (_, i) => new BABYLON.Color3(i / 8, 1 - i / 8, 0)),
+        spotlights: Array.from({ length: 6 }, () => ({})),
+        vjBPM: 120, spotlightPattern: 0, spotlightMode: 1, _spotStaticPositions: [],
+        guardHostControl() { return !this.follower; },
+        takeLightControl() { this.takes = (this.takes || 0) + 1; },
+        showErrorMessage(text) { this.error = text; }
+    });
+    club.resetSpotRig();
+    return { club, fixtures, VRClubUI };
+}
+
+test('spot rig: every head, row and column edits only its members; invalid edits and guests cannot change lights', () => {
+    const { club, VRClubUI } = spotRigHarness();
+    const expected = [[0, 1, 2, 3, 4, 5], [0, 3], [1, 4], [2, 5], [0, 1, 2], [3, 4, 5], [0], [1], [2], [3], [4], [5]];
+    for (let group = 0; group < expected.length; group++) {
+        club.resetSpotRig();
+        club.colorLockActive = true;
+        assert.equal(club.setSpotGroup(group, { enabled: false, color: 1, motion: 1 }), true);
+        for (let i = 0; i < 6; i++) {
+            const member = expected[group].includes(i);
+            assert.equal(club[`spotHead${i}Enabled`], !member);
+            assert.equal(club[`spotHead${i}Color`], member ? 1 : -1);
+            assert.equal(club[`spotHead${i}Motion`], member ? 1 : 0);
+        }
+        assert.equal(club.colorLockActive, false, 'choosing an individual colour releases MATCH ALL');
+    }
+    for (const [target, patch] of [[12, { enabled: false }], [0.5, { color: 1 }], [0, { enabled: 0 }], [0, { color: 9 }], [0, { motion: 1.5 }], [0, { intensity: 100 }]]) {
+        club.error = null;
+        assert.equal(club.setSpotGroup(target, patch), false);
+        assert.ok(club.error, 'invalid input must be explained');
+    }
+    club.follower = true;
+    const before = club.takes;
+    assert.equal(club.toggleLightControl('cycleSpotSequence'), false);
+    assert.equal(club.setSpotGroup(0, { enabled: false }), false);
+    assert.equal(club.toggleLightControl('cycleSpotTarget'), true, 'looking at another group is personal navigation');
+    assert.equal(club._spotEditTarget, 1);
+    assert.equal(club.takes, before);
+    assert.equal(VRClubUI.SPOT_GROUPS.length, 12);
+});
+
+test('spot rig: chase and fill really select the physical heads, rows and columns, including a black reset step', () => {
+    const { fixtures } = spotRigHarness();
+    const lit = (sequence, step) => Array.from({ length: 6 }, (_, i) => i).filter(i => fixtures.spotSequenceTarget(sequence, i, step));
+    assert.deepEqual(lit(0, 20), [0, 1, 2, 3, 4, 5]);
+    for (let i = 0; i < 6; i++) assert.deepEqual(lit(1, i), [i]);
+    assert.deepEqual(lit(2, 0), [0, 3]);
+    assert.deepEqual(lit(2, 1), [1, 4]);
+    assert.deepEqual(lit(2, 2), [2, 5]);
+    assert.deepEqual(lit(3, 0), [0, 1, 2]);
+    assert.deepEqual(lit(3, 1), [3, 4, 5]);
+    assert.deepEqual(lit(4, 0), [0, 3]);
+    assert.deepEqual(lit(4, 1), [0, 1, 3, 4]);
+    assert.deepEqual(lit(4, 2), [0, 1, 2, 3, 4, 5]);
+    assert.deepEqual(lit(4, 3), []);
+    assert.deepEqual(lit(5, 0), [0, 1, 2]);
+    assert.deepEqual(lit(5, 1), [0, 1, 2, 3, 4, 5]);
+    assert.deepEqual(lit(5, 2), []);
+    for (let i = 0; i < 6; i++) assert.equal(lit(6, i).length, i + 1);
+    assert.deepEqual(lit(6, 6), []);
+    assert.deepEqual(lit(2, 3), lit(2, 0));
+});
+
+test('spot rig: independent movement differs per head, honours individual overrides, and reuses render state', () => {
+    const { club } = spotRigHarness();
+    club.setSpotGroup(4, { color: 1, motion: 1 });
+    club.setSpotGroup(5, { color: 2, motion: 2 });
+    const directions = [];
+    for (let i = 0; i < 6; i++) {
+        const spot = club.spotlights[i];
+        club._updateSpotRig(spot, i, 10, 1);
+        const keys = spot._rigKeys;
+        club._updateSpotRig(spot, i, 10.1, 1);
+        assert.equal(spot._rigKeys, keys);
+        assert.equal(spot._rigColor, club.spotColorList[i < 3 ? 1 : 2]);
+        const out = {};
+        club._solveSpotDirection(i, 10, 1, 1, out);
+        directions.push([out.x, out.z]);
+    }
+    assert.notDeepEqual(directions[0], directions[1], 'independent heads were still linked');
+    assert.notDeepEqual(directions[1], directions[2]);
+    for (const direction of directions.slice(3)) assert.deepEqual(direction, [0, 0]);
+    club.spotSequence = 2;
+    club._updateSpotRig(club.spotlights[0], 0, 10, 1);
+    assert.equal(club.spotlights[0]._rigColor, club.currentSpotColor, 'a sequence carries the chosen rig colour');
+    club.spotSequence = 0;
+    club.colorLockActive = true;
+    club._updateSpotRig(club.spotlights[0], 0, 10, 1);
+    assert.equal(club.spotlights[0]._rigColor, club.currentSpotColor, 'MATCH ALL must win over old head colours');
+});
+
+test('spot rig: fades use elapsed time, rapid beats stride safely, and Safe Mode keeps sequences dim and gradual', () => {
+    const levels = [];
+    for (const hz of [45, 60, 72, 90, 120]) {
+        const { club } = spotRigHarness();
+        club.spotHead0Enabled = false;
+        for (let frame = 0; frame < hz; frame++) club._updateSpotRig(club.spotlights[0], 0, frame / hz, 60 / hz);
+        levels.push(club.spotlights[0]._rigLevel);
+        assert.equal(club.spotlights[0]._rigLevel, 0, 'off did not settle fully dark');
+        club.spotSequence = 3;
+        club.spotSequenceRate = 1;
+        club.vjBPM = 180;
+        const states = [];
+        let previous = null;
+        for (let frame = 0; frame < hz * 4; frame++) {
+            club.spotHead0Enabled = true;
+            const oldLevel = club.spotlights[0]._rigLevel;
+            club._updateSpotRig(club.spotlights[0], 0, frame / hz, 60 / hz);
+            const target = club.spotlights[0]._rigLevel > oldLevel;
+            if (previous !== target) states.push(frame / hz);
+            previous = target;
+        }
+        for (let i = 1; i < states.length; i++) assert.ok(states[i] - states[i - 1] >= 0.4, 'fast tempo exceeded the sequence cadence');
+        club.photosensitiveSafeMode = true;
+        club.spotlights[0]._rigLevel = 0;
+        let previousLevel = 0;
+        for (let frame = 0; frame < hz * 8; frame++) {
+            club._updateSpotRig(club.spotlights[0], 0, frame / hz, 60 / hz);
+            const level = club.spotlights[0]._rigLevel;
+            assert.ok(level <= 0.45, 'Safe Mode sequence crossed its dim ceiling');
+            assert.ok(Math.abs(level - previousLevel) <= 0.91 / hz, 'Safe Mode changed abruptly');
+            previousLevel = level;
+        }
+    }
+    assert.ok(levels.every(level => level === levels[0]));
+});
+
+test('spot rig: local steps use the musical grid and a follower advances from the shared host beat', () => {
+    const { club } = spotRigHarness();
+    club.vjDirector = { beatNumber: 101, remoteDriven: false };
+    club.barPhase = 1.5 / 4;
+    assert.equal(club.spotRigBeat(10), 101.5);
+    club.vjDirector.remoteDriven = true;
+    club._spotRemoteBeat = 17.5;
+    club._spotRemoteAt = 10;
+    assert.equal(club.spotRigBeat(10.25), 18);
+    club._spotRemoteBpm = 180;
+    assert.equal(club.spotRigBeat(10.25), 18.25, 'shared tempo must win over the guest music tempo');
+    club.spotSequence = 3;
+    club.spotSequenceRate = 1;
+    club._spotRemoteBeat = 1;
+    club._spotRemoteAt = 10;
+    club.spotlights[0]._rigLevel = 0;
+    club._updateSpotRig(club.spotlights[0], 0, 10, 1);
+    assert.ok(club.spotlights[0]._rigLevel > 0, 'a fast host uses alternate beats even on a slower-tempo guest');
+    club.vjDirector.remoteDriven = false;
+    assert.equal(club.spotRigBeat(10.25), 101.5, 'promotion must not retain the old host clock');
+});
+
+test('spot rig: the automatic show composes group sequences and clears manual head overrides on its next look', () => {
+    const { club } = spotRigHarness();
+    const { ShowDirector } = loadClassic('js/showDirector.js').window;
+    const show = Object.assign(Object.create(ShowDirector.prototype), { club });
+    const looks = ShowDirector._buildLooks();
+    assert.ok(Object.values(looks).some(look => look.spotSequence === 2));
+    assert.ok(Object.values(looks).some(look => look.spotSequence === 3));
+    assert.ok(Object.values(looks).some(look => look.spotSequence === 4));
+    club.setSpotGroup(0, { enabled: false, color: 2, motion: 2 });
+    show._applyLook(looks.sideways);
+    assert.equal(club.spotSequence, 2);
+    assert.equal(club.spotSequenceRate, 2);
+    for (let i = 0; i < 6; i++) {
+        assert.equal(club[`spotHead${i}Enabled`], true);
+        assert.equal(club[`spotHead${i}Color`], -1);
+        assert.equal(club[`spotHead${i}Motion`], 0);
+    }
+    show._applyLook(looks.firstLight);
+    assert.equal(club.spotSequence, 0, 'a sequence leaked into the next cue');
+});
+
+test('row choreography: mirrored pairs follow musical waves, hold between answers, and never jump or race', () => {
+    const { club, VRClubUI } = spotRigHarness();
+    let beat = 0;
+    club.spotRigBeat = () => beat;
+    const pose = (pattern, head, at, speed = 1) => {
+        beat = at;
+        club.spotlightPattern = pattern;
+        club._updateSpotRig(club.spotlights[head], head, 0, 1);
+        const out = {};
+        club._solveSpotDirection(head, 10000, 1.35, speed, out);
+        return out;
+    };
+    for (const pattern of [5, 6, 7]) {
+        assert.ok(VRClubUI.SPOT_PATTERN_NAMES[pattern].startsWith('ROW '));
+        assert.ok(VRClubUI.SPOT_MOTIONS[pattern].startsWith('ROW '));
+        for (const at of [0, 1, 4, 7.99, 8, 8.01, 12, 16, 24, 32]) {
+            for (let row = 0; row < 3; row++) {
+                const left = pose(pattern, row, at), right = pose(pattern, row + 3, at);
+                assert.equal(left.x, -right.x, `${pattern}: the row stopped being a mirrored pair`);
+                assert.equal(left.z, right.z);
+                assert.deepEqual(pose(pattern, row, at, 2), left, 'a late speed ramp teleported the musical pose');
+            }
+        }
+        for (let head = 0; head < 6; head++) {
+            let old = pose(pattern, head, 0);
+            for (let frame = 1; frame <= 640; frame++) {
+                const next = pose(pattern, head, frame * 3 / 60);
+                const dot = (old.x * next.x + 1 + old.z * next.z) /
+                    (Math.hypot(old.x, 1, old.z) * Math.hypot(next.x, 1, next.z));
+                const radiansPerSecond = Math.acos(Math.max(-1, Math.min(1, dot))) * 60;
+                assert.ok(radiansPerSecond < 0.4, `${pattern}: ${radiansPerSecond} rad/s at 180 BPM`);
+                old = next;
+            }
+        }
+    }
+    for (const at of [0, 1.5, 7, 15, 31]) {
+        assert.deepEqual(pose(5, 0, at), pose(5, 1, at + 4), 'middle row did not follow one bar behind');
+        assert.deepEqual(pose(5, 0, at), pose(5, 2, at + 8), 'rear row did not follow two bars behind');
+    }
+    assert.deepEqual(pose(7, 0, 9), pose(7, 0, 23), 'the resting row did not hold its pose');
+    assert.notDeepEqual(pose(7, 0, 4), pose(7, 0, 12), 'the answering row never moved');
+    assert.deepEqual(pose(7, 0, 4), pose(7, 2, 20), 'rear answer did not repeat the paired gesture');
+    assert.notDeepEqual(pose(6, 0, 0), pose(6, 1, 0), 'the nested fans all share one phase');
+    for (const hz of [45, 60, 72, 90, 120]) {
+        for (const pattern of [5, 6, 7]) {
+            let last;
+            for (let frame = 0; frame <= hz * 4; frame++) last = pose(pattern, 0, frame / hz * 3);
+            assert.deepEqual(last, pose(pattern, 0, 12), `${hz} Hz changed the musical pose`);
+        }
+    }
+    club.setSpotGroup(1, { motion: 6 });
+    assert.equal(club.spotHead0Motion, 6);
+    assert.equal(club.spotHead3Motion, 6);
+});
+
+test('row choreography: the running show gives spatial looks time to read and keeps other fixtures as accompaniment', () => {
+    const { ShowDirector } = loadClassic('js/showDirector.js').window;
+    const { club } = spotRigHarness();
+    const show = Object.assign(Object.create(ShowDirector.prototype), { club });
+    const looks = ShowDirector._buildLooks(), movements = ShowDirector._buildMovements();
+    for (const [name, look] of Object.entries(looks)) {
+        if (look.spotSequence) assert.equal(look.lightsActive, true, `${name}: the sequence was assigned to dark heads`);
+    }
+    for (const name of ['rowWave', 'rowConversation', 'rowBuild']) {
+        const look = looks[name];
+        assert.equal(look.lightsActive, true);
+        for (const key of ['lasersActive', 'laserSheetActive', 'strobesActive', 'mirrorBallActive']) assert.equal(look[key], false);
+        assert.ok(look.ledWallActive && look.ledLevel <= 0.65, `${name}: the wall competes with the row subject`);
+    }
+    assert.ok(movements.pulse.cues.some(cue => cue.look === 'rowWave' && cue.bars >= 16));
+    assert.ok(movements.pulse.cues.some(cue => cue.look === 'rowConversation' && cue.bars >= 12));
+    assert.ok(movements.ascent.cues.some(cue => cue.look === 'rowBuild' && cue.bars >= 8));
+    assert.ok(movements.ignition.cues.some(cue => cue.look === 'rowConversation'));
+    assert.equal(looks.driftAway.spotlightPattern, 5);
+    club.photosensitiveSafeMode = true;
+    show._applyLook(looks.rowConversation);
+    assert.equal(club.spotHead1Motion, 2);
+    assert.equal(club.spotHead4Motion, 2);
+    assert.equal(club.spotHead1Color, 8);
+    assert.equal(club.spotHead4Color, 8);
+    assert.equal(club.colorLockActive, false, 'the white anchor was suppressed by a colour lock');
+    assert.equal(club.strobesActive, false);
+    show._applyLook(looks.rowWave);
+    assert.equal(club.spotHead1Motion, 0);
+    assert.equal(club.spotHead1Color, -1, 'the anchor leaked into the following look');
+});
+
 function deskHarness() {
     let now = 1000;
     const performance = { now: () => now };
@@ -10312,11 +10633,13 @@ function deskHarness() {
         },
         showDirector: {
             enabled: true, _movementName: 'pulse', movements: { pulse: { title: 'Pulse' } },
+            _hold: null, isHeld() { return !!this._hold; },
+            holdLook(policy) { this._hold = { explicit: policy.explicit === true }; calls.push('holdLook'); },
             isDriving: () => !club.vjManualMode,
             triggerShowDrop: () => calls.push('showDrop'),
             nextMovement: () => { calls.push('next'); return 'Ascent'; },
             nextSection: () => { calls.push('next'); return 'Ascent'; },
-            releaseHold() {}
+            releaseHold() { this._hold = null; }
         },
         camera: { position: { x: 0, y: 2.2, z: -19.4 } },
         _playerCamera() { return this.camera; }
@@ -10384,6 +10707,47 @@ test('the VJ desk: every button fits its panel, nothing overlaps, and every ligh
     const listed = (source.match(/const TOGGLE_CONTROLS = Object\.freeze\(new Set\(\[([\s\S]*?)\]\)\)/)[1])
         .split(',').map(s => s.trim().replace(/['\s]/g, '')).filter(Boolean);
     assert.deepEqual([...listed].sort(), [...VRClubUI.LIGHT_TOGGLES].sort());
+});
+
+test('spot rig: the desk and VR pages delegate the same edits, stay within twelve slots and navigate without taking control', () => {
+    const { club, press, button, VRClubUI, calls } = deskHarness();
+    club.spotColorList = Array.from({ length: 9 }, () => ({}));
+    club.resetSpotRig();
+    club._vjDesk = { dirty: false };
+    const before = calls.length;
+    press('spotRigPage');
+    assert.equal(club._vjDeskLightsPage, 'rig');
+    assert.equal(club._vjDeskButtonOnPage(button('spotTarget')), true);
+    assert.equal(club._vjDeskButtonOnPage(button('spots')), false);
+    assert.equal(club._vjDeskButtonOnPage(button('echo')), false, 'the Lights page changed the independent Player/FX selector');
+    assert.equal(calls.length, before);
+    assert.equal(club.vjManualMode, false);
+    const page = club._vrQuickMenuPageDefinitions('spotRig');
+    assert.equal(page.length, 11);
+    for (const control of Object.keys(VRClubUI.SPOT_RIG_CONTROLS)) {
+        assert.ok(page.some(item => item.control === control));
+    }
+    press('spotTarget');
+    assert.equal(club.spotRigControlValue('cycleSpotTarget'), 'FRONT ROW');
+    press('spotGroupOn');
+    assert.equal(club.spotHead0Enabled, false);
+    assert.equal(club.spotHead3Enabled, false);
+    assert.equal(club.spotHead1Enabled, true);
+    assert.equal(club.vjManualMode, true);
+    press('spotSequence');
+    assert.equal(club.spotSequence, 1);
+    press('spotRate');
+    assert.equal(club.spotSequenceRate, 4);
+    press('spotReset');
+    assert.equal(club.spotSequence, 0);
+    assert.equal(club.spotHead0Enabled, true);
+    press('spotRigBack');
+    assert.equal(club._vjDeskLightsPage, 'fixtures');
+    assert.equal(club._vjDeskButtonOnPage(button('spots')), true);
+    club.guardHostControl = () => false;
+    const targetBefore = club._spotEditTarget;
+    club._activateVRQuickMenuButton(page.find(item => item.control === 'cycleSpotTarget'));
+    assert.equal(club._spotEditTarget, targetBefore + 1, 'the actual VR activation handler gated personal group navigation');
 });
 
 test('the VJ desk: touching a light hands you the lights, AUTO SHOW hands them back, and the header says who has them', () => {
@@ -11109,7 +11473,10 @@ test('all VJ surfaces distinguish spotlight aim paths from projected gobo images
     const club = Object.create(window.VRClubUI.prototype);
     const lighting = club._vrQuickMenuPageDefinitions('lights');
     const effects = club._vrQuickMenuPageDefinitions('effects');
-    assert.ok(lighting.some(button => button && button.label === 'SPOT AIM PATH' && button.control === 'cyclePattern'));
+    const rig = club._vrQuickMenuPageDefinitions('spotRig');
+    assert.ok(lighting.some(button => button && button.target === 'spotRig'));
+    assert.ok(rig.some(button => button && button.label === 'SPOT AIM PATH' && button.control === 'cyclePattern'));
+    assert.ok(rig.length <= 12);
     assert.ok(lighting.some(button => button && button.label === 'MATCH ALL COLOURS'));
     assert.ok(!lighting.some(button => button && /^LED /.test(button.label)), 'LED effects leaked onto the Lights page');
     assert.ok(effects.some(button => button && button.label === 'PROJECTED GOBO' && button.control === 'goboActive'));
@@ -12860,6 +13227,98 @@ test('a show section the guest picks is kept, resumed after a time, or kept with
     assert.equal(e.show.isHeld(), true);
 });
 
+test('show pacing: occasional spatial looks linger while short peak hits and sequence step rates stay energetic', () => {
+    const { ShowDirector } = loadClassic('js/showDirector.js').window;
+    const movements = ShowDirector._buildMovements(), looks = ShowDirector._buildLooks();
+    for (const [movement, look, bars] of [
+        ['arrival', 'firstLight', 16], ['pulse', 'rowConversation', 24], ['ascent', 'rowBuild', 16],
+        ['ignition', 'rowConversation', 12], ['afterglow', 'liquidPlane', 16]
+    ]) {
+        assert.equal(movements[movement].cues.filter(cue => cue.look === look).at(-1).bars, bars);
+        const seconds = bars * 4 * 60 / 124;
+        assert.ok(seconds >= 23 && seconds <= 47, `${look}: not a readable longer passage at 124 BPM`);
+    }
+    for (const look of ['detonation', 'chromaticRoom', 'whiteChase', 'afterburn', 'strobeOffbeat']) {
+        assert.equal(movements.ignition.cues.find(cue => cue.look === look).bars, 2, `${look}: an energetic hit was stretched`);
+    }
+    assert.equal(looks.sideways.spotSequenceRate, 2);
+    assert.equal(looks.rowBuild.spotSequenceRate, 4);
+    assert.equal(ShowDirector._buildSetPieces().countdown.bars, 4);
+});
+
+test('show look hold: a current cue keeps moving past the personal timer and releases on a bar without losing its hue', () => {
+    let now = 100000;
+    const { ShowDirector } = loadClassic('js/showDirector.js', { performance: { now: () => now } }).window;
+    const { club, fixtures } = spotRigHarness();
+    club.lightHold = { mode: 'resume', delay: 60, shuffle: 15 };
+    club.vjManualMode = false;
+    club.vjDirector = {
+        bpm: 120, beatNumber: 0, beatEnvelope: 0, blackoutUntil: 0, realOnsetCount: 0, masterHue: 0.3,
+        setMasterHue(hue) { this.masterHue = hue; this.hueLocked = true; },
+        unlockHue() { this.hueLocked = false; }
+    };
+    const show = club.showDirector = new ShowDirector(club);
+    show._enterMovement('pulse');
+    show._advanceCue();
+    assert.equal(show._cue.look, 'rowWave');
+    const originalPolicy = { ...club.lightHold };
+    assert.equal(club.toggleShowLookHold(), true);
+    assert.equal(club.vjManualMode, false, 'holding the show took manual fixture control');
+    assert.deepEqual(club.lightHold, originalPolicy, 'holding a look changed the saved hand-change policy');
+    const direction = () => {
+        club.barPhase = (club.vjDirector.beatNumber % 4) / 4;
+        fixtures.prototype._updateSpotRig.call(club, club.spotlights[0], 0, now / 1000, 1);
+        return fixtures.prototype._solveSpotDirection.call(club, 0, now / 1000, 1, 1, {});
+    };
+    club.spotRigBeat = fixtures.prototype.spotRigBeat;
+    const before = direction();
+    for (let i = 0; i < 164; i++) {
+        now += 500;
+        club.vjDirector.beatNumber++;
+        show.update(now / 1000, { hasAudio: false });
+        if (i === 3) assert.notDeepEqual(direction(), before, 'a held cue froze its movement');
+    }
+    assert.equal(show._cue.look, 'rowWave');
+    assert.equal(show.isHeld(), true, 'the 60-second personal hand-back timer expired an explicit hold');
+    assert.equal(show.holdSecondsLeft(), null);
+    assert.equal(club.toggleShowLookHold(), false);
+    assert.equal(show._cue.look, 'rowWave', 'release cut to the next cue between bars');
+    assert.equal(club.vjDirector.masterHue, show.looks.rowWave.hue);
+    assert.equal(club.vjDirector.hueLocked, true, 'release lost the current look’s pinned hue');
+    for (let i = 0; i < 4; i++) show._onBeat();
+    assert.notEqual(show._cue.look, 'rowWave', 'the show never advanced after release');
+    club.follower = true;
+    assert.equal(club.toggleShowLookHold(), null, 'a guest held the host’s show');
+    club.follower = false;
+    show.triggerShowDrop();
+    assert.equal(club.toggleShowLookHold(), null, 'a countdown was held halfway');
+    assert.match(club.error, /countdown or transition/);
+});
+
+test('show look hold: the desk and VR controls use the shared action and Auto show releases an automatic hold', () => {
+    const h = deskHarness(), { club } = h;
+    club.lightHold = { mode: 'resume', delay: 60, shuffle: 15 };
+    assert.equal(club._vjDeskDisabledReason(h.button('holdLook')), '');
+    h.press('holdLook');
+    assert.equal(club.showDirector.isHeld(), true);
+    assert.match(club._vjDeskButtonState(h.button('holdLook')).value, /RELEASE/);
+    h.press('auto');
+    assert.equal(club.showDirector.isHeld(), false, 'Auto show ignored an automatically driven hold');
+    let toggles = 0;
+    club.toggleShowLookHold = () => { toggles++; };
+    club._refreshVRQuickMenu = () => {};
+    club._activateVRQuickMenuButton({ action: 'holdLook' });
+    assert.equal(toggles, 1);
+    h.press('holdLook');
+    assert.equal(toggles, 2);
+    assert.equal(club._isHostOwnedVRButton({ action: 'holdLook' }), true);
+    club.showDirector._setPiece = {};
+    assert.equal(club._isVRButtonDisabled({ action: 'holdLook' }), true);
+    assert.equal(club._vjDeskDisabledReason(h.button('holdLook')), 'WAIT FOR TRANSITION');
+    const dom = readFileSync(join(ROOT, 'js/ui-init.js'), 'utf8');
+    assert.match(dom, /holdLookNow\.addEventListener\('click',[\s\S]*?vrClubInstance\.toggleShowLookHold\(\)/);
+});
+
 test('the lights follow the hold policy from every surface: choices are saved, timing steps per mode, sections resume the show first', () => {
     const store = new Map();
     const localStorage = { getItem: key => (store.has(key) ? store.get(key) : null), setItem: (key, value) => store.set(key, value) };
@@ -12906,6 +13365,13 @@ test('the lights follow the hold policy from every surface: choices are saved, t
     club.setLightHold({ mode: 'resume', delay: 30 });
     assert.deepEqual({ ...held }, { mode: 'resume', delay: 30, shuffle: 30 });
     held = false;
+    club.showDirector._hold = { explicit: true };
+    held = true;
+    club.setLightHold({ mode: 'shuffle' });
+    assert.equal(held, true, 'changing hand-change preferences replaced an explicit current-look hold');
+    club.showDirector._hold = null;
+    held = false;
+    club.setLightHold({ mode: 'resume' });
     // Picking a section after hand-made changes hands the lights back to the show first, under the current policy.
     club.resumeAutoShow = () => { resumed++; club.vjManualMode = false; };
     assert.equal(club.pickShowSection('ignition'), 'IGNITION');

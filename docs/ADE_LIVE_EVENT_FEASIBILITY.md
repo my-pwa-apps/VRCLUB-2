@@ -4,11 +4,17 @@ Independent ADE pitch exploration, 18 October 2026.
 
 ## Recommendation
 
-**Pilot live video plus mixer audio first; develop a live tracked likeness second.**
-The first is a recognisable real performer on a screen, not a freely viewable 3D
-person. The second is an artist-approved 3D character driven by that artist's real
-movement, not the current music-driven procedural DJ. Neither is implemented as
-a live service in this branch.
+**Start with an authorized audio-only mixer feed; consider likeness later.**
+This worktree now implements a browser broadcaster, event-owned SFU audio and
+bounded automatic overflow across eight social rooms. This is separate from the
+static ADE dressing and is not deployed merely by editing this branch.
+See [the audio-only runbook](SCALING.md#live-audio-events-and-automatic-overflow).
+The current procedural DJ remains fictional and music-driven.
+
+The video and tracked-likeness options below remain future research, not shipped
+features. A video performer would be flat, not a freely viewable 3D person; a
+tracked likeness would require artist-approved assets and motion. Neither has
+been implemented. No screen is added to the current club.
 
 The ambition is a shared musical moment for people unable to attend IRL, with
 desktop access as a first-class option. NOCTURNE is a virtual companion room, not
@@ -19,7 +25,7 @@ sound, atmosphere, accessibility or social experience.
 
 | Option | What the guest actually sees | Venue setup | Principal trade-off | Decision |
 |---|---|---|---|---|
-| Conventional video | Real DJ on a flat in-booth screen | Camera, capture interface, mixer feed, encoder | Recognisable and practical, but no viewpoint parallax; camera angle can include a second set of decks | First live pilot |
+| Conventional video | Real DJ on a flat in-booth screen | Camera, capture interface, mixer feed, encoder | Recognisable and practical, but no viewpoint parallax; camera angle can include a second set of decks | Future option, not current scope |
 | Cut-out video | Camera image with its background removed | Controlled backdrop or real-time segmentation | Still flat; darkness, haze, hair and hands make edges unstable | Rehearsal experiment, not baseline |
 | Tracked likeness | Optimised artist-specific rigged 3D character | Body tracking, optional gloves/face camera, capture PC, calibration and a bridge | Can be viewed in 3D, but retargeting, hands and deck contact are hard | Second phase with consenting artist |
 | Markerless multi-camera motion | 3D rig driven by camera-derived movement | Several calibrated, unobstructed cameras and processing | Decks hide the lower body/hands; club light and occlusion need testing | Compare in rehearsal before buying a suit |
@@ -72,7 +78,7 @@ packet loss, venue firewall and cellular backup before approving the site.
 The artist must be able to decline equipment or stop tracking without affecting
 their physical performance. Design the video-only fallback before using mocap live.
 
-## Proposed production architecture (not implemented)
+## Future video / tracked-likeness architecture (not implemented)
 
 ```text
 VENUE                                      BROADCAST SERVICES

@@ -401,6 +401,7 @@ class MusicLibrary {
      */
     async playDefault() {
         const club = this.club;
+        if (club.multiplayer?.hasLiveEvent) return false;
         if (this.items.length || (club.isFollowingHost && club.isFollowingHost())) return false;
         const info = club.getPlaybackInfo ? club.getPlaybackInfo() : null;
         const item = this.defaultItem();
@@ -478,6 +479,7 @@ class MusicLibrary {
     async fallBackToDefault(error) {
         if (error && error.name === 'NotAllowedError') return false;
         const club = this.club;
+        if (club.multiplayer?.hasLiveEvent) return false;
         try {
             if (club.isFollowingHost && club.isFollowingHost()) return false;
             const item = this.defaultItem();

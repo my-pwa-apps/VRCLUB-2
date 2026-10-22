@@ -4,6 +4,7 @@
 //   node scripts/build-crowd-glbs.mjs --women "<dir of the Modular Women glTFs>" --men "<dir of the Modular Men glTFs>"
 //   npm run optimize:avatars -- club-crowd-f1.glb ...        (the script runs it for you with --optimize)
 //   node scripts/build-crowd-glbs.mjs --refresh-static --optimize   # rebake shipped procedural guest-only clips
+//   node scripts/build-crowd-glbs.mjs --refresh-static --seated-only  # refresh only the two generic seated clips
 //
 // What it does, per person in CAST below:
 //  1. Retargets the club's own clips (Dance_Loop, Idle_Talking_Loop, ...) from the Universal Animation Library
@@ -37,6 +38,7 @@ const dirs = { women: argument('--women'), men: argument('--men') };
 const outDir = argument('--out') || join(ROOT, 'js/models/avatars');
 const only = argument('--only');
 const refreshStatic = process.argv.includes('--refresh-static');
+const seatedOnly = process.argv.includes('--seated-only');
 const variantsOnly = process.argv.includes('--variants');
 const refreshWardrobe = process.argv.includes('--refresh-wardrobe');
 if ((!dirs.women || !dirs.men) && !refreshStatic && !variantsOnly && !refreshWardrobe) {
@@ -720,8 +722,8 @@ const SEATED_IDLE_POSE = {
             spine: [0.08 + 0.012 * breath, 0.04 * look, -0.015 * look],
             head: [-0.035 + 0.012 * breath, 0.32 * look, 0.025 * Math.sin(TAU * b / 13)],
             hands: {
-                R: { at: [0.12, -0.10, 0.70], pole: [0.65, -0.3, -0.4], fingers: [0, -0.2, 1] },
-                L: { at: [-0.12, -0.11, 0.68], pole: [-0.65, -0.3, -0.4], fingers: [0, -0.15, 1] }
+                R: { at: [-0.035, -0.29, 0.17 + 0.005 * breath], pole: [0.35, -0.6, -0.25], fingers: [-0.15, -0.25, 1], thumb: [-1, 0, 0] },
+                L: { at: [0.035, -0.30, 0.16 + 0.005 * breath], pole: [-0.35, -0.6, -0.25], fingers: [0.15, -0.25, 1], thumb: [1, 0, 0] }
             },
             feet: { R: [0.07, 0, 0.31], L: [-0.07, 0, 0.31] },
             shrug: { R: 0.015 * breath, L: -0.01 * breath }
@@ -731,8 +733,8 @@ const SEATED_IDLE_POSE = {
 
 // A real sit on a LOW seat (the lounge couch and the toilets, cushion 0.40-0.42 m): the pelvis on the cushion, thighs about
 // level, shins down to feet planted on the floor in front, an upright relaxed back and the hands resting on the thighs.
-// `Seated_Loop` above is the stool posture (pelvis ~0.88 m, hands out to a counter); on a couch it left the sitter squatting
-// 48 cm above the cushion with straight arms. The pelvis sits 6 cm BEHIND the head column the seat is placed by.
+// `Seated_Loop` above is the stool posture (pelvis ~0.88 m); on a couch it left the sitter squatting
+// 48 cm above the cushion. The pelvis sits 6 cm BEHIND the head column the seat is placed by.
 const SEATED_LOW_POSE = {
     name: 'Seated_Low_Loop',
     beats: 24,
@@ -741,11 +743,11 @@ const SEATED_LOW_POSE = {
         const look = 0.72 * Math.sin(TAU * b / 24) + 0.28 * Math.sin(TAU * b / 9 + 0.7);
         return {
             hip: [0, -0.47, -0.13], hipRot: [-0.05, 0.02 * look, 0],
-            spine: [0.02 + 0.012 * breath, 0.04 * look, -0.015 * look],
-            head: [-0.02 + 0.012 * breath, 0.30 * look, 0.025 * Math.sin(TAU * b / 13)],
+            spine: [0.24 + 0.012 * breath, 0.04 * look, -0.015 * look],
+            head: [-0.24 + 0.012 * breath, 0.30 * look, 0.025 * Math.sin(TAU * b / 13)],
             hands: {
-                R: { at: [0.10, -0.40, 0.30 + 0.01 * breath], pole: [0.65, -0.3, -0.4], fingers: [0, -0.35, 1] },
-                L: { at: [-0.10, -0.40, 0.29 + 0.01 * breath], pole: [-0.65, -0.3, -0.4], fingers: [0, -0.35, 1] }
+                R: { at: [-0.025, -0.31, 0.19 + 0.005 * breath], pole: [0.35, -0.6, -0.25], fingers: [0, -0.35, 1], thumb: [-1, 0, 0] },
+                L: { at: [0.025, -0.31, 0.18 + 0.005 * breath], pole: [-0.35, -0.6, -0.25], fingers: [0, -0.35, 1], thumb: [1, 0, 0] }
             },
             feet: { R: [0.07, 0, 0.40], L: [-0.07, 0, 0.40] },
             shrug: { R: 0.01 * breath, L: -0.008 * breath }
@@ -1207,14 +1209,15 @@ async function refreshStaticClips() {
     // The grooves that can be re-authored on the shipped skeletons without the asset packs. The rest of the repertoire
     // (Dance_Loop and the older grooves) is untouched; a dancer's mirror flag is honoured so neighbours are not in step.
     const refreshedGrooves = GROOVES.filter(groove => REFRESHED_GROOVES.includes(groove.name));
-    const specs = CAST.filter(person => person.id !== 'bouncer').map(person => ({
+    const people = seatedOnly ? [...CAST, ...VARIANTS] : CAST;
+    const specs = people.filter(person => person.id !== 'bouncer').map(person => ({
         id: person.id,
         name: `club-crowd-${person.id}.glb`,
         poses: [
             { pose: SEATED_IDLE_POSE, mirror: false },
             { pose: SEATED_LOW_POSE, mirror: false },
-            ...(extras.get(person.id) || []).map(pose => ({ pose, mirror: false })),
-            ...(person.guest ? [] : refreshedGrooves.map(pose => ({ pose, mirror: !!person.mirror })))
+            ...(seatedOnly ? [] : extras.get(person.id) || []).map(pose => ({ pose, mirror: false })),
+            ...(seatedOnly || person.guest ? [] : refreshedGrooves.map(pose => ({ pose, mirror: !!person.mirror })))
         ]
     })).filter(spec => !only || only.split(',').includes(spec.id));
     const names = [];
@@ -1393,7 +1396,7 @@ if (refreshWardrobe) {
     for (const variant of VARIANTS) if (!wanted || wanted.includes(variant.id)) built.push(await buildVariant(variant));
 } else if (refreshStatic) {
     built.push(...await refreshStaticClips());
-    if (!only) for (const variant of VARIANTS) built.push(await buildVariant(variant));
+    if (!only && !seatedOnly) for (const variant of VARIANTS) built.push(await buildVariant(variant));
 } else {
     const wanted = only ? only.split(',') : null;
     for (const person of CAST) if (!wanted || wanted.includes(person.id)) built.push(await build(person));

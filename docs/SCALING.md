@@ -26,6 +26,96 @@ remain eight-person mesh rooms. Old browsers can still use mesh rooms; SFU rooms
 the updated media client, and the backend rejects old clients before socket admission
 and rejects mesh signaling in those rooms.
 
+## Live audio events and automatic overflow
+
+This worktree implements audio-only live events, but **editing it does not deploy
+them**. Deploy the updated Worker and every participating frontend. The
+`LIVE_AUDIO_EVENT` binding points at SQLite-backed `LiveAudioEvent`;
+Wrangler migration `v2-live-audio-events` creates that class on Worker deployment.
+It reuses existing SFU credentials and D1's `access_rate_limits` table
+(migration 0005); there is no new D1 migration. Ordinary rooms are unchanged.
+
+### DJ and audience workflow
+
+1. Join a room as its host. In **Online / Live DJ event**, enter a title and
+   choose **Create live event**. VR has the same actions under
+   **ONLINE / LIVE DJ EVENT**, using a default title.
+2. **Copy private DJ link** and send it only to the performer. Keep the original:
+   its publisher secret is issued on create/replacement, not recoverable later.
+3. The DJ opens the lightweight `broadcast/` page on the mixer/interface computer.
+   Choose **Allow audio and find inputs**, select the recording input, then
+   **Start broadcasting**. Browser permission is called microphone permission;
+   no camera is requested.
+4. Route the stereo master/interface loopback to an OS recording input.
+   ASIO-only output is not directly available to a browser; use interface loopback
+   or an intentionally configured virtual audio cable. Check both meters,
+   clipping and reported channels/sample rate. Monitor on hardware, not the
+   delayed club return. Keep the tab open and prevent computer sleep.
+5. Send **Copy audience link**, never the private DJ link, to attendees.
+   `?event=<UUID>` automatically chooses available room capacity.
+6. **Stop broadcasting** releases capture without ending the event.
+   The owner can **Replace DJ invitation** to disconnect the old publisher,
+   or **End live event**. Destructive controls require a second press within
+   four seconds.
+
+Music capture requests stereo/48 kHz, echo cancellation/noise suppression/AGC off.
+Voice settings are unchanged. Opus SDP requests stereo and a 192 kbit/s target;
+music senders also set a maximum bitrate. Those are requests, not guarantees of
+stereo hardware or sustained network bitrate. The page reports actual input
+settings and mono/unreported channels/voice-processing warnings. It has no local
+speaker monitor and uploads no recording. Only broadcast music with the required
+artist, venue and music permissions. No Twitch extraction, video or likeness is added.
+
+### Admission and authority
+
+One event-owned SFU publication goes directly to each admitted listener, without
+room-host retransmission. The coordinator reserves actual capacity rather than
+using directory counts, creating at most **eight private/unlisted social rooms**
+at the configured room size (up to 32): **256 is a software cap, not a load-tested
+audience guarantee**. Existing attendees never move. Different rooms cannot see
+or voice-chat with each other. Real received audio enters the existing PA,
+analyser, kick/rhythm taps, crowd, procedural DJ and lighting. Network delays
+can differ; exact cross-headset beat alignment is not promised.
+
+Any admitted host can create. The creator's pid retains rotation/end authority
+after social host changes. Publisher invitations/events expire after **12 hours**;
+rotation does not extend expiry. Only domain-separated capability hashes persist.
+The DJ secret travels in a fragment, is removed from the address bar immediately
+and authenticates in the first media WebSocket frame, never a query string.
+Provider credentials/session locators remain server-side.
+
+Listener tickets are private to admitted social members, allowing one active
+listener connection each. Departure, applicable two-way blocks and moderation
+revoke access. Root locks/bans are checked before overflow admission; event-room
+kicks/bans cannot be bypassed through another event room. Blocking the event
+creator, or being blocked by them, also removes the event subscription.
+These are not ticket checks, age verification or an independent moderation service.
+
+Creation requires D1-backed issuance limits: **60 globally, 5/IP and 3/pid per hour**.
+Missing D1 or a failed limit operation must refuse creation, not bypass the caps.
+A persisted **60-second per-room cooldown** applies even to failed attempts,
+alongside one active event/root, a 0.2/s burst-two socket bucket and one pending
+management request/socket.
+Reservations last **15 seconds**, membership/media liveness **45 seconds** and
+initial media authentication **10 seconds**. Even empty events expire at 12 hours.
+Transient media failures retry at most three times with backoff; authorization
+revocation is terminal. Interruptions are explicit and never substitute the house
+set; **Listen again** retries an admitted listener. Stop, input loss, page exit,
+revocation and final failure clean up tracks, audio contexts, sockets and timers.
+End/expiry sends ended status before detaching rooms/restoring ordinary host music.
+Old event invitations stay invalid; former overflow rooms stay private/unlisted.
+
+### Validation limits
+
+Coordinator tests exercise admission/overflow, leases and moderation against the
+real backend classes. Browser tests use real Opus/stereo audio with a local,
+test-only media bridge. These are not a production-provider rehearsal or a
+256-person, venue-uplink, sustained-bitrate, physical-Quest latency/frame-time
+measurement. Rehearse the actual interface, provider, network and headsets
+privately before announcing a set.
+See [Cloudflare's current pricing](https://developers.cloudflare.com/realtime/sfu/platform/pricing/)
+for SFU egress; voice, Workers and Durable Objects also consume resources.
+
 ## Owner-only DEV room 000032
 
 Use the normal **Join room** flow and enter **000032** (`private-000032`).
@@ -66,10 +156,12 @@ queue on a corridor. Entire swept paths are reserved before departure. Human
 obstructions can cause safe backtracking, never teleports. An occupied destination
 is skipped or an approach is cancelled if a real player occupies it.
 
-Real players have furniture priority. Selecting an NPC's seat requests `dev-seat`;
-the NPC stands and leaves before the client seats the player. Selecting an occupied
-simulated toilet door also asks its occupant to leave. The toilet door opens before
-walking, and seat reuse is held for 30 seconds. The client waits for both server
+Real players have chair and stool priority. Selecting an NPC's seat requests `dev-seat`;
+the NPC stands and leaves before the client seats the player. Occupied toilets are
+the exception: their red door remains locked from outside, and neither pressing
+the door nor selecting the toilet asks its occupant to leave. When an occupant
+departs, the toilet door opens before walking, and seat reuse is held for 30 seconds.
+The client waits for both server
 occupancy and the rendered body to clear; a 15-second timeout reports that the guest
 cannot yet move, rather than placing two bodies on one seat. Pending waits are
 cancelled on stand, another selection, disconnect or disposal. Real occupied

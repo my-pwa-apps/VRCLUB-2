@@ -64,6 +64,24 @@ const css = (await transform(cssSource, {
 const cssName = `styles-${digest(css)}.css`;
 await writeFile(path.join(dist, 'assets', cssName), css);
 
+const broadcastHtml = await readFile(path.join(root, 'broadcast', 'index.html'), 'utf8');
+const broadcastSources = [...broadcastHtml.matchAll(/<script\s+src="([^"]+)"\s*><\/script>/g)].map(match => match[1]);
+if (!broadcastSources.length) throw new Error('build: broadcaster script order is missing.');
+const broadcastCode = (await Promise.all(broadcastSources.map(source =>
+    readFile(path.resolve(root, 'broadcast', source), 'utf8')))).join('\n');
+const broadcastResult = await transform(broadcastCode, { loader: 'js', format: 'iife', minify: true, target: ['es2020'] });
+const broadcastName = `broadcast-${digest(broadcastResult.code)}.js`;
+await writeFile(path.join(dist, 'assets', broadcastName), broadcastResult.code);
+const broadcastCss = (await transform(await readFile(path.join(root, 'broadcast', 'broadcast.css'), 'utf8'),
+    { loader: 'css', minify: true, target: ['es2020'] })).code;
+const broadcastCssName = `broadcast-${digest(broadcastCss)}.css`;
+await writeFile(path.join(dist, 'assets', broadcastCssName), broadcastCss);
+await mkdir(path.join(dist, 'broadcast'), { recursive: true });
+await writeFile(path.join(dist, 'broadcast', 'index.html'), broadcastHtml
+    .replace('href="broadcast.css"', `href="../assets/${broadcastCssName}"`)
+    .replace(/<script\s+src="[^"]+"\s*><\/script>/g, '')
+    .replace('</body>', `<script src="../assets/${broadcastName}"></script>\n</body>`));
+
 let html = indexHtml
     .replace(/<link rel="stylesheet" href="css\/styles\.css\?v=[^"]+">/, `<link rel="stylesheet" href="assets/${cssName}">`)
     .replace(/(js\/vendor\/[^"?]+)\?v=[^"]+/g, '$1')
