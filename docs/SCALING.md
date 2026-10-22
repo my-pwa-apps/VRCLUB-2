@@ -28,12 +28,40 @@ and rejects mesh signaling in those rooms.
 
 ## Live audio events and automatic overflow
 
-This worktree implements audio-only live events, but **editing it does not deploy
-them**. Deploy the updated Worker and every participating frontend. The
+Audio-only live events were deployed to the shared Worker and all three supported
+frontends on **22 October 2026**. Future changes still require deploying the updated
+Worker and every participating frontend; editing this worktree does not deploy them. The
 `LIVE_AUDIO_EVENT` binding points at SQLite-backed `LiveAudioEvent`;
 Wrangler migration `v2-live-audio-events` creates that class on Worker deployment.
 It reuses existing SFU credentials and D1's `access_rate_limits` table
 (migration 0005); there is no new D1 migration. Ordinary rooms are unchanged.
+
+### 22 October 2026 rollout
+
+Source: `20a9815`. Shared Worker version:
+`b57d27e5-682b-4c81-ac36-81db32e7b93d`, including the
+`v2-live-audio-events` Durable Object migration. The existing production rate-limit
+table and SFU secret bindings were verified before deployment; no D1 migration
+was needed.
+
+| Site | Production host | Deployment |
+|------|-----------------|------------|
+| ADE | <https://nocturne-ade.mitwee.nl> | <https://14af4d2e.nocturne-ade.pages.dev> |
+| SideQuest | <https://sidequest-nocturne.mitwee.nl> | <https://ad86734c.nocturne-sidequest.pages.dev> |
+| Quest | <https://nocturne.mitwee.nl> | <https://145b514d.nocturne-vr.pages.dev> |
+
+All custom domains serve `assets/app-f3e3210b9c00.js` and the expected hashed
+broadcaster JavaScript/CSS. Verification checked their bytes, broadcaster
+no-cache/noindex and camera/microphone policy, ADE non-indexing and ordinary-site
+canonical metadata. Quest's Pages-injected analytics tag was excluded only from
+the broadcaster HTML comparison; that page's self-only script CSP blocks it.
+
+A private, temporary production smoke test verified capacity 32/SFU capability,
+event creation, audience admission and both publisher/listener media authorization.
+The test ended its event and closed every connection. It did not publish audio,
+exercise provider media forwarding, or measure headset/venue performance.
+These were direct deployments from this worktree, not merges into the Quest or
+SideQuest source branches.
 
 ### DJ and audience workflow
 
