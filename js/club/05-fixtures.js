@@ -455,33 +455,37 @@ class VRClubFixtures extends VRClubEnvironment {
                 `fogEmitter${i}`, this.tierSettings.fogParticleCapacity, this.scene);
             fogEmitter.particleTexture = particleTexture;
             
-            // World position of nozzle (turned toward -Z dance floor)
-            const nozzleWorldPos = new BABYLON.Vector3(pos.x, pos.y - 0.25, pos.z - 0.15);
+            // World position of the angled nozzle mouth (turned toward -Z dance floor)
+            const nozzleWorldPos = new BABYLON.Vector3(
+                pos.x + 0.15 * Math.sin(pos.rotY),
+                pos.y - 0.25,
+                pos.z + 0.15 * Math.cos(pos.rotY)
+            );
             fogEmitter.emitter = nozzleWorldPos;
             
             // 12 cm nozzle aperture box
             fogEmitter.minEmitBox = new BABYLON.Vector3(-0.06, -0.06, -0.06);
             fogEmitter.maxEmitBox = new BABYLON.Vector3(0.06, 0.06, 0.06);
             
-            // Subtle dark-room baseline so unlit smoke stays moody and lights up vividly in beams
-            fogEmitter.color1 = new BABYLON.Color4(0.68, 0.72, 0.82, 0.072);
-            fogEmitter.color2 = new BABYLON.Color4(0.64, 0.68, 0.78, 0.058);
+            // Visible smoke jet right from the nozzle that billows and thins across the floor
+            fogEmitter.color1 = new BABYLON.Color4(0.88, 0.90, 0.96, 0.26);
+            fogEmitter.color2 = new BABYLON.Color4(0.82, 0.85, 0.92, 0.20);
             fogEmitter.colorDead = new BABYLON.Color4(0.50, 0.54, 0.64, 0.0);
             
             // Compact at nozzle, billowing as the jet disperses across the floor
-            fogEmitter.minSize = 0.85;
-            fogEmitter.maxSize = 2.5;
+            fogEmitter.minSize = 0.65;
+            fogEmitter.maxSize = 2.4;
             fogEmitter.minScaleX = 1.0;
             fogEmitter.maxScaleX = 1.6;
             fogEmitter.minScaleY = 1.0;
             fogEmitter.maxScaleY = 1.6;
             
-            // Lifetime - plume hangs in the air and dissipates naturally when SMOKE is switched off
-            fogEmitter.minLifeTime = 6.0;
-            fogEmitter.maxLifeTime = 12.0;
+            // Lifetime (with updateSpeed = 0.008, 4..7.5 units is ~8..15 real seconds)
+            fogEmitter.minLifeTime = 4.0;
+            fogEmitter.maxLifeTime = 7.5;
             
             // Emission rate (VJ controlled)
-            fogEmitter.emitRate = 26;
+            fogEmitter.emitRate = 45;
             fogEmitter.manualEmitCount = 0;
             fogEmitter.blendMode = BABYLON.ParticleSystem.BLENDMODE_STANDARD;
             
@@ -490,16 +494,16 @@ class VRClubFixtures extends VRClubEnvironment {
             fogEmitter.direction1 = new BABYLON.Vector3(centerDir - 0.18, -0.75, -0.70);
             fogEmitter.direction2 = new BABYLON.Vector3(centerDir + 0.18, -0.45, -0.40);
             
-            // Velocity (with updateSpeed = 0.008, effective world speed is ~0.65..1.35 m/s)
-            fogEmitter.minEmitPower = 1.35;
-            fogEmitter.maxEmitPower = 2.8;
+            // Velocity — strong jet from the nozzle into the room
+            fogEmitter.minEmitPower = 2.6;
+            fogEmitter.maxEmitPower = 4.4;
             
             // Physics - gentle downward drift as the cooled plume settles
-            fogEmitter.gravity = new BABYLON.Vector3(0, -0.12, 0);
+            fogEmitter.gravity = new BABYLON.Vector3(0, -0.15, 0);
             
             // Rotation for natural billow turbulence
-            fogEmitter.minAngularSpeed = -0.28;
-            fogEmitter.maxAngularSpeed = 0.28;
+            fogEmitter.minAngularSpeed = -0.35;
+            fogEmitter.maxAngularSpeed = 0.35;
             
             // Size growth over lifetime (nozzle jet -> billowing cloud)
             fogEmitter.addSizeGradient(0.0, 0.25);
@@ -507,15 +511,17 @@ class VRClubFixtures extends VRClubEnvironment {
             fogEmitter.addSizeGradient(0.7, 1.75);
             fogEmitter.addSizeGradient(1.0, 2.45);
             
-            // 6-key alpha/colour envelope matching the Unity VolumetricSmoke plume profile
-            fogEmitter.addColorGradient(0.00, new BABYLON.Color4(0.68, 0.72, 0.82, 0.00));
-            fogEmitter.addColorGradient(0.06, new BABYLON.Color4(0.68, 0.72, 0.82, 0.040));
-            fogEmitter.addColorGradient(0.22, new BABYLON.Color4(0.68, 0.72, 0.82, 0.072));
-            fogEmitter.addColorGradient(0.50, new BABYLON.Color4(0.64, 0.68, 0.78, 0.056));
-            fogEmitter.addColorGradient(0.82, new BABYLON.Color4(0.58, 0.62, 0.72, 0.024));
-            fogEmitter.addColorGradient(1.00, new BABYLON.Color4(0.50, 0.54, 0.64, 0.00));
+            // 6-key alpha/colour envelope: dense jet leaving the nozzle, billowing and fading across the floor
+            fogEmitter.addColorGradient(0.00, new BABYLON.Color4(0.92, 0.94, 1.00, 0.00));
+            fogEmitter.addColorGradient(0.05, new BABYLON.Color4(0.90, 0.92, 0.98, 0.26));
+            fogEmitter.addColorGradient(0.22, new BABYLON.Color4(0.86, 0.88, 0.95, 0.22));
+            fogEmitter.addColorGradient(0.50, new BABYLON.Color4(0.78, 0.82, 0.90, 0.14));
+            fogEmitter.addColorGradient(0.82, new BABYLON.Color4(0.68, 0.72, 0.82, 0.06));
+            fogEmitter.addColorGradient(1.00, new BABYLON.Color4(0.55, 0.58, 0.68, 0.00));
             
             fogEmitter.updateSpeed = 0.008;
+            fogEmitter.preWarmCycles = 120;
+            fogEmitter.preWarmStepOffset = 2;
             fogEmitter.start();
             
             // Store references
@@ -626,7 +632,7 @@ class VRClubFixtures extends VRClubEnvironment {
         if (typeof this._installAirLighting === 'function') this._installAirLighting();
         
         // Initialize fog machine state
-        this.smokeActive = false;
+        this.smokeActive = true;
         this.fogBurstMode = 'auto'; // 'auto', 'burst', 'continuous'
         this.fogIntensity = 1.0; // 0.0 to 2.0
         this.lastFogBurst = 0;

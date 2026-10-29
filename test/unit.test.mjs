@@ -7211,7 +7211,7 @@ test('mirror-ball incident beams, housings and reflections follow in-place colou
         const color = club.mirrorBallSpotlightColor;
         assert.ok(club.mirrorBallBeams[0].material.emissiveColor.equals(color), 'incident beam retained an old hue');
         assert.ok(club.mirrorReflectionBatch.rayMat.emissiveColor.equals(color), 'VR cadence delayed the reflected hue');
-        assert.ok(club.mirrorBallCachedColors.housingGlow.equals(color.scale(0.2)), 'housing cache retained an old hue');
+        assert.ok(club.mirrorBallCachedColors.housingGlow.equals(club.cachedColors.black), 'mirror ball spotlight housing must stay dark metal and not glow with the beam colour');
         assert.ok(club.mirrorBallCachedColors.lensBright.equals(color.scale(8)), 'lens cache retained an old hue');
     };
     tick();
@@ -13812,8 +13812,16 @@ test('Unity-ported fog machines face inward into the dance floor, wrap plume bea
     const fixturesSource = readFileSync(join(ROOT, 'js/club/05-fixtures.js'), 'utf8');
     assert.match(fixturesSource, /rotY:\s*Math\.PI\s*-\s*0\.3/, 'left fog machine must turn inward toward the dance floor (-Z)');
     assert.match(fixturesSource, /rotY:\s*Math\.PI\s*\+\s*0\.3/, 'right fog machine must turn inward toward the dance floor (-Z)');
-    assert.match(fixturesSource, /pos\.z\s*-\s*0\.15/, 'nozzle emitter must sit on the dance-floor side of the z=-8 truss');
+    assert.match(fixturesSource, /pos\.z\s*\+\s*0\.15\s*\*\s*Math\.cos\(pos\.rotY\)/, 'nozzle emitter must sit on the dance-floor side of the z=-8 truss');
     assert.match(fixturesSource, /new BABYLON\.Vector3\(centerDir - 0\.18,\s*-0\.75,\s*-0\.70\)/, 'plume direction must shoot into -Z');
+
+    const { VRClubAnimationFinish } = loadClassic('js/club/09-animation-finish.js', { VRClubAnimationFixtures: class {} }).window;
+    assert.ok(VRClubAnimationFinish.STROBE_PATTERNS.includes('burst'), 'STROBE_PATTERNS must include burst');
+    assert.equal(VRClubAnimationFinish.STROBE_PATTERN_NAMES.burst, 'QUICK BURST');
+    const step0 = VRClubAnimationFinish.strobeInterval('burst', 0.65, 1, Math.random, 0);
+    const step1 = VRClubAnimationFinish.strobeInterval('burst', 0.65, 1, Math.random, 1);
+    const step2 = VRClubAnimationFinish.strobeInterval('burst', 0.65, 1, Math.random, 2);
+    assert.ok(step0 <= 0.36 && step1 <= 0.36 && step2 >= 1.2, 'QUICK BURST must fire 3 rapid flashes then pause');
 
     const { window } = loadClassic('js/club/07-animation-core.js', { BABYLON: makeBabylonStub(), VRClubEffects: class {} });
     const proto = window.VRClubAnimationCore.prototype;

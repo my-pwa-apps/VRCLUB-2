@@ -412,9 +412,12 @@ class VRClubAnimationCore extends VRClubEffects {
                             
                             if (machine.burstTimer <= 0) {
                                 machine.isBursting = false;
-                                emitter.emitRate = 0;
+                                emitter.emitRate = continuousRate * 0.55 * this.fogIntensity;
                                 ledMat.emissiveColor = this.cachedColors.fogReady; // Green (ready)
                             }
+                        } else {
+                            // Keep a steady plume streaming from the nozzles between peak bursts while SMOKE is on
+                            emitter.emitRate = continuousRate * 0.55 * this.fogIntensity;
                         }
                         
                     } else if (this.fogBurstMode === 'continuous') {
@@ -592,7 +595,7 @@ class VRClubAnimationCore extends VRClubEffects {
         const tint = this.currentSpotColor;
         const isDust = mode === 'dust';
         const isPlume = mode === 'plume';
-        const dim = Number.isFinite(this.masterIntensity) ? Math.max(0.15, Math.min(1, this.masterIntensity)) : 1;
+        const dim = Number.isFinite(this.masterIntensity) ? Math.max(0, Math.min(1, this.masterIntensity)) : 1;
 
         for (let i = 0; i < particles.length; i++) {
             const p = particles[i];
@@ -624,8 +627,8 @@ class VRClubAnimationCore extends VRClubEffects {
                 // Dust is only seen where light catches it.
                 c.a = Math.min(0.9, c.a * (0.2 + Math.min(1.5, lit) * 1.7));
             } else if (isPlume) {
-                // Plumes stay dark when unlit in blackout and bloom forward when a beam cuts through them.
-                c.a = Math.min(0.32, c.a * (0.35 * dim + Math.min(1.5, lit) * 2.8));
+                // Plumes keep their nozzle jet visibility while the room is lit, dim in blackout, and bloom in beams.
+                c.a = Math.min(0.45, c.a * ((0.15 + 0.85 * dim) + Math.min(1.5, lit) * 2.8));
             } else if (lit > 0) {
                 c.a *= 1 + Math.min(1.2, lit) * 2.2;
             }
@@ -823,7 +826,7 @@ class VRClubAnimationCore extends VRClubEffects {
         const cache = this.mirrorBallCachedColors;
         if (!source || !cache || (this.mirrorBallCachedColorSource === source &&
             this._mirrorCachedR === source.r && this._mirrorCachedG === source.g && this._mirrorCachedB === source.b)) return;
-        source.scaleToRef(0.2, cache.housingGlow);
+        cache.housingGlow.set(0, 0, 0);
         source.scaleToRef(8, cache.lensBright);
         source.scaleToRef(16, cache.sourceVeryBright);
         cache.flareMedium.set(3 + source.r * 10, 3 + source.g * 10, 3 + source.b * 10);

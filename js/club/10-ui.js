@@ -279,7 +279,7 @@ class VRClubUI extends VRClubAnimationFinish {
         }
         if (this.mirrorBallHousings) {
             this.mirrorBallHousings.forEach(housing => {
-                housing.material.emissiveColor = colour.scale(0.2);
+                housing.material.emissiveColor.set(0, 0, 0);
                 housing.lensMaterial.emissiveColor = colour.scale(5.0);
                 housing.sourceMaterial.emissiveColor = colour.scale(8.0);
                 housing.flareMaterial.emissiveColor = colour.scale(3.0);

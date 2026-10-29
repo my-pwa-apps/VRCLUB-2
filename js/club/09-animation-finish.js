@@ -15,14 +15,14 @@ class VRClubAnimationFinish extends VRClubAnimationFixtures {
      */
     static get STROBE_PATTERNS() {
         return this._strobePatterns || (this._strobePatterns = Object.freeze(
-            ['all', 'chase', 'circle', 'reverse', 'pingpong', 'sides', 'frontback', 'cross', 'build', 'random']));
+            ['all', 'chase', 'circle', 'reverse', 'pingpong', 'sides', 'frontback', 'cross', 'build', 'random', 'burst']));
     }
 
     static get STROBE_PATTERN_NAMES() {
         return this._strobePatternNames || (this._strobePatternNames = Object.freeze({
             all: 'ALL AT ONCE', chase: 'CHASE', circle: 'CIRCLE', reverse: 'CIRCLE BACK', pingpong: 'PING-PONG',
             sides: 'LEFT / RIGHT', frontback: 'FRONT / BACK', cross: 'CROSS', build: 'BUILD UP',
-            random: 'IRREGULAR FLASH'
+            random: 'IRREGULAR FLASH', burst: 'QUICK BURST'
         }));
     }
 
@@ -32,9 +32,14 @@ class VRClubAnimationFinish extends VRClubAnimationFixtures {
             ['all', 'chase', 'circle', 'reverse', 'pingpong', 'sides', 'frontback', 'cross', 'build']));
     }
 
-    /** Free-running interval: IRREGULAR alternates short stabs with clearly longer pauses. */
-    static strobeInterval(pattern, baseInterval, speed = 1, rand = Math.random) {
+    /** Free-running interval: IRREGULAR alternates short stabs with clearly longer pauses; QUICK BURST fires 3 rapid flashes then pauses. */
+    static strobeInterval(pattern, baseInterval, speed = 1, rand = Math.random, step = 0) {
         const safeSpeed = Math.max(0.1, speed);
+        if (pattern === 'burst') {
+            const endOfTriplet = ((Math.max(0, step | 0) + 1) % 3) === 0;
+            const interval = endOfTriplet ? 1.25 : 0.35;
+            return Math.max(STROBE_MIN_INTERVAL_S, interval / Math.sqrt(safeSpeed));
+        }
         if (pattern === 'random') {
             const quick = rand() < 0.58;
             const interval = quick
@@ -144,7 +149,10 @@ class VRClubAnimationFinish extends VRClubAnimationFixtures {
                 // Beat-locked when the show drives: a strobe that fires on a random timer
                 // never lands on the kick, which is the whole point of one. null = legacy
                 // free-running timer (manual VJ, no director, or a 'free' look).
-                const syncDue = typeof this._strobeSyncDue === 'function' ? this._strobeSyncDue() : null;
+                // QUICK BURST ('burst') uses its own 3-flash rapid burst + pause cadence.
+                const syncDue = this.strobePattern === 'burst'
+                    ? null
+                    : (typeof this._strobeSyncDue === 'function' ? this._strobeSyncDue() : null);
                 const due = syncDue === null
                     ? (this._nextStrobeBurstTime === undefined || time >= this._nextStrobeBurstTime)
                     : syncDue;
@@ -216,7 +224,7 @@ class VRClubAnimationFinish extends VRClubAnimationFixtures {
                     // Never faster than the shared room governor. IRREGULAR deliberately
                     // alternates short stabs and longer silences instead of metronomic jitter.
                     this._nextStrobeBurstTime = time + VRClubAnimationFinish.strobeInterval(
-                        pattern, baseInterval, strobeSpeedMultiplier);
+                        pattern, baseInterval, strobeSpeedMultiplier, Math.random, this._strobePatternStep);
                 }
                 
                 this.strobes.forEach((strobe) => {

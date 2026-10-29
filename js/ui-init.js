@@ -1946,7 +1946,7 @@ function initAudioMenu() {
         if (soundCloudFallback && soundCloudFallbackText && current && current.kind === 'soundcloud' &&
             err && /^soundcloud-/.test(err.code || '')) {
             soundCloudFallbackText.textContent = err.message;
-            if (soundCloudFallbackBtn) soundCloudFallbackBtn.hidden = err.code !== 'soundcloud-not-published';
+            if (soundCloudFallbackBtn) soundCloudFallbackBtn.hidden = err.code === 'soundcloud-not-a-track';
             soundCloudFallback.hidden = false;
             showStatus('This SoundCloud track cannot be analysed', 'error');
         } else {
