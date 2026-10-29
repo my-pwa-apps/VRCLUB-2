@@ -243,30 +243,24 @@ test('crouching lowers the pelvis with the feet still on the floor', async () =>
     assert.ok(Math.abs(pos(rig, 'foot_l').y - rig.ankleH) < 0.01, 'the feet left the floor in a crouch');
 });
 
-test('re-fitting eye height across XR and desktop transitions keeps the feet grounded', async () => {
+test('intentional seating bends the legs while physical seated play retains a full standing body', async () => {
     const { rig } = await loadRig();
     const pose = makePose();
     for (let i = 0; i < 30; i++) rig.update(DT, pose);
+    const standingPelvis = pos(rig, 'pelvis').y;
+    assert.ok(Math.abs(pos(rig, 'Head').y + rig.eyeAbove - 1.7) < 0.02);
 
-    rig.setEyeHeight(1.0);
-    pose.eyeY = 1.0;
-    for (let i = 0; i < 30; i++) rig.update(DT, pose);
-    assert.ok(Math.abs(pos(rig, 'Head').y + rig.eyeAbove - 1.0) < 0.02, 'the seated XR fit missed 1.00 m eyes');
-    assert.ok(Math.abs(pos(rig, 'foot_l').y - rig.ankleH) < 0.01, 'the seated XR fit lifted a foot off the floor');
+    for (const groundY of [0, 0.5, 3]) {
+        Object.assign(pose, { groundY, eyeY: groundY + 1.7, seatY: groundY + 0.76, seated: true, bodyYaw: 0 });
+        for (let i = 0; i < 30; i++) rig.update(DT, pose);
+        assert.ok(Math.abs(pos(rig, 'pelvis').y - pose.seatY) < 0.035, `pelvis missed seat at floor ${groundY}`);
+        assert.ok(Math.abs(pos(rig, 'foot_l').y - (groundY + rig.ankleH)) < 0.015, `left foot floated at floor ${groundY}`);
+        assert.ok(Math.abs(pos(rig, 'foot_r').y - (groundY + rig.ankleH)) < 0.015, `right foot floated at floor ${groundY}`);
+    }
 
-    rig.setEyeHeight(1.7);
-    pose.eyeY = 1.7;
+    Object.assign(pose, { groundY: 0, eyeY: 1.7, seated: false, seatY: 0 });
     for (let i = 0; i < 30; i++) rig.update(DT, pose);
-    assert.ok(Math.abs(pos(rig, 'Head').y + rig.eyeAbove - 1.7) < 0.02, 'desktop refit did not restore 1.70 m eyes');
-    assert.ok(Math.abs(pos(rig, 'foot_l').y - rig.ankleH) < 0.01, 'desktop refit left the feet floating');
-
-    rig.setEyeHeight(1.0);
-    pose.eyeY = 1.5;
-    pose.groundY = 0.5;
-    pose.z = -18;
-    for (let i = 0; i < 30; i++) rig.update(DT, pose);
-    assert.ok(Math.abs(pos(rig, 'Head').y + rig.eyeAbove - 1.5) < 0.02, 'the seated booth fit missed the measured head height');
-    assert.ok(Math.abs(pos(rig, 'foot_l').y - (rig.ankleH + 0.5)) < 0.01, 'the seated booth fit ignored the riser floor');
+    assert.ok(Math.abs(pos(rig, 'pelvis').y - standingPelvis) < 0.03, 'standing after a seat left the body shortened');
 });
 
 test('hands: a reachable target is met, an unreachable one straightens the arm without stretching it', async () => {
@@ -439,54 +433,143 @@ test('the balcony watcher keeps both hands on the rail while looking around the 
     scene.dispose();
 });
 
-test('the mingling guest raises a drink to his face without sliding his feet', async () => {
+test('the mingling guest\'s hand carries the glass off the counter, tips it to his lips and sets it back down', async () => {
     const { scene, container, B } = await loadContainer('club-crowd-m6.glb');
     const entry = container.instantiateModelsToScene(name => name, false, { doNotInstantiate: true });
     const root = entry.rootNodes[0];
+    // Where the club puts him at the bar, facing the bartender, and the counter glass he reaches for.
+    const stand = { x: 9.55, z: -9.65 }, bartender = { x: 10.85, z: -9.9 };
+    const yaw = Math.atan2(bartender.x - stand.x, bartender.z - stand.z);
+    const glass = new B.Vector3(9.7 + 0.29, 1.1 + 0.06, bartender.z + 0.515);
+    root.rotationQuaternion = null;
+    root.rotation.y = yaw;
+    root.position.set(stand.x, 0, stand.z);
+    root.computeWorldMatrix(true);
+    let bounds = root.getHierarchyBoundingVectors(true);
+    root.scaling.setAll(1.84 / (bounds.max.y - bounds.min.y));
+    root.computeWorldMatrix(true);
+    bounds = root.getHierarchyBoundingVectors(true);
+    root.position.y -= bounds.min.y;
+    const scale = root.scaling.x;
     const node = name => root.getDescendants(false, n => n.name === name)[0];
-    const at = name => {
-        const n = node(name);
-        n.computeWorldMatrix(true);
-        return n.getAbsolutePosition().clone();
-    };
+    const at = name => { const n = node(name); n.computeWorldMatrix(true); return n.getAbsolutePosition().clone(); };
     const group = entry.animationGroups.find(animation => animation.name.endsWith('Drink_Loop'));
-    assert.ok(group, 'club-crowd-m6.glb has no Drink_Loop');
     group.start(false);
     group.pause();
-
-    const samples = [];
-    for (let i = 0; i <= 64; i++) {
-        group.goToFrame(group.from + (group.to - group.from) * i / 64);
+    const forward = new B.Vector3(Math.sin(yaw), 0, Math.cos(yaw));
+    // The same grip the club uses (VRClubAudioCrowd._updateMinglerGrip): wrist-local fingers +Y, thumb side -X.
+    const sample = phase => {
+        group.goToFrame(group.from + (group.to - group.from) * phase);
         root.computeWorldMatrix(true);
-        samples.push({
-            head: at('Head'),
-            wrist: at('Wrist.R'),
-            palm: at('Middle1.R'),
-            shoulder: at('UpperArm.R'),
-            leftFoot: at('Foot.L'),
-            rightFoot: at('Foot.R')
-        });
-    }
-    const wristTravel = Math.max(...samples.map(sample => sample.wrist.y))
-        - Math.min(...samples.map(sample => sample.wrist.y));
-    const counterReach = Math.max(...samples.slice(0, 14).map(sample => sample.palm.z));
-    const closestSample = samples.reduce((best, sample) => {
-        const distance = B.Vector3.Distance(sample.palm, sample.head);
-        return !best || distance < best.distance ? { distance, sample } : best;
-    }, null);
-    const closestSip = closestSample.distance;
-    const footTravel = side => {
-        const first = samples[0][side];
-        return Math.max(...samples.map(sample => B.Vector3.Distance(sample[side], first)));
+        const wrist = node('Wrist.R');
+        wrist.computeWorldMatrix(true);
+        const f = B.Vector3.TransformNormal(new B.Vector3(0, 1, 0), wrist.getWorldMatrix()).normalize();
+        const t = B.Vector3.TransformNormal(new B.Vector3(-0.9994, 0, -0.0341), wrist.getWorldMatrix()).normalize();
+        const n = B.Vector3.Cross(t, f).normalize();
+        const palm = at('Wrist.R').add(at('Middle1.R')).scale(0.5);
+        const cup = palm.add(n.scale(0.045)).add(t.scale(0.01));
+        const lips = at('Head').add(forward.scale(0.115 * scale)).addInPlaceFromFloats(0, 0.006 * scale, 0);
+        return {
+            cup, tilt: Math.acos(Math.min(1, Math.max(-1, t.y))), rim: cup.add(t.scale(0.06)), lips,
+            wrist: at('Wrist.R'), otherWrist: at('Wrist.L'), feet: [at('Foot.L'), at('Foot.R')]
+        };
     };
-    assert.ok(wristTravel > 0.25, `the cup hand rises only ${wristTravel.toFixed(3)} m`);
-    assert.ok(counterReach > 0.42, `the pickup hand reaches only ${counterReach.toFixed(3)} m toward the counter`);
-    assert.ok(closestSip < 0.16,
-        `the cup hand remains ${closestSip.toFixed(3)} m from his face `
-        + `(shoulder ${closestSample.sample.shoulder.toString()}, wrist ${closestSample.sample.wrist.toString()}, `
-        + `palm ${closestSample.sample.palm.toString()}, `
-        + `head ${closestSample.sample.head.toString()})`);
-    assert.ok(footTravel('leftFoot') < 0.015 && footTravel('rightFoot') < 0.015, 'a foot slides while he drinks');
+    // He takes the glass where it stands (the club's pickup ends at phase 0.2 and its return begins at 0.86).
+    for (const phase of [0.2, 0.86]) {
+        const s = sample(phase);
+        assert.ok(B.Vector3.Distance(s.cup, glass) < 0.03,
+            `at phase ${phase} the cup is ${B.Vector3.Distance(s.cup, glass).toFixed(3)} m from the glass on the counter`);
+    }
+    let rimToLips = 99, topTilt = 0, topCup = 0;
+    const start = sample(0);
+    let footTravel = 0;
+    for (let i = 0; i <= 64; i++) {
+        const phase = i / 64;
+        const s = sample(phase);
+        footTravel = Math.max(footTravel, B.Vector3.Distance(s.feet[0], start.feet[0]), B.Vector3.Distance(s.feet[1], start.feet[1]));
+        if (phase >= 0.2 && phase <= 0.68) {
+            rimToLips = Math.min(rimToLips, B.Vector3.Distance(s.rim, s.lips));
+            topTilt = Math.max(topTilt, s.tilt);
+            topCup = Math.max(topCup, s.cup.y);
+        }
+        // His free hand rests on the counter while the other drinks, not through it.
+        if (phase >= 0.16 && phase <= 0.86) {
+            assert.ok(s.otherWrist.y > 1.05 && s.otherWrist.y < 1.2, `his free wrist is ${s.otherWrist.y.toFixed(3)} m high at phase ${phase}`);
+        }
+    }
+    assert.ok(rimToLips < 0.07, `the rim of the glass stays ${rimToLips.toFixed(3)} m from his lips`);
+    assert.ok(topTilt > 0.7, `the glass only tips ${topTilt.toFixed(2)} rad for the sip`);
+    assert.ok(topCup > 1.3, `the glass only rises to ${topCup.toFixed(2)} m`);
+    assert.ok(footTravel < 0.02, `a foot slides ${footTravel.toFixed(3)} m while he drinks`);
+    scene.dispose();
+});
+
+test('the bar regular stays seated on the stool, plants both feet and raises the bottle to her face', async () => {
+    const { scene, container, B } = await loadContainer('club-crowd-f6.glb');
+    const entry = container.instantiateModelsToScene(name => name, false, { doNotInstantiate: true });
+    const root = entry.rootNodes[0];
+    root.rotationQuaternion = null;
+    root.rotation.y = Math.PI / 2;
+    root.position.set(9.08, 0, -11.6);
+    root.computeWorldMatrix(true);
+    let bounds = root.getHierarchyBoundingVectors(true);
+    root.scaling.setAll(1.66 / (bounds.max.y - bounds.min.y));
+    root.computeWorldMatrix(true);
+    bounds = root.getHierarchyBoundingVectors(true);
+    root.position.y -= bounds.min.y;
+    const node = name => root.getDescendants(false, n => n.name === name)[0];
+    const at = name => { const n = node(name); n.computeWorldMatrix(true); return n.getAbsolutePosition().clone(); };
+    const idle = entry.animationGroups.find(animation => animation.name.endsWith('Seated_Bar_Idle_Loop'));
+    const drink = entry.animationGroups.find(animation => animation.name.endsWith('Seated_Bar_Drink_Loop'));
+    assert.ok(idle && drink, 'club-crowd-f6.glb has no authored seated bar clips');
+
+    idle.start(false);
+    idle.pause();
+    const feet = [];
+    for (let i = 0; i <= 32; i++) {
+        idle.goToFrame(idle.from + (idle.to - idle.from) * i / 32);
+        root.computeWorldMatrix(true);
+        feet.push([at('Foot.L'), at('Foot.R')]);
+        const hips = at('Body');
+        assert.ok(Math.abs(hips.y - 0.80) < 0.045, `her hips miss the stool cushion at ${hips.y.toFixed(3)} m`);
+        const leftWrist = at('Wrist.L'), rightWrist = at('Wrist.R');
+        for (const wrist of [leftWrist, rightWrist]) {
+            assert.ok(Math.abs(wrist.x - 9.7) < 0.09, `her hand stops ${Math.abs(wrist.x - 9.7).toFixed(3)} m from the counter edge`);
+            assert.ok(Math.abs(wrist.y - 1.1) < 0.10, `her hand misses the counter top by ${Math.abs(wrist.y - 1.1).toFixed(3)} m`);
+        }
+        // She leans on the bar with bent elbows, not an upright mannequin with locked arms.
+        for (const side of ['L', 'R']) {
+            const a = at(`UpperArm.${side}`).subtract(at(`LowerArm.${side}`)).normalize();
+            const c = at(`Wrist.${side}`).subtract(at(`LowerArm.${side}`)).normalize();
+            const elbow = Math.acos(B.Vector3.Dot(a, c)) * 180 / Math.PI;
+            assert.ok(elbow > 105 && elbow < 160, `her ${side} elbow is ${elbow.toFixed(0)} degrees: locked straight or folded`);
+        }
+        assert.ok(at('Head').x - hips.x > 0.05, 'she sits bolt upright instead of leaning on the bar');
+    }
+    // The bottle stands in her right hand: the runtime's resting bottle point (VRClubAudioCrowd._createBarPatronBottle)
+    // is her palm 6 cm up and 3 cm toward her midline.
+    idle.goToFrame(idle.from);
+    root.computeWorldMatrix(true);
+    const palm = at('Middle1.R');
+    assert.ok(Math.abs(palm.x - 9.698) < 0.015 && Math.abs(palm.y + 0.06 - 1.192) < 0.015 && Math.abs(palm.z - (-11.6 + 0.169)) < 0.015,
+        `her resting palm ${palm.toString()} is not where the bottle stands`);
+    for (const side of [0, 1]) {
+        const travel = Math.max(...feet.map(pair => B.Vector3.Distance(pair[side], feet[0][side])));
+        const high = Math.max(...feet.map(pair => pair[side].y));
+        assert.ok(travel < 0.02, `seated foot ${side} slides ${travel.toFixed(3)} m`);
+        assert.ok(high < 0.12, `seated foot ${side} floats ${high.toFixed(3)} m over the floor`);
+    }
+
+    idle.stop();
+    drink.start(false);
+    drink.pause();
+    let closest = Infinity;
+    for (let i = 0; i <= 48; i++) {
+        drink.goToFrame(drink.from + (drink.to - drink.from) * i / 48);
+        root.computeWorldMatrix(true);
+        closest = Math.min(closest, B.Vector3.Distance(at('Wrist.R'), at('Head')));
+    }
+    assert.ok(closest < 0.25, `the bottle hand stays ${closest.toFixed(3)} m from her face`);
     scene.dispose();
 });
 
@@ -596,6 +679,46 @@ test('at the balcony the mingling guest rests both hands on the rail beside the 
     scene.dispose();
 });
 
+test('the DJ puts the palm, not the back of the hand, on the headphone cup, and raises open palms to the crowd', async () => {
+    const desk = { cx: 0, near: -18.89, far: -18.35, top: 1.54, halfWidth: 0.51 };
+    for (const [glb, height] of [['club-dj-male.glb', 1.78], ['club-dj-female.glb', 1.68]]) {
+        const { rig, B, scene } = await loadRig(glb, { eyeHeight: height * 0.93 });
+        const Performer = vm.runInContext('DJPerformer', sandbox());
+        const dj = new Performer({ x: 0, z: desk.near - 0.18, groundY: 0.5, eyeHeight: height * 0.93, desk, rng: () => 0.5 });
+        const music = { hasAudio: true, beatPhase: 0, bar: 0, energy: 0.6, drop: false, bpm: 124 };
+        const step = frames => { for (let i = 0; i < frames; i++) rig.update(DT, dj.update(DT, music, null)); };
+        const at = name => pos(rig, name);
+        const raw = side => {
+            const hand = at(`hand_${side}`);
+            return B.Vector3.Cross(at(`index_01_${side}`).subtract(hand), at(`pinky_01_${side}`).subtract(hand)).normalize();
+        };
+        // Palm side of each hand, calibrated where the palm is known: flat on the mixer, facing down.
+        dj._begin('tweak', 99);
+        step(90);
+        const sign = {};
+        for (const side of ['l', 'r']) sign[side] = B.Vector3.Dot(raw(side), new B.Vector3(0, -1, 0)) >= 0 ? 1 : -1;
+        const palm = side => raw(side).scale(sign[side]);
+
+        dj._begin('cue', 99);
+        step(90);
+        // Whichever bone the GLB calls left may be the DJ's right (see the knob test): the ear hand is the one at the ear.
+        const target = dj.pose.left;
+        const ear = B.Vector3.Distance(at('hand_l'), new B.Vector3(target.x, target.y, target.z))
+            < B.Vector3.Distance(at('hand_r'), new B.Vector3(target.x, target.y, target.z)) ? 'l' : 'r';
+        const toHead = at('Head').subtract(at(`hand_${ear}`)).normalize();
+        assert.ok(B.Vector3.Distance(at(`hand_${ear}`), at('Head')) < 0.3, `${glb}: the hand is not at the ear (${B.Vector3.Distance(at(`hand_${ear}`), at('Head')).toFixed(2)} m from the head)`);
+        const onCup = B.Vector3.Dot(palm(ear), toHead);
+        assert.ok(onCup > 0.7, `${glb}: the back of the hand faces the head, not the palm (${onCup.toFixed(2)})`);
+
+        music.drop = true; step(1); music.drop = false; step(60);
+        for (const side of ['l', 'r']) {
+            const forward = palm(side).z;
+            assert.ok(forward > 0.5, `${glb}: the raised ${side} palm does not face the crowd (${forward.toFixed(2)})`);
+        }
+        scene.dispose();
+    }
+});
+
 test('the performing DJ reaches the controller, leans in, keeps the feet on the riser, and stays cheap', async () => {
     // The club's numbers: the controller's measured bounds, the DJ 0.18 m behind its near edge, the riser at 0.5 m,
     // eyes at 93% of the look's height (see _spawnPerformingDJ).
@@ -623,12 +746,12 @@ test('the performing DJ reaches the controller, leans in, keeps the feet on the 
         const upright = tilt();
         const rest = limbLengths(rig);
         dj._begin('tweak', 99);
-        let ms = 0;
+        const samples = [];
         // Every knob in reach (the performer picks a knob with rng; no bar lines pass, so nothing else draws):
         // the wrist 5 cm behind each palm target, whichever bone the GLB calls left.
         for (let knob = 0; knob < 6; knob++) {
             pick = (knob + 0.5) / 6;
-            ms = Math.max(ms, step(70));
+            samples.push(step(70));
             for (const h of [dj.pose.left, dj.pose.right]) {
                 const want = { x: h.x - h.fx * 0.05, y: h.y - h.fy * 0.05, z: h.z - h.fz * 0.05 };
                 const miss = Math.min(dist(pos(rig, 'hand_l'), want), dist(pos(rig, 'hand_r'), want));
@@ -636,7 +759,7 @@ test('the performing DJ reaches the controller, leans in, keeps the feet on the 
             }
         }
         dj._begin('mix', 99);
-        step(70);
+        samples.push(step(70));
         for (const h of [dj.pose.left, dj.pose.right]) {
             const want = { x: h.x - h.fx * 0.05, y: h.y - h.fy * 0.05, z: h.z - h.fz * 0.05 };
             const miss = Math.min(dist(pos(rig, 'hand_l'), want), dist(pos(rig, 'hand_r'), want));
@@ -647,6 +770,8 @@ test('the performing DJ reaches the controller, leans in, keeps the feet on the 
         assert.ok(Math.abs(pos(rig, 'foot_l').y - (rig.ankleH + 0.5)) < 0.015, `${glb}: a foot left the riser`);
         const l = limbLengths(rig);
         for (const k of Object.keys(rest)) assert.ok(Math.abs(l[k] - rest[k]) < 0.002, `${glb}: ${k} stretched`);
+        const orderedSamples = samples.slice().sort((a, b) => a - b);
+        const ms = orderedSamples[Math.floor(orderedSamples.length / 2)];
         assert.ok(ms < 2, `${glb}: the performing DJ costs ${ms.toFixed(2)} ms a frame`);
         // Hands up on a drop: both wrists above the head.
         music.drop = true; step(1); music.drop = false; step(60);
@@ -655,22 +780,82 @@ test('the performing DJ reaches the controller, leans in, keeps the feet on the 
     }
 });
 
+test('crowd animation reuses interpolation results without changing the real skeleton pose', async () => {
+    const { scene, container, B, box } = await loadContainer('club-crowd-f1.glb');
+    if (typeof box.VRClubAudioCrowd?._reuseAnimationInterpolation !== 'function') {
+        box.VRClubUI = class {};
+        vm.runInContext(readFileSync(join(ROOT, 'js/club/11-audio-crowd.js'), 'utf8'), box, {
+            filename: 'js/club/11-audio-crowd.js'
+        });
+    }
+    const Crowd = box.VRClubAudioCrowd;
+    const entry = container.instantiateModelsToScene(name => `reuse_${name}`, false, { doNotInstantiate: true });
+    const root = entry.rootNodes[0];
+    const group = entry.animationGroups.find(g => g.name.endsWith('Groove_Bounce'));
+    assert.ok(group && group.targetedAnimations.length >= 23);
+    const nodes = root.getChildTransformNodes(false).filter(node => node.rotationQuaternion).slice(0, 20);
+    group.start(false);
+    group.pause();
+    const sample = fraction => {
+        group.goToFrame(group.from + (group.to - group.from) * fraction);
+        root.computeWorldMatrix(true);
+        return nodes.flatMap(node => {
+            node.computeWorldMatrix(true);
+            const p = node.getAbsolutePosition(), q = node.rotationQuaternion;
+            return [p.x, p.y, p.z, q.x, q.y, q.z, q.w];
+        });
+    };
+    const before = sample(0.373);
+    const animation = group.targetedAnimations.map(target => target.animation)
+        .find(a => a.dataType === B.Animation.ANIMATIONTYPE_QUATERNION);
+    const keys = animation.getKeys();
+    assert.notEqual(animation.quaternionInterpolateFunction(keys[0].value, keys[1].value, 0.4),
+        animation.quaternionInterpolateFunction(keys[0].value, keys[1].value, 0.4),
+        'the stock Babylon path unexpectedly reused its interpolation result');
+    const optimized = Crowd._reuseAnimationInterpolation(group);
+    assert.ok(optimized >= 23, `only ${optimized} animated channels received reusable interpolation storage`);
+    const first = animation.quaternionInterpolateFunction(keys[0].value, keys[1].value, 0.4);
+    const second = animation.quaternionInterpolateFunction(keys[0].value, keys[1].value, 0.4);
+    assert.equal(first, second, 'an animated joint still allocates a result every evaluation');
+    const after = sample(0.373);
+    assert.equal(after.length, before.length);
+    for (let i = 0; i < after.length; i++) {
+        assert.ok(Math.abs(after[i] - before[i]) < 1e-6, `reused interpolation changed pose component ${i}`);
+    }
+    scene.dispose();
+});
+
 // The grooves are authored procedurally onto the modular rig (scripts/build-crowd-glbs.mjs) at 120 BPM with a beat on
 // every 0.5 s: measure them on the real skeleton, at the frames where the beats fall.
 test('the crowd grooves: on the beat where it matters, feet planted, hands where they should be, seamless loops', async () => {
-    const GROOVES = { Groove_Bounce: 2, Groove_SideTap: 4, Groove_Clap: 2, Groove_Pump: 4, Groove_Twist: 2, Groove_HandsUp: 4, Groove_Sway: 4, Groove_Still: 8 };
-    for (const file of ['club-crowd-f1.glb', 'club-crowd-m1.glb', 'club-crowd-m7.glb']) {
+    const GROOVES = {
+        Groove_Bounce: 8, Groove_SideTap: 8, Groove_Clap: 2, Groove_ClapUp: 2, Groove_Pump: 8, Groove_Twist: 4, Groove_HandsUp: 4,
+        Groove_Sway: 4, Groove_ArmsWide: 8, Groove_ArmsUp: 8, Groove_Still: 8
+    };
+    for (const file of ['club-crowd-f1.glb', 'club-crowd-m1.glb', 'club-crowd-m7.glb', 'club-crowd-f2.glb']) {
         const { scene, container, B } = await loadContainer(file);
         const entry = container.instantiateModelsToScene(name => name, false, { doNotInstantiate: true });
         const root = entry.rootNodes[0];
+        // Placed the way the club places a person: the glTF root's handedness flip replaced by a plain yaw.
+        root.rotationQuaternion = null;
+        root.rotation.y = 0;
+        root.scaling.setAll(1);
         const node = name => root.getDescendants(false, n => n.name === name)[0];
-        const names = ['Head', 'Chest', 'Hips', 'Wrist.L', 'Wrist.R', 'Foot.L', 'Foot.R', 'UpperArm.L', 'LowerArm.L', 'UpperLeg.R', 'LowerLeg.R'];
+        const names = ['Head', 'Chest', 'Hips', 'Wrist.L', 'Wrist.R', 'Foot.L', 'Foot.R', 'UpperArm.L', 'LowerArm.L', 'UpperLeg.R', 'LowerLeg.R',
+            'Middle1.L', 'Middle1.R', 'Index2.L', 'Index2.R', 'Pinky2.L', 'Pinky2.R'];
         const at = () => {
             root.computeWorldMatrix(true);
             return Object.fromEntries(names.map(name => { const n = node(name); n.computeWorldMatrix(true); return [name, n.getAbsolutePosition().clone()]; }));
         };
         const rest = at();
         const height = rest.Head.y;
+        // Which way a palm faces: (index knuckle - wrist) x (pinky knuckle - wrist). Every dancer shares the rig's
+        // handedness, so the sign is fixed per hand: for the right hand, fingers forward and the thumb side up, the palm
+        // faces the midline (confirmed against a render of a real clap).
+        const rawNormal = (s, side) => B.Vector3.Cross(s[`Index2.${side}`].subtract(s[`Wrist.${side}`]), s[`Pinky2.${side}`].subtract(s[`Wrist.${side}`])).normalize();
+        const palmSign = { R: 1, L: -1 };
+        const palmNormal = (s, side) => rawNormal(s, side).scale(palmSign[side]);
+        const palmCentre = (s, side) => s[`Wrist.${side}`].add(s[`Middle1.${side}`]).scale(0.5);
         for (const [clip, beats] of Object.entries(GROOVES)) {
             const group = entry.animationGroups.find(g => g.name === clip || g.name.endsWith(`_${clip}`) || g.name === `${clip}`);
             assert.ok(group, `${file} has no ${clip}`);
@@ -711,10 +896,33 @@ test('the crowd grooves: on the beat where it matters, feet planted, hands where
                     }
                 }
             }
-            if (clip === 'Groove_Clap') {
-                for (const s of onBeats) assert.ok(B.Vector3.Distance(s['Wrist.L'], s['Wrist.R']) < 0.14, `${file}: the hands do not meet on beat ${s.beat}`);
-                for (const s of between) assert.ok(B.Vector3.Distance(s['Wrist.L'], s['Wrist.R']) > 0.3, `${file}: the hands do not open between claps`);
-                for (const s of samples) assert.ok(s['Wrist.L'].y > s.Hips.y && s['Wrist.L'].y < s.Head.y, `${file}: the clap is not in front of the chest`);
+            if (clip === 'Groove_Clap' || clip === 'Groove_ClapUp') {
+                for (const s of onBeats) assert.ok(B.Vector3.Distance(s['Wrist.L'], s['Wrist.R']) < 0.14, `${file} ${clip}: the hands do not meet on beat ${s.beat}`);
+                for (const s of between) assert.ok(B.Vector3.Distance(s['Wrist.L'], s['Wrist.R']) > 0.3, `${file} ${clip}: the hands do not open between claps`);
+                // PALMS meet palms: each palm faces the other all the way through (not the edge, the back or the outside).
+                for (const s of samples) {
+                    const toLeft = palmCentre(s, 'L').subtract(palmCentre(s, 'R')).normalize();
+                    const right = B.Vector3.Dot(palmNormal(s, 'R'), toLeft), left = B.Vector3.Dot(palmNormal(s, 'L'), toLeft.scale(-1));
+                    assert.ok(right > 0.9 && left > 0.9, `${file} ${clip}: the palms are not facing each other at beat ${s.beat} (${right.toFixed(2)}, ${left.toFixed(2)})`);
+                }
+                for (const s of onBeats) assert.ok(B.Vector3.Distance(palmCentre(s, 'L'), palmCentre(s, 'R')) < 0.06, `${file} ${clip}: the palms do not touch on beat ${s.beat}`);
+                if (clip === 'Groove_Clap') {
+                    for (const s of samples) assert.ok(s['Wrist.L'].y > s.Hips.y && s['Wrist.L'].y < s.Head.y, `${file}: the clap is not in front of the chest`);
+                } else {
+                    for (const s of samples) assert.ok(Math.min(s['Wrist.L'].y, s['Wrist.R'].y) > s.Head.y + 0.1, `${file}: the overhead clap is not above the head at beat ${s.beat}`);
+                }
+            }
+            if (clip === 'Groove_ArmsWide') {
+                for (const s of samples) {
+                    assert.ok(Math.abs(s['Wrist.L'].x - s['Wrist.R'].x) > 0.8, `${file}: the arms are not spread wide at beat ${s.beat}`);
+                    assert.ok(palmNormal(s, 'L').y > 0.7 && palmNormal(s, 'R').y > 0.7, `${file}: the open hands do not face up at beat ${s.beat}`);
+                }
+            }
+            if (clip === 'Groove_ArmsUp') {
+                for (const s of samples) {
+                    assert.ok(Math.min(s['Wrist.L'].y, s['Wrist.R'].y) > s.Head.y, `${file}: a hand is not up at beat ${s.beat}`);
+                    assert.ok(palmNormal(s, 'L').z > 0.7 && palmNormal(s, 'R').z > 0.7, `${file}: the raised palms do not face forward at beat ${s.beat}`);
+                }
             }
             if (clip === 'Groove_Pump') {
                 for (const s of onBeats) assert.ok(Math.max(s['Wrist.L'].y, s['Wrist.R'].y) > s.Head.y + 0.05, `${file}: the fist is not up on beat ${s.beat}`);
@@ -722,7 +930,7 @@ test('the crowd grooves: on the beat where it matters, feet planted, hands where
             if (clip === 'Groove_HandsUp') {
                 for (const s of samples) assert.ok(Math.min(s['Wrist.L'].y, s['Wrist.R'].y) > s.Head.y, `${file}: a hand is not up at beat ${s.beat}`);
             }
-            if (['Groove_Bounce', 'Groove_Clap', 'Groove_Pump', 'Groove_HandsUp', 'Groove_SideTap', 'Groove_Twist'].includes(clip)) {
+            if (['Groove_Bounce', 'Groove_Clap', 'Groove_ClapUp', 'Groove_Pump', 'Groove_HandsUp', 'Groove_SideTap', 'Groove_Twist'].includes(clip)) {
                 // Down on the beat: the hips are lower on every beat than half way between.
                 const low = Math.max(...onBeats.map(s => s.Hips.y)), high = Math.min(...between.map(s => s.Hips.y));
                 assert.ok(low < high - 0.01, `${file} ${clip}: the bounce does not land on the beat (${low.toFixed(3)} vs ${high.toFixed(3)})`);

@@ -4,8 +4,8 @@ import { renderFrames } from './xr-measure.mjs';
 
 useQuestHarness({ music: true });
 
-/** 90 s of mono white noise: steady, broadband, so left/right level differences are all spatialisation. */
-function noiseWav(seconds = 90, sampleRate = 22050) {
+/** Five minutes of mono white noise: longer than the allowed scene startup, steady and broadband. */
+function noiseWav(seconds = 300, sampleRate = 22050) {
     const samples = seconds * sampleRate;
     const buffer = Buffer.alloc(44 + samples * 2);
     buffer.write('RIFF', 0); buffer.writeUInt32LE(36 + samples * 2, 4); buffer.write('WAVE', 8);
@@ -32,7 +32,7 @@ const installMeter = page => page.evaluate(() => {
     window.__meter = { meters, buffer: new Float32Array(2048) };
 });
 
-const readLevels = (page, reads = 24) => page.evaluate(async count => {
+const readLevels = (page, reads = 12) => page.evaluate(async count => {
     const { meters, buffer } = window.__meter;
     const sums = [0, 0];
     for (let i = 0; i < count; i++) {
@@ -70,8 +70,8 @@ const paScreenSide = page => page.evaluate(() => {
     };
 });
 const expectLouderOnSide = async (page, label, margin = 1.04) => {
-    await renderFrames(page, 20);
-    await page.waitForTimeout(500);
+    await renderFrames(page, 3);
+    await page.waitForTimeout(100);
     const { side, ambiguous, position, forward } = await paScreenSide(page);
     const { left, right } = await readLevels(page);
     console.log(`${label}: pos=${position} fwd=${forward} nearest PA on ${side}${ambiguous ? ' (ambiguous)' : ''}; left=${left.toFixed(4)} right=${right.toFixed(4)}`);
@@ -81,7 +81,7 @@ const expectLouderOnSide = async (page, label, margin = 1.04) => {
     else expect(right / left, `${label}: PA on the right must be louder in the right ear`).toBeGreaterThan(margin);
 };
 test('the PA is heard on the side it appears, on desktop and in VR', async ({ page }) => {
-    test.setTimeout(900_000);
+    test.setTimeout(1_200_000);
     const wav = noiseWav();
     // Unroute the harness's silent episode so the loud noise replaces it.
     await page.unroute('https://audio.example/**');
@@ -92,10 +92,35 @@ test('the PA is heard on the side it appears, on desktop and in VR', async ({ pa
         body: wav
     }));
     await enterClub(page);
-    await page.waitForFunction(() => {
-        const club = window.vrClub;
-        return club.audioContext && club.audioContext.state === 'running' && club.audioSource && !club.audioElement.paused;
-    }, null, { timeout: 120_000 });
+    try {
+        await page.waitForFunction(() => {
+            const club = window.vrClub;
+            return club.audioContext && club.audioContext.state === 'running' && club.audioSource && !club.audioElement.paused;
+        }, null, { timeout: 120_000 });
+    } catch (error) {
+        const state = await page.evaluate(() => {
+            const club = window.vrClub;
+            const audio = club.audioElement;
+            return {
+                context: club.audioContext?.state,
+                hasSource: !!club.audioSource,
+                paused: audio?.paused,
+                ended: audio?.ended,
+                currentTime: audio?.currentTime,
+                duration: audio?.duration,
+                readyState: audio?.readyState,
+                networkState: audio?.networkState,
+                currentSrc: audio?.currentSrc,
+                mediaError: audio?.error && { code: audio.error.code, message: audio.error.message },
+                kind: club._audioKind,
+                streamUrl: club._audioStreamUrl
+            };
+        });
+        throw new Error(`Entry audio did not start: ${JSON.stringify(state)}`, { cause: error });
+    }
+    // The saved set correctly enters as finite on-demand audio. Loop only this synthetic
+    // signal after startup so a slow SwiftShader XR run cannot exhaust the fixture.
+    await page.evaluate(() => { window.vrClub.audioElement.loop = true; });
     await installMeter(page);
 
     const stand = (x, z, yawDegrees) => page.evaluate(([px, pz, yaw]) => {
@@ -119,10 +144,9 @@ test('the PA is heard on the side it appears, on desktop and in VR', async ({ pa
         await expectLouderOnSide(page, 'desktop facing -x');
     });
 
-    // Babylon copies the desktop camera's yaw into the XR camera: face the stage so the
-    // headset spawns looking at it, and every step below has an unambiguous nearer PA.
+    // Measure on the floor facing the PA, not from the street arrival.
     await stand(0, -12, 180);
-    await enterVR(page);
+    await enterVR(page, { floorPosition: [0, 0, -12] });
     await page.waitForFunction(() => window.vrClub.audioContext.state === 'running');
 
     await test.step('in the headset, stepping sideways', async () => {

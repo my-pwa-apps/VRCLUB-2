@@ -51,7 +51,26 @@ class NetworkClient {
     }
 
     static MAX_CHAT_LENGTH = 200;
+    /** Restroom stall doors the room shares (the relay's MAX_DOORS). */
+    static MAX_DOORS = 2;
     static AVATAR_POOLS = Object.freeze(['any', 'women', 'men']);
+    static isAvatar(value) { return typeof value === 'string' && value.length === 2 && /^(?:f[1-8]|m[1-9])$/.test(value); }
+    /** Same strict wardrobe allow-list as the relay. Undefined is invalid; null explicitly clears. */
+    static sanitizeAppearance(value, avatar = value?.base) {
+        if (value === null) return null;
+        const keys = ['v', 'base', 'hair', 'outfit', 'skin', 'hairColor', 'top', 'bottom'];
+        if (!value || typeof value !== 'object' || Array.isArray(value) ||
+            Object.keys(value).length !== keys.length || keys.some(key => !Object.hasOwn(value, key)) ||
+            value.v !== 1 || !NetworkClient.isAvatar(value.base) || value.base !== avatar ||
+            !['original', 'short', 'long'].includes(value.hair) ||
+            !['original', 'casual', 'smart'].includes(value.outfit)) return undefined;
+        const result = { v: 1, base: value.base, hair: value.hair, outfit: value.outfit };
+        for (const key of ['skin', 'hairColor', 'top', 'bottom']) {
+            if (typeof value[key] !== 'string' || value[key].length !== 7 || !/^#[0-9a-f]{6}$/i.test(value[key])) return undefined;
+            result[key] = value[key].toLowerCase();
+        }
+        return result;
+    }
     /** What the relay will keep of a message (it applies the same rule): no control characters, at most 200 code points. */
     static cleanChat(value) {
         if (typeof value !== 'string') return '';
@@ -62,6 +81,7 @@ class NetworkClient {
     static GESTURES = Object.freeze(['wave', 'nod', 'dance', 'stop']);
     static PID = /^[0-9a-f]{16}$/;
     static MAX_BLOCKED = 64;
+    static REPORT_REASONS = Object.freeze(['harassment', 'grooming', 'sexual-content', 'hate', 'unwanted-contact', 'impersonation', 'other']);
 
     /**
      * @param {object} options
@@ -70,14 +90,22 @@ class NetworkClient {
      * @param {string} [options.name]
      * @param {string} [options.uid]      this browser's secret id (the relay hashes it into the public `pid`)
      * @param {'any'|'women'|'men'} [options.avatarPool] which of the random people this guest may be
+     * @param {object|null} [options.appearance] complete v1 wardrobe, paired with its exact base on join/reconnect
      * @param {string[]} [options.blocked] public ids to keep invisible, from the user's saved block list
      */
-    constructor({ serverUrl, room = 'lobby', name = 'Guest', uid = null, blocked = [], avatarPool = 'any' } = {}) {
+    constructor({ serverUrl, room = 'lobby', name = 'Guest', uid = null, blocked = [], avatarPool = 'any', avatar = null, appearance = null } = {}) {
         this.serverUrl = serverUrl;
         this.room = String(room || 'lobby').slice(0, 64);
         this.name = String(name || 'Guest').slice(0, 32);
         /** Which people this guest may be handed: 'any', 'women' or 'men'. */
         this.avatarPool = NetworkClient.AVATAR_POOLS.includes(avatarPool) ? avatarPool : 'any';
+        this.preferredAvatar = NetworkClient.isAvatar(avatar) ? avatar : null;
+        this._preferredAppearance = NetworkClient.sanitizeAppearance(appearance, this.preferredAvatar || appearance?.base) || null;
+        if (this._preferredAppearance) Object.freeze(this._preferredAppearance);
+        this._appearancePreferenceSet = appearance !== null;
+        if (this._preferredAppearance) this.preferredAvatar = this._preferredAppearance.base;
+        this.avatarSelectionSupported = false;
+        this.appearanceSelectionSupported = false;
         this.uid = typeof uid === 'string' && /^[A-Za-z0-9_-]{16,64}$/.test(uid) ? uid : null;
         /** @type {Set<string>} */
         this.blockedPids = new Set((blocked || []).filter(pid => NetworkClient.PID.test(pid)).slice(0, NetworkClient.MAX_BLOCKED));
@@ -85,6 +113,7 @@ class NetworkClient {
         this.selfId = null;
         this.selfPid = null;
         this.avatar = null;
+        this.selfAppearance = null;
         this.locked = false;
         this.hostId = null;
         /** Relay clock minus this browser's clock (ms), from the welcome: shared timestamps are read through it. */
@@ -94,7 +123,7 @@ class NetworkClient {
         /** Set by ClubMultiplayer: adds what only it knows (the podcast, the title) to every shared track state. */
         this.musicDecorator = null;
         this.status = 'idle'; // idle | connecting | connected | disconnected | error
-        /** @type {Map<string, {name:string, pid:string|null, avatar:string|null, state:object|null, pc:RTCPeerConnection|null}>} */
+        /** @type {Map<string, {name:string, pid:string|null, avatar:string|null, appearance:object|null, state:object|null, pc:RTCPeerConnection|null}>} */
         this.peers = new Map();
 
         this.micStream = null;
@@ -125,13 +154,19 @@ class NetworkClient {
         this.onPeerLeave = () => {};
         this.onPeerAvatar = () => {};
         this.onSelfAvatar = () => {};
+        this.onSelfAppearance = () => {};
+        this.onPeerAppearance = () => {};
         this.onEmoji = () => {};
         this.onGesture = () => {};
         this.onMusic = () => {};
         this.onHostChange = () => {};
         this.onRoom = () => {};
         this.onShow = () => {};
+        /** The room's hand-operated doors: the whole list on joining, then one change at a time (index, shut). */
+        this.onDoors = () => {};
+        this.onDoor = () => {};
         this.onChat = () => {};
+        this.onModerationReport = () => {};
         this.onRemoteStream = () => {};
         this.onMusicBroadcast = () => {};
         this.onRemoteMusic = () => {};
@@ -141,9 +176,23 @@ class NetworkClient {
     get connected() { return this.status === 'connected'; }
     get peerCount() { return this.peers.size; }
     isHost() { return !!this.selfId && this.selfId === this.hostId; }
+    get preferredAppearance() { return this._preferredAppearance; }
+    set preferredAppearance(value) { this.setPreferredAppearance(value); }
+    /** Save a validated preference for the next join, without claiming a room update. */
+    setPreferredAppearance(value) {
+        const appearance = NetworkClient.sanitizeAppearance(value);
+        if (appearance === undefined) {
+            this._reportAppearanceError('invalid');
+            return false;
+        }
+        this._preferredAppearance = appearance && Object.freeze(appearance);
+        this._appearancePreferenceSet = true;
+        if (appearance) this.preferredAvatar = appearance.base;
+        return true;
+    }
 
     connect() {
-        if (this.ws || this._reconnectTimer !== null) return;
+        if (this.ws || this._opening || this._reconnectTimer !== null) return;
         this._closedByUser = false;
         this._reconnectAttempts = 0;
         this._hasConnected = false;
@@ -153,6 +202,8 @@ class NetworkClient {
 
     disconnect() {
         this._closedByUser = true;
+        this._openRevision = (this._openRevision || 0) + 1;
+        this._opening = false;
         clearTimeout(this._reconnectTimer);
         this._reconnectTimer = null;
         if (this.sfu) this.sfu.dispose();
@@ -163,6 +214,8 @@ class NetworkClient {
         this.selfId = null;
         this.selfPid = null;
         this.avatar = null;
+        this.selfAppearance = null;
+        this.appearanceSelectionSupported = false;
         this.locked = false;
         this.hostId = null;
         if (this.ws) {
@@ -175,10 +228,28 @@ class NetworkClient {
 
     dispose() { this.disconnect(); }
 
-    _open() {
+    async _open() {
+        const revision = this._openRevision = (this._openRevision || 0) + 1;
+        let serverUrl = this.serverUrl;
+        if (this.room === 'private-000032') {
+            this._opening = true;
+            try {
+                if (!window.VRPayment?.prepareDevRoom) throw new Error('Update the club app before joining DEV room 000032.');
+                serverUrl = await window.VRPayment.prepareDevRoom(serverUrl);
+            } catch (error) {
+                if (this._openRevision !== revision || this._closedByUser) return;
+                this._opening = false;
+                this.disableVoice();
+                this._setStatus('error');
+                this.onError(error);
+                return;
+            }
+            if (this._openRevision !== revision || this._closedByUser) return;
+            this._opening = false;
+        }
         let url;
         try {
-            url = new URL(this.serverUrl);
+            url = new URL(serverUrl);
         } catch {
             this._setStatus('error');
             this.onError(new Error('Invalid multiplayer server URL'));
@@ -188,6 +259,15 @@ class NetworkClient {
         url.searchParams.set('name', this.name);
         if (this.uid) url.searchParams.set('uid', this.uid);
         if (this.avatarPool !== 'any') url.searchParams.set('avatars', this.avatarPool);
+        this._joiningAvatar = this.preferredAvatar;
+        if (this.preferredAvatar) url.searchParams.set('avatar', this.preferredAvatar);
+        else url.searchParams.delete('avatar');
+        this._joiningAppearance = JSON.stringify(this.preferredAppearance);
+        if (this._appearancePreferenceSet && (!this.preferredAppearance || this.preferredAppearance.base === this.preferredAvatar)) {
+            url.searchParams.set('appearance', this._joiningAppearance);
+        } else {
+            url.searchParams.delete('appearance');
+        }
         url.searchParams.set('poseBatch', '1');
         url.searchParams.set('sfu', '1');
 
@@ -266,8 +346,28 @@ class NetworkClient {
 
     _send(obj) {
         if (this.ws && this.ws.readyState === WebSocket.OPEN) {
-            try { this.ws.send(JSON.stringify(obj)); } catch { /* ignore */ }
+            try { this.ws.send(JSON.stringify(obj)); return true; } catch { return false; }
         }
+        return false;
+    }
+
+    _reportAvatarError(reason) {
+        const messages = {
+            unsupported: 'This relay needs an update to use your selected character online. Your saved choice is kept.',
+            'rate-limit': 'Please wait a moment, then select your character again.',
+            'unknown-character': 'That character is not supported by this relay.',
+            disconnected: 'Your character is saved, but the room connection was lost. Reconnect to apply it online.'
+        };
+        this.onError(Object.assign(new Error(messages[reason]), { code: `avatar-${reason}` }));
+    }
+    _reportAppearanceError(reason) {
+        const messages = {
+            unsupported: 'This relay needs an update to share your wardrobe. Your saved wardrobe is kept.',
+            invalid: 'That wardrobe is invalid or does not match the selected character.',
+            'rate-limit': 'Please wait a moment, then apply your wardrobe again.',
+            disconnected: 'Your wardrobe is saved, but the room connection was lost. Reconnect to apply it online.'
+        };
+        this.onError(Object.assign(new Error(messages[reason]), { code: `appearance-${reason}` }));
     }
 
     _onMessage(evt) {
@@ -282,6 +382,9 @@ class NetworkClient {
                 this.selfId = msg.id;
                 this.selfPid = NetworkClient.PID.test(msg.pid) ? msg.pid : null;
                 this.avatar = typeof msg.avatar === 'string' ? msg.avatar : null;
+                this.avatarSelectionSupported = msg.avatarSelection === true;
+                this.appearanceSelectionSupported = msg.appearanceSelection === true;
+                this.selfAppearance = NetworkClient.sanitizeAppearance(msg.appearance, this.avatar) || null;
                 this.hostId = msg.hostId;
                 this.capacity = Number.isInteger(msg.capacity) && msg.capacity >= 8 && msg.capacity <= 32 ? msg.capacity : 8;
                 this.mediaTransport = msg.mediaTransport === 'sfu' ? 'sfu' : 'mesh';
@@ -307,10 +410,24 @@ class NetworkClient {
                 this._setStatus('connected');
                 // Tell the relay who to keep invisible before anything else happens; it hides them again with a `leave`.
                 if (this.blockedPids.size) this._send({ type: 'blocklist', pids: [...this.blockedPids] });
-                if (this.avatar) this.onSelfAvatar(this.avatar);
+                if (this.avatar) this.onSelfAvatar(this.avatar, this.selfAppearance);
+                this.onSelfAppearance(this.selfAppearance);
+                if (this._appearancePreferenceSet && !this.appearanceSelectionSupported) {
+                    this._reportAppearanceError('unsupported');
+                } else if (this.appearanceSelectionSupported &&
+                    (JSON.stringify(this.preferredAppearance) !== this._joiningAppearance ||
+                        (this.preferredAppearance && JSON.stringify(this.preferredAppearance) !== JSON.stringify(this.selfAppearance)))) {
+                    this.selectAppearance(this.preferredAppearance);
+                } else if (this.preferredAvatar && !this.avatarSelectionSupported) {
+                    this._reportAvatarError('unsupported');
+                } else if (this.avatarSelectionSupported &&
+                    ((this.preferredAvatar && this.preferredAvatar !== this.avatar) || this.preferredAvatar !== this._joiningAvatar)) {
+                    this.requestAvatar(this.avatarPool, this.preferredAvatar);
+                }
                 for (const peer of msg.peers || []) this._addPeer(peer);
                 if (msg.music) this.onMusic(msg.music);
                 if (msg.show) this.onShow(msg.show);
+                if (Array.isArray(msg.doors)) this.onDoors(msg.doors.slice(0, NetworkClient.MAX_DOORS).map(shut => shut === true));
                 this.onHostChange(this.hostId);
                 this.onRoom(this.locked);
                 if (this.sfu) {
@@ -377,18 +494,40 @@ class NetworkClient {
                 if (this.peers.has(msg.id) && typeof msg.text === 'string' && msg.text) this.onChat(msg.id, msg.text.slice(0, NetworkClient.MAX_CHAT_LENGTH), msg.restricted === true);
                 break;
 
+            case 'moderation-report':
+                if (this.isHost() && msg.reporter && msg.target &&
+                    typeof msg.reporter.name === 'string' && typeof msg.target.name === 'string' &&
+                    NetworkClient.REPORT_REASONS.includes(msg.reason)) {
+                    this.onModerationReport(msg);
+                }
+                break;
+
             case 'gesture':
                 if (this.peers.has(msg.id) && NetworkClient.GESTURES.includes(msg.gesture)) this.onGesture(msg.id, msg.gesture);
                 break;
 
             case 'avatar':
-                if (typeof msg.avatar !== 'string') break;
+                if (!NetworkClient.isAvatar(msg.avatar)) break;
+                const appearance = NetworkClient.sanitizeAppearance(msg.appearance, msg.avatar);
+                if (Object.hasOwn(msg, 'appearance') && appearance === undefined) break;
                 if (msg.id === this.selfId) {
                     this.avatar = msg.avatar;
-                    this.onSelfAvatar(msg.avatar);
+                    this.selfAppearance = appearance || null;
+                    this.onSelfAvatar(msg.avatar, this.selfAppearance);
+                    this.onSelfAppearance(this.selfAppearance);
                 } else if (this.peers.has(msg.id)) {
                     this.peers.get(msg.id).avatar = msg.avatar;
-                    this.onPeerAvatar(msg.id, msg.avatar);
+                    this.peers.get(msg.id).appearance = appearance || null;
+                    this.onPeerAvatar(msg.id, msg.avatar, appearance || null);
+                    this.onPeerAppearance(msg.id, appearance || null);
+                }
+                break;
+
+            case 'avatar-error':
+                if (msg.reason === 'invalid-appearance') {
+                    this._reportAppearanceError('invalid');
+                } else if (msg.reason === 'rate-limit' || msg.reason === 'unknown-character') {
+                    this._reportAvatarError(msg.reason);
                 }
                 break;
 
@@ -398,6 +537,12 @@ class NetworkClient {
 
             case 'show':
                 this.onShow(msg);
+                break;
+
+            case 'door':
+                if (this.peers.has(msg.id) && Number.isInteger(msg.door) && msg.door >= 0 && msg.door < NetworkClient.MAX_DOORS) {
+                    this.onDoor(msg.door, msg.shut === true);
+                }
                 break;
 
             case 'host':
@@ -425,8 +570,12 @@ class NetworkClient {
         if (!peer || typeof peer.id !== 'string') return;
         const pid = NetworkClient.PID.test(peer.pid) ? peer.pid : null;
         if (pid && this.blockedPids.has(pid)) return;
-        this.peers.set(peer.id, { name: peer.name, pid, avatar: typeof peer.avatar === 'string' ? peer.avatar : null, state: peer.state || null, pc: null });
-        this.onPeerJoin(peer.id, peer.name, { pid, avatar: this.peers.get(peer.id).avatar });
+        this.peers.set(peer.id, { name: peer.name, pid, avatar: typeof peer.avatar === 'string' ? peer.avatar : null,
+            appearance: NetworkClient.sanitizeAppearance(peer.appearance, peer.avatar) || null,
+            simulated: peer.simulated === true, state: peer.state || null, pc: null });
+        this.onPeerJoin(peer.id, peer.name, { pid, avatar: this.peers.get(peer.id).avatar,
+            appearance: this.peers.get(peer.id).appearance, simulated: peer.simulated === true });
+        this.onPeerAppearance(peer.id, this.peers.get(peer.id).appearance);
         if (peer.state) this.onPeerState(peer.id, peer.state);
         this._maybeInitiateVoice(peer.id);
         if (this.sfu) this.sfu.sync();
@@ -455,14 +604,55 @@ class NetworkClient {
         this._send({ type: 'chat', text: clean, ...(selected ? { targets: selected } : {}) });
         return true;
     }
+    /** Report a visible guest to the host without exposing the report to the room. */
+    sendReport(id, reason) {
+        if (!this.connected || !this.peers.has(id) || !NetworkClient.REPORT_REASONS.includes(reason)) return false;
+        this._send({ type: 'report', target: id, reason });
+        return true;
+    }
     sendGesture(gesture) {
         if (NetworkClient.GESTURES.includes(gesture)) this._send({ type: 'gesture', gesture });
     }
     /** Ask the relay for a different random avatar; the answer arrives as `avatar` for this guest's own id. */
-    requestAvatar(pool) {
+    requestAvatar(pool, avatar = null) {
+        if (avatar !== null && (!NetworkClient.isAvatar(avatar) || !this.avatarSelectionSupported)) {
+            this._reportAvatarError(NetworkClient.isAvatar(avatar) ? 'unsupported' : 'unknown-character');
+            return false;
+        }
+        if (!this.connected) return false;
         if (NetworkClient.AVATAR_POOLS.includes(pool)) this.avatarPool = pool;
-        this._send({ type: 'avatar', pool: this.avatarPool });
+        this.preferredAvatar = avatar;
+        this._preferredAppearance = null;
+        this._appearancePreferenceSet = false;
+        const frame = { type: 'avatar', pool: this.avatarPool };
+        if (avatar) frame.avatar = avatar;
+        if (!this._send(frame)) {
+            this._reportAvatarError('disconnected');
+            return false;
+        }
+        return true;
     }
+    /** Apply/clear a wardrobe with an exact base; only relay acknowledgement changes selfAppearance. */
+    selectAppearance(value, avatar = value?.base || this.preferredAvatar || this.avatar) {
+        const appearance = NetworkClient.sanitizeAppearance(value, avatar);
+        if (!NetworkClient.isAvatar(avatar) || appearance === undefined) {
+            this._reportAppearanceError('invalid');
+            return false;
+        }
+        this.setPreferredAppearance(appearance);
+        this.preferredAvatar = avatar;
+        if (!this.connected) return true;
+        if (!this.appearanceSelectionSupported) {
+            this._reportAppearanceError('unsupported');
+            return false;
+        }
+        if (!this._send({ type: 'avatar', avatar, appearance })) {
+            this._reportAppearanceError('disconnected');
+            return false;
+        }
+        return true;
+    }
+    sendAppearance(value, avatar) { return this.selectAppearance(value, avatar); }
 
     /** Make a guest invisible and inaudible to this one, and this one to them. Idempotent. */
     blockPeer(pid) {
@@ -516,7 +706,7 @@ class NetworkClient {
         for (const [id, peer] of this.peers) {
             this._sendMusicSignal(id, { kind: 'state', ...this.musicState });
             if (!stream) this._closeMusic(id);
-            else if (peer.musicListening && !peer.musicPc) this._createMusicConnection(id);
+            else if (peer.musicListening !== false && !peer.musicPc) this._createMusicConnection(id);
         }
     }
 
@@ -586,7 +776,7 @@ class NetworkClient {
                 this.onError(new Error('The music broadcast connection failed. Direct WebRTC may be blocked by your network.'));
             }
         });
-        if (this.isHost() && this.musicStream && peer.musicListening) {
+        if (this.isHost() && this.musicStream && peer.musicListening !== false) {
             for (const track of this.musicStream.getAudioTracks()) pc.addTrack(track, this.musicStream);
             pc.addEventListener('negotiationneeded', async () => {
                 try {
@@ -619,7 +809,7 @@ class NetworkClient {
             else if (this.musicStream) this._createMusicConnection(id);
             return;
         }
-        if (!(this.isHost() ? peer.musicListening && this.musicStream : id === this.hostId && this.musicListening)) return;
+        if (!(this.isHost() ? peer.musicListening !== false && this.musicStream : id === this.hostId && this.musicListening)) return;
         try {
             if (signal.kind === 'offer' || signal.kind === 'answer') {
                 if ((signal.kind === 'offer') === this.isHost() || signal.sdp?.type !== signal.kind) return;
@@ -645,6 +835,20 @@ class NetworkClient {
 
     /** The relay's clock now, in ms. */
     serverNow() { return Date.now() + this.serverOffset; }
+
+    /** Push a restroom stall door shut (true) or ajar (false). Any guest may; the relay keeps it for late joiners. */
+    sendDoor(door, shut) {
+        if (this.status !== 'connected' || !Number.isInteger(door) || door < 0 || door >= NetworkClient.MAX_DOORS) return false;
+        this._send({ type: 'door', door, shut: shut === true });
+        return true;
+    }
+
+    requestDevSeat(seat) {
+        if (!this.connected || this.room !== 'private-000032' ||
+            !/^(?:bar-[0234]|lounge-[01]|balcony-[01]|toilet-[01])$/.test(seat)) return false;
+        this._send({ type: 'dev-seat', seat });
+        return true;
+    }
 
     /** Host-only: the light show's current frame. The relay ignores it from anyone else. */
     sendShow(show) {

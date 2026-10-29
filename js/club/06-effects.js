@@ -1,4 +1,44 @@
 'use strict';
+
+/**
+ * A ray that has reached the left wall's club face (x -12.25): if it goes through the restroom doorway it does not
+ * stop there (there is no wall in an opening, so a spot drawn on that plane floats in mid-air). It carries on into the
+ * restroom and lands on whichever face of that room it reaches first. Writes `out` and returns true, or returns false
+ * when the ray misses the opening. Allocates nothing.
+ */
+function _mirrorRayIntoRestroom(ox, oy, oz, dx, dy, dz, out) {
+    const door = ROOM_INTERIOR.restroomDoor;
+    const room = typeof window !== 'undefined' && window.VenueLayout && window.VenueLayout.restroom;
+    if (!door || !room || dx > -1e-6) return false;
+    const z0 = door.z0 + door.frame, z1 = door.z1 - door.frame, top = door.height - door.frame * 0.5;
+    // Both faces of the 0.5 m wall bound the opening.
+    for (const planeX of [ROOM_INTERIOR.x.min, room.wallX]) {
+        const k = (planeX - ox) / dx;
+        const y = oy + dy * k, z = oz + dz * k;
+        if (k <= 0 || y < 0 || y > top || z < z0 || z > z1) return false;
+    }
+    const inset = 0.02;
+    let t = (room.farX + inset - ox) / dx;
+    let nx = 1, ny = 0, nz = 0;
+    if (dy > 1e-6) { const k = (room.height - inset - oy) / dy; if (k < t) { t = k; nx = 0; ny = -1; nz = 0; } }
+    else if (dy < -1e-6) { const k = (inset - oy) / dy; if (k < t) { t = k; nx = 0; ny = 1; nz = 0; } }
+    if (dz > 1e-6) { const k = (room.z1 - inset - oz) / dz; if (k < t) { t = k; nx = 0; ny = 0; nz = -1; } }
+    else if (dz < -1e-6) { const k = (room.z0 + inset - oz) / dz; if (k < t) { t = k; nx = 0; ny = 0; nz = 1; } }
+    if (!(t > 0)) return false;
+    out.t = t;
+    out.px = ox + dx * t; out.py = oy + dy * t; out.pz = oz + dz * t;
+    out.nx = nx; out.ny = ny; out.nz = nz;
+    return true;
+}
+
+/** Is this z on one of the concrete columns (which stand proud of the side walls)? */
+function _onWallColumn(z) {
+    const columns = ROOM_INTERIOR.columns;
+    if (!columns) return false;
+    for (let i = 0; i < columns.z.length; i++) if (Math.abs(z - columns.z[i]) <= columns.halfWidth) return true;
+    return false;
+}
+
 class VRClubEffects extends VRClubFixtures {
     createLights() {
         
@@ -486,7 +526,8 @@ class VRClubEffects extends VRClubFixtures {
         
         // Haze density drifting through the plane. The noise texture writes alpha 1, so its brightness
         // must be read as the opacity or the smoke never shows.
-        const noiseTexture = new BABYLON.NoiseProceduralTexture("laserSheetNoise", 256, this.scene); // OPTIMIZED: Reduced from 512
+        const noiseSize = this.tierSettings.laserSheetNoiseSize;
+        const noiseTexture = new BABYLON.NoiseProceduralTexture("laserSheetNoise", noiseSize, this.scene);
         noiseTexture.octaves = 4;
         noiseTexture.persistence = 0.5;
         noiseTexture.animationSpeedFactor = 0.5;
@@ -508,7 +549,8 @@ class VRClubEffects extends VRClubFixtures {
         hazeSheet.scaling.set(0.985, 1, 0.985);
 
         const hazeMat = sheetMat.clone("laserSheetHazeMat");
-        const hazeNoise = new BABYLON.NoiseProceduralTexture("laserSheetHazeNoise", 128, this.scene);
+        const hazeNoise = new BABYLON.NoiseProceduralTexture(
+            "laserSheetHazeNoise", Math.max(64, noiseSize >> 1), this.scene);
         hazeNoise.octaves = 6;
         hazeNoise.persistence = 0.48;
         hazeNoise.animationSpeedFactor = 0.16;
@@ -1005,6 +1047,13 @@ class VRClubEffects extends VRClubFixtures {
         // Store references for animation and color updates
         this.mirrorBall = mirrorBall;
         this.mirrorBallRotation = 0; // Track rotation for animation
+        this.mirrorBallCachedColors = {
+            housingGlow: new BABYLON.Color3(),
+            lensBright: new BABYLON.Color3(),
+            sourceVeryBright: new BABYLON.Color3(),
+            flareMedium: new BABYLON.Color3()
+        };
+        this.mirrorBallCachedColorSource = null;
         log.info(`✨ Mirror ball reflections batched into two draws (${maxSpots} spots, ${maxRays} rays)`);
     }
 
@@ -1080,11 +1129,21 @@ class VRClubEffects extends VRClubFixtures {
             this._intersectEntranceInterior(ox, oy, oz, dx, dy, dz, t, out)) {
             return out;
         }
+        if (nx === 1 && _mirrorRayIntoRestroom(ox, oy, oz, dx, dy, dz, out)) return out;
         out.t = Number.isFinite(t) && t > 0 ? t : 0;
         out.px = ox + dx * out.t;
         out.py = oy + dy * out.t;
         out.pz = oz + dz * out.t;
         out.nx = nx; out.ny = ny; out.nz = nz;
+        // On a concrete column the surface is the column's face, 5 cm in front of the wall plane.
+        if (nx !== 0 && ROOM_INTERIOR.columns && _onWallColumn(out.pz)) {
+            const faceX = nx > 0 ? -ROOM_INTERIOR.columns.faceX : ROOM_INTERIOR.columns.faceX;
+            const k = (faceX - ox) / dx;
+            if (k > 0 && k < out.t) {
+                out.t = k;
+                out.px = faceX; out.py = oy + dy * k; out.pz = oz + dz * k;
+            }
+        }
         return out;
     }
 

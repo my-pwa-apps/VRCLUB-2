@@ -67,6 +67,7 @@ function loadPaymentGate(handler, search = '') {
         async open() { await window.VRPayment.refreshEntitlement(); window.VRPayment.showGate(); await window.VRPayment.refreshEntitlement(); },
         async click(text) { assert.ok(button(text), `Missing ${text}`); await button(text).listeners.click(); },
         async verify() {
+            if (button('Restore existing access')) await this.click('Restore existing access');
             input('Email for access recovery').value = 'guest@example.com';
             await this.click('Send verification code');
             input('Eight-digit email verification code').value = '12345678';
@@ -131,12 +132,12 @@ test('verify email, redeem, register, prepare: each server-confirmed step is req
     })[path]);
     await gate.open();
     assert.equal(gate.button('Redeem invitation — no payment'), undefined);
+    await gate.click('Restore existing access');
     await gate.click('Verify email');
     assert.match(gate.status(), /Request a code/);
     await gate.verify();
     assert.deepEqual(gate.requests.find(r => r.path === '/recovery/start').body, { email: 'guest@example.com', intent: 'restore' });
-    await gate.click('Redeem invitation — no payment');
-    assert.match(gate.status(), /Enter your invitation/);
+    await gate.click('Use an invitation');
     gate.input('One-use VR invitation code').value = '00123456';
     await gate.click('Redeem invitation — no payment');
     assert.equal(gate.window.VRPayment.hasEntitlement(), true);
@@ -192,6 +193,7 @@ test('invalid invitation stays retryable and does not unlock access', async () =
         const gate = loadPaymentGate(path => path === '/entitlement'
             ? { ...fresh, verified: true } : failure);
         await gate.open();
+        await gate.click('Use an invitation');
         gate.input('One-use VR invitation code').value = '87654321';
         await gate.click('Redeem invitation — no payment');
         assert.equal(gate.window.VRPayment.hasEntitlement(), false);
@@ -203,7 +205,7 @@ test('invalid invitation stays retryable and does not unlock access', async () =
 test('numeric keypads preserve zeros, support correction and reject non-numeric paste without a headset keyboard', async () => {
     const gate = loadPaymentGate(() => fresh);
     await gate.open();
-    await gate.click('Use invitation code');
+    await gate.click('Use an invitation');
     assert.equal(gate.button('Use an older letter-and-number invitation'), undefined);
     assert.equal(gate.button('Use a new numeric invitation'), undefined);
     const field = gate.input('One-use VR invitation code');
@@ -237,7 +239,7 @@ test('guided invitation activation retains the code through email verification a
         '/devices/register': { entitled: true, deviceRegistered: true }
     })[path]);
     await gate.open();
-    await gate.click('Use invitation code');
+    await gate.click('Use an invitation');
     for (const digit of '00123456') await gate.click(digit);
     await gate.click('Continue with invitation');
     assert.equal(gate.input('Eight-digit email verification code').parentElement.hidden, true,
@@ -265,7 +267,7 @@ test('an invalid guided invitation stays editable after verification without rep
         '/redeem': { status: 409, body: { message: 'Code already used.' } }
     })[path]);
     await gate.open();
-    await gate.click('Use invitation code');
+    await gate.click('Use an invitation');
     for (const digit of '00123456') await gate.click(digit);
     await gate.click('Continue with invitation');
     await gate.verify();
@@ -283,7 +285,7 @@ test('restoring an already entitled email does not consume the staged invitation
         '/recovery/verify': { ...registered, email: 'guest@example.com' }
     })[path]);
     await gate.open();
-    await gate.click('Use invitation code');
+    await gate.click('Use an invitation');
     for (const digit of '00123456') await gate.click(digit);
     await gate.click('Continue with invitation');
     await gate.verify();
@@ -296,10 +298,12 @@ test('checkout preserves €1.99 and excludes duplicate or concurrent submission
     const gate = loadPaymentGate(async path => path === '/checkout'
         ? new Promise(resolve => { release = () => resolve({ url: 'https://checkout.stripe.com/test' }); }) : fresh);
     await gate.open();
-    gate.input('Email for your receipt').value = 'user@example.com';
-    const pending = gate.click('Buy VR access — €1.99');
-    assert.equal(gate.button('Send verification code').disabled, true);
     await gate.click('Buy VR access — €1.99');
+    assert.equal(gate.input('Email for access recovery'), undefined, 'purchase does not expose recovery controls');
+    gate.input('Email for your receipt').value = 'user@example.com';
+    const pending = gate.click('Continue to secure checkout');
+    assert.equal(gate.button('Continue to secure checkout').disabled, true);
+    await gate.click('Continue to secure checkout');
     assert.equal(gate.requests.filter(r => r.path === '/checkout').length, 1);
     release(); await pending;
     assert.equal(gate.window.location.assigned, 'https://checkout.stripe.com/test');
@@ -358,6 +362,62 @@ test('network errors cannot continue past expiry; XR exit and pagehide release w
         const release = gate.requests.find(r => r.path === '/vr/release');
         assert.ok(release);
         assert.equal(release.options.keepalive, exit === 'pagehide');
+    }
+});
+
+test('an intentional setup-panel exit retains and renews the lease, while the next normal exit releases it', async () => {
+    const gate = loadPaymentGate(path => {
+        if (path === '/entitlement') return registered;
+        if (path === '/vr/acquire' || path === '/vr/renew') return { active: true, expiresInMs: 60000 };
+        if (path === '/vr/release') return { released: true };
+        return registered;
+    });
+    await gate.open();
+    await gate.click('Prepare VR');
+    gate.window.VRPayment.onXRStateChange(true);
+
+    assert.equal(gate.window.VRPayment.holdLeaseForSetup(), true);
+    gate.window.VRPayment.onXRStateChange(false);
+    assert.equal(gate.window.VRPayment.canEnterVR(), true);
+    assert.equal(gate.requests.some(request => request.path === '/vr/release'), false);
+
+    await gate.tick(true);
+    assert.ok(gate.requests.some(request => request.path === '/vr/renew'));
+    assert.equal(gate.window.VRPayment.canEnterVR(), true);
+
+    gate.window.VRPayment.onXRStateChange(true);
+    gate.window.VRPayment.onXRStateChange(false);
+    await new Promise(resolve => setImmediate(resolve));
+    assert.equal(gate.window.VRPayment.canEnterVR(), false);
+    assert.ok(gate.requests.some(request => request.path === '/vr/release'));
+});
+
+test('setup-panel lease retention is bounded and pagehide still releases immediately', async () => {
+    for (const ending of ['timeout', 'pagehide']) {
+        const gate = loadPaymentGate(path => {
+            if (path === '/entitlement') return registered;
+            if (path === '/vr/acquire') return { active: true, expiresInMs: 60000 };
+            if (path === '/vr/release') return { released: true };
+            return registered;
+        });
+        await gate.open();
+        await gate.click('Prepare VR');
+        gate.window.VRPayment.onXRStateChange(true);
+        assert.equal(gate.window.VRPayment.holdLeaseForSetup(1000), true);
+        gate.window.VRPayment.onXRStateChange(false);
+
+        if (ending === 'pagehide') {
+            gate.events.pagehide();
+        } else {
+            const timeout = [...gate.timers.values()].find(timer => !timer.interval && timer.delay === 1000);
+            assert.ok(timeout, 'bounded setup hold timer was not scheduled');
+            timeout.fn();
+        }
+        await new Promise(resolve => setImmediate(resolve));
+        assert.equal(gate.window.VRPayment.canEnterVR(), false);
+        const release = gate.requests.find(request => request.path === '/vr/release');
+        assert.ok(release);
+        assert.equal(release.options.keepalive, ending === 'pagehide');
     }
 });
 
@@ -448,11 +508,12 @@ test('dialog preflight locks controls and preserves email; delayed challenge and
         return {};
     });
     gate.window.VRPayment.showGate();
-    assert.equal(gate.button('Send verification code').disabled, true);
-    await gate.click('Send verification code');
+    assert.equal(gate.button('Restore existing access').disabled, true);
+    await gate.click('Restore existing access');
     assert.equal(gate.requests.filter(request => request.path === '/recovery/start').length, 0);
     finishCheck(); await gate.window.VRPayment.refreshEntitlement();
-    assert.equal(gate.button('Send verification code').disabled, false);
+    assert.equal(gate.button('Restore existing access').disabled, false);
+    await gate.click('Restore existing access');
     const email = gate.input('Email for access recovery');
     email.value = 'guest@example.com';
     email.listeners.input();
@@ -470,7 +531,7 @@ test('dialog preflight locks controls and preserves email; delayed challenge and
     await gate.click('Verify email');
     assert.deepEqual(gate.requests.find(request => request.path === '/recovery/verify').body,
         { challenge: 'slow-challenge', code: '12345678' });
-    assert.ok(gate.input('One-use VR invitation code'));
+    assert.ok(gate.button('Use an invitation'));
 });
 
 test('VR entry checks the prepared lease synchronously and keeps enterXRAsync in the original click', async () => {
@@ -505,4 +566,76 @@ test('VR entry checks the prepared lease synchronously and keeps enterXRAsync in
         observer(2); observer(0);
         assert.deepEqual(calls.slice(-2), [true, false]);
     }
+});
+
+const plain = value => JSON.parse(JSON.stringify(value));
+
+test('immersive launch: autoPrepare takes the VR lease for a registered device and reports why it cannot otherwise', async () => {
+    const lease = { active: true, expiresAt: 160000, expiresInMs: 60000 };
+    const ready = loadPaymentGate(path => ({ '/entitlement': registered, '/vr/acquire': lease, '/vr/renew': lease })[path]);
+    assert.deepEqual(plain(await ready.window.VRPayment.autoPrepare()), { state: 'ready' });
+    assert.equal(ready.window.VRPayment.canEnterVR(), true);
+    assert.deepEqual(ready.requests.map(request => request.path), ['/entitlement', '/vr/acquire']);
+    assert.ok([...ready.timers.values()].some(timer => timer.interval), 'the lease must be renewed while the session starts');
+
+    const unpaired = loadPaymentGate(() => fresh);
+    assert.deepEqual(plain(await unpaired.window.VRPayment.autoPrepare()),
+        { state: 'needs-access', verified: false, entitled: false, deviceRegistered: false });
+    assert.equal(unpaired.requests.length, 1, 'no lease is requested without access');
+    assert.equal(unpaired.window.VRPayment.canEnterVR(), false);
+
+    const noDevice = loadPaymentGate(() => ({ ...registered, deviceRegistered: false }));
+    assert.equal((await noDevice.window.VRPayment.autoPrepare()).state, 'needs-access');
+
+    const busy = loadPaymentGate(path => path === '/entitlement' ? registered
+        : { status: 409, body: { error: 'vr_in_use', message: 'VR is already active on another device or tab.' } });
+    const inUse = await busy.window.VRPayment.autoPrepare();
+    assert.equal(inUse.state, 'in-use');
+    assert.match(inUse.message, /another device/);
+    assert.equal(busy.window.VRPayment.canEnterVR(), false);
+
+    const down = loadPaymentGate(() => ({ status: 503, body: { message: 'Access service is unavailable.' } }));
+    assert.equal((await down.window.VRPayment.autoPrepare()).state, 'error');
+});
+
+test('fetchMusic returns the account list, null when never saved, and a signed-out marker without a session', async () => {
+    let answer = { body: { items: [{ url: 'https://audio.example/a.mp3', name: 'A' }], updatedAt: 5 } };
+    const gate = loadPaymentGate(path => path === '/music' ? answer : fresh);
+    assert.deepEqual(plain(await gate.window.VRPayment.fetchMusic()), { items: [{ url: 'https://audio.example/a.mp3', name: 'A' }], updatedAt: 5 });
+    const request = gate.requests.find(entry => entry.path === '/music');
+    assert.equal(request.options.credentials, 'include');
+    assert.equal(request.options.method, undefined, 'a plain GET');
+
+    answer = { body: { items: null, updatedAt: 0 } };
+    assert.equal((await gate.window.VRPayment.fetchMusic()).items, null);
+    answer = { status: 401, body: { error: 'verification_required', message: 'Verify your email first.' } };
+    assert.deepEqual(plain(await gate.window.VRPayment.fetchMusic()), { items: null, signedIn: false });
+    answer = { status: 503, body: { message: 'Saving music is not configured.' } };
+    await assert.rejects(() => gate.window.VRPayment.fetchMusic(), /not configured/);
+});
+
+test('headset pairing: linkStart asks for a code and linkPoll reports pending, then registers this device', async () => {
+    const gate = loadPaymentGate(path => ({
+        '/entitlement': fresh,
+        '/link/start': { linkId: 'link-id', secret: 'a'.repeat(64), code: '12345678', expiresInSeconds: 600, intervalSeconds: 3 }
+    })[path] || { status: 404, body: {} });
+    const link = await gate.window.VRPayment.linkStart();
+    assert.deepEqual(plain(link), { linkId: 'link-id', secret: 'a'.repeat(64), code: '12345678', expiresInMs: 600000, intervalMs: 3000 });
+    const start = gate.requests.find(request => request.path === '/link/start');
+    assert.equal(start.options.credentials, 'include');
+
+    let answer = { body: { status: 'pending' } };
+    const polled = loadPaymentGate(path => path === '/link/poll' ? answer : fresh);
+    assert.equal(await polled.window.VRPayment.linkPoll(link), 'pending');
+    assert.deepEqual(polled.requests.at(-1).body, { linkId: 'link-id', secret: 'a'.repeat(64) });
+    assert.equal(polled.window.VRPayment.canEnterVR(), false);
+
+    answer = { body: { status: 'approved', verified: true, email: 'owner@example.com', entitled: true, deviceRegistered: true, devices: [] } };
+    assert.equal(await polled.window.VRPayment.linkPoll(link), 'approved');
+    assert.equal(polled.window.VRPayment.hasEntitlement(), true);
+
+    answer = { status: 410, body: { status: 'expired' } };
+    assert.equal(await polled.window.VRPayment.linkPoll(link), 'expired');
+    answer = { status: 503, body: { message: 'Pairing is unavailable.' } };
+    await assert.rejects(() => polled.window.VRPayment.linkPoll(link), /Pairing is unavailable/);
 });

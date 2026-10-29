@@ -4,8 +4,104 @@ const STROBE_FLASH_S = 0.040;       // one burst at strobeSpeed 1
 const STROBE_DROP_FLASH_S = 0.032;  // during a drop
 const STROBE_MIN_FLASH_S = 0.022;   // however fast the strobe runs
 const STROBE_MIN_INTERVAL_S = 0.34; // free-running timer floor: under three flashes a second
+const STROBE_RING_4 = Object.freeze([0, 1, 3, 2]);
+const strobeRingIndex = (count, index) => count === 4 ? STROBE_RING_4[index] : index;
 
 class VRClubAnimationFinish extends VRClubAnimationFixtures {
+    /**
+     * Strobe patterns, in the order the controls step through them. 'all' fires every corner together, 'chase' is the
+     * show's own (a clockwise grid step on the beat, improvised when free-running); the others are the classic club
+     * sequences and each flashes ONE sequence step per burst, under the same three-flashes-a-second room limit.
+     */
+    static get STROBE_PATTERNS() {
+        return this._strobePatterns || (this._strobePatterns = Object.freeze(
+            ['all', 'chase', 'circle', 'reverse', 'pingpong', 'sides', 'frontback', 'cross', 'build', 'random']));
+    }
+
+    static get STROBE_PATTERN_NAMES() {
+        return this._strobePatternNames || (this._strobePatternNames = Object.freeze({
+            all: 'ALL AT ONCE', chase: 'CHASE', circle: 'CIRCLE', reverse: 'CIRCLE BACK', pingpong: 'PING-PONG',
+            sides: 'LEFT / RIGHT', frontback: 'FRONT / BACK', cross: 'CROSS', build: 'BUILD UP',
+            random: 'IRREGULAR FLASH'
+        }));
+    }
+
+    /** The patterns that need an even tempo to read as a pattern. */
+    static get STROBE_STEADY() {
+        return this._strobeSteady || (this._strobeSteady = new Set(
+            ['all', 'chase', 'circle', 'reverse', 'pingpong', 'sides', 'frontback', 'cross', 'build']));
+    }
+
+    /** Free-running interval: IRREGULAR alternates short stabs with clearly longer pauses. */
+    static strobeInterval(pattern, baseInterval, speed = 1, rand = Math.random) {
+        const safeSpeed = Math.max(0.1, speed);
+        if (pattern === 'random') {
+            const quick = rand() < 0.58;
+            const interval = quick
+                ? 0.34 + rand() * 0.20
+                : 0.85 + rand() * 0.75;
+            return Math.max(STROBE_MIN_INTERVAL_S, interval / Math.sqrt(safeSpeed));
+        }
+        const variation = this.STROBE_STEADY.has(pattern) ? 1 : 0.85 + rand() * 0.30;
+        return Math.max(STROBE_MIN_INTERVAL_S, (baseInterval * variation) / safeSpeed);
+    }
+
+    /**
+     * Which strobes fire on burst number `step`. The four truss corners are indexed 0 front-left, 1 front-right,
+     * 2 back-left, 3 back-right, so the ring around the floor is 0, 1, 3, 2 (the plain index order is a Z, not a circle).
+     * Pure: no scene, no clock.
+     * @param {string} pattern one of STROBE_PATTERNS
+     * @param {number} count how many strobes there are
+     * @param {number} step 0, 1, 2 ... for each burst
+     * @param {() => number} [rand] Math.random, injectable for tests
+     * @param {number} [last] the single strobe the previous burst used, or -1 (so 'random' never repeats it)
+     * @returns {number[]} indices into the strobes, never empty
+     */
+    static strobeTargets(pattern, count, step, rand = Math.random, last = -1, out = []) {
+        const n = Math.max(1, count | 0);
+        out.length = 0;
+        if (n === 1) { out.push(0); return out; }
+        const s = Math.max(0, step | 0);
+        switch (pattern) {
+            case 'circle': out.push(strobeRingIndex(n, s % n)); return out;
+            case 'reverse': out.push(strobeRingIndex(n, (n - 1) - (s % n))); return out;
+            case 'pingpong': {
+                const period = 2 * (n - 1);
+                const k = s % period;
+                out.push(strobeRingIndex(n, k < n ? k : period - k));
+                return out;
+            }
+            case 'sides':
+                for (let i = 0; i < n; i++) if (i % 2 === (s % 2)) out.push(i);
+                return out;
+            case 'frontback':
+                for (let i = 0; i < n; i++) if ((i < n / 2) === (s % 2 === 0)) out.push(i);
+                return out;
+            case 'cross':
+                out.push(strobeRingIndex(n, s % 2));
+                if ((s % 2) + 2 < n) out.push(strobeRingIndex(n, (s % 2) + 2));
+                return out;
+            case 'build':
+                for (let i = 0; i < (s % n) + 1; i++) out.push(strobeRingIndex(n, i));
+                return out;
+            case 'random': {
+                let first = Math.floor(rand() * n);
+                if (first === last) first = (first + 1) % n;
+                // Now and then two corners at once, so it does not read as a metronome.
+                if (rand() < 0.3) {
+                    const second = (first + 1 + Math.floor(rand() * (n - 1))) % n;
+                    out.push(first, second);
+                    return out;
+                }
+                out.push(first);
+                return out;
+            }
+            default:
+                for (let i = 0; i < n; i++) out.push(i);
+                return out;
+        }
+    }
+
     updateStrobes(ctx) {
         const { time, dt, audio: audioData } = ctx;
         const master = this.masterIntensity == null ? 1 : Math.min(1, Math.max(0, this.masterIntensity));
@@ -67,8 +163,13 @@ class VRClubAnimationFinish extends VRClubAnimationFixtures {
                         (inDropMode ? STROBE_DROP_FLASH_S : STROBE_FLASH_S) / Math.sqrt(strobeSpeedMultiplier)
                     );
                     const intensity = Math.min(100, intensityBase);
-                    let chaseIndex = -1;
-                    if (this.strobePattern === 'chase') {
+                    // Which corners fire this burst. 'all' = every one; 'chase' keeps its original behaviour (a look's
+                    // grid step on the beat, improvised when free-running); every other pattern steps through its own
+                    // sequence, one burst at a time, so the whole club-wide limit of three flashes a second still holds.
+                    const pattern = this.strobePattern || 'all';
+                    let targets = null;   // null = every strobe
+                    if (pattern === 'chase') {
+                        let chaseIndex;
                         if (this.strobes.length === 1) {
                             chaseIndex = 0;
                         } else if (syncDue !== null) {
@@ -87,9 +188,15 @@ class VRClubAnimationFinish extends VRClubAnimationFixtures {
                             if (last >= 0 && chaseIndex >= last) chaseIndex++;
                         }
                         this._lastStrobeChaseIndex = chaseIndex;
+                        targets = [chaseIndex];
+                    } else if (pattern !== 'all' && VRClubAnimationFinish.STROBE_PATTERNS.includes(pattern)) {
+                        this._strobePatternStep = (Number.isInteger(this._strobePatternStep) ? this._strobePatternStep : -1) + 1;
+                        targets = VRClubAnimationFinish.strobeTargets(pattern, this.strobes.length, this._strobePatternStep,
+                            Math.random, this._lastStrobeTarget, this._strobeTargetBuffer || (this._strobeTargetBuffer = []));
+                        this._lastStrobeTarget = targets.length === 1 ? targets[0] : -1;
                     }
                     this.strobes.forEach((strobe, index) => {
-                        const active = this.strobePattern !== 'chase' || index === chaseIndex;
+                        const active = targets === null || targets.includes(index);
                         strobe.currentIntensity = active ? intensity : 0;
                         strobe.flashDuration = active ? flashDuration : 0;
                         strobe._burstOn = active;
@@ -106,13 +213,10 @@ class VRClubAnimationFinish extends VRClubAnimationFixtures {
                         }
                     });
                     const baseInterval = inDropMode ? 0.18 : (inBuildMode ? 0.32 : 0.65);
-                    const intervalVariation = 0.6 + Math.random() * 1.0;
-                    // Never faster than the three-flashes-a-second limit, whatever the speed or
-                    // drop state: the free-running timer used to reach 9 a second in a drop.
-                    this._nextStrobeBurstTime = time + Math.max(
-                        STROBE_MIN_INTERVAL_S,
-                        (baseInterval * intervalVariation) / strobeSpeedMultiplier
-                    );
+                    // Never faster than the shared room governor. IRREGULAR deliberately
+                    // alternates short stabs and longer silences instead of metronomic jitter.
+                    this._nextStrobeBurstTime = time + VRClubAnimationFinish.strobeInterval(
+                        pattern, baseInterval, strobeSpeedMultiplier);
                 }
                 
                 this.strobes.forEach((strobe) => {
@@ -183,7 +287,7 @@ class VRClubAnimationFinish extends VRClubAnimationFixtures {
                     });
                     if (maxIntensity > 0) {
                         const impulse = VRClubAnimationFinish.strobeImpulse(this);
-                        if (this.strobePattern === 'chase' && brightestStrobe && this.strobeFlashLight.position) {
+                        if (this.strobePattern && this.strobePattern !== 'all' && brightestStrobe && this.strobeFlashLight.position) {
                             this.strobeFlashLight.position.copyFrom(brightestStrobe.mesh.position);
                         } else if (this.strobeFlashLight.position) {
                             this.strobeFlashLight.position.set(0, 8, -12);
@@ -412,7 +516,7 @@ class VRClubAnimationFinish extends VRClubAnimationFixtures {
         // this private timer must not also advance it — otherwise the wall drifts
         // off whatever the current cue chose a few beats after every change.
         const showOwnsPattern = !!(this.showDirector && this.showDirector.isDriving());
-        if (!showOwnsPattern && time - this.ledPatternSwitchTime > patternChangeTime) {
+        if (!showOwnsPattern && !this.colorLockActive && time - this.ledPatternSwitchTime > patternChangeTime) {
             this.ledPattern = (this.ledPattern + 1) % patterns.length;
             this.ledPatternSwitchTime = time;
         }
@@ -437,7 +541,7 @@ class VRClubAnimationFinish extends VRClubAnimationFixtures {
         
         // Execute current pattern with error handling
         const currentPattern = patterns[this.ledPattern];
-        const activeColor = showOwnsPattern && !this.ledMonochrome && this.ledShowColor
+        const activeColor = (showOwnsPattern || this.colorLockActive) && !this.ledMonochrome && this.ledShowColor
             ? this.ledShowColor
             : colors[this.ledColorIndex % colors.length];
         if (currentPattern && typeof currentPattern === 'function') {

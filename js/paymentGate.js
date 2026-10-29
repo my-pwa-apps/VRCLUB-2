@@ -7,6 +7,10 @@
         window.VRPayment = Object.freeze({
             apiOrigin: null, hasEntitlement: () => true, canEnterVR: () => true,
             refreshEntitlement: async () => ({ entitled: true }),
+            autoPrepare: async () => ({ state: 'ready' }),
+            holdLeaseForSetup: () => true,
+            setPreview() {},
+            upgradeToMember: async () => true,
             showGate: () => window.vrClub?.showErrorMessage?.('Development site: VR access is free. Purchases and production access are disabled.'),
             onXRStateChange() {}, setXRHandlers() {}, releaseLease: async () => {}, dispose() {}
         });
@@ -17,9 +21,11 @@
     let access = { entitled: false, verified: false, deviceRegistered: false, devices: [] };
     let dialog, content, status, close, opener, checkPromise, checkError, challenge, nextFocus;
     let accessRevision = 0, recoveryEmail = '', recoveryCode = '';
-    let invitationCode = '', invitationStep = null;
-    let busy = false, inXR = false, leaseExpires = 0, leaseGeneration = 0;
-    let renewTimer, expiryTimer, exiting = false;
+    let preview = false;
+    let invitationCode = '', invitationStep = null, accessPath = null;
+    const SETUP_LEASE_HOLD_MS = 10 * 60 * 1000;
+    let busy = false, inXR = false, leaseExpires = 0, leaseGeneration = 0, setupHoldUntil = 0;
+    let renewTimer, expiryTimer, setupHoldTimer, exiting = false;
     let exitXR = () => window.vrClub?.vrHelper?.baseExperience?.exitXRAsync();
     let notify = message => window.vrClub?.showErrorMessage?.(message);
 
@@ -38,6 +44,29 @@
         return body;
     }
     const post = (path, body, options) => api(path, { method: 'POST', body: JSON.stringify(body), ...options });
+    async function prepareDevRoom(serverUrl) {
+        const endpoint = new URL(apiOrigin);
+        endpoint.protocol = endpoint.protocol === 'https:' ? 'wss:' : 'ws:';
+        const relay = new URL(serverUrl);
+        if (relay.origin !== endpoint.origin && relay.origin !== 'wss://vrclub-network.garfieldapp.workers.dev') {
+            throw new Error('DEV room 000032 is available only on the shared NOCTURNE relay.');
+        }
+        await post('/dev-room', {}, { signal: window.AbortSignal.timeout(15000) });
+        // The API-host HttpOnly cookie accompanies this socket; no account credential enters a URL.
+        return endpoint.toString();
+    }
+    /**
+     * The music links the owner keeps on their phone (worker/src/musicSync.js). Resolves { items } where items is the list or
+     * null when the account never saved one; { items: null, signedIn: false } when this device has no session yet.
+     */
+    async function fetchMusic() {
+        try {
+            return await api('/music');
+        } catch (error) {
+            if (error.status === 401) return { items: null, signedIn: false };
+            throw error;
+        }
+    }
     function setStatus(message, error = false) {
         if (!status) return;
         status.textContent = message;
@@ -63,7 +92,9 @@
         if (!access.deviceRegistered) return 'Access restored. Register this browser as one of your two devices.';
         if (window.vrClub?._vrAvailable === false) return 'Your access is saved. Open NOCTURNE on a VR-compatible device to enter VR.';
         return leaseExpires > performance.now()
-            ? 'VR prepared. Close this dialog, then press Enter VR before the preparation expires.'
+            ? setupHoldUntil > performance.now()
+                ? 'VR remains prepared while you set up music or review credits. Press Enter VR when you are ready.'
+                : 'VR prepared. Close this dialog, then press Enter VR before the preparation expires.'
             : 'Access ready. Prepare VR here, then close and press Enter VR. Only one immersive session can run per account.';
     }
     function element(tag, text, className) {
@@ -180,7 +211,13 @@
                 setStatus('Invitation saved for this flow. Verify your email to activate it; it has not been used yet.');
             }
         });
-        button('Cancel invitation', () => { invitationStep = null; invitationCode = ''; render(); setStatus(message()); });
+        button('Back to access options', () => {
+            invitationStep = null;
+            invitationCode = '';
+            accessPath = null;
+            render();
+            setStatus(message());
+        });
     }
     function syncControls() {
         if (!content) return;
@@ -225,15 +262,40 @@
     function render() {
         content.replaceChildren();
         content.scrollTop = 0;
+        if (access.entitled && (!access.verified || access.recoveryRequired)) accessPath = 'restore';
         if (!access.entitled && invitationStep === 'code') {
             invitationEntry();
             syncControls();
             return;
         }
-        if (!access.entitled && !invitationStep && (!access.verified || access.recoveryRequired)) {
-            button('Use invitation code', () => { invitationStep = 'code'; render(); setStatus('Enter your eight-digit invitation using the keypad.'); });
+        if (!access.entitled && !invitationStep && !accessPath) {
+            content.append(element('p', access.verified
+                ? `Email verified: ${access.email || 'verified'}. Choose how to add VR access.`
+                : 'Desktop mode is free. Choose one path when you want immersive VR.'));
+            const paths = element('div', '', 'payment-paths');
+            button('Use an invitation', () => {
+                accessPath = 'invite';
+                invitationStep = 'code';
+                render();
+                setStatus('Enter your eight-digit invitation using the keypad.');
+            }, paths);
+            if (!access.verified || access.recoveryRequired) {
+                button('Restore existing access', () => {
+                    accessPath = 'restore';
+                    render();
+                    setStatus('Verify the email previously linked to your access.');
+                }, paths);
+            }
+            button('Buy VR access — €1.99', () => {
+                accessPath = 'buy';
+                render();
+                setStatus('Enter the email for your receipt, then continue to secure checkout.');
+            }, paths);
+            content.append(paths);
+            syncControls();
+            return;
         }
-        if (!access.verified || access.recoveryRequired) {
+        if ((!access.verified || access.recoveryRequired) && accessPath !== 'buy') {
             const guided = invitationStep === 'email';
             content.append(element('p', invitationStep === 'email'
                 ? challenge
@@ -304,7 +366,11 @@
                         invitationStep = 'code';
                         await activateInvitation(invitationCode);
                     }
-                } else { render(); setStatus(message()); }
+                } else {
+                    if (accessPath === 'restore' && !access.entitled) accessPath = null;
+                    render();
+                    setStatus(access.entitled ? message() : 'That email is verified but has no VR access to restore. Choose an invitation or purchase.');
+                }
             });
             if (guided && !challenge) {
                 code.parentElement.hidden = true;
@@ -315,9 +381,16 @@
             if (invitationStep === 'email') button('Change invitation code', () => {
                 invitationStep = 'code'; render(); setStatus('Your invitation has not been used yet.');
             });
-        } else {
+            else if (!access.entitled) button('Back to access options', () => {
+                accessPath = null;
+                challenge = null;
+                recoveryCode = '';
+                render();
+                setStatus(message());
+            });
+        } else if (access.verified) {
             content.append(element('p', `Verified email: ${access.email || 'verified'}`));
-            if (!access.entitled) {
+            if (!access.entitled && accessPath !== 'buy') {
                 invitationEntry();
             }
             if (access.entitled) {
@@ -367,24 +440,7 @@
                 } else if (window.vrClub?._vrAvailable === false) {
                     content.append(element('p', 'Your access is saved. To use VR, open NOCTURNE in your headset browser or on a VR-compatible device.'));
                 } else primaryButton('Prepare VR', async () => {
-                    const generation = leaseGeneration;
-                    const startedAt = performance.now();
-                    let result;
-                    try { result = await post('/vr/acquire', { tab }); }
-                    catch (error) {
-                        if (error.status === 403 || error.status === 409) void releaseLease();
-                        throw error;
-                    }
-                    if (generation !== leaseGeneration) {
-                        void post('/vr/release', { tab }, { keepalive: true }).catch(() => {});
-                        return;
-                    }
-                    const deadline = leaseDeadline(result, startedAt);
-                    if (result.active !== true || deadline <= performance.now()) {
-                        throw new Error('VR preparation was not confirmed. Try again.');
-                    }
-                    leaseExpires = deadline;
-                    scheduleExpiry();
+                    if (!await acquireLease()) return;
                     setStatus(message());
                     content.replaceChildren(element('h3', 'You are ready for VR'),
                         element('p', '1. Press Close at the top right.'),
@@ -393,16 +449,21 @@
                 });
             }
         }
-        if (!access.entitled && !invitationStep) {
-            content.append(element('p', 'Desktop mode is free. Immersive VR costs €1.99 once, or use an invitation after email verification.'));
+        if (!access.entitled && !invitationStep && accessPath === 'buy') {
+            content.append(element('p', 'Immersive VR costs €1.99 once. Desktop mode stays free.'));
             const email = input('Email for your receipt', 'email');
             email.required = true;
             email.autocomplete = 'email';
-            button('Buy VR access — €1.99', async () => {
+            primaryButton('Continue to secure checkout', async () => {
                 if (!validEmail(email)) return;
                 const result = await post('/checkout', { email: email.value.trim() });
                 if (!result.url) throw new Error('Checkout did not return a secure payment URL.');
                 window.location.assign(result.url);
+            });
+            button('Back to access options', () => {
+                accessPath = null;
+                render();
+                setStatus(message());
             });
         }
         syncControls();
@@ -489,11 +550,13 @@
     function stopTimers() {
         clearInterval(renewTimer);
         clearTimeout(expiryTimer);
-        renewTimer = expiryTimer = null;
+        clearTimeout(setupHoldTimer);
+        renewTimer = expiryTimer = setupHoldTimer = null;
     }
     async function releaseLease(keepalive = false) {
         const held = leaseExpires > 0;
         leaseExpires = 0;
+        setupHoldUntil = 0;
         leaseGeneration++;
         stopTimers();
         if (held) await post('/vr/release', { tab }, { keepalive }).catch(() => {});
@@ -532,7 +595,7 @@
         const startedAt = performance.now();
         try {
             const result = await post('/vr/renew', { tab });
-            if (generation !== leaseGeneration || !inXR) return;
+            if (generation !== leaseGeneration || (!inXR && setupHoldUntil <= performance.now())) return;
             const deadline = leaseDeadline(result, startedAt);
             if (deadline <= performance.now()) throw new Error('VR session expired.');
             leaseExpires = deadline;
@@ -548,17 +611,122 @@
             }
         }
     }
+    /** Takes this tab's VR lease. Resolves false when something released it while the request was in flight. */
+    async function acquireLease() {
+        const generation = leaseGeneration;
+        const startedAt = performance.now();
+        let result;
+        try { result = await post('/vr/acquire', { tab }); }
+        catch (error) {
+            if (error.status === 403 || error.status === 409) void releaseLease();
+            throw error;
+        }
+        if (generation !== leaseGeneration) {
+            void post('/vr/release', { tab }, { keepalive: true }).catch(() => {});
+            return false;
+        }
+        const deadline = leaseDeadline(result, startedAt);
+        if (result.active !== true || deadline <= performance.now()) {
+            throw new Error('VR preparation was not confirmed. Try again.');
+        }
+        leaseExpires = deadline;
+        scheduleExpiry();
+        return true;
+    }
+    /**
+     * Immersive launch has no dialog to click through, so this checks access and takes the VR lease in one call.
+     * 'ready': this device may enter VR now (the lease is held and renewed while the session starts);
+     * 'needs-access': not verified, entitled or registered, so the headset must be paired; 'in-use': another device or tab
+     * holds the single VR lease; 'error': the service could not be reached.
+     */
+    async function autoPrepare() {
+        await refreshEntitlement();
+        if (checkError) return { state: 'error', message: checkError.message };
+        if (!ready()) {
+            return { state: 'needs-access', verified: !!access.verified, entitled: !!access.entitled, deviceRegistered: !!access.deviceRegistered };
+        }
+        try {
+            if (!await acquireLease()) return { state: 'error', message: 'VR preparation was cancelled.' };
+        } catch (error) {
+            return { state: error.body?.error === 'vr_in_use' ? 'in-use' : 'error', message: error.message };
+        }
+        holdLeaseForSetup(2 * 60 * 1000);
+        return { state: 'ready' };
+    }
+    /** Asks the service for a pairing code to enter on a phone (see worker/src/deviceLink.js). */
+    async function linkStart() {
+        const result = await post('/link/start', {});
+        return {
+            linkId: result.linkId, secret: result.secret, code: result.code,
+            expiresInMs: (result.expiresInSeconds || 600) * 1000, intervalMs: (result.intervalSeconds || 3) * 1000
+        };
+    }
+    /**
+     * One poll of a pairing code. Resolves 'pending', 'expired' (ask for a new code), or 'approved' once this device has
+     * been registered and given its own session, in which case the access state is updated like any other check.
+     */
+    async function linkPoll(link) {
+        try {
+            const result = await post('/link/poll', { linkId: link.linkId, secret: link.secret });
+            if (result.status !== 'approved') return result.status === 'pending' ? 'pending' : 'expired';
+            update({ ...result, recoveryRequired: false });
+            return 'approved';
+        } catch (error) {
+            if (error.status === 410 || error.status === 404) return 'expired';
+            throw error;
+        }
+    }
+    function holdLeaseForSetup(durationMs = SETUP_LEASE_HOLD_MS) {
+        if (!ready() || leaseExpires <= performance.now()) return false;
+        const holdMs = Math.min(SETUP_LEASE_HOLD_MS, Math.max(0, Number(durationMs) || 0));
+        if (!holdMs) return false;
+        setupHoldUntil = performance.now() + holdMs;
+        clearTimeout(setupHoldTimer);
+        setupHoldTimer = setTimeout(() => {
+            setupHoldUntil = 0;
+            if (!inXR) void releaseLease();
+        }, holdMs);
+        if (!renewTimer) renewTimer = setInterval(() => { void renewLease(); }, 20000);
+        return true;
+    }
     function onXRStateChange(active) {
         if (active === inXR) return;
         inXR = active;
-        if (!active) { void releaseLease(); return; }
+        if (!active) {
+            if (setupHoldUntil > performance.now() && leaseExpires > performance.now()) {
+                scheduleExpiry();
+                return;
+            }
+            void releaseLease();
+            return;
+        }
+        // The free preview and the pairing screen of an immersive launch run without a lease: there is no access yet.
+        if (preview && (!ready() || leaseExpires <= performance.now())) return;
         if (!ready() || leaseExpires <= performance.now()) {
             void endXR('VR access is not prepared. Open Access to prepare it.');
             void releaseLease();
             return;
         }
-        renewTimer = setInterval(() => { void renewLease(); }, 20000);
+        setupHoldUntil = 0;
+        clearTimeout(setupHoldTimer);
+        setupHoldTimer = null;
+        if (!renewTimer) renewTimer = setInterval(() => { void renewLease(); }, 20000);
         scheduleExpiry();
+    }
+    /** Immersive launch only: allow an XR session that has no access yet (the free preview, then the pairing screen). */
+    function setPreview(on) {
+        preview = !!on;
+    }
+    /**
+     * A headset that was paired during its preview takes the lease for the session already running, and the usual renewal
+     * and expiry rules start to apply to it. Resolves false when access is still missing.
+     */
+    async function upgradeToMember() {
+        if (!ready()) return false;
+        if (!await acquireLease()) return false;
+        preview = false;
+        if (inXR && !renewTimer) renewTimer = setInterval(() => { void renewLease(); }, 20000);
+        return true;
     }
     function dispose() {
         window.removeEventListener('pagehide', onPageHide);
@@ -576,12 +744,17 @@
     window.VRPayment = Object.freeze({
         apiOrigin, hasEntitlement: () => access.entitled,
         canEnterVR: () => !!ready() && leaseExpires > performance.now(),
-        refreshEntitlement, showGate, onXRStateChange,
+        refreshEntitlement, showGate, onXRStateChange, holdLeaseForSetup, autoPrepare, linkStart, linkPoll, fetchMusic, prepareDevRoom,
+        setPreview, upgradeToMember,
         setXRHandlers(exit, showReason) { exitXR = exit; notify = showReason; },
         releaseLease, dispose
     });
-    const toggle = element('button', 'Access', 'payment-toggle');
+    // Same pattern as the other corner buttons: an icon over one word.
+    const toggle = element('button', '', 'payment-toggle');
     toggle.type = 'button';
+    const toggleIcon = element('span', '', 'payment-icon');
+    toggleIcon.setAttribute('aria-hidden', 'true');
+    toggle.append(toggleIcon, element('span', 'Access', 'toggle-word'));
     toggle.addEventListener('click', showGate);
     document.body.append(toggle);
     window.addEventListener('pagehide', onPageHide);

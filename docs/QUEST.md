@@ -1,11 +1,14 @@
 # Quest distribution candidate
 
-This branch has no built-in music or artist DJ selection. Desktop mode is free;
+This branch has no third-party music, built-in streams or artist DJ selection; the only bundled recording is the club's
+own generated house set, played when a guest has no music of their own. Desktop mode is free;
 immersive VR is protected by a server-verified one-time Stripe purchase.
 It opens as a **2D setup panel** so the photosensitivity/comfort choices and Quest
-keyboard are available, then enters WebXR using **Enter VR**. Do not configure
-`horizonOSAppMode: immersive`: that mode needs an auto-entry/in-world setup workflow
-which this candidate deliberately does not implement.
+keyboard are available, then enters WebXR using **Enter VR**. For a headset app that
+opens straight into VR, start the wrapper at `https://your-domain.example/?immersive=1`
+and configure `horizonOSAppMode: immersive`; see
+[Immersive launch and headset pairing](#immersive-launch-and-headset-pairing).
+The plain URL keeps the setup-panel flow.
 
 ## Build and test
 
@@ -24,6 +27,10 @@ The bundled Apache licence, CC licences, MIT licence, asset register and notices
 remain available. VR COMFORT → CREDITS / LICENCES returns to their setup-panel disclosure.
 
 ## Prepare an Android wrapper
+
+> The scripted route is in [Build and publish the app](#build-and-publish-the-app-sidequest-or-meta-horizon-store):
+> `quest:keystore`, `quest:prepare`, `quest:apk` and `quest:doctor` do the steps below, check the result and know about
+> the SideQuest (no App ID) and immersive variants. This section explains the pieces.
 
 You need:
 
@@ -91,18 +98,23 @@ larger native renderer port; the TWA remains the supported browser route.
 
 ## User music
 
-Music → local file, direct HTTPS audio link or SoundCloud track/set page → optional name → Save & play.
+Music → local file, direct HTTPS audio link or one SoundCloud track page → optional name → Play now (saves and plays) or Save to my sets (keeps whatever is playing).
 Eight saved sets are available in VR via Previous/Next and Play saved set.
 Finite sets play once, do not auto-queue and are seekable when the server supports it.
-SoundCloud pages open only in SoundCloud's official visible iframe player. They are not
-extracted or proxied, do not enter the Web Audio graph, and therefore have no VR Club seek,
-volume, beat analysis, spatialization or multiplayer sharing.
-Their official playback events do enable varied crowd/DJ movement at an independent
-120 BPM animation tempo. Pause/end/error returns to calm movement; this is not beat detection.
-Files use the existing device picker. Local files cannot be broadcast to a room.
+SoundCloud tracks play as analysed audio when their creator publishes them to podcast players.
+The Worker obtains the track id from SoundCloud's public oEmbed response, verifies the public
+podcast stream and relays it through the normal Web Audio graph; it never scrapes or unlocks
+audio SoundCloud does not publish that way. Playlists are not supported. An unavailable track
+stays saved and shows a persistent explanation. The guest may then explicitly choose
+**Open in SoundCloud player**; only that fallback uses the visible iframe and the independent
+120 BPM crowd/DJ clock, without club seeking, analysis, spatialization or room sharing.
+Deploy `worker/` changes before relying on the resolver or stream routes in production.
+Files use the existing device picker. A room host can offer a local file to consenting
+listeners over the separate WebRTC music connection; the file is not uploaded to the Worker.
 
 No third-party host is implicitly trusted for room music. A guest must select
-Listen along before contacting the host's audio provider. URLs are not proxied.
+Listen along before contacting the host's audio provider. Direct URLs are not proxied;
+the verified SoundCloud podcast-stream route above is the documented exception.
 Do not publish private/signed URLs into public rooms. Users need permission to
 play/share their audio; user-supplied links do not automatically clear public music rights.
 
@@ -327,6 +339,122 @@ Revocation takes effect on entitlement checks and the active XR lease renewal.
 Another valid grant or purchase for the account still permits access. Wrong, reused and revoked codes get
 the same unavailable-code response. Plaintext codes never appear in the database
 or redemption error logs.
+
+## Immersive launch and headset pairing
+
+`?immersive=1` on the start URL makes the club do what the 2D splash and Access dialog do, inside the headset
+(`js/immersiveLaunch.js`; the website and the plain URL are unchanged):
+
+1. **Photosensitivity.** A guest with no saved choice is held in Safe Mode for the session only and sees a locked
+   WELCOME page (SAFE MODE / FULL LIGHTS). The answer is saved like the splash toggle.
+2. **Access.** `VRPayment.autoPrepare()` verifies the account and takes the VR lease. A registered, entitled
+   headset enters VR at once (nothing is shown, because it is already paid and linked). Any other headset gets a
+   **two-minute free preview** (`ImmersiveLaunch.PREVIEW_MS`), with a toast at the start and another 30 seconds before the
+   end, then the world is veiled and only a locked pairing screen is drawn: an eight-digit code and
+   `BUY OR LINK AT <host>/LINK`. **Payment is never taken in the headset**: the owner enters the code on a phone, verifies
+   their email, and buys (Stripe) or redeems an invitation on that page before approving the headset. The preview timer is
+   client-side and restarts with every app launch.
+   The headset polls `/payments/link/poll`; when the owner approves on a phone it takes the lease for the session
+   that is already running (`VRPayment.upgradeToMember()`) and the veil lifts. HOME → ACCESS reaches the code during
+   the preview; EXIT VR closes the app from the locked screen.
+3. **Anything else hands over to the normal 2D flow** (`manual`): another device holds the lease, the service is
+   down, the browser refuses the automatic session (Enter VR then works as usual), or the guest leaves VR.
+   Desktop mode stays free, so nothing here is a barrier on its own.
+
+The pairing is an OAuth-style device code (`worker/src/deviceLink.js`, migration `0007_device_links.sql`, phone page
+`link/`): `start` (headset, anonymous), `approve` (phone, verified session; registers the headset as one of the two
+device slots) and `poll` (headset, with its secret). Only hashes are stored; codes live ten minutes, approval is
+rate limited, and the phone page makes the owner confirm before handing the headset access. Deploy the Worker and
+run the migration (`wrangler d1 migrations apply`) before relying on it.
+
+The veil is the XR camera's layer mask (world on the default layers, the quick menu also on an extra one), so the
+headset keeps tracking. The music is muted while it is up.
+
+**Music in the immersive app.** An immersive-only app has no 2D window, and a WebXR session has no keyboard or file
+picker, so the VR Music page cannot take a link. The owner keeps the list on a phone instead: `/link/?music=1` (the
+pairing page in a second mode: verify the email once, then add or remove up to eight HTTPS links or SoundCloud tracks).
+It is stored per account (`account_music`, migration `0008_account_music.sql`; `GET /payments/music`,
+`POST /payments/music/save`, `worker/src/musicSync.js`). **The list belongs to the account the headset is linked to**, so the
+phone must verify the SAME email: the headset names its account, partly hidden (`b***@outlook.com`), on the SYNC NOW button, and the
+phone page's "Use a different email" button signs the phone out (`POST /payments/recovery/signout`; it refuses a registered
+device's own session, which would unlink the headset). The headset loads it when VR starts, after linking, and on
+Music, Sources, ADD FROM PHONE, SYNC NOW (`MusicLibrary.replaceAll`: the saved sets become exactly the phone's list).
+Local files and folders are not available in the immersive app: they need a browser. In the immersive app the
+panels that used to leave VR (music setup, credits) show a message instead, because there is no page to return to.
+Credits and licences stay on the website's About panel.
+
+**Not proven here:** whether Meta's `horizonOSAppMode: immersive` wrapper starts a WebXR session without a click,
+and whether a controller press counts as the user activation that lets audio start. Both are real-device gates; the
+fallbacks (the Enter VR button, the first-press audio retry) are in place. Tests: `test/immersive-launch.test.mjs`
+(state machine on stubs), `test/e2e/immersive-launch.spec.mjs` (Quest emulator: automatic entry, welcome, preview,
+veil, approval, music sync) and `test/e2e/link-page.spec.mjs` (the phone page, including its music mode).
+
+## Build and publish the app (SideQuest or Meta Horizon Store)
+
+**SideQuest hosting.** The SideQuest build lives on its own host, `https://sidequest-nocturne.mitwee.nl/`, served by the
+Cloudflare Pages project `nocturne-sidequest` (production branch `SideQuest`), separate from the main site
+(`nocturne-vr`, branch `Quest`). Deploy it with `npm run deploy:sidequest`; it never touches the main domain. The shared
+API (`api.mitwee.nl`) accepts both sites: `APP_ORIGIN` is the main one and `EXTRA_APP_ORIGINS` in `worker/wrangler.toml`
+lists the SideQuest one (also in `ALLOWED_ORIGINS` for the multiplayer relay). Checkout returns, CORS and the emails'
+"enter it only at" line follow the origin that made the request. One-time dashboard step: Workers & Pages →
+`nocturne-sidequest` → Custom domains → add `sidequest-nocturne.mitwee.nl` (Cloudflare creates the DNS record itself).
+Until then the same site answers at `https://nocturne-sidequest.pages.dev/`, but the API refuses that origin. Use
+`--url https://sidequest-nocturne.mitwee.nl/` in `quest:prepare`: the Digital Asset Links file must be served from the
+host the app opens. The page's canonical URL still names the main site, so search engines treat the SideQuest host as a copy.
+
+Everything below runs from the repository root in PowerShell. `npm run quest:doctor` lists what is still missing at any
+point (add `-- --url https://nocturne.mitwee.nl/` after the site is deployed to check it too). Only the steps marked
+**YOU** need your accounts, passwords or a headset. Pick the package id once (chosen: `nocturne.vrnightclub`): it can never change.
+
+1. **Deploy the backend and site** (section above): D1 migration, `npm run deploy:worker`, `npm run deploy:cloudflare`.
+2. **YOU: create the signing key once.**
+   ```powershell
+   npm run quest:keystore -- --path "C:\PrivateSigning\nocturne.keystore"
+   ```
+   `keytool` asks for a password (use one password for the store and the key) and your name. **Back the file up twice,
+   off this machine.** Losing it means you can never update the app. Then, in every shell that builds:
+   ```powershell
+   $env:BUBBLEWRAP_KEYSTORE_PASSWORD = Read-Host -MaskInput "Keystore password"
+   $env:BUBBLEWRAP_KEY_PASSWORD = $env:BUBBLEWRAP_KEYSTORE_PASSWORD
+   ```
+3. **Prepare the wrapper** (reads the key's fingerprint itself):
+   ```powershell
+   # SideQuest: no Meta App ID exists
+   npm run quest:prepare -- --url https://sidequest-nocturne.mitwee.nl/ --package-id nocturne.vrnightclub --keystore "C:\PrivateSigning\nocturne.keystore" --alias nocturne --target sidequest --mode immersive --version-code 1
+   # Meta Horizon Store: add your numeric App ID from the developer dashboard
+   npm run quest:prepare -- --url https://sidequest-nocturne.mitwee.nl/ --package-id nocturne.vrnightclub --keystore "C:\PrivateSigning\nocturne.keystore" --alias nocturne --target meta --app-id YOUR_APP_ID --mode immersive --version-code 1
+   ```
+   `--mode immersive` starts the club at `/?immersive=1` with `horizonOSAppMode: immersive`; `--mode 2D` keeps the
+   setup-panel flow.
+4. **Publish Digital Asset Links, then check.** `npm run deploy:sidequest` (or `deploy:cloudflare` for the main site) builds `dist/` (which now carries
+   `.well-known/assetlinks.json` from `quest-package/`) and publishes it. Then
+   `npm run quest:doctor -- --url https://sidequest-nocturne.mitwee.nl/` must show no FAIL.
+5. **Build and verify the APK:** `npm run quest:apk`. It runs Meta's Bubblewrap (through `npx`, pinned; the Google
+   `@bubblewrap/cli` of the same command name ignores `horizonOSAppMode`), builds on Node 20.11.1 because newer Node
+   cannot start Gradle's `.bat` on Windows (`spawn EINVAL`), keeps your version code (`--skipVersionUpgrade`), and
+   fails unless `apksigner` shows the APK is signed with the certificate named in `assetlinks.json`. The result is
+   `quest-package/release/nocturne-<version>-code<N>-immersive.apk`. This pipeline was run end to end with a
+   throwaway key; the first run downloads the JDK and Android SDK through Bubblewrap if they are missing.
+6. **YOU: test on a headset.** Enable developer mode, connect it, then
+   `adb install -r quest-package\release\<the apk>`. Check: the app opens straight into VR (no URL bar), the first-run
+   WELCOME choice, a linked headset enters at once, an unlinked one gets the preview and then the pairing code,
+   music starts after the first controller press, and Y/B opens the menu. Anything that fails is a release blocker.
+7. **Store art and text:** `npm run quest:art` writes `quest-package/store-art/` (SideQuest banner and icon).
+   Draft listing text, tags and disclosures are in [STORE_LISTING.md](STORE_LISTING.md).
+8. **YOU: submit.**
+   - *SideQuest:* log in at dashboard.sidequestvr.com, create the app with the same package id, fill in the text,
+     upload the art and screenshots (`screenshots/`) and the APK (or a direct link), and submit. Review is light.
+   - *Meta Horizon Store:* an organisation admin must sign the Developer Distribution Agreement; create the app,
+     note its App ID and App Secret (API tab), then upload to a test channel first:
+     `ovr-platform-util upload-quest-build --app-id <id> --apk <apk> --channel ALPHA --age-group MIXED_AGES --app-secret <secret>`
+     (take the secret from the dashboard; never commit it). Move through BETA/RC to STORE after review.
+     **Check Meta's current store policy on external purchases first:** the VR access is sold through Stripe and
+     account pairing, which Meta may not allow in a store app. SideQuest has no such rule.
+9. **Updating.** Web-only changes need only `npm run deploy:cloudflare`. For a new APK (icon, name, version, mode),
+   re-run step 3 with a higher `--version-code`, then steps 5 and 8 with the SAME keystore and package id.
+
+Not proven on a real headset: that Meta's immersive wrapper opens the session without a click, and that the first
+controller press starts the music (step 6 checks both).
 
 ## Remaining release gates
 

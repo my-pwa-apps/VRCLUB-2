@@ -22,6 +22,7 @@ class Socket {
     last(type) { return this.sent.filter(msg => msg.type === type).at(-1); }
 }
 function join(room, poseBatch = false) {
+    room._roomName ||= 'private-sfu-test';
     const ws = new Socket();
     return { ws, session: room._acceptSession(ws, 'Guest', null, 'any', poseBatch) };
 }
@@ -132,8 +133,9 @@ test('configuration is explicit, baseline mesh stays eight and SFU secrets never
     await settle(room);
 });
 
-test('development room admits 32, rejects the 33rd, status reports capacity, legacy baseline rejects ninth', async () => {
-    const room = new ClubRoom({}, { ROOM_CAPACITY: '32' });
+test('SFU room admits 32, rejects the 33rd, status reports capacity, legacy baseline rejects ninth', async () => {
+    assert.throws(() => new ClubRoom({}, { ROOM_CAPACITY: '32' }), /require MEDIA_TRANSPORT=sfu/);
+    const room = new ClubRoom({}, env);
     const admitted = Array.from({ length: 32 }, () => join(room));
     assert.ok(admitted.every(guest => guest.session));
     assert.equal(join(room).ws.closed, 4003);
@@ -147,9 +149,54 @@ test('development room admits 32, rejects the 33rd, status reports capacity, leg
     cleanup(baseline);
 });
 
+test('SFU admission refuses old clients before allocating a socket', async () => {
+    const room = new ClubRoom({}, env);
+    const response = await room.fetch(new Request('https://relay.example/?room=event', {
+        headers: { Upgrade: 'websocket' }
+    }));
+    assert.equal(response.status, 426);
+    assert.match(await response.text(), /Update the club app/);
+    assert.equal(room.sessions.size, 0);
+});
+
+test('public SFU rooms reject selected chat and voice while reports and blocks still work', async t => {
+    api(t);
+    const room = new ClubRoom({}, env);
+    room._roomName = 'ade-event';
+    const host = join(room), reporter = join(room), target = join(room);
+    message(room, reporter, { type: 'media-control', voice: [host.session.id] });
+    assert.equal(room.media.members.get(reporter.session.id).audience, null);
+    await publish(room, reporter);
+    assert.equal((await subscribe(room, target, reporter)).error, undefined,
+        'public voice stays room-wide, subject to the existing block rules');
+    message(room, reporter, { type: 'chat', text: 'covert', targets: [target.session.id] });
+    assert.equal(target.ws.last('chat'), undefined);
+    message(room, reporter, { type: 'report', target: target.session.id, reason: 'harassment' });
+    assert.equal(host.ws.last('moderation-report').target.id, target.session.id);
+    assert.equal(target.ws.last('moderation-report'), undefined);
+    message(room, reporter, { type: 'block', pid: target.session.pid });
+    await settle(room);
+    assert.equal(room.media.members.get(target.session.id).slots.voiceRx, undefined);
+    assert.ok((await subscribe(room, target, reporter)).error);
+    cleanup(room);
+    await settle(room);
+});
+
+test('private 32-person rooms accept a chat audience larger than eight', async () => {
+    const room = new ClubRoom({}, env);
+    const sender = join(room);
+    const recipients = Array.from({ length: 31 }, () => join(room));
+    message(room, sender, { type: 'chat', text: 'To all selected friends',
+        targets: recipients.map(guest => guest.session.id) });
+    assert.ok(recipients.every(guest => guest.ws.last('chat')?.text === 'To all selected friends'));
+    cleanup(room);
+    await settle(room);
+});
+
 test('SFU authorization chooses locators server-side; voice audience and targeted chat are independent', async t => {
     const provider = api(t);
     const room = new ClubRoom({}, env), a = join(room), b = join(room), c = join(room);
+    room._roomName = 'private-sfu-audiences';
     message(room, a, { type: 'media-control', voice: [b.session.id] });
     await publish(room, a);
     assert.ok((await subscribe(room, c, a)).error, 'unselected listener cannot pull publication');
@@ -333,8 +380,8 @@ test('audience changes while subscription API is in flight cannot authorize the 
     await settle(room);
 });
 
-test('pose batches coalesce latest, near 20Hz/far 2Hz includes vertical distance, blocks cancel stale frames', () => {
-    const room = new ClubRoom({}, { ROOM_CAPACITY: '32' }), source = join(room), near = join(room, true), far = join(room, true), legacy = join(room);
+test('pose batches coalesce latest at 20Hz including distant bodies and hands; blocks cancel stale frames', () => {
+    const room = new ClubRoom({}, env), source = join(room), near = join(room, true), far = join(room, true), legacy = join(room);
     const pose = (x, y = 1.6, hands = undefined) => ({ x, y, z: 0, rotY: 0, ...(hands ? { hands } : {}) });
     message(room, near, { type: 'state', state: pose(1) });
     message(room, far, { type: 'state', state: pose(0, 20) });
@@ -346,14 +393,16 @@ test('pose batches coalesce latest, near 20Hz/far 2Hz includes vertical distance
     const selected = guest => guest.ws.last('states').states.find(entry => entry.id === source.session.id);
     assert.equal(selected(near).state.x, 2);
     assert.ok(selected(near).state.hands);
-    assert.equal(selected(far).state.hands, undefined);
+    assert.ok(selected(far).state.hands, 'a balcony view must retain distant controller poses');
     const farCount = far.ws.sent.filter(msg => msg.type === 'states').length;
     message(room, source, { type: 'state', state: pose(3) });
     room._flushPoses(1050);
     assert.equal(selected(near).state.x, 3);
-    assert.equal(far.ws.sent.filter(msg => msg.type === 'states').length, farCount);
+    assert.equal(far.ws.sent.filter(msg => msg.type === 'states').length, farCount + 1);
+    assert.equal(selected(far).state.x, 3, 'a distant walking guest must not fall back to 2Hz');
     room._flushPoses(1500);
     assert.equal(selected(far).state.x, 3);
+    assert.equal(far.ws.sent.filter(msg => msg.type === 'states').length, farCount + 1, 'unchanged poses remain coalesced');
     message(room, source, { type: 'state', state: pose(4) });
     message(room, near, { type: 'block', pid: source.session.pid });
     const nearCount = near.ws.sent.filter(msg => msg.type === 'states').length;
@@ -403,6 +452,7 @@ class Stream {
     getAudioTracks() { return this.tracks; }
 }
 function clientJoin(room) {
+    room._roomName ||= 'private-sfu-browser-test';
     const track = { kind: 'audio', stop() { this.stopped = true; } };
     const window = {};
     const context = vm.createContext({ window, console, setTimeout, clearTimeout, URL, performance,

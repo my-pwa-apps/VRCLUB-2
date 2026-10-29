@@ -4,7 +4,7 @@ import { captureImage, pearson, renderFrames, snapshotRenderState } from './xr-m
 
 useQuestHarness();
 
-/** The headset spawns here, facing the stage; the desktop camera is parked on the same pose. */
+/** Compare the two render modes at this indoor pose, independently of the street arrival. */
 const SPAWN = { position: [0, 1.6, -12], target: [0, 1.6, -13], vfov: Math.PI / 2 };
 
 /**
@@ -19,7 +19,6 @@ const INTENTIONAL_DIFFERENCES = new Map([
     ['pipeline.bloomKernel', 'smaller blur kernel in VR'],
     ['pipeline.bloomScale', 'vrSettings.vr'],
     ['pipeline.sharpenEdge', 'vrSettings.vr.edgeSharpness'],
-    ['pipeline.sharpenGain', 'desktop runs a 0.5 gain (BACKLOG: halves the desktop image); VR must be 1.0'],
     ['pipeline.exposure', 'vrSettings.vr, eye-adapted'],
     ['pipeline.contrast', 'vrSettings.vr'],
     ['pipeline.vignette', 'a vignette causes discomfort in a headset'],
@@ -42,11 +41,7 @@ const INTENTIONAL_DIFFERENCES = new Map([
  * Drift that remains on the desktop after a VR visit. Each entry is an open BACKLOG item:
  * when one is fixed this test fails until the entry is removed, so the list can only shrink.
  */
-const KNOWN_DESKTOP_RESTORE_DRIFT = [
-    'environment.environmentIntensity',
-    'screenSpace.ssaoAttached',
-    'screenSpace.ssaoCameras'
-];
+const KNOWN_DESKTOP_RESTORE_DRIFT = [];
 
 const flatten = (value, path = '') => Object.entries(value).flatMap(([key, child]) => {
     const here = path ? `${path}.${key}` : key;
@@ -132,7 +127,7 @@ test('VR keeps the desktop rendering features and image structure at the same gr
     const desktopImages = await sampleImages(page);
     await showOwnBody(page, true);
 
-    await enterVR(page);
+    await enterVR(page, { floorPosition: [SPAWN.position[0], 0, SPAWN.position[2]] });
     await pinShow(page);
     await renderFrames(page, 20);
     const vrState = await snapshotRenderState(page);
@@ -177,10 +172,13 @@ test('VR keeps the desktop rendering features and image structure at the same gr
         expect(vrState.screenSpace).toMatchObject({ ssaoAttached: false, ssrActive: false, motionBlur: false });
         expect(vrState.lighting.shadowCasters).toBe(0);
         expect(vrState.environment.probeRefreshRate).toBe(0);
-        // MSAA is on in the headset (the XR layer's own antialias does not reach this pipeline's
-        // offscreen target), up to what the GPU supports.
-        const maxMsaa = await page.evaluate(() => window.vrClub.engine.getCaps().maxMSAASamples);
-        expect(vrState.pipeline.samples).toBe(Math.min(4, maxMsaa || 1));
+        // Balanced keeps FXAA but does not multisample the stereo post-process target.
+        // Higher tiers use 2x MSAA, clamped to what the GPU supports.
+        const { configuredMsaa, maxMsaa } = await page.evaluate(() => ({
+            configuredMsaa: window.vrClub.tierSettings.vrMsaaSamples,
+            maxMsaa: window.vrClub.engine.getCaps().maxMSAASamples
+        }));
+        expect(vrState.pipeline.samples).toBe(Math.min(configuredMsaa, maxMsaa || 1));
         expect(vrState.resolution.hardwareScaling).toBe(1);
     });
 

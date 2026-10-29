@@ -18,8 +18,8 @@
 //   dead files        js/models/djgear/textures (unreferenced copies of what the GLB embeds)
 //                     and small_speaker_1_1001_metallic.jpg (never read)
 //
-// Geometry is left alone, on purpose: Draco, meshopt and KTX2 all need a decoder that Babylon
-// fetches from a CDN by default, and the project keeps its critical path same-origin.
+// Geometry is never COMPRESSED or simplified (Draco, meshopt and KTX2 all need a decoder that Babylon fetches from a CDN by
+// default, and the project keeps its critical path same-origin; a simplified monitor speaker also looked worse and was undone).
 //
 // Usage: node scripts/optimize-models.mjs            (npm run optimize:models)
 //        node scripts/optimize-models.mjs --check    exits 1 if anything would change
@@ -38,6 +38,9 @@ const CHECK_ONLY = process.argv.includes('--check');
 const DJ_GLB = 'js/models/djgear/source/pioneer_DJ_console.glb';
 const SPEAKER_GLB = 'js/models/paspeakers/source/stage_speaker___black.glb';
 const BASS_BIN_GLB = 'js/models/bassbin/source/bass_bin_3.glb';
+const COUCH_GLB = 'js/models/lounge/source/old_couch.glb';
+// The Yamaha HS8 studio monitors (js/models/monitors/source/monitor_speaker.glb, ~10k triangles each) ship exactly as they
+// were authored: a simplified copy (4.3k triangles) was tried and looked worse up close at the DJ table, so it was undone.
 const SPEAKER_TEXTURES = 'js/models/paspeakers/source/authored/textures/small_speaker_1_1001_';
 const OLD_SPEAKER_TEXTURES = 'js/models/paspeakers/source/textures/small_speaker_1_1001_';
 
@@ -59,6 +62,9 @@ const BIN_SLOT_ENCODING = {
     normalTexture: { lossless: true },
     occlusionTexture: { quality: 90 }
 };
+
+/** The lounge couch is a small prop seen from a few metres: 512 px maps, its seven parts joined into one draw. */
+const COUCH_TEXTURE_MAX = 512;
 
 const LOOSE_TEXTURES = [
     { file: `${SPEAKER_TEXTURES}albedo.jpg`, max: 2048, format: 'jpeg' },
@@ -174,6 +180,7 @@ await stripSpeakerEmbeddedTextures();
 for (const target of LOOSE_TEXTURES) await optimizeLooseTexture(target);
 await optimizeGlbTextures(DJ_GLB, DJ_TEXTURE_MAX, DJ_SLOT_ENCODING);
 await optimizeGlbTextures(BASS_BIN_GLB, BIN_TEXTURE_MAX, BIN_SLOT_ENCODING, { joinMeshes: true });
+await optimizeGlbTextures(COUCH_GLB, COUCH_TEXTURE_MAX, BIN_SLOT_ENCODING, { joinMeshes: true });
 for (const dead of DEAD_PATHS) {
     if (!existsSync(abs(dead))) continue;
     note(`${dead} removed (not referenced by any code)`, sizeOf(abs(dead)), 0);

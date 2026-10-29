@@ -1,0 +1,2319 @@
+[
+  {
+    "id": "amara",
+    "label": "Amara",
+    "description": "Young adult woman, fuller build, afro",
+    "gender": 0,
+    "age": 0.52,
+    "weight": 0.65,
+    "muscle": 0.42,
+    "height": 0.48,
+    "heightMetres": 1.64,
+    "race": {
+      "african": 0.85,
+      "asian": 0.05,
+      "caucasian": 0.1
+    },
+    "skin": "young_african_female",
+    "hair": "afro01",
+    "clothes": "female_casualsuit01",
+    "shoes": "shoes02",
+    "sources": [
+      "young_african_female",
+      "low-poly",
+      "eyebrow001",
+      "afro01",
+      "female_casualsuit01",
+      "shoes02"
+    ],
+    "license": "CC0-1.0",
+    "triangles": 9496,
+    "materials": 2,
+    "textureSizes": [
+      1024,
+      512
+    ],
+    "bytes": 660876,
+    "bones": 53,
+    "hairAlpha": "MASK required; production loader forces OPAQUE and needs adaptation",
+    "animation": "Base GLB: original breathing test. Separate dance GLB: eleven retargeted club crowd moves.",
+    "textures": [
+      {
+        "width": 1024,
+        "height": 1024,
+        "bytes": 92218
+      },
+      {
+        "width": 512,
+        "height": 512,
+        "bytes": 130486
+      }
+    ],
+    "draws": 2,
+    "animationChannels": 2,
+    "danceUrl": "/models/amara-dance.glb",
+    "danceClips": [
+      "Dance_Loop",
+      "Groove_Bounce",
+      "Groove_SideTap",
+      "Groove_Clap",
+      "Groove_ClapUp",
+      "Groove_Pump",
+      "Groove_Twist",
+      "Groove_HandsUp",
+      "Groove_ArmsWide",
+      "Groove_ArmsUp",
+      "Groove_Sway"
+    ],
+    "danceBytes": 1003944
+  },
+  {
+    "id": "jin",
+    "label": "Jin",
+    "description": "Mature fictional male DJ, lean build, ear-length dark hair, charcoal crew-neck tee and jeans",
+    "gender": 1.0,
+    "age": 0.78,
+    "weight": 0.43,
+    "muscle": 0.45,
+    "height": 0.5,
+    "heightMetres": 1.78,
+    "race": {
+      "african": 0.08,
+      "asian": 0.12,
+      "caucasian": 0.8
+    },
+    "skin": "middleage_caucasian_male",
+    "hair": "short03",
+    "clothes": "male_casualsuit06",
+    "shoes": "shoes01",
+    "hairTint": [
+      0.08,
+      0.06,
+      0.045
+    ],
+    "clothingTint": [
+      0.055,
+      0.06,
+      0.07
+    ],
+    "sources": [
+      "middleage_caucasian_male",
+      "low-poly",
+      "eyebrow001",
+      "short03",
+      "male_casualsuit06",
+      "shoes01"
+    ],
+    "license": "CC0-1.0",
+    "triangles": 9496,
+    "materials": 2,
+    "textureSizes": [
+      1024,
+      512
+    ],
+    "bytes": 1543908,
+    "bones": 53,
+    "hairAlpha": "MASK; production hair is alpha-tested and writes depth",
+    "animation": "Base breathing reference; scripts/characters/build.mjs authors production role/player clips and procedural DJ rigs"
+  },
+  {
+    "id": "ellis",
+    "label": "Ellis",
+    "description": "Older man, lean build, silver hair",
+    "gender": 1,
+    "age": 0.9,
+    "weight": 0.38,
+    "muscle": 0.35,
+    "height": 0.58,
+    "heightMetres": 1.87,
+    "race": {
+      "african": 0.1,
+      "asian": 0.1,
+      "caucasian": 0.8
+    },
+    "skin": "old_caucasian_male",
+    "hair": "short04",
+    "clothes": "male_elegantsuit01",
+    "shoes": "shoes01",
+    "sources": [
+      "old_caucasian_male",
+      "low-poly",
+      "eyebrow001",
+      "short04",
+      "male_elegantsuit01",
+      "shoes01"
+    ],
+    "license": "CC0-1.0",
+    "triangles": 9497,
+    "materials": 2,
+    "textureSizes": [
+      1024,
+      512
+    ],
+    "bytes": 566876,
+    "bones": 53,
+    "hairAlpha": "MASK required; production loader forces OPAQUE and needs adaptation",
+    "animation": "Base GLB: original breathing test. Separate dance GLB: eleven retargeted club crowd moves.",
+    "textures": [
+      {
+        "width": 1024,
+        "height": 1024,
+        "bytes": 84258
+      },
+      {
+        "width": 512,
+        "height": 512,
+        "bytes": 42250
+      }
+    ],
+    "draws": 2,
+    "animationChannels": 2,
+    "danceUrl": "/models/ellis-dance.glb",
+    "danceClips": [
+      "Dance_Loop",
+      "Groove_Bounce",
+      "Groove_SideTap",
+      "Groove_Clap",
+      "Groove_ClapUp",
+      "Groove_Pump",
+      "Groove_Twist",
+      "Groove_HandsUp",
+      "Groove_ArmsWide",
+      "Groove_ArmsUp",
+      "Groove_Sway"
+    ],
+    "danceBytes": 894120
+  },
+  {
+    "id": "leila",
+    "label": "Leila",
+    "description": "Adult woman, flowing teal camisole dress, long hair",
+    "gender": 0,
+    "age": 0.56,
+    "weight": 0.48,
+    "muscle": 0.38,
+    "height": 0.5,
+    "heightMetres": 1.7,
+    "race": {
+      "african": 0.25,
+      "asian": 0.3,
+      "caucasian": 0.45
+    },
+    "skin": "young_caucasian_female",
+    "hair": "long01",
+    "clothes": "toigo_camisole_dress_with_full_skirt",
+    "shoes": "shoes02",
+    "clothingTint": [
+      0.03,
+      0.36,
+      0.32
+    ],
+    "sources": [
+      "young_caucasian_female",
+      "low-poly",
+      "eyebrow001",
+      "long01",
+      "toigo_camisole_dress_with_full_skirt",
+      "shoes02"
+    ],
+    "license": "CC0-1.0",
+    "triangles": 9494,
+    "materials": 2,
+    "textureSizes": [
+      1024,
+      512
+    ],
+    "bytes": 558836,
+    "bones": 53,
+    "hairAlpha": "MASK required; production loader forces OPAQUE and needs adaptation",
+    "animation": "Base GLB: original breathing test. Separate dance GLB: eleven retargeted club crowd moves.",
+    "textures": [
+      {
+        "width": 1024,
+        "height": 1024,
+        "bytes": 107128
+      },
+      {
+        "width": 512,
+        "height": 512,
+        "bytes": 40534
+      }
+    ],
+    "draws": 2,
+    "animationChannels": 2,
+    "danceUrl": "/models/leila-dance.glb",
+    "danceClips": [
+      "Dance_Loop",
+      "Groove_Bounce",
+      "Groove_SideTap",
+      "Groove_Clap",
+      "Groove_ClapUp",
+      "Groove_Pump",
+      "Groove_Twist",
+      "Groove_HandsUp",
+      "Groove_ArmsWide",
+      "Groove_ArmsUp",
+      "Groove_Sway"
+    ],
+    "danceBytes": 901888
+  },
+  {
+    "id": "nia",
+    "label": "Nia",
+    "description": "Middle-aged woman, fuller build, knee-length violet halter dress",
+    "gender": 0,
+    "age": 0.7,
+    "weight": 0.68,
+    "muscle": 0.42,
+    "height": 0.45,
+    "heightMetres": 1.66,
+    "race": {
+      "african": 0.9,
+      "asian": 0.05,
+      "caucasian": 0.05
+    },
+    "skin": "middleage_african_female",
+    "hair": "afro01",
+    "clothes": "toigo_halter_dress_knee_length",
+    "shoes": "shoes02",
+    "clothingTint": [
+      0.32,
+      0.07,
+      0.4
+    ],
+    "sources": [
+      "middleage_african_female",
+      "low-poly",
+      "eyebrow001",
+      "afro01",
+      "toigo_halter_dress_knee_length",
+      "shoes02"
+    ],
+    "license": "CC0-1.0",
+    "triangles": 9497,
+    "materials": 2,
+    "textureSizes": [
+      1024,
+      512
+    ],
+    "bytes": 676712,
+    "bones": 53,
+    "hairAlpha": "MASK required; production loader forces OPAQUE and needs adaptation",
+    "animation": "Base GLB: original breathing test. Separate dance GLB: eleven retargeted club crowd moves.",
+    "textures": [
+      {
+        "width": 1024,
+        "height": 1024,
+        "bytes": 94716
+      },
+      {
+        "width": 512,
+        "height": 512,
+        "bytes": 132266
+      }
+    ],
+    "draws": 2,
+    "animationChannels": 2,
+    "danceUrl": "/models/nia-dance.glb",
+    "danceClips": [
+      "Dance_Loop",
+      "Groove_Bounce",
+      "Groove_SideTap",
+      "Groove_Clap",
+      "Groove_ClapUp",
+      "Groove_Pump",
+      "Groove_Twist",
+      "Groove_HandsUp",
+      "Groove_ArmsWide",
+      "Groove_ArmsUp",
+      "Groove_Sway"
+    ],
+    "danceBytes": 1011876
+  },
+  {
+    "id": "mei",
+    "label": "Mei",
+    "description": "Older woman, silver bob, blouse and skirt",
+    "gender": 0,
+    "age": 0.88,
+    "weight": 0.48,
+    "muscle": 0.35,
+    "height": 0.4,
+    "heightMetres": 1.59,
+    "race": {
+      "african": 0.05,
+      "asian": 0.9,
+      "caucasian": 0.05
+    },
+    "skin": "old_asian_female",
+    "hair": "bob02",
+    "clothes": "female_elegantsuit01",
+    "shoes": "shoes02",
+    "hairTint": [
+      0.55,
+      0.55,
+      0.57
+    ],
+    "clothingTint": [
+      0.12,
+      0.22,
+      0.35
+    ],
+    "sources": [
+      "old_asian_female",
+      "low-poly",
+      "eyebrow001",
+      "bob02",
+      "female_elegantsuit01",
+      "shoes02"
+    ],
+    "license": "CC0-1.0",
+    "triangles": 9497,
+    "materials": 2,
+    "textureSizes": [
+      1024,
+      512
+    ],
+    "bytes": 571844,
+    "bones": 53,
+    "hairAlpha": "MASK required; production loader forces OPAQUE and needs adaptation",
+    "animation": "Base GLB: original breathing test. Separate dance GLB: eleven retargeted club crowd moves.",
+    "textures": [
+      {
+        "width": 1024,
+        "height": 1024,
+        "bytes": 91142
+      },
+      {
+        "width": 512,
+        "height": 512,
+        "bytes": 41152
+      }
+    ],
+    "draws": 2,
+    "animationChannels": 2,
+    "danceUrl": "/models/mei-dance.glb",
+    "danceClips": [
+      "Dance_Loop",
+      "Groove_Bounce",
+      "Groove_SideTap",
+      "Groove_Clap",
+      "Groove_ClapUp",
+      "Groove_Pump",
+      "Groove_Twist",
+      "Groove_HandsUp",
+      "Groove_ArmsWide",
+      "Groove_ArmsUp",
+      "Groove_Sway"
+    ],
+    "danceBytes": 899100
+  },
+  {
+    "id": "sofia",
+    "label": "Sofia",
+    "description": "Adult woman, athletic build, burgundy shift dress, ponytail",
+    "gender": 0,
+    "age": 0.54,
+    "weight": 0.43,
+    "muscle": 0.72,
+    "height": 0.43,
+    "heightMetres": 1.62,
+    "race": {
+      "african": 0.15,
+      "asian": 0.15,
+      "caucasian": 0.7
+    },
+    "skin": "young_caucasian_female2",
+    "hair": "ponytail01",
+    "clothes": "toigo_shift_dress",
+    "shoes": "shoes02",
+    "clothingTint": [
+      0.38,
+      0.04,
+      0.1
+    ],
+    "sources": [
+      "young_caucasian_female2",
+      "low-poly",
+      "eyebrow001",
+      "ponytail01",
+      "toigo_shift_dress",
+      "shoes02"
+    ],
+    "license": "CC0-1.0",
+    "triangles": 9494,
+    "materials": 2,
+    "textureSizes": [
+      1024,
+      512
+    ],
+    "bytes": 633532,
+    "bones": 53,
+    "hairAlpha": "MASK required; production loader forces OPAQUE and needs adaptation",
+    "animation": "Base GLB: original breathing test. Separate dance GLB: eleven retargeted club crowd moves.",
+    "textures": [
+      {
+        "width": 1024,
+        "height": 1024,
+        "bytes": 70390
+      },
+      {
+        "width": 512,
+        "height": 512,
+        "bytes": 94464
+      }
+    ],
+    "draws": 2,
+    "animationChannels": 2,
+    "danceUrl": "/models/sofia-dance.glb",
+    "danceClips": [
+      "Dance_Loop",
+      "Groove_Bounce",
+      "Groove_SideTap",
+      "Groove_Clap",
+      "Groove_ClapUp",
+      "Groove_Pump",
+      "Groove_Twist",
+      "Groove_HandsUp",
+      "Groove_ArmsWide",
+      "Groove_ArmsUp",
+      "Groove_Sway"
+    ],
+    "danceBytes": 952828
+  },
+  {
+    "id": "rosa",
+    "label": "Rosa",
+    "description": "Adult woman, curvy build, coral T-shirt and denim shorts",
+    "gender": 0,
+    "age": 0.62,
+    "weight": 0.7,
+    "muscle": 0.45,
+    "height": 0.51,
+    "heightMetres": 1.73,
+    "race": {
+      "african": 0.35,
+      "asian": 0.1,
+      "caucasian": 0.55
+    },
+    "skin": "middleage_caucasian_female",
+    "hair": "braid01",
+    "clothes": "female_casualsuit02",
+    "shoes": "shoes02",
+    "clothingTint": [
+      0.6,
+      0.2,
+      0.14
+    ],
+    "sources": [
+      "middleage_caucasian_female",
+      "low-poly",
+      "eyebrow001",
+      "braid01",
+      "female_casualsuit02",
+      "shoes02"
+    ],
+    "license": "CC0-1.0",
+    "triangles": 9494,
+    "materials": 2,
+    "textureSizes": [
+      1024,
+      512
+    ],
+    "bytes": 606388,
+    "bones": 53,
+    "hairAlpha": "MASK required; production loader forces OPAQUE and needs adaptation",
+    "animation": "Base GLB: original breathing test. Separate dance GLB: eleven retargeted club crowd moves.",
+    "textures": [
+      {
+        "width": 1024,
+        "height": 1024,
+        "bytes": 83214
+      },
+      {
+        "width": 512,
+        "height": 512,
+        "bytes": 21504
+      }
+    ],
+    "draws": 2,
+    "animationChannels": 2,
+    "danceUrl": "/models/rosa-dance.glb",
+    "danceClips": [
+      "Dance_Loop",
+      "Groove_Bounce",
+      "Groove_SideTap",
+      "Groove_Clap",
+      "Groove_ClapUp",
+      "Groove_Pump",
+      "Groove_Twist",
+      "Groove_HandsUp",
+      "Groove_ArmsWide",
+      "Groove_ArmsUp",
+      "Groove_Sway"
+    ],
+    "danceBytes": 917808
+  },
+  {
+    "id": "malik",
+    "label": "Malik",
+    "description": "Adult man, muscular build, green T-shirt and jeans",
+    "gender": 1,
+    "age": 0.56,
+    "weight": 0.58,
+    "muscle": 0.85,
+    "height": 0.56,
+    "heightMetres": 1.85,
+    "race": {
+      "african": 0.92,
+      "asian": 0.04,
+      "caucasian": 0.04
+    },
+    "skin": "young_african_male",
+    "hair": "short01",
+    "clothes": "male_casualsuit04",
+    "shoes": "shoes01",
+    "clothingTint": [
+      0.08,
+      0.32,
+      0.18
+    ],
+    "sources": [
+      "young_african_male",
+      "low-poly",
+      "eyebrow001",
+      "short01",
+      "male_casualsuit04",
+      "shoes01"
+    ],
+    "license": "CC0-1.0",
+    "triangles": 9494,
+    "materials": 2,
+    "textureSizes": [
+      1024,
+      512
+    ],
+    "bytes": 701296,
+    "bones": 53,
+    "hairAlpha": "MASK required; production loader forces OPAQUE and needs adaptation",
+    "animation": "Base GLB: original breathing test. Separate dance GLB: eleven retargeted club crowd moves.",
+    "textures": [
+      {
+        "width": 1024,
+        "height": 1024,
+        "bytes": 73090
+      },
+      {
+        "width": 512,
+        "height": 512,
+        "bytes": 114304
+      }
+    ],
+    "draws": 2,
+    "animationChannels": 2,
+    "danceUrl": "/models/malik-dance.glb",
+    "danceClips": [
+      "Dance_Loop",
+      "Groove_Bounce",
+      "Groove_SideTap",
+      "Groove_Clap",
+      "Groove_ClapUp",
+      "Groove_Pump",
+      "Groove_Twist",
+      "Groove_HandsUp",
+      "Groove_ArmsWide",
+      "Groove_ArmsUp",
+      "Groove_Sway"
+    ],
+    "danceBytes": 1004720
+  },
+  {
+    "id": "luca",
+    "label": "Luca",
+    "description": "Adult man, lean build, white T-shirt and jeans, longer hair",
+    "gender": 1,
+    "age": 0.6,
+    "weight": 0.42,
+    "muscle": 0.48,
+    "height": 0.5,
+    "heightMetres": 1.79,
+    "race": {
+      "african": 0.08,
+      "asian": 0.12,
+      "caucasian": 0.8
+    },
+    "skin": "young_caucasian_male2",
+    "hair": "short03",
+    "clothes": "male_casualsuit06",
+    "shoes": "shoes01",
+    "sources": [
+      "young_caucasian_male2",
+      "low-poly",
+      "eyebrow001",
+      "short03",
+      "male_casualsuit06",
+      "shoes01"
+    ],
+    "license": "CC0-1.0",
+    "triangles": 9496,
+    "materials": 2,
+    "textureSizes": [
+      1024,
+      512
+    ],
+    "bytes": 614748,
+    "bones": 53,
+    "hairAlpha": "MASK required; production loader forces OPAQUE and needs adaptation",
+    "animation": "Base GLB: original breathing test. Separate dance GLB: eleven retargeted club crowd moves.",
+    "textures": [
+      {
+        "width": 1024,
+        "height": 1024,
+        "bytes": 88274
+      },
+      {
+        "width": 512,
+        "height": 512,
+        "bytes": 38658
+      }
+    ],
+    "draws": 2,
+    "animationChannels": 2,
+    "danceUrl": "/models/luca-dance.glb",
+    "danceClips": [
+      "Dance_Loop",
+      "Groove_Bounce",
+      "Groove_SideTap",
+      "Groove_Clap",
+      "Groove_ClapUp",
+      "Groove_Pump",
+      "Groove_Twist",
+      "Groove_HandsUp",
+      "Groove_ArmsWide",
+      "Groove_ArmsUp",
+      "Groove_Sway"
+    ],
+    "danceBytes": 910296
+  },
+  {
+    "id": "alex",
+    "label": "Alex",
+    "description": "Nonbinary adult, androgynous build, amber cropped T-shirt and trousers",
+    "identity": "nonbinary",
+    "pronouns": "they/them",
+    "gender": 0.45,
+    "age": 0.55,
+    "weight": 0.48,
+    "muscle": 0.55,
+    "height": 0.48,
+    "heightMetres": 1.72,
+    "race": {
+      "african": 0.15,
+      "asian": 0.65,
+      "caucasian": 0.2
+    },
+    "skin": "young_asian_female",
+    "hair": "short04",
+    "clothes": "female_sportsuit01",
+    "shoes": "shoes02",
+    "clothingTint": [
+      0.58,
+      0.35,
+      0.06
+    ],
+    "sources": [
+      "young_asian_female",
+      "low-poly",
+      "eyebrow001",
+      "short04",
+      "female_sportsuit01",
+      "shoes02"
+    ],
+    "license": "CC0-1.0",
+    "triangles": 9495,
+    "materials": 2,
+    "textureSizes": [
+      1024,
+      512
+    ],
+    "bytes": 655496,
+    "bones": 53,
+    "hairAlpha": "MASK required; production loader forces OPAQUE and needs adaptation",
+    "animation": "Base GLB: original breathing test. Separate dance GLB: eleven retargeted club crowd moves.",
+    "textures": [
+      {
+        "width": 1024,
+        "height": 1024,
+        "bytes": 75056
+      },
+      {
+        "width": 512,
+        "height": 512,
+        "bytes": 66308
+      }
+    ],
+    "draws": 2,
+    "animationChannels": 2,
+    "danceUrl": "/models/alex-dance.glb",
+    "danceClips": [
+      "Dance_Loop",
+      "Groove_Bounce",
+      "Groove_SideTap",
+      "Groove_Clap",
+      "Groove_ClapUp",
+      "Groove_Pump",
+      "Groove_Twist",
+      "Groove_HandsUp",
+      "Groove_ArmsWide",
+      "Groove_ArmsUp",
+      "Groove_Sway"
+    ],
+    "danceBytes": 943128
+  },
+  {
+    "id": "river",
+    "label": "River",
+    "description": "Nonbinary adult, broad build, plum blouse and skirt, bob",
+    "identity": "nonbinary",
+    "pronouns": "they/them",
+    "gender": 0.65,
+    "age": 0.68,
+    "weight": 0.62,
+    "muscle": 0.48,
+    "height": 0.54,
+    "heightMetres": 1.81,
+    "race": {
+      "african": 0.5,
+      "asian": 0.1,
+      "caucasian": 0.4
+    },
+    "skin": "middleage_african_male",
+    "hair": "bob01",
+    "clothes": "female_elegantsuit01",
+    "shoes": "shoes02",
+    "clothingTint": [
+      0.25,
+      0.07,
+      0.22
+    ],
+    "sources": [
+      "middleage_african_male",
+      "low-poly",
+      "eyebrow001",
+      "bob01",
+      "female_elegantsuit01",
+      "shoes02"
+    ],
+    "license": "CC0-1.0",
+    "triangles": 9494,
+    "materials": 2,
+    "textureSizes": [
+      1024,
+      512
+    ],
+    "bytes": 681948,
+    "bones": 53,
+    "hairAlpha": "MASK required; production loader forces OPAQUE and needs adaptation",
+    "animation": "Base GLB: original breathing test. Separate dance GLB: eleven retargeted club crowd moves.",
+    "textures": [
+      {
+        "width": 1024,
+        "height": 1024,
+        "bytes": 77892
+      },
+      {
+        "width": 512,
+        "height": 512,
+        "bytes": 54298
+      }
+    ],
+    "draws": 2,
+    "animationChannels": 2,
+    "danceUrl": "/models/river-dance.glb",
+    "danceClips": [
+      "Dance_Loop",
+      "Groove_Bounce",
+      "Groove_SideTap",
+      "Groove_Clap",
+      "Groove_ClapUp",
+      "Groove_Pump",
+      "Groove_Twist",
+      "Groove_HandsUp",
+      "Groove_ArmsWide",
+      "Groove_ArmsUp",
+      "Groove_Sway"
+    ],
+    "danceBytes": 961680
+  },
+  {
+    "id": "asha",
+    "label": "Asha",
+    "description": "Adult woman, lean athletic build, amber tiered dress, bob",
+    "gender": 0,
+    "age": 0.59,
+    "weight": 0.44,
+    "muscle": 0.62,
+    "height": 0.54,
+    "heightMetres": 1.76,
+    "race": {
+      "african": 0.7,
+      "asian": 0.2,
+      "caucasian": 0.1
+    },
+    "skin": "young_african_female",
+    "hair": "bob01",
+    "clothes": "toigo_dress_with_tiered_skirt",
+    "shoes": "shoes04",
+    "clothingTint": [
+      0.56,
+      0.28,
+      0.04
+    ],
+    "sources": [
+      "young_african_female",
+      "low-poly",
+      "eyebrow001",
+      "bob01",
+      "toigo_dress_with_tiered_skirt",
+      "shoes04"
+    ],
+    "license": "CC0-1.0",
+    "triangles": 9495,
+    "materials": 2,
+    "textureSizes": [
+      1024,
+      512
+    ],
+    "bytes": 616752,
+    "bones": 53,
+    "hairAlpha": "MASK required; production loader forces OPAQUE and needs adaptation",
+    "animation": "Base GLB: original breathing test. Separate dance GLB: eleven retargeted club crowd moves.",
+    "textures": [
+      {
+        "width": 1024,
+        "height": 1024,
+        "bytes": 129362
+      },
+      {
+        "width": 512,
+        "height": 512,
+        "bytes": 54298
+      }
+    ],
+    "draws": 2,
+    "animationChannels": 2,
+    "danceUrl": "/models/asha-dance.glb",
+    "danceClips": [
+      "Dance_Loop",
+      "Groove_Bounce",
+      "Groove_SideTap",
+      "Groove_Clap",
+      "Groove_ClapUp",
+      "Groove_Pump",
+      "Groove_Twist",
+      "Groove_HandsUp",
+      "Groove_ArmsWide",
+      "Groove_ArmsUp",
+      "Groove_Sway"
+    ],
+    "danceBytes": 959796
+  },
+  {
+    "id": "vera",
+    "label": "Vera",
+    "description": "Older woman, fuller build, silver braid, charcoal blouse and skirt",
+    "gender": 0,
+    "age": 0.92,
+    "weight": 0.63,
+    "muscle": 0.3,
+    "height": 0.49,
+    "heightMetres": 1.69,
+    "race": {
+      "african": 0.06,
+      "asian": 0.04,
+      "caucasian": 0.9
+    },
+    "skin": "old_caucasian_female",
+    "hair": "braid01",
+    "clothes": "female_elegantsuit01",
+    "shoes": "shoes03",
+    "hairTint": [
+      0.58,
+      0.56,
+      0.53
+    ],
+    "clothingTint": [
+      0.1,
+      0.11,
+      0.13
+    ],
+    "sources": [
+      "old_caucasian_female",
+      "low-poly",
+      "eyebrow001",
+      "braid01",
+      "female_elegantsuit01",
+      "shoes03"
+    ],
+    "license": "CC0-1.0",
+    "triangles": 9495,
+    "materials": 2,
+    "textureSizes": [
+      1024,
+      512
+    ],
+    "bytes": 533344,
+    "bones": 53,
+    "hairAlpha": "MASK required; production loader forces OPAQUE and needs adaptation",
+    "animation": "Base GLB: original breathing test. Separate dance GLB: eleven retargeted club crowd moves.",
+    "textures": [
+      {
+        "width": 1024,
+        "height": 1024,
+        "bytes": 62816
+      },
+      {
+        "width": 512,
+        "height": 512,
+        "bytes": 6720
+      }
+    ],
+    "draws": 2,
+    "animationChannels": 2,
+    "danceUrl": "/models/vera-dance.glb",
+    "danceClips": [
+      "Dance_Loop",
+      "Groove_Bounce",
+      "Groove_SideTap",
+      "Groove_Clap",
+      "Groove_ClapUp",
+      "Groove_Pump",
+      "Groove_Twist",
+      "Groove_HandsUp",
+      "Groove_ArmsWide",
+      "Groove_ArmsUp",
+      "Groove_Sway"
+    ],
+    "danceBytes": 868488
+  },
+  {
+    "id": "hana",
+    "label": "Hana",
+    "description": "Adult woman, petite build, blue fluted halter dress, long hair",
+    "gender": 0,
+    "age": 0.57,
+    "weight": 0.4,
+    "muscle": 0.4,
+    "height": 0.38,
+    "heightMetres": 1.55,
+    "race": {
+      "african": 0.02,
+      "asian": 0.95,
+      "caucasian": 0.03
+    },
+    "skin": "young_asian_female",
+    "hair": "long01",
+    "clothes": "toigo_halter_dress_with_fluted_skirt",
+    "shoes": "shoes04",
+    "clothingTint": [
+      0.05,
+      0.14,
+      0.42
+    ],
+    "sources": [
+      "young_asian_female",
+      "low-poly",
+      "eyebrow001",
+      "long01",
+      "toigo_halter_dress_with_fluted_skirt",
+      "shoes04"
+    ],
+    "license": "CC0-1.0",
+    "triangles": 9494,
+    "materials": 2,
+    "textureSizes": [
+      1024,
+      512
+    ],
+    "bytes": 558160,
+    "bones": 53,
+    "hairAlpha": "MASK required; production loader forces OPAQUE and needs adaptation",
+    "animation": "Base GLB: original breathing test. Separate dance GLB: eleven retargeted club crowd moves.",
+    "textures": [
+      {
+        "width": 1024,
+        "height": 1024,
+        "bytes": 70740
+      },
+      {
+        "width": 512,
+        "height": 512,
+        "bytes": 40534
+      }
+    ],
+    "draws": 2,
+    "animationChannels": 2,
+    "danceUrl": "/models/hana-dance.glb",
+    "danceClips": [
+      "Dance_Loop",
+      "Groove_Bounce",
+      "Groove_SideTap",
+      "Groove_Clap",
+      "Groove_ClapUp",
+      "Groove_Pump",
+      "Groove_Twist",
+      "Groove_HandsUp",
+      "Groove_ArmsWide",
+      "Groove_ArmsUp",
+      "Groove_Sway"
+    ],
+    "danceBytes": 885356
+  },
+  {
+    "id": "zara",
+    "label": "Zara",
+    "description": "Adult fictional female DJ, slender build, long side-parted blonde hair, charcoal tee and jeans",
+    "gender": 0.0,
+    "age": 0.6,
+    "weight": 0.4,
+    "muscle": 0.4,
+    "height": 0.46,
+    "heightMetres": 1.68,
+    "race": {
+      "african": 0.08,
+      "asian": 0.07,
+      "caucasian": 0.85
+    },
+    "skin": "middleage_caucasian_female",
+    "hair": "long01",
+    "clothes": "male_casualsuit06",
+    "shoes": "shoes05",
+    "hairTint": [
+      0.65,
+      0.51,
+      0.3
+    ],
+    "clothingTint": [
+      0.055,
+      0.06,
+      0.07
+    ],
+    "sources": [
+      "middleage_caucasian_female",
+      "low-poly",
+      "eyebrow001",
+      "long01",
+      "male_casualsuit06",
+      "shoes05"
+    ],
+    "license": "CC0-1.0",
+    "triangles": 9496,
+    "materials": 2,
+    "textureSizes": [
+      1024,
+      512
+    ],
+    "bytes": 1599648,
+    "bones": 53,
+    "hairAlpha": "MASK; production hair is alpha-tested and writes depth",
+    "animation": "Base breathing reference; scripts/characters/build.mjs authors production role/player clips and procedural DJ rigs"
+  },
+  {
+    "id": "iris",
+    "label": "Iris",
+    "description": "Adult woman, tall slender build, copper bob, light tee and shorts",
+    "gender": 0,
+    "age": 0.53,
+    "weight": 0.35,
+    "muscle": 0.42,
+    "height": 0.6,
+    "heightMetres": 1.83,
+    "race": {
+      "african": 0.1,
+      "asian": 0.05,
+      "caucasian": 0.85
+    },
+    "skin": "young_caucasian_female2",
+    "hair": "bob02",
+    "clothes": "female_casualsuit02",
+    "shoes": "shoes06",
+    "hairTint": [
+      0.38,
+      0.12,
+      0.04
+    ],
+    "clothingTint": [
+      0.62,
+      0.58,
+      0.49
+    ],
+    "sources": [
+      "young_caucasian_female2",
+      "low-poly",
+      "eyebrow001",
+      "bob02",
+      "female_casualsuit02",
+      "shoes06"
+    ],
+    "license": "CC0-1.0",
+    "triangles": 9495,
+    "materials": 2,
+    "textureSizes": [
+      1024,
+      512
+    ],
+    "bytes": 607432,
+    "bones": 53,
+    "hairAlpha": "MASK required; production loader forces OPAQUE and needs adaptation",
+    "animation": "Base GLB: original breathing test. Separate dance GLB: eleven retargeted club crowd moves.",
+    "textures": [
+      {
+        "width": 1024,
+        "height": 1024,
+        "bytes": 97518
+      },
+      {
+        "width": 512,
+        "height": 512,
+        "bytes": 40878
+      }
+    ],
+    "draws": 2,
+    "animationChannels": 2,
+    "danceUrl": "/models/iris-dance.glb",
+    "danceClips": [
+      "Dance_Loop",
+      "Groove_Bounce",
+      "Groove_SideTap",
+      "Groove_Clap",
+      "Groove_ClapUp",
+      "Groove_Pump",
+      "Groove_Twist",
+      "Groove_HandsUp",
+      "Groove_ArmsWide",
+      "Groove_ArmsUp",
+      "Groove_Sway"
+    ],
+    "danceBytes": 918792
+  },
+  {
+    "id": "luz",
+    "label": "Luz",
+    "description": "Adult woman, shorter curvy build, red keyhole dress, ponytail",
+    "gender": 0,
+    "age": 0.65,
+    "weight": 0.6,
+    "muscle": 0.5,
+    "height": 0.42,
+    "heightMetres": 1.61,
+    "race": {
+      "african": 0.4,
+      "asian": 0.1,
+      "caucasian": 0.5
+    },
+    "skin": "middleage_caucasian_female",
+    "hair": "ponytail01",
+    "clothes": "toigo_keyhole_neck_dress",
+    "shoes": "shoes04",
+    "clothingTint": [
+      0.45,
+      0.06,
+      0.07
+    ],
+    "sources": [
+      "middleage_caucasian_female",
+      "low-poly",
+      "eyebrow001",
+      "ponytail01",
+      "toigo_keyhole_neck_dress",
+      "shoes04"
+    ],
+    "license": "CC0-1.0",
+    "triangles": 9495,
+    "materials": 2,
+    "textureSizes": [
+      1024,
+      512
+    ],
+    "bytes": 683792,
+    "bones": 53,
+    "hairAlpha": "MASK required; production loader forces OPAQUE and needs adaptation",
+    "animation": "Base GLB: original breathing test. Separate dance GLB: eleven retargeted club crowd moves.",
+    "textures": [
+      {
+        "width": 1024,
+        "height": 1024,
+        "bytes": 94386
+      },
+      {
+        "width": 512,
+        "height": 512,
+        "bytes": 94464
+      }
+    ],
+    "draws": 2,
+    "animationChannels": 2,
+    "danceUrl": "/models/luz-dance.glb",
+    "danceClips": [
+      "Dance_Loop",
+      "Groove_Bounce",
+      "Groove_SideTap",
+      "Groove_Clap",
+      "Groove_ClapUp",
+      "Groove_Pump",
+      "Groove_Twist",
+      "Groove_HandsUp",
+      "Groove_ArmsWide",
+      "Groove_ArmsUp",
+      "Groove_Sway"
+    ],
+    "danceBytes": 987252
+  },
+  {
+    "id": "sana",
+    "label": "Sana",
+    "description": "Middle-aged woman, medium build, teal blouse and skirt, dark bob",
+    "gender": 0,
+    "age": 0.72,
+    "weight": 0.55,
+    "muscle": 0.55,
+    "height": 0.47,
+    "heightMetres": 1.68,
+    "race": {
+      "african": 0.1,
+      "asian": 0.6,
+      "caucasian": 0.3
+    },
+    "skin": "middleage_asian_female",
+    "hair": "bob01",
+    "clothes": "female_elegantsuit01",
+    "shoes": "shoes03",
+    "clothingTint": [
+      0.04,
+      0.24,
+      0.26
+    ],
+    "sources": [
+      "middleage_asian_female",
+      "low-poly",
+      "eyebrow001",
+      "bob01",
+      "female_elegantsuit01",
+      "shoes03"
+    ],
+    "license": "CC0-1.0",
+    "triangles": 9494,
+    "materials": 2,
+    "textureSizes": [
+      1024,
+      512
+    ],
+    "bytes": 633188,
+    "bones": 53,
+    "hairAlpha": "MASK required; production loader forces OPAQUE and needs adaptation",
+    "animation": "Base GLB: original breathing test. Separate dance GLB: eleven retargeted club crowd moves.",
+    "textures": [
+      {
+        "width": 1024,
+        "height": 1024,
+        "bytes": 52952
+      },
+      {
+        "width": 512,
+        "height": 512,
+        "bytes": 54298
+      }
+    ],
+    "draws": 2,
+    "animationChannels": 2,
+    "danceUrl": "/models/sana-dance.glb",
+    "danceClips": [
+      "Dance_Loop",
+      "Groove_Bounce",
+      "Groove_SideTap",
+      "Groove_Clap",
+      "Groove_ClapUp",
+      "Groove_Pump",
+      "Groove_Twist",
+      "Groove_HandsUp",
+      "Groove_ArmsWide",
+      "Groove_ArmsUp",
+      "Groove_Sway"
+    ],
+    "danceBytes": 928712
+  },
+  {
+    "id": "eden",
+    "label": "Eden",
+    "description": "Adult woman, athletic build, plum strapless ruffle dress, bob",
+    "gender": 0,
+    "age": 0.6,
+    "weight": 0.47,
+    "muscle": 0.7,
+    "height": 0.53,
+    "heightMetres": 1.74,
+    "race": {
+      "african": 0.4,
+      "asian": 0.1,
+      "caucasian": 0.5
+    },
+    "skin": "young_african_female",
+    "hair": "bob02",
+    "clothes": "toigo_strapless_ruffle_top_dress",
+    "shoes": "shoes04",
+    "clothingTint": [
+      0.3,
+      0.05,
+      0.23
+    ],
+    "sources": [
+      "young_african_female",
+      "low-poly",
+      "eyebrow001",
+      "bob02",
+      "toigo_strapless_ruffle_top_dress",
+      "shoes04"
+    ],
+    "license": "CC0-1.0",
+    "triangles": 9495,
+    "materials": 2,
+    "textureSizes": [
+      1024,
+      512
+    ],
+    "bytes": 654200,
+    "bones": 53,
+    "hairAlpha": "MASK required; production loader forces OPAQUE and needs adaptation",
+    "animation": "Base GLB: original breathing test. Separate dance GLB: eleven retargeted club crowd moves.",
+    "textures": [
+      {
+        "width": 1024,
+        "height": 1024,
+        "bytes": 76096
+      },
+      {
+        "width": 512,
+        "height": 512,
+        "bytes": 62064
+      }
+    ],
+    "draws": 2,
+    "animationChannels": 2,
+    "danceUrl": "/models/eden-dance.glb",
+    "danceClips": [
+      "Dance_Loop",
+      "Groove_Bounce",
+      "Groove_SideTap",
+      "Groove_Clap",
+      "Groove_ClapUp",
+      "Groove_Pump",
+      "Groove_Twist",
+      "Groove_HandsUp",
+      "Groove_ArmsWide",
+      "Groove_ArmsUp",
+      "Groove_Sway"
+    ],
+    "danceBytes": 941788
+  },
+  {
+    "id": "owen",
+    "label": "Owen",
+    "description": "Adult man, sturdy build, denim-style button shirt and trousers",
+    "gender": 1,
+    "age": 0.58,
+    "weight": 0.62,
+    "muscle": 0.65,
+    "height": 0.52,
+    "heightMetres": 1.82,
+    "race": {
+      "african": 0.08,
+      "asian": 0.07,
+      "caucasian": 0.85
+    },
+    "skin": "young_caucasian_male",
+    "hair": "short02",
+    "clothes": "male_casualsuit01",
+    "shoes": "shoes03",
+    "sources": [
+      "young_caucasian_male",
+      "low-poly",
+      "eyebrow001",
+      "short02",
+      "male_casualsuit01",
+      "shoes03"
+    ],
+    "license": "CC0-1.0",
+    "triangles": 9496,
+    "materials": 2,
+    "textureSizes": [
+      1024,
+      512
+    ],
+    "bytes": 625336,
+    "bones": 53,
+    "hairAlpha": "MASK required; production loader forces OPAQUE and needs adaptation",
+    "animation": "Base GLB: original breathing test. Separate dance GLB: eleven retargeted club crowd moves.",
+    "textures": [
+      {
+        "width": 1024,
+        "height": 1024,
+        "bytes": 64244
+      },
+      {
+        "width": 512,
+        "height": 512,
+        "bytes": 37670
+      }
+    ],
+    "draws": 2,
+    "animationChannels": 2,
+    "danceUrl": "/models/owen-dance.glb",
+    "danceClips": [
+      "Dance_Loop",
+      "Groove_Bounce",
+      "Groove_SideTap",
+      "Groove_Clap",
+      "Groove_ClapUp",
+      "Groove_Pump",
+      "Groove_Twist",
+      "Groove_HandsUp",
+      "Groove_ArmsWide",
+      "Groove_ArmsUp",
+      "Groove_Sway"
+    ],
+    "danceBytes": 905048
+  },
+  {
+    "id": "kwame",
+    "label": "Kwame",
+    "description": "Older man, broad build, grey short hair, warm jacket and trousers",
+    "gender": 1,
+    "age": 0.86,
+    "weight": 0.66,
+    "muscle": 0.48,
+    "height": 0.55,
+    "heightMetres": 1.86,
+    "race": {
+      "african": 0.95,
+      "asian": 0.02,
+      "caucasian": 0.03
+    },
+    "skin": "old_african_male",
+    "hair": "short04",
+    "clothes": "male_casualsuit05",
+    "shoes": "shoes01",
+    "hairTint": [
+      0.37,
+      0.38,
+      0.39
+    ],
+    "clothingTint": [
+      0.3,
+      0.2,
+      0.09
+    ],
+    "sources": [
+      "old_african_male",
+      "low-poly",
+      "eyebrow001",
+      "short04",
+      "male_casualsuit05",
+      "shoes01"
+    ],
+    "license": "CC0-1.0",
+    "triangles": 9495,
+    "materials": 2,
+    "textureSizes": [
+      1024,
+      512
+    ],
+    "bytes": 677380,
+    "bones": 53,
+    "hairAlpha": "MASK required; production loader forces OPAQUE and needs adaptation",
+    "animation": "Base GLB: original breathing test. Separate dance GLB: eleven retargeted club crowd moves.",
+    "textures": [
+      {
+        "width": 1024,
+        "height": 1024,
+        "bytes": 78688
+      },
+      {
+        "width": 512,
+        "height": 512,
+        "bytes": 43338
+      }
+    ],
+    "draws": 2,
+    "animationChannels": 2,
+    "danceUrl": "/models/kwame-dance.glb",
+    "danceClips": [
+      "Dance_Loop",
+      "Groove_Bounce",
+      "Groove_SideTap",
+      "Groove_Clap",
+      "Groove_ClapUp",
+      "Groove_Pump",
+      "Groove_Twist",
+      "Groove_HandsUp",
+      "Groove_ArmsWide",
+      "Groove_ArmsUp",
+      "Groove_Sway"
+    ],
+    "danceBytes": 949284
+  },
+  {
+    "id": "tao",
+    "label": "Tao",
+    "description": "Older man, medium build, silver hair, navy tailored suit",
+    "gender": 1,
+    "age": 0.89,
+    "weight": 0.51,
+    "muscle": 0.42,
+    "height": 0.46,
+    "heightMetres": 1.72,
+    "race": {
+      "african": 0.03,
+      "asian": 0.91,
+      "caucasian": 0.06
+    },
+    "skin": "old_asian_male",
+    "hair": "short01",
+    "clothes": "male_elegantsuit01",
+    "shoes": "shoes01",
+    "hairTint": [
+      0.58,
+      0.59,
+      0.6
+    ],
+    "clothingTint": [
+      0.04,
+      0.08,
+      0.16
+    ],
+    "sources": [
+      "old_asian_male",
+      "low-poly",
+      "eyebrow001",
+      "short01",
+      "male_elegantsuit01",
+      "shoes01"
+    ],
+    "license": "CC0-1.0",
+    "triangles": 9494,
+    "materials": 2,
+    "textureSizes": [
+      1024,
+      512
+    ],
+    "bytes": 756340,
+    "bones": 53,
+    "hairAlpha": "MASK required; production loader forces OPAQUE and needs adaptation",
+    "animation": "Base GLB: original breathing test. Separate dance GLB: eleven retargeted club crowd moves.",
+    "textures": [
+      {
+        "width": 1024,
+        "height": 1024,
+        "bytes": 80362
+      },
+      {
+        "width": 512,
+        "height": 512,
+        "bytes": 85364
+      }
+    ],
+    "draws": 2,
+    "animationChannels": 2,
+    "danceUrl": "/models/tao-dance.glb",
+    "danceClips": [
+      "Dance_Loop",
+      "Groove_Bounce",
+      "Groove_SideTap",
+      "Groove_Clap",
+      "Groove_ClapUp",
+      "Groove_Pump",
+      "Groove_Twist",
+      "Groove_HandsUp",
+      "Groove_ArmsWide",
+      "Groove_ArmsUp",
+      "Groove_Sway"
+    ],
+    "danceBytes": 1020412
+  },
+  {
+    "id": "diego",
+    "label": "Diego",
+    "description": "Adult man, athletic build, russet T-shirt and trousers, longer hair",
+    "gender": 1,
+    "age": 0.54,
+    "weight": 0.48,
+    "muscle": 0.76,
+    "height": 0.51,
+    "heightMetres": 1.81,
+    "race": {
+      "african": 0.32,
+      "asian": 0.08,
+      "caucasian": 0.6
+    },
+    "skin": "young_caucasian_male2",
+    "hair": "short03",
+    "clothes": "male_casualsuit04",
+    "shoes": "shoes05",
+    "clothingTint": [
+      0.42,
+      0.12,
+      0.05
+    ],
+    "sources": [
+      "young_caucasian_male2",
+      "low-poly",
+      "eyebrow001",
+      "short03",
+      "male_casualsuit04",
+      "shoes05"
+    ],
+    "license": "CC0-1.0",
+    "triangles": 9494,
+    "materials": 2,
+    "textureSizes": [
+      1024,
+      512
+    ],
+    "bytes": 678204,
+    "bones": 53,
+    "hairAlpha": "MASK required; production loader forces OPAQUE and needs adaptation",
+    "animation": "Base GLB: original breathing test. Separate dance GLB: eleven retargeted club crowd moves.",
+    "textures": [
+      {
+        "width": 1024,
+        "height": 1024,
+        "bytes": 76916
+      },
+      {
+        "width": 512,
+        "height": 512,
+        "bytes": 38658
+      }
+    ],
+    "draws": 2,
+    "animationChannels": 2,
+    "danceUrl": "/models/diego-dance.glb",
+    "danceClips": [
+      "Dance_Loop",
+      "Groove_Bounce",
+      "Groove_SideTap",
+      "Groove_Clap",
+      "Groove_ClapUp",
+      "Groove_Pump",
+      "Groove_Twist",
+      "Groove_HandsUp",
+      "Groove_ArmsWide",
+      "Groove_ArmsUp",
+      "Groove_Sway"
+    ],
+    "danceBytes": 934396
+  },
+  {
+    "id": "noah",
+    "label": "Noah",
+    "description": "Adult man, short fuller build, teal T-shirt and jeans",
+    "gender": 1.0,
+    "age": 0.56,
+    "weight": 0.74,
+    "muscle": 0.4,
+    "height": 0.39,
+    "heightMetres": 1.64,
+    "race": {
+      "african": 0.05,
+      "asian": 0.15,
+      "caucasian": 0.8
+    },
+    "skin": "young_caucasian_male",
+    "hair": "short02",
+    "clothes": "male_casualsuit06",
+    "shoes": "shoes06",
+    "clothingTint": [
+      0.04,
+      0.28,
+      0.36
+    ],
+    "sources": [
+      "young_caucasian_male",
+      "low-poly",
+      "eyebrow001",
+      "short02",
+      "male_casualsuit06",
+      "shoes06"
+    ],
+    "license": "CC0-1.0",
+    "triangles": 9496,
+    "materials": 2,
+    "textureSizes": [
+      1024,
+      512
+    ],
+    "bytes": 1645592,
+    "bones": 53,
+    "hairAlpha": "MASK; production hair is alpha-tested and writes depth",
+    "animation": "Base breathing reference; scripts/characters/build.mjs authors production role/player clips and procedural DJ rigs"
+  },
+  {
+    "id": "idris",
+    "label": "Idris",
+    "description": "Middle-aged man, tall broad build, braid, crimson jacket and trousers",
+    "gender": 1,
+    "age": 0.69,
+    "weight": 0.6,
+    "muscle": 0.62,
+    "height": 0.61,
+    "heightMetres": 1.94,
+    "race": {
+      "african": 0.86,
+      "asian": 0.06,
+      "caucasian": 0.08
+    },
+    "skin": "middleage_african_male",
+    "hair": "braid01",
+    "clothes": "male_casualsuit05",
+    "shoes": "shoes03",
+    "clothingTint": [
+      0.34,
+      0.05,
+      0.06
+    ],
+    "sources": [
+      "middleage_african_male",
+      "low-poly",
+      "eyebrow001",
+      "braid01",
+      "male_casualsuit05",
+      "shoes03"
+    ],
+    "license": "CC0-1.0",
+    "triangles": 9492,
+    "materials": 2,
+    "textureSizes": [
+      1024,
+      512
+    ],
+    "bytes": 728260,
+    "bones": 53,
+    "hairAlpha": "MASK required; production loader forces OPAQUE and needs adaptation",
+    "animation": "Base GLB: original breathing test. Separate dance GLB: eleven retargeted club crowd moves.",
+    "textures": [
+      {
+        "width": 1024,
+        "height": 1024,
+        "bytes": 47952
+      },
+      {
+        "width": 512,
+        "height": 512,
+        "bytes": 21504
+      }
+    ],
+    "draws": 2,
+    "animationChannels": 2,
+    "danceUrl": "/models/idris-dance.glb",
+    "danceClips": [
+      "Dance_Loop",
+      "Groove_Bounce",
+      "Groove_SideTap",
+      "Groove_Clap",
+      "Groove_ClapUp",
+      "Groove_Pump",
+      "Groove_Twist",
+      "Groove_HandsUp",
+      "Groove_ArmsWide",
+      "Groove_ArmsUp",
+      "Groove_Sway"
+    ],
+    "danceBytes": 968668
+  },
+  {
+    "id": "ren",
+    "label": "Ren",
+    "description": "Adult man, slender build, bob, long-sleeve tee and trousers",
+    "gender": 0.85,
+    "age": 0.52,
+    "weight": 0.36,
+    "muscle": 0.45,
+    "height": 0.47,
+    "heightMetres": 1.71,
+    "race": {
+      "african": 0.03,
+      "asian": 0.9,
+      "caucasian": 0.07
+    },
+    "skin": "young_asian_male",
+    "hair": "bob02",
+    "clothes": "male_casualsuit02",
+    "shoes": "shoes05",
+    "clothingTint": [
+      0.17,
+      0.14,
+      0.35
+    ],
+    "sources": [
+      "young_asian_male",
+      "low-poly",
+      "eyebrow001",
+      "bob02",
+      "male_casualsuit02",
+      "shoes05"
+    ],
+    "license": "CC0-1.0",
+    "triangles": 9497,
+    "materials": 2,
+    "textureSizes": [
+      1024,
+      512
+    ],
+    "bytes": 764168,
+    "bones": 53,
+    "hairAlpha": "MASK required; production loader forces OPAQUE and needs adaptation",
+    "animation": "Base GLB: original breathing test. Separate dance GLB: eleven retargeted club crowd moves.",
+    "textures": [
+      {
+        "width": 1024,
+        "height": 1024,
+        "bytes": 76622
+      },
+      {
+        "width": 512,
+        "height": 512,
+        "bytes": 62064
+      }
+    ],
+    "draws": 2,
+    "animationChannels": 2,
+    "danceUrl": "/models/ren-dance.glb",
+    "danceClips": [
+      "Dance_Loop",
+      "Groove_Bounce",
+      "Groove_SideTap",
+      "Groove_Clap",
+      "Groove_ClapUp",
+      "Groove_Pump",
+      "Groove_Twist",
+      "Groove_HandsUp",
+      "Groove_ArmsWide",
+      "Groove_ArmsUp",
+      "Groove_Sway"
+    ],
+    "danceBytes": 996628
+  },
+  {
+    "id": "samir",
+    "label": "Samir",
+    "description": "Adult man, medium build, ochre patterned shirt and trousers",
+    "gender": 1,
+    "age": 0.63,
+    "weight": 0.58,
+    "muscle": 0.53,
+    "height": 0.5,
+    "heightMetres": 1.8,
+    "race": {
+      "african": 0.18,
+      "asian": 0.32,
+      "caucasian": 0.5
+    },
+    "skin": "middleage_caucasian_male",
+    "hair": "short01",
+    "clothes": "male_casualsuit03",
+    "shoes": "shoes01",
+    "clothingTint": [
+      0.41,
+      0.24,
+      0.06
+    ],
+    "sources": [
+      "middleage_caucasian_male",
+      "low-poly",
+      "eyebrow001",
+      "short01",
+      "male_casualsuit03",
+      "shoes01"
+    ],
+    "license": "CC0-1.0",
+    "triangles": 9495,
+    "materials": 2,
+    "textureSizes": [
+      1024,
+      512
+    ],
+    "bytes": 871244,
+    "bones": 53,
+    "hairAlpha": "MASK required; production loader forces OPAQUE and needs adaptation",
+    "animation": "Base GLB: original breathing test. Separate dance GLB: eleven retargeted club crowd moves.",
+    "textures": [
+      {
+        "width": 1024,
+        "height": 1024,
+        "bytes": 89738
+      },
+      {
+        "width": 512,
+        "height": 512,
+        "bytes": 114304
+      }
+    ],
+    "draws": 2,
+    "animationChannels": 2,
+    "danceUrl": "/models/samir-dance.glb",
+    "danceClips": [
+      "Dance_Loop",
+      "Groove_Bounce",
+      "Groove_SideTap",
+      "Groove_Clap",
+      "Groove_ClapUp",
+      "Groove_Pump",
+      "Groove_Twist",
+      "Groove_HandsUp",
+      "Groove_ArmsWide",
+      "Groove_ArmsUp",
+      "Groove_Sway"
+    ],
+    "danceBytes": 1095756
+  },
+  {
+    "id": "felix",
+    "label": "Felix",
+    "description": "Older man, lean build, silver hair, olive button shirt and trousers",
+    "gender": 1.0,
+    "age": 0.93,
+    "weight": 0.38,
+    "muscle": 0.48,
+    "height": 0.48,
+    "heightMetres": 1.76,
+    "race": {
+      "african": 0.05,
+      "asian": 0.05,
+      "caucasian": 0.9
+    },
+    "skin": "old_caucasian_male",
+    "hair": "short04",
+    "clothes": "male_casualsuit01",
+    "shoes": "shoes04",
+    "hairTint": [
+      0.65,
+      0.64,
+      0.6
+    ],
+    "clothingTint": [
+      0.28,
+      0.34,
+      0.08
+    ],
+    "sources": [
+      "old_caucasian_male",
+      "low-poly",
+      "eyebrow001",
+      "short04",
+      "male_casualsuit01",
+      "shoes04"
+    ],
+    "license": "CC0-1.0",
+    "triangles": 9494,
+    "materials": 2,
+    "textureSizes": [
+      1024,
+      512
+    ],
+    "bytes": 1587796,
+    "bones": 53,
+    "hairAlpha": "MASK; production hair is alpha-tested and writes depth",
+    "animation": "Base breathing reference; scripts/characters/build.mjs authors production role/player clips and procedural DJ rigs"
+  },
+  {
+    "id": "ari",
+    "label": "Ari",
+    "description": "Adult man, soft medium build, long hair, silver-grey blouse and skirt",
+    "gender": 0.9,
+    "age": 0.55,
+    "weight": 0.5,
+    "muscle": 0.4,
+    "height": 0.56,
+    "heightMetres": 1.88,
+    "race": {
+      "african": 0.12,
+      "asian": 0.16,
+      "caucasian": 0.72
+    },
+    "skin": "young_caucasian_male2",
+    "hair": "long01",
+    "clothes": "female_elegantsuit01",
+    "shoes": "shoes03",
+    "clothingTint": [
+      0.32,
+      0.38,
+      0.46
+    ],
+    "sources": [
+      "young_caucasian_male2",
+      "low-poly",
+      "eyebrow001",
+      "long01",
+      "female_elegantsuit01",
+      "shoes03"
+    ],
+    "license": "CC0-1.0",
+    "triangles": 9496,
+    "materials": 2,
+    "textureSizes": [
+      1024,
+      512
+    ],
+    "bytes": 1582584,
+    "bones": 53,
+    "hairAlpha": "MASK; production hair is alpha-tested and writes depth",
+    "animation": "Base breathing reference; scripts/characters/build.mjs authors production role/player clips and procedural DJ rigs"
+  },
+  {
+    "id": "robin",
+    "label": "Robin",
+    "description": "Nonbinary adult, short fuller build, mustard jacket and trousers",
+    "identity": "nonbinary",
+    "pronouns": "they/them",
+    "gender": 0.5,
+    "age": 0.64,
+    "weight": 0.65,
+    "muscle": 0.46,
+    "height": 0.43,
+    "heightMetres": 1.67,
+    "race": {
+      "african": 0.12,
+      "asian": 0.7,
+      "caucasian": 0.18
+    },
+    "skin": "middleage_asian_male",
+    "hair": "short02",
+    "clothes": "male_casualsuit05",
+    "shoes": "shoes05",
+    "clothingTint": [
+      0.43,
+      0.3,
+      0.05
+    ],
+    "sources": [
+      "middleage_asian_male",
+      "low-poly",
+      "eyebrow001",
+      "short02",
+      "male_casualsuit05",
+      "shoes05"
+    ],
+    "license": "CC0-1.0",
+    "triangles": 9495,
+    "materials": 2,
+    "textureSizes": [
+      1024,
+      512
+    ],
+    "bytes": 800228,
+    "bones": 53,
+    "hairAlpha": "MASK required; production loader forces OPAQUE and needs adaptation",
+    "animation": "Base GLB: original breathing test. Separate dance GLB: eleven retargeted club crowd moves.",
+    "textures": [
+      {
+        "width": 1024,
+        "height": 1024,
+        "bytes": 82568
+      },
+      {
+        "width": 512,
+        "height": 512,
+        "bytes": 37670
+      }
+    ],
+    "draws": 2,
+    "animationChannels": 2,
+    "danceUrl": "/models/robin-dance.glb",
+    "danceClips": [
+      "Dance_Loop",
+      "Groove_Bounce",
+      "Groove_SideTap",
+      "Groove_Clap",
+      "Groove_ClapUp",
+      "Groove_Pump",
+      "Groove_Twist",
+      "Groove_HandsUp",
+      "Groove_ArmsWide",
+      "Groove_ArmsUp",
+      "Groove_Sway"
+    ],
+    "danceBytes": 1000712
+  },
+  {
+    "id": "kai",
+    "label": "Kai",
+    "description": "Nonbinary adult, tall lean build, bob, violet tailored suit",
+    "identity": "nonbinary",
+    "pronouns": "they/them",
+    "gender": 0.35,
+    "age": 0.51,
+    "weight": 0.43,
+    "muscle": 0.52,
+    "height": 0.55,
+    "heightMetres": 1.78,
+    "race": {
+      "african": 0.76,
+      "asian": 0.12,
+      "caucasian": 0.12
+    },
+    "skin": "young_african_female",
+    "hair": "bob02",
+    "clothes": "male_elegantsuit01",
+    "shoes": "shoes04",
+    "clothingTint": [
+      0.24,
+      0.09,
+      0.32
+    ],
+    "sources": [
+      "young_african_female",
+      "low-poly",
+      "eyebrow001",
+      "bob02",
+      "male_elegantsuit01",
+      "shoes04"
+    ],
+    "license": "CC0-1.0",
+    "triangles": 9495,
+    "materials": 2,
+    "textureSizes": [
+      1024,
+      512
+    ],
+    "bytes": 819092,
+    "bones": 53,
+    "hairAlpha": "MASK required; production loader forces OPAQUE and needs adaptation",
+    "animation": "Base GLB: original breathing test. Separate dance GLB: eleven retargeted club crowd moves.",
+    "textures": [
+      {
+        "width": 1024,
+        "height": 1024,
+        "bytes": 52998
+      },
+      {
+        "width": 512,
+        "height": 512,
+        "bytes": 62064
+      }
+    ],
+    "draws": 2,
+    "animationChannels": 2,
+    "danceUrl": "/models/kai-dance.glb",
+    "danceClips": [
+      "Dance_Loop",
+      "Groove_Bounce",
+      "Groove_SideTap",
+      "Groove_Clap",
+      "Groove_ClapUp",
+      "Groove_Pump",
+      "Groove_Twist",
+      "Groove_HandsUp",
+      "Groove_ArmsWide",
+      "Groove_ArmsUp",
+      "Groove_Sway"
+    ],
+    "danceBytes": 1011516
+  },
+  {
+    "id": "mara",
+    "label": "Mara",
+    "description": "Adult woman, tall broad build, copper braid, rose blouse and skirt",
+    "gender": 0.0,
+    "age": 0.73,
+    "weight": 0.61,
+    "muscle": 0.58,
+    "height": 0.56,
+    "heightMetres": 1.79,
+    "race": {
+      "african": 0.12,
+      "asian": 0.58,
+      "caucasian": 0.3
+    },
+    "skin": "middleage_asian_female",
+    "hair": "braid01",
+    "clothes": "female_elegantsuit01",
+    "shoes": "shoes03",
+    "hairTint": [
+      0.3,
+      0.11,
+      0.05
+    ],
+    "clothingTint": [
+      0.48,
+      0.24,
+      0.32
+    ],
+    "sources": [
+      "middleage_asian_female",
+      "low-poly",
+      "eyebrow001",
+      "braid01",
+      "female_elegantsuit01",
+      "shoes03"
+    ],
+    "license": "CC0-1.0",
+    "triangles": 9495,
+    "materials": 2,
+    "textureSizes": [
+      1024,
+      512
+    ],
+    "bytes": 1501328,
+    "bones": 53,
+    "hairAlpha": "MASK; production hair is alpha-tested and writes depth",
+    "animation": "Base breathing reference; scripts/characters/build.mjs authors production role/player clips and procedural DJ rigs"
+  },
+  {
+    "id": "jonas",
+    "label": "Jonas",
+    "description": "Older man, shorter stocky build, silver hair, indigo T-shirt and jeans",
+    "gender": 1.0,
+    "age": 0.86,
+    "weight": 0.72,
+    "muscle": 0.44,
+    "height": 0.43,
+    "heightMetres": 1.71,
+    "race": {
+      "african": 0.34,
+      "asian": 0.42,
+      "caucasian": 0.24
+    },
+    "skin": "old_asian_male",
+    "hair": "short03",
+    "clothes": "male_casualsuit04",
+    "shoes": "shoes06",
+    "hairTint": [
+      0.48,
+      0.47,
+      0.45
+    ],
+    "clothingTint": [
+      0.08,
+      0.12,
+      0.4
+    ],
+    "sources": [
+      "old_asian_male",
+      "low-poly",
+      "eyebrow001",
+      "short03",
+      "male_casualsuit04",
+      "shoes06"
+    ],
+    "license": "CC0-1.0",
+    "triangles": 9494,
+    "materials": 2,
+    "textureSizes": [
+      1024,
+      512
+    ],
+    "bytes": 1737388,
+    "bones": 53,
+    "hairAlpha": "MASK; production hair is alpha-tested and writes depth",
+    "animation": "Base breathing reference; scripts/characters/build.mjs authors production role/player clips and procedural DJ rigs"
+  }
+]

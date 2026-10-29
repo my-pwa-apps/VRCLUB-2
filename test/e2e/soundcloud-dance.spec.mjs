@@ -84,7 +84,7 @@ test('official-player playback events drive real crowd and DJ skeletons, but sel
         }
     });
     expect(result.moves.length).toBeGreaterThanOrEqual(3);
-    expect(result.moves).not.toContain('Groove_Sway');
+    for (const free of ['Groove_Sway', 'Groove_ArmsWide', 'Groove_ArmsUp']) expect(result.moves).not.toContain(free);
     expect(result.moved).toBeGreaterThanOrEqual(4);
     expect(result.djMoved).toBe(true);
     expect(result.djAudio).toBe(true);
@@ -105,7 +105,7 @@ test('official-player playback events drive real crowd and DJ skeletons, but sel
         };
     });
     expect(paused.fallback).toBeNull();
-    expect(paused.moves.every(move => move === 'Groove_Sway')).toBe(true);
+    expect(paused.moves.every(move => ['Groove_Sway', 'Groove_ArmsWide', 'Groove_ArmsUp'].includes(move))).toBe(true);
     expect(paused.djAudio).toBe(false);
     await page.frameLocator('#soundCloudPlayer iframe').getByRole('button', { name: 'Play', exact: true }).evaluate(button => button.click());
     await page.waitForFunction(() => window.vrClub._soundCloudPlaying);

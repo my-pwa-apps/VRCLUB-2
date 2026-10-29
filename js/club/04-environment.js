@@ -1,4 +1,29 @@
 'use strict';
+
+/**
+ * Every wall sign. EXIT quads must sit on an opening a guest can walk through: the club doorway
+ * (x -2..2, top y 3.4) and the street door (centred, sill at street level). There is no side door.
+ */
+function signagePlan(streetLevel) {
+    const WALL_RIGHT = 12.25, WALL_LEFT = -12.25, WALL_FRONT = -0.25;
+    const level = streetLevel || 0;
+    return [
+        // The club's name over the doorway, facing the DJ and the dance floor (top of the door is y 3.4).
+        { cell: 'nocturne', kind: 'nocturne', w: 6.0, h: 6.0 * 272 / 1024, wall: WALL_FRONT, axis: 'z', y: 5.2, along: 0, yaw: 0, plate: false },
+        // The same logo faces outward above the street door, so the entrance remains branded from the avenue.
+        { cell: 'nocturne', kind: 'nocturne', w: 4.9, h: 4.9 * 272 / 1024, wall: 6.0, axis: 'z', y: level + 4.25, along: 0, yaw: Math.PI, plate: false },
+        { cell: 'bar', kind: 'neon', color: [1, 0.55, 0.12], w: 1.5, h: 1.07, wall: WALL_RIGHT, axis: 'x', y: 3.95, along: -9.9, yaw: Math.PI / 2 },
+        // The restroom: a pink WC over its doorway in the left wall (z -4.1..-2.3), facing the room.
+        { cell: 'wc', kind: 'neon', color: [1, 0.18, 0.55], w: 0.72, h: 0.42, wall: WALL_LEFT, axis: 'x', y: 3.15, along: -3.2, yaw: -Math.PI / 2 },
+        // Over the club doorway, on the lintel, facing the room. Not beside the opening.
+        { cell: 'exit', kind: 'exit', color: [0.1, 1, 0.35], w: 0.5, h: 0.18, wall: WALL_FRONT, axis: 'z', y: 3.58, along: 0, yaw: 0 },
+        // The vestibule: ENTER over the doorway on the stair side, EXIT over the street door on its lintel.
+        { cell: 'enter', kind: 'neon', color: [0.1, 0.9, 1], w: 1.44, h: 0.4, wall: 0.25, axis: 'z', y: 3.5, along: 0, yaw: Math.PI },
+        { cell: 'exit', kind: 'exit', color: [0.1, 1, 0.35], w: 0.5, h: 0.18, wall: 6.0, axis: 'z', y: level + 3.3, along: 0, yaw: 0 }
+    ];
+}
+window.signagePlan = signagePlan;
+
 class VRClubEnvironment extends VRClubRendering {
     // === DANCE FLOOR EDGE LIGHTING ===
     createDanceFloorLighting() {
@@ -126,23 +151,11 @@ class VRClubEnvironment extends VRClubRendering {
      * The glow layer's selector gives `signageGlow` a glow (see _createGlowLayer).
      */
     createSignage() {
-        const WALL_RIGHT = 12.25, WALL_LEFT = -12.25, WALL_FRONT = -0.25; // inner faces of the shell
         const PLATE = 0.06;
         // The street door is at the top of the entrance stair (the club is a basement).
         const streetLevel = (window.VenueLayout && window.VenueLayout.vestibule.streetLevel) || 0;
         // yaw: a plane faces (-sin yaw, -cos yaw), so PI/2 faces -x (the right wall looks into the room).
-        const signs = [
-            // The club's name over the doorway, facing the DJ and the dance floor (top of the door is y 3.4).
-            { cell: 'nocturne', kind: 'nocturne', w: 6.0, h: 6.0 * 272 / 1024, wall: WALL_FRONT, axis: 'z', y: 5.2, along: 0, yaw: 0, plate: false },
-            // The same logo faces outward above the street door, so the entrance remains branded from the avenue.
-            { cell: 'nocturne', kind: 'nocturne', w: 4.9, h: 4.9 * 272 / 1024, wall: 6.0, axis: 'z', y: streetLevel + 4.25, along: 0, yaw: Math.PI, plate: false },
-            { cell: 'bar', kind: 'neon', color: [1, 0.55, 0.12], w: 1.5, h: 1.07, wall: WALL_RIGHT, axis: 'x', y: 3.95, along: -9.9, yaw: Math.PI / 2 },
-            { cell: 'exit', kind: 'exit', color: [0.1, 1, 0.35], w: 0.5, h: 0.18, wall: WALL_FRONT, axis: 'z', y: 3.0, along: 3.4, yaw: 0 },
-            { cell: 'exit', kind: 'exit', color: [0.1, 1, 0.35], w: 0.5, h: 0.18, wall: WALL_LEFT, axis: 'x', y: 2.5, along: -17.5, yaw: -Math.PI / 2 },
-            // The vestibule: ENTER over the doorway on the stair side, EXIT over the street door on its lintel.
-            { cell: 'enter', kind: 'neon', color: [0.1, 0.9, 1], w: 1.44, h: 0.4, wall: 0.25, axis: 'z', y: 3.5, along: 0, yaw: Math.PI },
-            { cell: 'exit', kind: 'exit', color: [0.1, 1, 0.35], w: 0.5, h: 0.18, wall: 6.0, axis: 'z', y: streetLevel + 3.3, along: 0, yaw: 0 }
-        ];
+        const signs = signagePlan(streetLevel);
 
         // Atlas cells in pixels: x, y, w, h. Aspect ratios match the signs they feed.
         const W = 1024, H = 512;
@@ -150,7 +163,8 @@ class VRClubEnvironment extends VRClubRendering {
             nocturne: [0, 0, 1024, 272, 'NOCTURNE'],
             bar: [0, 288, 179, 128, 'BAR'],
             exit: [193, 288, 356, 128, 'EXIT'],
-            enter: [563, 288, 461, 128, 'ENTER']
+            enter: [563, 288, 461, 128, 'ENTER'],
+            wc: [0, 420, 220, 92, 'WC']
         };
         const atlas = new BABYLON.DynamicTexture('signageAtlas', { width: W, height: H }, this.scene, true);
         atlas.anisotropicFilteringLevel = this.tierSettings ? this.tierSettings.anisotropy : 4;
@@ -316,71 +330,7 @@ class VRClubEnvironment extends VRClubRendering {
 
     // === ENHANCED DJ BOOTH ACCESSORIES ===
     createDJBoothAccessories() {
-        log.info("🎧 Creating DJ booth accessories...");
-        
-        // === LAPTOP STAND WITH LAPTOP ===
-        // Right-hand end of the VJ control inlay on the DJ plinth
-        // (inlay top y = 1.45, centred on z = -18.17 - see createDJBooth()).
-        // These used to sit at z ~ -17.6, which after the booth re-layout is
-        // 0.4 m in front of the plinth: the laptop was floating in mid-air.
-        const laptopMat = this.materialFactory.getPreset('laptopBody');
-        
-        // Stand (adjustable laptop stand)
-        const standBase = BABYLON.MeshBuilder.CreateBox("laptopStandBase", {
-            width: 0.3, height: 0.02, depth: 0.25
-        }, this.scene);
-        standBase.position = new BABYLON.Vector3(1.5, 1.45, -18.17);
-        standBase.material = this.materialFactory.getPreset('barStool');
-        
-        const standArm = BABYLON.MeshBuilder.CreateBox("laptopStandArm", {
-            width: 0.04, height: 0.15, depth: 0.04
-        }, this.scene);
-        standArm.position = new BABYLON.Vector3(1.5, 1.53, -18.22);
-        standArm.material = this.materialFactory.getPreset('barStool');
-        
-        // Laptop base
-        const laptopBase = BABYLON.MeshBuilder.CreateBox("laptopBase", {
-            width: 0.32, height: 0.015, depth: 0.22
-        }, this.scene);
-        laptopBase.position = new BABYLON.Vector3(1.5, 1.63, -18.12);
-        laptopBase.rotation.x = -0.2; // Tilted toward DJ
-        laptopBase.material = laptopMat;
-        
-        // Laptop screen
-        const laptopScreen = BABYLON.MeshBuilder.CreateBox("laptopScreen", {
-            width: 0.3, height: 0.2, depth: 0.008
-        }, this.scene);
-        laptopScreen.position = new BABYLON.Vector3(1.5, 1.79, -18.21);
-        laptopScreen.rotation.x = -0.5;
-        laptopScreen.material = laptopMat;
-        
-        // Screen display (glowing)
-        const screenDisplay = BABYLON.MeshBuilder.CreatePlane("laptopDisplay", {
-            width: 0.28, height: 0.18
-        }, this.scene);
-        screenDisplay.position = new BABYLON.Vector3(1.5, 1.79, -18.205);
-        screenDisplay.rotation.x = -0.5;
-        const screenMat = this.materialFactory.createStandardMaterial("laptopScreenMat", {
-            emissiveColor: [0.2, 0.4, 0.8], // Blue waveform display
-            disableLighting: true
-        });
-        screenDisplay.material = screenMat;
-        
-
-        
-        // OPTIMIZATION: Freeze static DJ booth accessories (never move)
-        standBase.freezeWorldMatrix();
-        standArm.freezeWorldMatrix();
-        laptopBase.freezeWorldMatrix();
-        laptopScreen.freezeWorldMatrix();
-        screenDisplay.freezeWorldMatrix();
-        
-        // Freeze materials too
-        [standBase, standArm, laptopBase, laptopScreen].forEach(mesh => {
-            if (mesh.material && mesh.material.freeze) mesh.material.freeze();
-        });
-        
-        log.info("✅ Created DJ booth accessories (laptop) - frozen for performance");
+        // Laptop and stand removed at the owner's request; method retained as a no-op for API compatibility.
     }
 
     createCollisionBoundaries() {
@@ -389,24 +339,18 @@ class VRClubEnvironment extends VRClubRendering {
             alpha: 0 // Completely invisible
         });
         
-        // The visible shell already collides. The old perimeter band put an invisible
-        // partition across open floor at z=-5; only equipment clearance belongs here.
+        // The visible shell, the DJ table and the LED wall's backing already collide. Two invisible 2 m blocks used to
+        // stand either side of the stage (x +-4.5, z -18..-16) to fence the floor-standing speaker stacks, which are flown
+        // now: they were left behind as walls on open floor that forced guests round the stage by set routes.
+        // Only the flown PA cabinets' clearance belongs here.
         const boundaries = [
-            // DJ Booth protection area (prevent walking through equipment)
-            { width: 8, height: 2, depth: 0.5, 
-              pos: new BABYLON.Vector3(0, 1, -17.8) }, // Front of DJ booth
-            { width: 0.5, height: 2, depth: 2, 
-              pos: new BABYLON.Vector3(-4.5, 1, -17) }, // Left side
-            { width: 0.5, height: 2, depth: 2, 
-              pos: new BABYLON.Vector3(4.5, 1, -17) }, // Right side
-            
-                        // Flown PA cabinets under the rear truss
-                        { width: 2, height: 1.8, depth: 2,
-                            pos: new BABYLON.Vector3(CLUB_POSITIONS.paSpeakers.left.x,
-                                    CLUB_POSITIONS.paSpeakers.left.y - 0.725, CLUB_POSITIONS.paSpeakers.left.z) },
-                        { width: 2, height: 1.8, depth: 2,
-                            pos: new BABYLON.Vector3(CLUB_POSITIONS.paSpeakers.right.x,
-                                    CLUB_POSITIONS.paSpeakers.right.y - 0.725, CLUB_POSITIONS.paSpeakers.right.z) }
+            // Flown PA cabinets under the rear truss
+            { width: 2, height: 1.8, depth: 2,
+                pos: new BABYLON.Vector3(CLUB_POSITIONS.paSpeakers.left.x,
+                        CLUB_POSITIONS.paSpeakers.left.y - 0.725, CLUB_POSITIONS.paSpeakers.left.z) },
+            { width: 2, height: 1.8, depth: 2,
+                pos: new BABYLON.Vector3(CLUB_POSITIONS.paSpeakers.right.x,
+                        CLUB_POSITIONS.paSpeakers.right.y - 0.725, CLUB_POSITIONS.paSpeakers.right.z) }
         ];
         
         boundaries.forEach((b, i) => {
@@ -745,7 +689,9 @@ class VRClubEnvironment extends VRClubRendering {
                         const weld = BABYLON.MeshBuilder.CreateTorus(protoName + "_weld" + i + "_" + idx, {
                             diameter: tubeSize * 1.3,
                             thickness: tubeSize * 0.15,
-                            tessellation: 8
+                            // A 6 cm ring with a 7 mm tube: it reads as a bright speck from the floor, so six sides lose nothing
+                            // (eight cost 128 triangles each, times 96 per truss and three trusses).
+                            tessellation: 6
                         }, this.scene);
                         weld.rotation.z = Math.PI / 2;
                         weld.position = new BABYLON.Vector3(xStart, pos.y, pos.z);
@@ -883,24 +829,23 @@ class VRClubEnvironment extends VRClubRendering {
         });
         
         // === HYPERREALISTIC CHAIN MOTOR HOISTS ===
-        // Professional stage rigging with chain hoists at strategic points
+        // Professional stage rigging with chain hoists at strategic points, merged by material into two static draws.
+        const hoistMotorMat = this.materialFactory.createPBRMaterial("hoistMotorMat", {
+            baseColor: [0.05, 0.05, 0.05],
+            metallic: 0.6,
+            roughness: 0.7
+        }, true);
+        const hoistMotorParts = [];
+        const hoistChainParts = [];
         const createChainHoist = (position, name) => {
-            const hoistParent = new BABYLON.TransformNode(name + "_hoist", this.scene);
-            hoistParent.position = position;
-            
             // Motor housing (black box unit)
             const motor = BABYLON.MeshBuilder.CreateBox(name + "_motor", {
                 width: 0.4,
                 height: 0.35,
                 depth: 0.3
             }, this.scene);
-            motor.position.y = 1.2;
-            motor.parent = hoistParent;
-            motor.material = this.materialFactory.createPBRMaterial(name + "_motorMat", {
-                baseColor: [0.05, 0.05, 0.05],
-                metallic: 0.6,
-                roughness: 0.7
-            });
+            motor.position.set(position.x, position.y + 1.2, position.z);
+            hoistMotorParts.push(motor);
             
             // Chain drum (silver cylinder)
             const drum = BABYLON.MeshBuilder.CreateCylinder(name + "_drum", {
@@ -909,9 +854,8 @@ class VRClubEnvironment extends VRClubRendering {
                 tessellation: 16
             }, this.scene);
             drum.rotation.z = Math.PI / 2;
-            drum.position = new BABYLON.Vector3(0, 1.0, 0);
-            drum.parent = hoistParent;
-            drum.material = chainMat;
+            drum.position.set(position.x, position.y + 1.0, position.z);
+            hoistChainParts.push(drum);
             
             // Chain links (multiple small tori for realistic chain)
             const chainLength = 1.0; // Distance from drum to truss
@@ -920,12 +864,11 @@ class VRClubEnvironment extends VRClubRendering {
                 const link = BABYLON.MeshBuilder.CreateTorus(name + "_link" + i, {
                     diameter: 0.04,
                     thickness: 0.008,
-                    tessellation: 8
+                    tessellation: 6   // a 4 cm chain link, 8 mm wire: see the truss welds above
                 }, this.scene);
                 link.rotation.x = (i % 2 === 0) ? 0 : Math.PI / 2;
-                link.position.y = 0.95 - (i * (chainLength / linkCount));
-                link.parent = hoistParent;
-                link.material = chainMat;
+                link.position.set(position.x, position.y + 0.95 - (i * (chainLength / linkCount)), position.z);
+                hoistChainParts.push(link);
             }
             
             // Hook at bottom
@@ -936,9 +879,8 @@ class VRClubEnvironment extends VRClubRendering {
                 arc: 0.75
             }, this.scene);
             hook.rotation.z = Math.PI;
-            hook.position.y = -0.1;
-            hook.parent = hoistParent;
-            hook.material = chainMat;
+            hook.position.set(position.x, position.y - 0.1, position.z);
+            hoistChainParts.push(hook);
             
             // Safety latch
             const latch = BABYLON.MeshBuilder.CreateBox(name + "_latch", {
@@ -946,18 +888,8 @@ class VRClubEnvironment extends VRClubRendering {
                 height: 0.04,
                 depth: 0.06
             }, this.scene);
-            latch.position = new BABYLON.Vector3(0.035, -0.08, 0);
-            latch.parent = hoistParent;
-            latch.material = chainMat;
-            
-            // Freeze all components
-            hoistParent.getChildMeshes().forEach(mesh => {
-                mesh.freezeWorldMatrix();
-                mesh.doNotSyncBoundingInfo = true;
-                mesh.isPickable = false;
-            });
-            
-            return hoistParent;
+            latch.position.set(position.x + 0.035, position.y - 0.08, position.z);
+            hoistChainParts.push(latch);
         };
         
         // Add chain hoists at key truss intersection points
@@ -976,19 +908,19 @@ class VRClubEnvironment extends VRClubRendering {
             createChainHoist(new BABYLON.Vector3(pos.x, 9, pos.z), "hoist" + i);
         });
         
-        // Diagonal support cables/wires from ceiling to truss (safety redundancy) (safety redundancy)
+        // Diagonal support cables/wires from ceiling to truss (safety redundancy)
         const cableMat = this.materialFactory.createPBRMaterial("cableMat", {
             baseColor: [0.15, 0.15, 0.15],
             metallic: 0.85,
             roughness: 0.5
-        });
+        }, true);
         
         // Turnbuckle material (brighter steel)
         const turnbuckleMat = this.materialFactory.createPBRMaterial("turnbuckleMat", {
             baseColor: [0.5, 0.5, 0.52],
             metallic: 0.95,
             roughness: 0.3
-        });
+        }, true);
         
         // Support cables with turnbuckles
         const cablePositions = [
@@ -999,6 +931,8 @@ class VRClubEnvironment extends VRClubRendering {
             { x: 0, z: -8 },
             { x: 0, z: -16 }
         ];
+        const cableParts = [];
+        const turnbuckleParts = [];
         
         cablePositions.forEach((pos, i) => {
             // Main steel cable
@@ -1008,8 +942,7 @@ class VRClubEnvironment extends VRClubRendering {
                 tessellation: 8
             }, this.scene);
             cable.position = new BABYLON.Vector3(pos.x, 9, pos.z);
-            cable.material = cableMat;
-            cable.isPickable = false;
+            cableParts.push(cable);
             
             // Turnbuckle tensioner (middle of cable)
             const turnbuckle = BABYLON.MeshBuilder.CreateCylinder("turnbuckle" + i, {
@@ -1018,8 +951,7 @@ class VRClubEnvironment extends VRClubRendering {
                 tessellation: 12
             }, this.scene);
             turnbuckle.position = new BABYLON.Vector3(pos.x, 9, pos.z);
-            turnbuckle.material = turnbuckleMat;
-            turnbuckle.isPickable = false;
+            turnbuckleParts.push(turnbuckle);
             
             // End eye bolts
             const eyeBolt1 = BABYLON.MeshBuilder.CreateTorus("eyeBolt1_" + i, {
@@ -1029,8 +961,7 @@ class VRClubEnvironment extends VRClubRendering {
             }, this.scene);
             eyeBolt1.rotation.z = Math.PI / 2;
             eyeBolt1.position = new BABYLON.Vector3(pos.x, 9.95, pos.z);
-            eyeBolt1.material = turnbuckleMat;
-            eyeBolt1.isPickable = false;
+            turnbuckleParts.push(eyeBolt1);
             
             const eyeBolt2 = BABYLON.MeshBuilder.CreateTorus("eyeBolt2_" + i, {
                 diameter: 0.03,
@@ -1039,19 +970,24 @@ class VRClubEnvironment extends VRClubRendering {
             }, this.scene);
             eyeBolt2.rotation.z = Math.PI / 2;
             eyeBolt2.position = new BABYLON.Vector3(pos.x, 8.05, pos.z);
-            eyeBolt2.material = turnbuckleMat;
-            eyeBolt2.isPickable = false;
-            
-            // Freeze static geometry
-            cable.freezeWorldMatrix();
-            cable.doNotSyncBoundingInfo = true;
-            turnbuckle.freezeWorldMatrix();
-            turnbuckle.doNotSyncBoundingInfo = true;
-            eyeBolt1.freezeWorldMatrix();
-            eyeBolt1.doNotSyncBoundingInfo = true;
-            eyeBolt2.freezeWorldMatrix();
-            eyeBolt2.doNotSyncBoundingInfo = true;
+            turnbuckleParts.push(eyeBolt2);
         });
+
+        for (const [name, parts, mat] of [
+            ['trussHoistMotors', hoistMotorParts, hoistMotorMat],
+            ['trussHoistChains', hoistChainParts, chainMat],
+            ['trussSupportCables', cableParts, cableMat],
+            ['trussTurnbuckles', turnbuckleParts, turnbuckleMat]
+        ]) {
+            const merged = BABYLON.Mesh.MergeMeshes(parts, true, true, undefined, false, false);
+            if (merged) {
+                merged.name = name;
+                merged.material = mat;
+                merged.isPickable = false;
+                merged.freezeWorldMatrix();
+                merged.doNotSyncBoundingInfo = true;
+            }
+        }
     }
     
 }

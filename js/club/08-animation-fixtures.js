@@ -2,11 +2,20 @@
 const SPOT_FLASH_BASE_S = 0.040;
 const SPOT_FLASH_MIN_S = 0.022;
 const SPOT_FLASH_MIN_INTERVAL_S = 0.34;
-// Corner offsets (x, y) of a laser surface-dot quad, in the batch's vertex order.
-const LASER_DOT_CORNERS = [-1, -1, 1, -1, 1, 1, -1, 1];
 class VRClubAnimationFixtures extends VRClubAnimationCore {
     updateLEDWallPass(ctx) {
         const { time, audio: audioData } = ctx;
+        const hz = this.isInVRMode ? (this.tierSettings?.vrLedUpdateHz || 0) : 0;
+        const activeChanged = this._ledCadenceActive !== !!this.ledWallActive;
+        const black = (this.masterIntensity ?? 1) <= 0.001;
+        const blackChanged = this._ledCadenceBlack !== black;
+        this._ledCadenceActive = !!this.ledWallActive;
+        this._ledCadenceBlack = black;
+        this._ledCadenceClock = (this._ledCadenceClock || 0) + (ctx.dt || ctx.dtScale / 60 || 1 / 60);
+        if (!activeChanged && !blackChanged && this._ledCadenceReady && hz > 0 && this._ledCadenceClock < 1 / hz) return;
+        if (hz > 0) this._ledCadenceClock %= 1 / hz;
+        else this._ledCadenceClock = 0;
+        this._ledCadenceReady = true;
 
         // Update LED wall animations
         // CRITICAL FIX: Handle both modular and legacy systems
@@ -117,7 +126,7 @@ class VRClubAnimationFixtures extends VRClubAnimationCore {
 
     /**
      * Ceiling laser projectors. Every beam is aimed, clipped against the room's interior faces and written
-     * into the shared ribbon batch (see _createLaserBeamBatch) together with the dot it throws on that face.
+     * into the shared ribbon batch (see _createLaserBeamBatch), without a separate surface-hit dot.
      *
      * The look follows how a show beam is actually seen in haze:
      *  - it is only visible through scatter, so its brightness follows the haze, never the fog colour;
@@ -126,10 +135,11 @@ class VRClubAnimationFixtures extends VRClubAnimationCore {
      *  - the ribbon is never narrower than a few pixels, and its brightness is divided by that widening,
      *    so a distant beam stays a fine line instead of aliasing into dashes or swelling into a bar;
      *  - it diverges ~1.5 mrad and loses a little power to scatter along its length (Beer-Lambert);
-     *  - it ends on whatever face it reaches, with a dot whose brightness follows its angle of incidence.
+     *  - it ends on whatever face it reaches.
      */
     updateLasers(ctx) {
         const { time, dtScale } = ctx;
+        const dt = Number.isFinite(ctx.dt) ? ctx.dt : dtScale / 60;
         const master = this.masterIntensity == null ? 1 : Math.min(1, Math.max(0, this.masterIntensity));
 
         // ALWAYS SYNCHRONIZED MODE - no random mode
@@ -153,8 +163,8 @@ class VRClubAnimationFixtures extends VRClubAnimationCore {
         const color = this._laserColor();
 
         if (!this.lasersActive || master <= 0.001) {
+            this._laserGeometryReady = false;
             if (batch.mesh.isEnabled()) batch.mesh.setEnabled(false);
-            if (batch.hitMesh.isEnabled()) batch.hitMesh.setEnabled(false);
             for (const laser of this.lasers) {
                 if (laser.emitterMat) laser.emitterMat.emissiveColor = this.cachedColors.black;
             }
@@ -164,27 +174,49 @@ class VRClubAnimationFixtures extends VRClubAnimationCore {
         const view = this._laserView();
         const camPos = view.cam;
         const pixelAngle = view.pixelAngle;
-        // The ambient hazer always holds a thin haze; the machines thicken it.
-        const haze = this.smokeActive === false
-            ? 0.25
-            : Math.min(1, Math.max(0.25, (this.fogIntensity == null ? 1 : this.fogIntensity) / 1.5));
+        // The ambient hazer always holds a thin haze; the machines thicken it. With smoke off the air is clear.
+        const smokeNow = Number.isFinite(this._smokeLevel) ? this._smokeLevel : (this.smokeActive === false ? 0 : 1);
+        const haze = Math.min(1, Math.max(0.25, (this.fogIntensity == null ? 1 : this.fogIntensity) / 1.5)) *
+            (0.2 + 0.8 * smokeNow);
         const kick = this.kickPulse || 0;
         const scatter = 0.35 + 0.65 * haze;
         const base = 0.6 * scatter * master * (1 + kick * 0.5) * (this.isInVRMode ? 1.15 : 1);
-        const dotBase = 0.95 * master * (1 + kick * 0.3);
+
+        const angularSpeed = this.laserSpeed || 1.0;
+        for (const laser of this.lasers) {
+            laser.rotation += 0.225 * angularSpeed * dt;
+            laser.tiltPhase += 0.3 * angularSpeed * dt;
+        }
+
+        // Balanced headset tiers update the dynamic ribbon less often than the display.
+        // Rotation still advances from elapsed seconds every frame; only the CPU intersections
+        // and two buffer uploads are throttled. Ultra keeps native headset cadence.
+        const updateHz = this.isInVRMode ? (this.tierSettings.vrLaserUpdateHz || 0) : 0;
+        if (updateHz > 0 && this._laserGeometryReady) {
+            this._laserGeometryClock = (this._laserGeometryClock || 0) + dt;
+            if (this._laserGeometryClock < 1 / updateHz) {
+                batch.material.emissiveColor.copyFrom(color);
+                for (const laser of this.lasers) {
+                    if (laser.emitterMat) {
+                        if (!laser._emitterEmissiveBuf) laser._emitterEmissiveBuf = new BABYLON.Color3(0, 0, 0);
+                        color.scaleToRef(3 * master, laser._emitterEmissiveBuf);
+                        laser.emitterMat.emissiveColor = laser._emitterEmissiveBuf;
+                    }
+                }
+                return;
+            }
+            this._laserGeometryClock %= 1 / updateHz;
+        } else {
+            this._laserGeometryClock = 0;
+        }
 
         const dir = this.vecPool.laserDir;
         const hit = batch.hit;
         let slot = 0;
         for (let i = 0; i < this.lasers.length; i++) {
             const laser = this.lasers[i];
-            if (laser.emitter) {
-                if (!laser.originPos) laser.originPos = new BABYLON.Vector3(0, 0, 0);
-                laser.originPos.copyFrom(laser.emitter.getAbsolutePosition());
-            }
-            const speed = (this.laserSpeed || 1.0) * dtScale;
-            laser.rotation += 0.00375 * speed;
-            laser.tiltPhase += 0.005 * speed;
+            // The projector hardware and its parent truss are frozen at construction;
+            // createLasers() already measured this world position once.
             const o = laser.originPos;
 
             for (const beam of laser.beams) {
@@ -192,7 +224,7 @@ class VRClubAnimationFixtures extends VRClubAnimationCore {
                 this._intersectRoomInterior(o.x, o.y, o.z, dir.x, dir.y, dir.z, hit);
                 beam.length = hit.t;
                 const index = Number.isInteger(beam.slot) ? beam.slot : slot;
-                this._writeLaserBeamQuad(batch, index, o, dir, hit, camPos, pixelAngle, base, dotBase);
+                this._writeLaserBeamQuad(batch, index, o, dir, hit, camPos, pixelAngle, base);
                 slot++;
             }
 
@@ -205,19 +237,16 @@ class VRClubAnimationFixtures extends VRClubAnimationCore {
 
         batch.mesh.updateVerticesData(BABYLON.VertexBuffer.PositionKind, batch.positions);
         batch.mesh.updateVerticesData(BABYLON.VertexBuffer.ColorKind, batch.colors);
-        batch.hitMesh.updateVerticesData(BABYLON.VertexBuffer.PositionKind, batch.hitPositions);
-        batch.hitMesh.updateVerticesData(BABYLON.VertexBuffer.ColorKind, batch.hitColors);
         batch.material.emissiveColor.copyFrom(color);
-        batch.hitMaterial.emissiveColor.copyFrom(color);
+        this._laserGeometryReady = true;
         if (!batch.mesh.isEnabled()) batch.mesh.setEnabled(true);
-        if (!batch.hitMesh.isEnabled()) batch.hitMesh.setEnabled(true);
     }
 
     /** Beam direction for one beam of a projector (writes `out`). */
     _aimLaserBeam(laser, beam, laserIndex, out) {
         if (laser.type === 'multi') {
             // A grating splits the beam into a ring; the galvo spins the ring and breathes its cone,
-            // so the dots on the floor circle and slowly open and close.
+            // so the beams circle and slowly open and close.
             const a = (beam.beamIndex / laser.beams.length) * Math.PI * 2 + laser.rotation * 2;
             const tilt = Math.PI / 5 + 0.09 * Math.sin(laser.tiltPhase + laserIndex * 2.1);
             out.set(Math.sin(a) * Math.sin(tilt), -Math.cos(tilt), Math.cos(a) * Math.sin(tilt));
@@ -241,8 +270,15 @@ class VRClubAnimationFixtures extends VRClubAnimationCore {
         return Math.min(2.4, Math.max(0.6, 0.45 + 0.55 * phase));
     }
 
-    /** Write one beam ribbon and its surface dot into the batch buffers. Allocates nothing. */
-    _writeLaserBeamQuad(batch, slot, o, d, hit, cam, pixelAngle, base, dotBase) {
+    /** Shared moving-head photometry: surface cosine times bounded inverse-square falloff. */
+    _fixturePhotometricGain(distance, cosIncident, referenceDistance = 7.3) {
+        const lambert = Math.max(0.2, Math.abs(cosIncident));
+        const inverseSquare = Math.pow(referenceDistance / Math.max(2, distance), 2);
+        return lambert * Math.min(2, Math.max(0.25, inverseSquare));
+    }
+
+    /** Write one clipped beam ribbon into the batch buffers. Allocates nothing. */
+    _writeLaserBeamQuad(batch, slot, o, d, hit, cam, pixelAngle, base) {
         const L = hit.t;
         const ex = o.x + d.x * L, ey = o.y + d.y * L, ez = o.z + d.z * L;
         const P = batch.positions, C = batch.colors;
@@ -251,31 +287,6 @@ class VRClubAnimationFixtures extends VRClubAnimationCore {
         const core0 = 0.004 * 8, core1 = (0.004 + 0.0015 * L) * 8;
         this._writeLaserBeamEnd(P, C, p, c, 0, 1, o.x, o.y, o.z, d, core0, base, cam, pixelAngle);
         this._writeLaserBeamEnd(P, C, p, c, 3, 2, ex, ey, ez, d, core1, base * Math.exp(-0.02 * L), cam, pixelAngle);
-
-        // The dot on the surface the beam reaches.
-        const HP = batch.hitPositions, HC = batch.hitColors;
-        const nx = hit.nx, ny = hit.ny, nz = hit.nz;
-        if (L <= 0 || (nx === 0 && ny === 0 && nz === 0)) {
-            for (let k = 0; k < 4; k++) HC[c + k * 4 + 3] = 0;
-            return;
-        }
-        const t1x = Math.abs(ny) > 0.9 ? 1 : 0, t1y = Math.abs(ny) > 0.9 ? 0 : 1, t1z = 0;
-        const t2x = ny * t1z - nz * t1y, t2y = nz * t1x - nx * t1z, t2z = nx * t1y - ny * t1x;
-        const footprint = 0.045 + 0.0015 * L;
-        let size = footprint, dotAlpha = dotBase * (0.4 + 0.6 * Math.abs(d.x * nx + d.y * ny + d.z * nz));
-        if (cam) {
-            const dist = Math.max(0.05, Math.hypot(hit.px - cam.x, hit.py - cam.y, hit.pz - cam.z));
-            size = Math.max(footprint, dist * pixelAngle * 5);
-            dotAlpha *= Math.sqrt(Math.max(0.15, footprint / size));
-        }
-        const cx = hit.px + nx * 0.012, cy = hit.py + ny * 0.012, cz = hit.pz + nz * 0.012;
-        for (let k = 0; k < 4; k++) {
-            const a1 = LASER_DOT_CORNERS[k * 2] * size, a2 = LASER_DOT_CORNERS[k * 2 + 1] * size;
-            HP[p + k * 3] = cx + t1x * a1 + t2x * a2;
-            HP[p + k * 3 + 1] = cy + t1y * a1 + t2y * a2;
-            HP[p + k * 3 + 2] = cz + t1z * a1 + t2z * a2;
-            HC[c + k * 4 + 3] = Math.min(1, dotAlpha);
-        }
     }
 
     /**
@@ -328,22 +339,7 @@ class VRClubAnimationFixtures extends VRClubAnimationCore {
         const colorChangeInterval = this.vjDropActive ? 2 : (12 - (this.energyLevel * 8));
         if (!this.vjManualMode && !showDriving && time - this.lastColorChange > colorChangeInterval) {
             this.spotColorIndex = (this.spotColorIndex + 1) % this.spotColorList.length;
-            
-            // SMOOTH COLOR TRANSITION: Store previous color for interpolation.
-            // copyFrom into our own buffer - cloning allocated a Color3 per switch and
-            // assigning would alias the shared palette.
-            this.previousSpotColor.copyFrom(this.currentSpotColor);
-            this.targetSpotColor = this.spotColorList[this.spotColorIndex];
-            this.colorTransitionProgress = 0; // Start transition
-            this.lastColorChange = time;
-            
-            // Update ALL lights to new color target
-            if (this.spotlights) {
-                this.spotlights.forEach((spot) => {
-                    // Update color reference - fixture materials updated in animation loop
-                    spot.color = this.targetSpotColor;
-                });
-            }
+            this._beginSpotColorTransition(time);
         }
         
         // SMOOTH COLOR INTERPOLATION: Fade between colors over 0.42-0.83 seconds
@@ -371,12 +367,40 @@ class VRClubAnimationFixtures extends VRClubAnimationCore {
             }
         }
         
-        // Check if VJ manual mode should expire (60 seconds of no interaction)
-        if (this.vjManualMode && (time - this.lastVJInteraction) > this.VJ_TIMEOUT) {
+        // The automatic show returns once nobody has touched the lights for the guest's chosen time. Not at all when
+        // they chose to keep their lights or to shuffle the colours: those end with AUTO SHOW.
+        if (this.vjManualMode && (time - this.lastVJInteraction) > this.lightHandBackSeconds()) {
             this.vjManualMode = false;
             this.spotlightPattern = 0; // Switch to automated pattern
-            log.info("🤖 Automated patterns resumed - no VJ interaction for 60 seconds");
+            if (this.showDirector && typeof this.showDirector.releaseHold === 'function') this.showDirector.releaseHold();
+            log.info('🤖 Automated patterns resumed - no VJ interaction for the chosen time');
         }
+    }
+
+    /**
+     * Fade the heads to `spotColorList[spotColorIndex]`. copyFrom into our own buffer: cloning allocated a Color3 per
+     * switch and assigning would alias the shared palette.
+     */
+    _beginSpotColorTransition(time) {
+        this.previousSpotColor.copyFrom(this.currentSpotColor);
+        this.targetSpotColor = this.spotColorList[this.spotColorIndex];
+        this.colorTransitionProgress = 0; // Start transition
+        this.lastColorChange = time;
+
+        // Update ALL lights to new color target
+        if (this.spotlights) {
+            this.spotlights.forEach((spot) => {
+                // Update color reference - fixture materials updated in animation loop
+                spot.color = this.targetSpotColor;
+            });
+        }
+    }
+
+    /** Seconds of no touch after which the automatic show takes the lights back; Infinity when the guest keeps them. */
+    lightHandBackSeconds() {
+        const hold = this.lightHold;
+        if (hold && hold.mode !== 'resume') return Infinity;
+        return (hold && hold.delay) || this.VJ_TIMEOUT || 60;
     }
 
     /** Moving-head spotlights: pan/tilt, beams, floor pools, gobos and fixtures. */
@@ -685,7 +709,10 @@ class VRClubAnimationFixtures extends VRClubAnimationCore {
             
             // SYNCHRONIZED SWEEPING: All lights sweep together continuously
             // SMOOTH pattern transitions - patterns blend into each other naturally
-            const sweepPhase = globalPhase * audioSpeedMultiplier * speedMultiplier;
+            // RANDOM is really an automatic sequence of flowing paths. Real yokes take
+            // several seconds to cross the room; the previous phase rate made them dart
+            // between targets and read as weightless, especially at high show energy.
+            const sweepPhase = globalPhase * audioSpeedMultiplier * speedMultiplier * 0.45;
             
             // Slow pattern selector that cycles through patterns smoothly
             // Each pattern lasts ~10 seconds with smooth transitions
@@ -896,13 +923,13 @@ class VRClubAnimationFixtures extends VRClubAnimationCore {
         const surfaceIntersection = spot._surfaceIntersection;
         let hitSurface = 'floor'; // 'floor', 'backWall', 'leftWall', 'rightWall'
         
-        // Club boundaries. Sourced from ROOM_BOUNDS (01-core.js) rather than
-        // re-derived: the previous literals (-25.8 / ±10) disagreed with the
-        // geometry actually built, so beams terminated 2.5 m short of the side
-        // walls and 4.8 m behind the back wall.
-        const BACK_WALL_Z = ROOM_BOUNDS.z.min;
-        const LEFT_WALL_X = ROOM_BOUNDS.x.min;
-        const RIGHT_WALL_X = ROOM_BOUNDS.x.max;
+        // Club optical boundaries. Sourced from ROOM_INTERIOR (01-core.js) when available,
+        // plus elevated horizontal venue surfaces (mezzanine deck, DJ table/riser, bar counter)
+        // so beams terminate on the real structure instead of passing through to y = 0.
+        const bounds = typeof ROOM_INTERIOR !== 'undefined' ? ROOM_INTERIOR : ROOM_BOUNDS;
+        const BACK_WALL_Z = bounds.z.min;
+        const LEFT_WALL_X = bounds.x.min;
+        const RIGHT_WALL_X = bounds.x.max;
         
         // Calculate distances to each surface (only if beam is heading toward it)
         let distToFloor = Infinity;
@@ -910,9 +937,25 @@ class VRClubAnimationFixtures extends VRClubAnimationCore {
         let distToLeftWall = Infinity;
         let distToRightWall = Infinity;
         
-        // Floor intersection (beam pointing down)
+        // Horizontal surface intersections (floor and elevated decks/counters when pointing down)
         if (direction.y < -0.01) {
-            distToFloor = emissionPoint.y / Math.abs(direction.y);
+            const invNegY = -1 / direction.y;
+            distToFloor = emissionPoint.y * invNegY;
+            // Mezzanine deck (y = 3.0), DJ table (y = 1.42), bar counter (y = 1.1), DJ riser (y = 0.5)
+            const checkSlab = (topY, x0, x1, z0, z1) => {
+                if (emissionPoint.y <= topY) return;
+                const t = (emissionPoint.y - topY) * invNegY;
+                if (t <= 0 || t >= distToFloor) return;
+                const hx = emissionPoint.x + direction.x * t;
+                const hz = emissionPoint.z + direction.z * t;
+                if (hx >= x0 && hx <= x1 && hz >= z0 && hz <= z1) {
+                    distToFloor = t;
+                }
+            };
+            checkSlab(3.0, -12.2, -9.5, -19.0, -10.4);
+            checkSlab(1.42, -2.0, 2.0, -19.0, -18.0);
+            checkSlab(1.1, 9.7, 10.5, -13.6, -6.2);
+            checkSlab(0.5, -3.0, 3.0, -20.0, -16.0);
         }
         
         // Back wall intersection (beam pointing back/negative Z)
@@ -971,9 +1014,10 @@ class VRClubAnimationFixtures extends VRClubAnimationCore {
      */
     _updateSpotBeamGeometry(spot, i, direction, time, dtScale, speedMultiplier) {
         const { centerDistanceToSurface, hitSurface, emissionPoint, surfaceIntersection } = this._resolveSpotSurfaceHit(spot, direction);
-        const BACK_WALL_Z = ROOM_BOUNDS.z.min;
-        const LEFT_WALL_X = ROOM_BOUNDS.x.min;
-        const RIGHT_WALL_X = ROOM_BOUNDS.x.max;
+        const bounds = typeof ROOM_INTERIOR !== 'undefined' ? ROOM_INTERIOR : ROOM_BOUNDS;
+        const BACK_WALL_Z = bounds.z.min;
+        const LEFT_WALL_X = bounds.x.min;
+        const RIGHT_WALL_X = bounds.x.max;
 
         // HYPERREALISTIC BEAM: Extend beam PAST floor so cone edges touch floor
         // 
@@ -1105,6 +1149,9 @@ class VRClubAnimationFixtures extends VRClubAnimationCore {
                     rightWall: new BABYLON.Plane(1, 0, 0, -RIGHT_WALL_X - EPS)
                 };
             }
+            if (hitSurface === 'floor' && surfaceIntersection) {
+                spot._clipPlanes.floor.d = (surfaceIntersection.y || 0) + EPS;
+            }
             spot.beamMat.clipPlane4 = spot._clipPlanes[hitSurface] || spot._clipPlanes.floor;
         }
         
@@ -1162,7 +1209,8 @@ class VRClubAnimationFixtures extends VRClubAnimationCore {
         // Physics-based surface brightness (Lambert x inverse-square). Starts at 1.0
         // here and is refined by _updateSpotLightPool() (st.physicsIntensity), which
         // the gobo pass reads. Stays 1.0 on frames where the beam misses a surface.
-        const physicsIntensity = 1.0;
+        const physicsIntensity = typeof this._fixturePhotometricGain === 'function'
+            ? this._fixturePhotometricGain(beamLength, g.cosTheta) : 1;
 
         spot.beam.visibility = beamVisible ? 1.0 : 0;
         
@@ -1186,7 +1234,8 @@ class VRClubAnimationFixtures extends VRClubAnimationCore {
             spot.beamGlow.visibility = beamVisible ? 1.0 : 0;
             // Use global color for perfect sync
             if (!spot._beamGlowEmisBuf) spot._beamGlowEmisBuf = new BABYLON.Color3();
-            this.currentSpotColor.scaleToRef(0.15 * master, spot._beamGlowEmisBuf);
+            this.currentSpotColor.scaleToRef(
+                0.15 * master * Math.sqrt(physicsIntensity), spot._beamGlowEmisBuf);
             spot.beamGlowMat.emissiveColor = spot._beamGlowEmisBuf;
         }
         // Remember whether the beam is currently lit. The authoritative
@@ -1207,15 +1256,17 @@ class VRClubAnimationFixtures extends VRClubAnimationCore {
         // This ensures fixture uses EXACT same color as beam
         spot.currentBeamColor = spotColor;
         
+        const smokeNow = Number.isFinite(this._smokeLevel) ? this._smokeLevel : (this.smokeActive === false ? 0 : 1);
         const medium = Math.min(1, Math.max(0,
-            spot._mediumDensity == null ? 0.5 : spot._mediumDensity));
+            spot._mediumDensity == null ? 0.5 * (0.2 + 0.8 * smokeNow) : spot._mediumDensity));
         const hazeVisibility = 0.35 + 0.65 * medium;
         const coneAngle = spot.light && Number.isFinite(spot.light.angle)
             ? spot.light.angle
             : Math.PI / 6;
         const narrowGain = Math.min(1.5, Math.max(0.75, 1.6 - coneAngle * 1.6));
         spot.beamMat.alpha = beamVisible
-            ? Math.min(0.99, hazeVisibility * 0.55 * narrowGain * (1 + (this.kickPulse || 0) * 0.25))
+            ? Math.min(0.99, hazeVisibility * 0.55 * narrowGain * Math.sqrt(physicsIntensity) *
+                (1 + (this.kickPulse || 0) * 0.25))
             : 0;
         
         const st = spot._beamState || (spot._beamState = {});
@@ -1276,16 +1327,9 @@ class VRClubAnimationFixtures extends VRClubAnimationCore {
                 // === LAMBERT'S COSINE LAW ===
                 // Irradiance on surface = I₀ * cos(θ)
                 // Light spreads over larger area at steeper angles → dimmer
-                const lambertFactor = Math.max(0.2, cosIncident);
-                
-                // === INVERSE SQUARE FALLOFF ===
-                // I = I₀ / d², normalized to reference distance
-                const refDist = 7.3; // Fixture height in meters
-                const invSqFalloff = Math.pow(refDist / Math.max(2, centerBeamLength), 2);
-                const clampedInvSq = Math.min(2.0, Math.max(0.25, invSqFalloff));
-                
-                // Combined physics-based intensity
-                physicsIntensity = lambertFactor * clampedInvSq * master;
+                // The cone, pool, gobo and real SpotLight share this one photometric model.
+                physicsIntensity = (typeof this._fixturePhotometricGain === 'function'
+                    ? this._fixturePhotometricGain(centerBeamLength, cosIncident) : 1) * master;
                 
                 // Subtle atmospheric shimmer (dust particles in beam)
                 const shimmer = 1.0 + Math.sin(time * 1.8 + i * 0.9) * 0.05;
@@ -1320,7 +1364,7 @@ class VRClubAnimationFixtures extends VRClubAnimationCore {
                     if (hitSurface === 'floor') {
                         spot.poolLight.position.set(
                             surfaceIntersection.x,
-                            0.4,
+                            (surfaceIntersection.y || 0) + 0.4,
                             surfaceIntersection.z
                         );
                     } else {
@@ -1363,14 +1407,15 @@ class VRClubAnimationFixtures extends VRClubAnimationCore {
 
     /** Position and orient the light pool on the floor or wall the beam hits. */
     _placeSpotPool(spot, direction, hitSurface, surfaceIntersection, minorRadius, majorRadius, tiltDirX, tiltDirZ, tiltMagnitude) {
-        const BACK_WALL_Z = ROOM_BOUNDS.z.min;
-        const LEFT_WALL_X = ROOM_BOUNDS.x.min;
-        const RIGHT_WALL_X = ROOM_BOUNDS.x.max;
+        const bounds = typeof ROOM_INTERIOR !== 'undefined' ? ROOM_INTERIOR : ROOM_BOUNDS;
+        const BACK_WALL_Z = bounds.z.min;
+        const LEFT_WALL_X = bounds.x.min;
+        const RIGHT_WALL_X = bounds.x.max;
         if (hitSurface === 'floor') {
-            // Floor hit - pool lies flat on floor
+            // Floor or elevated horizontal surface hit - pool lies flat on surface
             spot.lightPool.position.set(
                 surfaceIntersection.x,
-                0.004, // Just above floor (prevent z-fighting)
+                (surfaceIntersection.y || 0) + 0.004, // Just above surface (prevent z-fighting)
                 surfaceIntersection.z
             );
             spot.lightPool.rotation.x = Math.PI / 2; // Flat on floor
@@ -1443,7 +1488,7 @@ class VRClubAnimationFixtures extends VRClubAnimationCore {
             spot.lightPoolGlow.position.copyFrom(spot.lightPool.position);
             // Offset slightly toward viewer to prevent z-fighting
             if (hitSurface === 'floor') {
-                spot.lightPoolGlow.position.y = 0.002;
+                spot.lightPoolGlow.position.y = (spot.lightPool.position.y || 0.004) - 0.002;
             } else if (hitSurface === 'backWall') {
                 spot.lightPoolGlow.position.z += 0.008;
             } else if (hitSurface === 'leftWall') {
@@ -1495,10 +1540,10 @@ class VRClubAnimationFixtures extends VRClubAnimationCore {
                 const goboRotAngle = this.goboRotation + goboLocalOffset;
                 
                 if (hitSurface === 'floor') {
-                    // Floor: flat disc on XZ plane
+                    // Floor or elevated horizontal surface: flat disc on XZ plane
                     spot.goboProjection.position.set(
                         spot.lightPool.position.x,
-                        0.025, // Just above floor
+                        (spot.lightPool.position.y || 0.004) + 0.021, // Just above surface
                         spot.lightPool.position.z
                     );
                     spot.goboProjection.rotation.x = Math.PI / 2;

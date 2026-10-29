@@ -52,7 +52,7 @@ test('the club stays inside its render-submission and texture-budget ceilings', 
     expect(desktopBudget.shadowMaps).toEqual([]);
     expect(desktopBudget.reflectionProbe.refreshRate).toBe(0);
 
-    await enterVR(page);
+    await enterVR(page, { floorPosition: [0, 0, -12] });
     await pinBudgetCue(page);
     const xrBudget = await snapshotResourceBudget(page, 20);
     console.log('BUDGET_XR', JSON.stringify(xrBudget));

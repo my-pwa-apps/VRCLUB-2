@@ -3,7 +3,7 @@ import { useQuestHarness, enterClub, enterVR, expectHealthyRuntime } from './sup
 
 useQuestHarness();
 
-test('fresh Quest entry contacts no music provider and ignores historical stream preferences', async ({ page }) => {
+test('fresh Quest entry contacts no music provider, plays the club\u2019s own set and ignores historical stream preferences', async ({ page }) => {
     test.setTimeout(900_000);
     const requests = [];
     page.on('request', request => requests.push(request.url()));
@@ -14,7 +14,8 @@ test('fresh Quest entry contacts no music provider and ignores historical stream
     await enterClub(page);
     expect(requests.some(url => /podbean|soundcloud|hernancattaneo|old-music\.example/.test(url))).toBe(false);
     expect(await page.evaluate(() => window.vrClub.musicLibrary.items.length)).toBe(0);
-    expect(await page.evaluate(() => window.vrClub.audioElement?.src || '')).toBe('');
+    // Nothing of the guest's, so the club's own file (same origin) is what is loaded.
+    expect(await page.evaluate(() => window.vrClub.audioElement?.src || '')).toMatch(/\/audio\/nocturne-house\.mp3$/);
     await page.locator('#audioToggle').click();
     await expect(page.locator('#savedSets')).toContainText('No saved sets yet');
     await expect(page.locator('#splashRadioOnEntry')).toHaveCount(0);
@@ -35,7 +36,8 @@ test('VR setup and licences return to the panel and allow re-entry', async ({ pa
     await page.waitForFunction(() => !window.vrClub.isInVRMode, null, { timeout: 30_000 });
     await expect(page.locator('#modelCredits')).toHaveAttribute('open', '');
     await expect(page.locator('#modelCredits')).toContainText('TwoPixels.studio');
-    await expect(page.locator('#modelCredits')).toContainText('No music, podcasts or third-party sound recordings');
+    await expect(page.locator('#modelCredits')).toContainText("only music included is the club's own original house set");
+    await expect(page.locator('#modelCredits')).toContainText('No podcasts or third-party sound recordings');
     await page.locator('#modelCredits summary').click();
     await enterVR(page);
     await expectHealthyRuntime(page);

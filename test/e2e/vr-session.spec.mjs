@@ -4,7 +4,7 @@ import { renderFrames } from './xr-measure.mjs';
 
 useQuestHarness();
 
-/** Spawn is the dance-floor centre, turned to face the stage (Babylon copies the desktop camera's yaw). */
+/** The subsequent indoor input/teleport checks use a fixed pose after verifying the street arrival. */
 const SPAWN = { x: 0, y: 1.6, z: -12 };
 
 /** XR local-floor space (right-handed, -z forward) -> Babylon world while the user faces -z from SPAWN. */
@@ -65,28 +65,73 @@ const press = (page, hand, button, value) => page.evaluate(([side, id, v]) => {
     window.__iwerDevice.controllers[side].updateButtonValue(id, v);
 }, [hand, button, value]);
 
-/** The hand whose laser Babylon currently routes clicks through; the other hand's first pull only switches to it. */
-const activePointerHand = page => page.evaluate(() => {
-    const club = window.vrClub;
-    const id = club.vrHelper.pointerSelection._attachedController;
-    return club._xrControllers.find(controller => controller.uniqueId === id).inputSource.handedness;
-});
 
 const angleDelta = (to, from) => ((to - from + 540) % 360) - 180;
 
 test('Quest session: headset, controllers, snap turn, teleport and the lighting menu', async ({ page }) => {
     test.setTimeout(900_000);
     await enterClub(page);
+    await page.evaluate(() => {
+        const camera = window.vrClub.camera;
+        camera.setTarget(camera.position.add(new BABYLON.Vector3(10, 0, 0)));
+    });
     await enterVR(page);
     await renderFrames(page, 10);
 
-    await test.step('the user spawns on the dance floor facing the stage', async () => {
+    await test.step('VR arrives on the opposite pavement with the logo and queue in view, regardless of desktop heading', async () => {
         const pose = await headPose(page);
-        expect(pose.position[0]).toBeCloseTo(SPAWN.x, 1);
-        expect(pose.position[1]).toBeCloseTo(SPAWN.y, 1);
-        expect(pose.position[2]).toBeCloseTo(SPAWN.z, 1);
-        // -z is the DJ booth; a user turned the other way would face a dark wall.
+        const layout = await page.evaluate(() => ({
+            x: window.CityLayout.vrEntry.x, z: window.CityLayout.vrEntry.z,
+            groundY: window.CityLayout.groundY, roadTo: window.CityLayout.roadTo, farFront: window.CityLayout.farFront
+        }));
+        expect(pose.position[0]).toBeCloseTo(layout.x, 1);
+        expect(pose.position[1]).toBeCloseTo(layout.groundY + SPAWN.y, 1);
+        expect(pose.position[2]).toBeCloseTo(layout.z, 1);
+        expect(pose.position[2]).toBeGreaterThan(layout.roadTo + 0.5);
+        expect(pose.position[2]).toBeLessThan(layout.farFront - 0.5);
         expect(Math.abs(Math.abs(pose.yawDegrees) - 180)).toBeLessThan(2);
+        await page.waitForFunction(() => window.vrClub.npcAvatars.filter(npc =>
+            /^queue\d+$/.test(npc.name) && npc.root.isEnabled()).length === window.vrClub.tierSettings.queueSize);
+        const view = await page.evaluate(() => {
+            const club = window.vrClub, B = BABYLON;
+            const camera = club.vrHelper.baseExperience.camera.rigCameras[0];
+            const viewport = camera.viewport.toGlobal(club.engine.getRenderWidth(), club.engine.getRenderHeight());
+            const project = p => {
+                const point = B.Vector3.Project(p, B.Matrix.Identity(), camera.getTransformationMatrix(), viewport);
+                return [point.x / viewport.width, point.y / viewport.height, point.z];
+            };
+            const sign = window.signagePlan(window.CityLayout.groundY).find(s => s.kind === 'nocturne' && s.yaw === Math.PI);
+            const logo = [-1, 1].flatMap(x => [-1, 1].map(y =>
+                project(new B.Vector3(sign.along + x * sign.w / 2, sign.y + y * sign.h / 2, sign.wall + 0.064))));
+            const people = club.npcAvatars.filter(npc => npc.street && npc.root.isEnabled()).map(npc => {
+                const position = npc.root.getAbsolutePosition().clone();
+                position.y += 0.9;
+                return project(position);
+            });
+            return { logo, people, city: club._cityVisible };
+        });
+        expect(view.city).toBe(true);
+        expect(view.people.length).toBeGreaterThanOrEqual(5);
+        for (const point of [...view.logo, ...view.people]) {
+            expect(point[0]).toBeGreaterThan(0.05);
+            expect(point[0]).toBeLessThan(0.95);
+            expect(point[1]).toBeGreaterThan(0.05);
+            expect(point[1]).toBeLessThan(0.95);
+            expect(point[2]).toBeGreaterThan(0);
+            expect(point[2]).toBeLessThan(1);
+        }
+        await page.screenshot({ path: test.info().outputPath('street-vr-arrival.png') });
+    });
+
+    await test.step('the remaining input checks start from their fixed indoor pose', async () => {
+        await page.evaluate(position => {
+            const club = window.vrClub, camera = club.vrHelper.baseExperience.camera;
+            camera.position.set(position.x, position.y, position.z);
+            if (camera._deferOnly && camera._deferredUpdated) camera._deferredPositionUpdate.copyFrom(camera.position);
+            club._walkLevel = 0;
+            club._vrFallSpeed = 0;
+        }, SPAWN);
+        await renderFrames(page, 10);
     });
 
     await test.step('headset movement and turning move the camera', async () => {
@@ -123,32 +168,33 @@ test('Quest session: headset, controllers, snap turn, teleport and the lighting 
         await setController(page, 'right', { position: [0.25, 1.5, -0.4] });
     });
 
-    await test.step('pointing at a menu button and pulling the trigger operates it', async () => {
+    await test.step('pointing at a menu button and pulling the trigger operates it, with either hand and on the first pull', async () => {
         await press(page, 'left', 'y-button', 1);
         await page.waitForFunction(() => window.vrClub._vrQuickMenuRoot?.isEnabled() === true);
         await press(page, 'left', 'y-button', 0);
         await renderFrames(page, 5);
 
-        const hand = await activePointerHand(page);
-        const target = await page.evaluate(() => {
-            const club = window.vrClub;
-            club._showVRQuickMenuPage('effects');
-            const button = club._vrQuickMenuButtons.find(item => item.control === 'smokeActive');
-            button.mesh.computeWorldMatrix(true);
-            return { world: button.mesh.getAbsolutePosition().asArray(), before: club.smokeActive };
-        });
-        const origin = await controllerXrPosition(page, hand);
-        const direction = worldToXr(target.world).map((value, axis) => value - origin[axis]);
-        await setController(page, hand, { quaternion: aimQuaternion(direction) });
-        await renderFrames(page, 6);
-        await press(page, hand, 'trigger', 1);
-        await renderFrames(page, 4);
-        await press(page, hand, 'trigger', 0);
-        await renderFrames(page, 6);
-        expect(await page.evaluate(() => window.vrClub.smokeActive), 'haze toggled by a ray select').toBe(!target.before);
-        expect(await page.evaluate(() => window.vrClub.vjManualMode), 'a menu click hands the show to the user').toBe(true);
-
-        await setController(page, hand, { quaternion: [0, 0, 0, 1] });
+        // Babylon used to route clicks through one controller only: the other hand's first pull merely switched to it.
+        for (const hand of ['right', 'left']) {
+            const target = await page.evaluate(() => {
+                const club = window.vrClub;
+                club._showVRQuickMenuPage('effects');
+                const button = club._vrQuickMenuButtons.find(item => item.control === 'smokeActive');
+                button.mesh.computeWorldMatrix(true);
+                return { world: button.mesh.getAbsolutePosition().asArray(), before: club.smokeActive };
+            });
+            const origin = await controllerXrPosition(page, hand);
+            const direction = worldToXr(target.world).map((value, axis) => value - origin[axis]);
+            await setController(page, hand, { quaternion: aimQuaternion(direction) });
+            await renderFrames(page, 6);
+            await press(page, hand, 'trigger', 1);
+            await renderFrames(page, 4);
+            await press(page, hand, 'trigger', 0);
+            await renderFrames(page, 6);
+            expect(await page.evaluate(() => window.vrClub.smokeActive), `haze toggled by the FIRST ${hand}-hand pull`).toBe(!target.before);
+            expect(await page.evaluate(() => window.vrClub.vjManualMode), 'a menu click hands the show to the user').toBe(true);
+            await setController(page, hand, { quaternion: [0, 0, 0, 1] });
+        }
         await page.evaluate(() => window.vrClub.toggleVRQuickMenu(false));
         await renderFrames(page, 3);
     });
@@ -216,6 +262,20 @@ test('Quest session: headset, controllers, snap turn, teleport and the lighting 
         }
     });
 
+    await exitVR(page);
+    await page.evaluate(() => {
+        window.__iwerDevice.position.set(0, 1.25, 0);
+        const camera = window.vrClub.camera;
+        camera.setTarget(camera.position.add(new BABYLON.Vector3(10, 0, 0)));
+    });
+    await enterVR(page);
+    await renderFrames(page, 10);
+    const returned = await headPose(page);
+    const street = await page.evaluate(() => window.CityLayout);
+    expect(returned.position[0]).toBeCloseTo(street.vrEntry.x, 1);
+    expect(returned.position[1]).toBeCloseTo(street.groundY + 1.25, 1);
+    expect(returned.position[2]).toBeCloseTo(street.vrEntry.z, 1);
+    expect(Math.abs(Math.abs(returned.yawDegrees) - 180)).toBeLessThan(2);
     await exitVR(page);
     await expectHealthyRuntime(page);
 });

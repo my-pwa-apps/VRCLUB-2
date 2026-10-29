@@ -12,8 +12,7 @@
 - **Entrance**, **Dance Floor**, and **DJ Booth** provide instant travel without
   walking, preserving tracked eye height and head orientation. The booth adds
   its 0.5 m platform elevation; travel back to the floor removes that elevation.
-- **Safe Mode** and **Haptics** are available in the headset menu. Vibration is
-  opt-in for new visitors; existing saved preferences are retained.
+- **Safe Mode** is available in the headset menu, and the controllers never vibrate.
 - Comfort and travel controls do not stop the automatic light show. Photosensitive
   Safe Mode reduces flashing but is not a medical guarantee of safety.
 
@@ -33,6 +32,33 @@ sustained high audio energy returns from the peak sequence to a complete groove
 sequence before another peak is possible. The groove emphasizes moving heads and
 mirror-ball looks, with shorter dedicated laser moments and fewer blackout cuts.
 Safe Mode continues to suppress strobes, and manual fixture controls remain available.
+
+### Musical Builds and Safe Mode
+
+- Automatic countdowns require energy to rise by at least 0.035 across the last
+  four bars; a high but flat level can still enter the peak movement without a
+  countdown. The manual DROP action remains available without that condition.
+- The groove's Underground Sequence wall solo lasts 38 bars, giving its six-scene
+  film a complete run. Switching away clears old phosphor trails but preserves
+  the film's beat origin; a reset beat clock starts a new run.
+- In Safe Mode, a strobe-only solo becomes a slow aurora wall instead of an
+  empty room. Changing Safe Mode immediately recomposes the current automatic
+  cue and countdown rung, without taking control from manual lighting.
+
+### Room DJ and Audio Effects
+
+In a room, the host's **RESIDENT DJ** toggle sends the DJ home or brings them back
+for everyone. Guests may still hide the DJ for themselves, but cannot override a
+host absence. Their saved personal people-hiding choices are not overwritten.
+
+The host's nine audio controls are shared: low-pass, high-pass, echo, flanger,
+reverb, phaser, noise sweep, gater and crossfader. They update with the existing
+host frames, at most four times a second, including late joiners. Saved-link music
+is processed on each listener; a local-file broadcast is already processed and
+must not receive a second wet effect or crossfader attenuation. Guests cannot turn
+the host's knobs. Returning their personally hidden DJ does not clear host effects.
+Leaving or blocking the host restores local settings; promotion to host keeps the
+current effect values. This shares settings, not sample-exact modulation phases.
 
 The VJ control console is located on the **right side of the DJ platform** (x=3.5, z=-24.4). It features **9 interactive 3D buttons** arranged in 3 rows.
 

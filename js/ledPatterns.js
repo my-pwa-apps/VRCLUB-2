@@ -24,6 +24,144 @@ const WAREHOUSE_PROGRAMS = {
 // three per second; the governor refuses any closer than this, whatever the music does.
 const WAREHOUSE_MIN_FLASH_GAP = 0.40;
 
+const NON_DJ_NAME_WORDS = new Set([
+    'set', 'mix', 'podcast', 'episode', 'ep', 'vol', 'volume', 'part', 'pt',
+    'live', 'stream', 'radio', 'show', 'session', 'sessions', 'recording',
+    'track', 'audio', 'music', 'club', 'night', 'edition', 'special', 'guest',
+    'official', 'promo', 'preview', 'free', 'download', 'untitled', 'unknown',
+    'soundcloud', 'broadcast', 'host', 'resident', 'colourizon', 'mixtape',
+    'b2b', 'vs', 'feat', 'ft', 'presents', 'recorded', 'studio', 'festival',
+    'boiler', 'room', 'cercle', 'essential', 'hor', 'berlin', 'amsterdam', 'london', 'ibiza',
+    'house', 'techno', 'trance', 'progressive', 'deep', 'melodic', 'underground', 'intro', 'outro'
+]);
+
+const KNOWN_FEMALE_DJS = new Set([
+    'MISS MELERA', 'CHARLOTTE DE WITTE', 'AMELIE LENS', 'PEGGY GOU', 'NINA KRAVIZ',
+    'PAULA TEMPLE', 'HELENA HAUFF', 'ELLEN ALLIEN', 'THE BLACK MADONNA', 'BLESSED MADONNA',
+    'HONEY DIJON', 'MAYA JANE COLES', 'NORA EN PURE', 'ALISON WONDERLAND', 'REZZ',
+    'CLOZEE', 'TOKIMONSTA', 'ANNA', 'SAMA ABDULHADI', 'ANETHA', 'SPFDJ', 'VTSS',
+    'INDIRA PAGANOTTO', 'SARA LANDRY', 'LILLY PALMER', 'DEBORAH DE LUCA', 'ANFISSA LETYAGO',
+    'GIORGIA ANGIULI', 'CHLOE CAILLET', 'LP GIOBBI', 'JAYDA G', 'OCTO OCTA', 'ERIS DREW',
+    'AVALON EMERSON', 'COURTESY', 'NASTIA', 'DARIA KOLOSOVA', 'MONIKA KRUSE',
+    'NICOLE MOUDABER', 'IDA ENGBERG', 'SONJA MOONEAR', 'TINI', 'MARGARET DYGAS',
+    'CASSY', 'HEIDI', 'ANNIE MAC', 'B TRAITS', 'KORNELIA BINICEWICZ', 'DJ MARCELLE',
+    'MARCELLE', 'ELLEN', 'MISSMELERA'
+]);
+
+const KNOWN_MALE_DJS = new Set([
+    'HERNAN CATTANEO', 'NICK WARREN', 'JOHN DIGWEED', 'SASHA', 'SASHA & JOHN DIGWEED',
+    'GUY J', 'GUY MANTZUR', 'KINK', 'CARL COX', 'RICHIE HAWTIN', 'SVEN VATH', 'ADAM BEYER',
+    'BORIS BREJCHA', 'SOLOMUN', 'MACEO PLEX', 'DIXON', 'BEN KLOCK', 'MARCEL DETTMANN',
+    'RODHAD', 'DAX J', 'I HATE MODELS', 'REINIER ZONNEVELD', 'JORIS VOORN', 'PATRICE BAUMEL',
+    'EELKE KLEIJN', 'SEBASTIEN LEGER', 'TIM GREEN', 'LEE BURRIDGE', 'BLACK COFFEE',
+    'RAMPUE', 'BEN BOHMER', 'LANE 8', 'YOTTO', 'LUTTRELL', 'MARSH', 'SPENCER BROWN',
+    'JEREMY OLANDER', 'CRISTOPH', 'ERIC PRYDZ', 'CIREZ D', 'PRYDA', 'DEADMAU5', 'TESTPILOT',
+    'FOUR TET', 'FLOATING POINTS', 'BONOBO', 'CARIBOU', 'DAPHNI', 'JAMIE XX',
+    'JOY ORBISON', 'BEN UFO', 'PEARSON SOUND', 'PALMS TRAX', 'HUNEE', 'ANTAL',
+    'MOTOR CITY DRUM ENSEMBLE', 'DANILO PLESSOW', 'GILLES PETERSON', 'FATBOY SLIM',
+    'PAUL OAKENFOLD', 'PAUL VAN DYK', 'TIESTO', 'ARMIN VAN BUUREN', 'FERRY CORSTEN',
+    'PETE TONG', 'DANNY TENAGLIA', 'LAURENT GARNIER', 'JEFF MILLS', 'ROBERT HOOD',
+    'DERRICK MAY', 'KEVIN SAUNDERSON', 'JUAN ATKINS', 'MOODYMANN', 'THEO PARRISH',
+    'KERRI CHANDLER', 'LOUIE VEGA', 'FRANKIE KNUCKLES', 'LARRY HEARD', 'RICARDO VILLALOBOS',
+    'LUCIANO', 'LOCO DICE', 'MARCO CAROLA', 'PACO OSUNA', 'JAMIE JONES', 'SETH TROXLER',
+    'GREEN VELVET', 'CLAUDE VONSTROKE', 'FISHER', 'CHRIS LAKE', 'DOM DOLLA', 'JOHN SUMMIT',
+    'FRED AGAIN', 'SKRILLEX', 'DIPLO', 'CALVIN HARRIS', 'DAVID GUETTA', 'MARTIN GARRIX',
+    'AFROJACK', 'HARDWELL', 'OLIVER HELDENS', 'HI LO', 'DON DIABLO', 'NICKY ROMERO',
+    'STEVE AOKI', 'ZEDD', 'PORTER ROBINSON', 'MADEON', 'ILLENIUM', 'FLUME', 'KAYTRANADA',
+    'STEPHAN BODZIN', 'MAX COOPER', 'JON HOPKINS', 'RIVAL CONSOLES', 'CHRISTIAN LOFFLER',
+    'JAN BLOMQVIST', 'MONOLINK', 'WORAKLS', 'NTO', 'JOACHIM PASTOR', 'EINMUSIK',
+    'SEBASTIAN MULLAERT', 'MATHEW JONSON', 'CHRIS LIEBING', 'LEN FAKI', 'SAM PAGANINI',
+    'ENRICO SANGIULIANO', 'JOSEPH CAPRIATI', 'ILARIO ALICANTE', 'ALAN FITZPATRICK',
+    'HOT SINCE 82', 'PATRICK TOPPING', 'MICHAEL BIBI', 'PAWSA', 'DENNIS CRUZ', 'CUARTERO',
+    'HECTOR COUTO', 'DARIUS SYROSSIAN', 'LOW STEPPA', 'SONNY FODERA', 'MK', 'MARC KINCHEN',
+    'DUKE DUMONT', 'PURPLE DISCO MACHINE', 'FOLAMOUR', 'DJ KOZE', 'DJ TENNIS', 'DJ SEINFELD',
+    'DJ BORING', 'DJ EZ', 'DJ SHADOW', 'DJ HARVEY', 'DJ NOBU', 'DJ STINGRAY', 'DJ BONE',
+    'DJ SNEAK', 'DJ PIERRE', 'DJ MARKY', 'DJ HYPE', 'DJ HAZARD'
+]);
+
+const FEMALE_FIRST_NAMES = new Set([
+    'MISS', 'MS', 'MRS', 'LADY', 'QUEEN', 'SISTER',
+    'ALICE', 'ALINA', 'ALISON', 'AMANDA', 'AMBER', 'AMELIA', 'AMELIE', 'AMY', 'ANA', 'ANASTASIA',
+    'ANETHA', 'ANFISSA', 'ANGELA', 'ANNA', 'ANNE', 'ANNIE', 'ARIA', 'ARIANA', 'ASHLEY',
+    'ASTRID', 'AUDREY', 'AURORA', 'AVA', 'AVALON', 'BEATRICE', 'BELLA', 'BIANCA', 'BRENDA', 'CAMILA',
+    'CARLA', 'CARMEN', 'CAROLINA', 'CAROLINE', 'CASSANDRA', 'CASSY', 'CATHERINE', 'CECILIA',
+    'CELINE', 'CHANTAL', 'CHARLOTTE', 'CHLOE', 'CHRISTINA', 'CLAIRE', 'CLARA', 'CLAUDIA',
+    'DAISY', 'DANIELA', 'DAPHNE', 'DARIA', 'DEBORAH', 'DIANA', 'DONNA', 'ELENA', 'ELISA',
+    'ELISABETH', 'ELIZABETH', 'ELLA', 'ELLEN', 'ELODIE', 'ELSA', 'EMILIA', 'EMILY', 'EMMA',
+    'ERICA', 'ERIKA', 'ERIN', 'ERIS', 'ESTHER', 'EVA', 'EVELYN', 'FATIMA', 'FIONA', 'FLORA',
+    'FRANCESCA', 'FREYA', 'GABRIELA', 'GABRIELLE', 'GEMMA', 'GEORGIA', 'GIORGIA', 'GISELLE',
+    'GIULIA', 'GRACE', 'GRETA', 'HANNAH', 'HAZEL', 'HEATHER', 'HEIDI', 'HELEN', 'HELENA',
+    'HOLLY', 'HONEY', 'IDA', 'INDIRA', 'INES', 'INGRID', 'IRENE', 'IRIS', 'ISABEL', 'ISABELLA',
+    'ISABELLE', 'ISLA', 'IVY', 'JADE', 'JASMINE', 'JAYDA', 'JENNIFER', 'JESSICA', 'JOANNA',
+    'JOHANNA', 'JULIA', 'JULIANA', 'JULIE', 'JULIETTE', 'KAREN', 'KARINA', 'KATE', 'KATHERINE',
+    'KATIA', 'KATIE', 'KATJA', 'KATRINA', 'KELLY', 'KIARA', 'KIRSTEN', 'KLARA', 'KORNELIA',
+    'KRISTINA', 'LANA', 'LARA', 'LAURA', 'LAUREN', 'LAYLA', 'LEA', 'LEAH', 'LEILA', 'LENA',
+    'LEONIE', 'LETICIA', 'LIA', 'LIANA', 'LILIANA', 'LILLY', 'LILY', 'LINDA', 'LISA', 'LIVIA',
+    'LOLA', 'LORENA', 'LOUISE', 'LUCIA', 'LUCILLE', 'LUCY', 'LUNA', 'LYDIA', 'MADELINE',
+    'MAIA', 'MAJA', 'MARGARET', 'MARIA', 'MARIANA', 'MARIE', 'MARINA', 'MARION', 'MARTA',
+    'MARTHA', 'MARTINA', 'MARY', 'MATILDA', 'MAYA', 'MEGAN', 'MELANIE', 'MELERA', 'MELISSA',
+    'MIA', 'MICHELLE', 'MILA', 'MIRIAM', 'MOLLY', 'MONICA', 'MONIKA', 'NADIA', 'NADINE',
+    'NAOMI', 'NATALIA', 'NATALIE', 'NATASHA', 'NASTIA', 'NICOLE', 'NINA', 'NOEMI', 'NORA',
+    'OLGA', 'OLIVIA', 'PAOLA', 'PATRICIA', 'PAULA', 'PAULINA', 'PAULINE', 'PEGGY', 'PENELOPE',
+    'PETRA', 'PHOEBE', 'RACHEL', 'REBECCA', 'REGINA', 'RENATA', 'RITA', 'ROSA', 'ROSALIE',
+    'ROSE', 'ROXANNE', 'RUBY', 'RUTH', 'SABRINA', 'SALLY', 'SAMA', 'SAMANTHA', 'SANDRA',
+    'SARA', 'SARAH', 'SCARLETT', 'SELINA', 'SERENA', 'SHARON', 'SIENNA', 'SILVIA', 'SIMONA',
+    'SOFIA', 'SONIA', 'SONJA', 'SOPHIA', 'SOPHIE', 'STELLA', 'STEPHANIE', 'SUSAN', 'SUZANNE',
+    'SYLVIA', 'TAMARA', 'TANIA', 'TATIANA', 'TERESA', 'TESSA', 'TIFFANY', 'TINA', 'VALENTINA',
+    'VALERIE', 'VANESSA', 'VERA', 'VERONICA', 'VICTORIA', 'VIOLET', 'VIRGINIA', 'VIVIAN',
+    'WENDY', 'YASMIN', 'YVONNE', 'ZARA', 'ZOE', 'ZOEY'
+]);
+
+const MALE_FIRST_NAMES = new Set([
+    'MR', 'SIR', 'LORD', 'KING', 'BROTHER', 'FATHER',
+    'AARON', 'ADAM', 'ADRIAN', 'ALAN', 'ALBERT', 'ALEJANDRO', 'ALESSANDRO', 'ALEXANDER',
+    'ALFONSO', 'ALFRED', 'ANDRE', 'ANDREAS', 'ANDRES', 'ANDREW', 'ANGELO', 'ANTHONY',
+    'ANTON', 'ANTONIO', 'ARMIN', 'ARTHUR', 'AUSTIN', 'AXEL', 'BART', 'BEN', 'BENJAMIN',
+    'BERNARD', 'BILLY', 'BOB', 'BOBBY', 'BORIS', 'BRAD', 'BRADLEY', 'BRANDON', 'BRIAN',
+    'BRUCE', 'BRUNO', 'BRYAN', 'CALVIN', 'CARL', 'CARLOS', 'CESAR', 'CHARLES', 'CHRIS',
+    'CHRISTIAN', 'CHRISTOPHER', 'CLAUDE', 'COLIN', 'CONNOR', 'CRAIG', 'CRISTIAN', 'DAMIAN',
+    'DAN', 'DANIEL', 'DANILO', 'DANNY', 'DARIO', 'DARIUS', 'DARREN', 'DAVE', 'DAVID',
+    'DEAN', 'DENIS', 'DENNIS', 'DEREK', 'DERRICK', 'DIEGO', 'DIMITRI', 'DIRK', 'DOMINIC',
+    'DOMINIK', 'DONALD', 'DOUGLAS', 'DUKE', 'DYLAN', 'EDDIE', 'EDGAR', 'EDMUND', 'EDUARDO',
+    'EDWARD', 'EDWIN', 'EELKE', 'ELI', 'ELIAS', 'EMIL', 'EMILIO', 'EMMANUEL', 'ENRICO',
+    'ENRIQUE', 'ERIC', 'ERIK', 'ERNEST', 'ESTEBAN', 'ETHAN', 'EUGENE', 'EVAN', 'FABIAN',
+    'FABIO', 'FEDERICO', 'FELIX', 'FERNANDO', 'FERRY', 'FILIP', 'FLORIAN', 'FRANCESCO',
+    'FRANCIS', 'FRANCISCO', 'FRANCO', 'FRANK', 'FRANKIE', 'FRED', 'FREDDIE', 'FREDERIK',
+    'GABRIEL', 'GARY', 'GAVIN', 'GEORGE', 'GERALD', 'GERARD', 'GIANLUCA', 'GILBERT',
+    'GILLES', 'GIOVANNI', 'GLENN', 'GORDON', 'GRAHAM', 'GRANT', 'GREG', 'GREGORY',
+    'GUILLERMO', 'GUSTAV', 'GUSTAVO', 'GUY', 'HANS', 'HAROLD', 'HARRY', 'HARVEY',
+    'HECTOR', 'HEINRICH', 'HENRIK', 'HENRY', 'HERBERT', 'HERNAN', 'HUGO', 'IAN',
+    'IGOR', 'ILARIO', 'ISAAC', 'IVAN', 'JACK', 'JACOB', 'JAKE', 'JAMES', 'JAMIE',
+    'JAN', 'JARED', 'JASON', 'JAVIER', 'JAY', 'JEAN', 'JEFF', 'JEFFREY', 'JEREMY',
+    'JEROME', 'JERRY', 'JESSE', 'JIM', 'JIMMY', 'JOACHIM', 'JOAO', 'JOAQUIN', 'JOE',
+    'JOEL', 'JOHAN', 'JOHANN', 'JOHANNES', 'JOHN', 'JOHNNY', 'JON', 'JONAS', 'JONATHAN',
+    'JORDAN', 'JORDI', 'JORGE', 'JORIS', 'JOSE', 'JOSEPH', 'JOSH', 'JOSHUA', 'JUAN',
+    'JULIAN', 'JULIO', 'JUSTIN', 'KAI', 'KARL', 'KEITH', 'KEN', 'KENNETH', 'KEVIN',
+    'KIERAN', 'KLAUS', 'KURT', 'KYLE', 'LANCE', 'LARRY', 'LARS', 'LAURENCE', 'LAURENT',
+    'LAWRENCE', 'LEE', 'LEN', 'LEO', 'LEON', 'LEONARDO', 'LEWIS', 'LIAM', 'LIONEL',
+    'LLOYD', 'LOGAN', 'LORENZO', 'LOU', 'LOUIE', 'LOUIS', 'LUCA', 'LUCAS', 'LUCIANO',
+    'LUIS', 'LUKAS', 'LUKE', 'MAGNUS', 'MANUEL', 'MARC', 'MARCEL', 'MARCELO', 'MARCO',
+    'MARCOS', 'MARCUS', 'MARIO', 'MARIUS', 'MARK', 'MARKUS', 'MARTIN', 'MARVIN',
+    'MATEO', 'MATHEW', 'MATHIAS', 'MATT', 'MATTEO', 'MATTHEW', 'MATTHIAS', 'MAURICE',
+    'MAX', 'MAXIM', 'MAXIMILIAN', 'MICHAEL', 'MICHEL', 'MIGUEL', 'MIKE', 'MILAN',
+    'MILES', 'MITCHELL', 'MORITZ', 'NATHAN', 'NEIL', 'NELSON', 'NICHOLAS', 'NICK',
+    'NICKY', 'NICO', 'NICOLAS', 'NIGEL', 'NIKLAS', 'NIKOLAI', 'NILS', 'NOAH', 'NORMAN',
+    'OLAF', 'OLIVER', 'OLIVIER', 'OMAR', 'OSCAR', 'OSKAR', 'OTTO', 'OWEN', 'PABLO',
+    'PACO', 'PAOLO', 'PASCAL', 'PATRICE', 'PATRICK', 'PAUL', 'PEDRO', 'PER', 'PETE',
+    'PETER', 'PHIL', 'PHILIP', 'PHILIPP', 'PHILIPPE', 'PIERRE', 'QUENTIN', 'RAFAEL',
+    'RALF', 'RALPH', 'RAMON', 'RAUL', 'RAY', 'RAYMOND', 'REINIER', 'RENE', 'RICARDO',
+    'ULRICH', 'VICTOR', 'VINCENT', 'VLADIMIR', 'WALTER', 'WARREN', 'WAYNE', 'WERNER',
+    'WESLEY', 'WILLIAM', 'WILLY', 'WOLFGANG', 'XAVIER', 'YANN', 'YANNICK', 'YVES', 'ZACHARY',
+    'RICHARD', 'RICHIE', 'RICK', 'RICKY', 'ROB', 'ROBERT', 'ROBERTO', 'ROBIN', 'RODRIGO',
+    'ROGER', 'ROLAND', 'ROMAN', 'RON', 'RONALD', 'ROSS', 'ROY', 'RUBEN', 'RUDOLF',
+    'RUSSELL', 'RYAN', 'SAM', 'SAMUEL', 'SANDER', 'SANTIAGO', 'SCOTT', 'SEAN',
+    'SEBASTIAN', 'SEBASTIEN', 'SERGE', 'SERGEI', 'SERGIO', 'SETH', 'SHANE', 'SHAUN',
+    'SIMON', 'SONNY', 'SPENCER', 'STAN', 'STANLEY', 'STEFAN', 'STEPHAN', 'STEPHEN',
+    'STEVE', 'STEVEN', 'STUART', 'SVEN', 'THEO', 'THEODOR', 'THOMAS', 'TIJS', 'TIM',
+    'TIMOTHY', 'TOBIAS', 'TODD', 'TOM', 'TOMAS', 'TOMMY', 'TONY', 'TRAVIS', 'TREVOR',
+    'TRISTAN', 'TROY', 'TYLER'
+]);
+
 class LEDPatternMethods {
     /**
      * Helper method to update LED panel emissive colors
@@ -909,7 +1047,7 @@ class LEDPatternMethods {
                 traceLo: new Float32Array(cols),
                 traceHi: new Float32Array(cols),
                 mod: new Float32Array(modCols * modRows),
-                traceAcc: 0, sub: 0.2, lastT: -1e9, lastFrame: -1e9, b0: 0,
+                traceAcc: 0, sub: 0.2, lastT: -1e9, lastFrame: -1e9, b0: null,
                 scratch: new BABYLON.Color3(),
                 accent: new BABYLON.Color3(),
                 amber: new BABYLON.Color3(1, 0.52, 0.1)
@@ -924,13 +1062,16 @@ class LEDPatternMethods {
             ? vj.beatNumber + (this.barPhase || 0) * 4 - Math.floor((this.barPhase || 0) * 4)
             : time / beatLen;
         const dtRaw = time - ug.lastT;
-        // "Another pattern had the wall" is detected from the frame counter skipping,
-        // not from elapsed time: a slow frame or a headset hitch must not restart the film.
+        // A slow frame or an interrupted wall pattern must not restart the film.
         const frameId = (this.scene && typeof this.scene.getFrameId === 'function') ? this.scene.getFrameId() : null;
         const wasAway = frameId !== null ? (frameId - ug.lastFrame > 3) : dtRaw > 0.5;
-        if (wasAway || beats < ug.b0) {
-            // First frame, or another pattern held the wall: start again at a bar line.
+        if (!Number.isFinite(ug.b0) || beats < ug.b0) {
+            // First frame or a reset beat clock: start at a bar line.
             ug.b0 = Math.floor(beats / 4) * 4;
+            ug.level.fill(0); ug.warm.fill(0); ug.trace.fill(0);
+            ug.traceAcc = 0;
+        } else if (wasAway) {
+            // The film clock keeps running while hidden, but stale phosphor does not.
             ug.level.fill(0); ug.warm.fill(0); ug.trace.fill(0);
             ug.traceAcc = 0;
         }
@@ -1419,9 +1560,121 @@ class LEDPatternMethods {
             this.updateLEDPanel(panel, out, Math.min(1, v));
         }
     }
+
+    // ──────────────────────────────────────────────────────────────────────
+    // SET DJ NAME EXTRACTION (used to match the booth DJ's look to the set)
+    //
+    // Reads the currently playing set's metadata and returns a DJ name only when it is unambiguous,
+    // and a gender only when that is certain. Never prepends "DJ" unless "DJ" is part of the artist's
+    // real name in the set metadata, and returns null when uncertain so nothing is ever guessed.
+    // ──────────────────────────────────────────────────────────────────────
+
+    static _cleanSetTitle(raw) {
+        let s = String(raw || '').trim();
+        s = s.replace(/\.(mp3|m4a|ogg|opus|wav|flac|aac|webm)$/i, '');
+        s = s.replace(/\s*[([][^\])]*[\])]/g, '').trim();
+        s = s.replace(/^\d{1,4}\s*[-._)]\s*/, '').trim();
+        return s.replace(/\s+/g, ' ').trim();
+    }
+
+    static _normalizeAsciiBanner(text) {
+        return String(text || '')
+            .normalize('NFD')
+            .replace(/[\u0300-\u036f]/g, '')
+            .toUpperCase()
+            .replace(/[^A-Z0-9\s.'&-]/g, ' ')
+            .replace(/\s+/g, ' ')
+            .trim();
+    }
+
+    static _validateSetDjCandidate(candidate) {
+        if (!candidate || typeof candidate !== 'string') return null;
+        const name = LEDPatternMethods._normalizeAsciiBanner(candidate.replace(/^by\s+/i, '').trim());
+        if (!name || name.length < 3 || name.length > 26) return null;
+        if (/^(THE\s+)?DJ$/i.test(name) || /^NOCTURNE$/i.test(name)) return null;
+        if (/HTTPS?:|WWW\.|\.[A-Z]{2,4}(\/|$)|[/\\]/i.test(name)) return null;
+        if (!/[A-Z]/.test(name) || /^\d+$/.test(name)) return null;
+        if (/\b(EPISODE|PODCAST|COLOURIZON|RESIDENT|RECORDED|SET|MIX|RADIO|SHOW|SESSION|SESSIONS|STREAM|BROADCAST|VOL|VOLUME|PART|TRACK|FEAT|FT|HOUR|MIN|MINS|KBPS|UNTITLED|UNKNOWN|AUDIO|FILE|FOLDER)\b/.test(name)) {
+            return null;
+        }
+        const words = name.split(/\s+/);
+        if (words.length < 1 || words.length > 4) return null;
+        if (words.some(w => /^\d{3,}$/.test(w))) return null;
+        if (words.every(w => NON_DJ_NAME_WORDS.has(w.toLowerCase().replace(/[^a-z]/g, '')))) return null;
+        return name;
+    }
+
+    /**
+     * Extract a high-confidence DJ name from the running set's metadata, or null when uncertain.
+     * Never adds "DJ" in front of a name; "DJ" only appears when explicitly part of the DJ's name.
+     */
+    static extractSetDjName(info = {}) {
+        const label = typeof info === 'string' ? info : (info && info.label) || '';
+        const savedName = (info && info.savedName) || '';
+        const url = (info && info.url) || '';
+
+        for (const raw of [label, savedName]) {
+            if (!raw || typeof raw !== 'string') continue;
+            if (/^https?:\/\//i.test(raw.trim())) continue;
+            const text = LEDPatternMethods._cleanSetTitle(raw);
+            if (!text) continue;
+
+            // 1. "<Show / Mix> by <DJ Name>" (e.g. "Resident by Hernan Cattaneo", "Colourizon 168 by Miss Melera")
+            const byMatch = /\bby\s+([A-Za-z\u00C0-\u024F0-9][A-Za-z\u00C0-\u024F0-9\s.'&-]{1,28})$/i.exec(text);
+            if (byMatch) {
+                const afterBy = byMatch[1].split(/\s+[-–—|:/]\s+/)[0].trim();
+                const valid = LEDPatternMethods._validateSetDjCandidate(afterBy);
+                if (valid) return valid;
+            }
+
+            // 2. "<DJ Name> - <Set / Episode / Podcast>" or "<Show #> - <DJ Name>"
+            const sepMatch = /^([A-Za-z\u00C0-\u024F0-9][A-Za-z\u00C0-\u024F0-9\s.'&-]{1,28}?)\s*(?:[-–—|:]|\bpresents\b|\blive\s+(?:at|from|in|on)\b)\s+(.+)$/i.exec(text);
+            if (sepMatch) {
+                const left = sepMatch[1].trim();
+                const right = sepMatch[2].trim();
+                const validLeft = LEDPatternMethods._validateSetDjCandidate(left);
+                if (validLeft) return validLeft;
+                const validRight = LEDPatternMethods._validateSetDjCandidate(right.split(/\s+[-–—|:]\s+/)[0]);
+                if (validRight && /\b(resident|colourizon|episode|ep\.?|podcast|session|show)\b/i.test(left)) {
+                    return validRight;
+                }
+            }
+        }
+
+        // 3. Known artist feed/stream URLs when the episode title alone omits the artist
+        for (const candidateUrl of [url, label]) {
+            if (!candidateUrl || typeof candidateUrl !== 'string') continue;
+            if (/podcast\.hernancattaneo\.com/i.test(candidateUrl)) return 'HERNAN CATTANEO';
+            if (/soundcloud\.com\/missmelera(\/|$)/i.test(candidateUrl) || /-missmelera-/i.test(candidateUrl)) {
+                return 'MISS MELERA';
+            }
+        }
+        return null;
+    }
+
+    /**
+     * Infer 'male' or 'female' for a DJ from set metadata when high-confidence, or null when uncertain.
+     */
+    static inferSetDjGender(info = {}) {
+        const djName = typeof info === 'string' && /^[A-Z0-9\s.'&-]+$/.test(info)
+            ? LEDPatternMethods._validateSetDjCandidate(info)
+            : LEDPatternMethods.extractSetDjName(info);
+        if (!djName) return null;
+        if (KNOWN_FEMALE_DJS.has(djName)) return 'female';
+        if (KNOWN_MALE_DJS.has(djName)) return 'male';
+        const tokens = djName.split(/\s+/).map(t => t.replace(/[^A-Z]/g, '')).filter(Boolean);
+        const first = tokens[0] === 'DJ' ? tokens[1] : tokens[0];
+        if (!first) return null;
+        if (FEMALE_FIRST_NAMES.has(first)) return 'female';
+        if (MALE_FIRST_NAMES.has(first)) return 'male';
+        return null;
+    }
 }
 
 window.LEDPatterns = {};
 for (const name of Object.getOwnPropertyNames(LEDPatternMethods.prototype)) {
     if (name !== 'constructor') window.LEDPatterns[name] = LEDPatternMethods.prototype[name];
+}
+for (const name of ['extractSetDjName', 'inferSetDjGender', '_cleanSetTitle', '_normalizeAsciiBanner', '_validateSetDjCandidate']) {
+    window.LEDPatterns[name] = LEDPatternMethods[name];
 }

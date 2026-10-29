@@ -1,5 +1,12 @@
 'use strict';
 class VRClubUI extends VRClubAnimationFinish {
+    static isLocalAudioFile(file) {
+        return !!file && (
+            String(file.type || '').toLowerCase().startsWith('audio/') ||
+            /\.(aac|flac|m4a|mp3|oga|ogg|opus|wav|webm)$/i.test(String(file.name || ''))
+        );
+    }
+
     setupUI(vrHelper) {
         this._setupVRButton(vrHelper);
 
@@ -105,7 +112,10 @@ class VRClubUI extends VRClubAnimationFinish {
             setLabel('\u{1F97D} Preparing VR\u2026', false);
         }
 
-        Promise.all([supported, entryReady]).then(([ok]) => {
+        const entryCheck = Promise.all([supported, entryReady]);
+        // Immersive launch (js/immersiveLaunch.js) waits on this instead of the button: true when VR can be entered now.
+        this._vrEntryReady = entryCheck.then(([ok]) => !!(ok && vrHelper && vrHelper.baseExperience));
+        entryCheck.then(([ok]) => {
             if (this._disposed) return;
             if (!ok || !vrHelper || !vrHelper.baseExperience) {
                 vrButton.hidden = true;
@@ -217,15 +227,44 @@ class VRClubUI extends VRClubAnimationFinish {
                 }
             });
         }
+        if (this.colorLockActive) {
+            if (this.vjDirector && typeof this.vjDirector.setLedHarmony === 'function') this.vjDirector.setLedHarmony('match');
+            this._setMirrorBallColor(this.currentSpotColor);
+        }
         return this.currentSpotColor;
     }
 
-    /** Advance the mirror-ball palette and push it to every dependent surface. */
-    cycleMirrorBallColor() {
-        this.mirrorBallColorIndex = (this.mirrorBallColorIndex + 1) % this.mirrorBallColors.length;
-        const colour = this.mirrorBallColors[this.mirrorBallColorIndex];
-        this.mirrorBallSpotlightColor = colour;
+    /** Advance the shared beam-laser colour. The laser sheet reads the same source. */
+    cycleLaserColor() {
+        this.colorLockActive = false;
+        this.currentColorIndex = ((this.currentColorIndex || 0) + 1) % 3;
+        this.colorSwitchTime = performance.now() / 1000;
+        return typeof this._laserColor === 'function' ? this._laserColor() : null;
+    }
 
+    /** Apply one palette colour to every light and a single-colour LED-wall show. */
+    matchAllLightColors(advance = true) {
+        const colour = advance ? this.cycleSpotColor() : this.currentSpotColor;
+        if (!colour) return null;
+        this.colorLockActive = true;
+        this.ledMonochrome = false;
+        this.ledMulti = false;
+        // Breathing is the playlist's full-wall, handed-colour look. Holding this
+        // index prevents hue-synthesising rainbow patterns from defeating MATCH ALL.
+        this.ledPattern = 5;
+        this.ledPatternSwitchTime = performance.now() / 1000;
+        if (this.vjDirector && typeof this.vjDirector.setLedHarmony === 'function') {
+            this.vjDirector.setLedHarmony('match');
+        } else {
+            this.ledShowColor = colour;
+        }
+        this._setMirrorBallColor(colour);
+        return colour;
+    }
+
+    /** Write an exact mirror-ball colour without stepping its independent palette. */
+    _setMirrorBallColor(colour) {
+        this.mirrorBallSpotlightColor = colour;
         if (this.mirrorBallSpotlights) {
             this.mirrorBallSpotlights.forEach(light => { if (light) light.diffuse = colour.clone(); });
         }
@@ -244,7 +283,14 @@ class VRClubUI extends VRClubAnimationFinish {
             this.mirrorReflectionBatch.spotMat.emissiveColor.copyFrom(colour);
             this.mirrorReflectionBatch.rayMat.emissiveColor.copyFrom(colour);
         }
-        this.mirrorBallCachedColors = null;
+        this.mirrorBallCachedColorSource = null;
+    }
+
+    /** Advance the mirror-ball palette and push it to every dependent surface. */
+    cycleMirrorBallColor() {
+        this.mirrorBallColorIndex = (this.mirrorBallColorIndex + 1) % this.mirrorBallColors.length;
+        const colour = this.mirrorBallColors[this.mirrorBallColorIndex];
+        this._setMirrorBallColor(colour);
         return colour;
     }
 
@@ -300,20 +346,115 @@ class VRClubUI extends VRClubAnimationFinish {
     static get LIGHT_TOGGLES() {
         return this._lightToggles || (this._lightToggles = Object.freeze(new Set([
             'lightsActive', 'lasersActive', 'laserSheetActive', 'mirrorBallActive', 'ledWallActive', 'ledMonochrome',
-            'strobesActive', 'smokeActive', 'spotStrobeActive'
+            'strobesActive', 'smokeActive', 'spotStrobeActive', 'mirrorBallRaysActive'
         ])));
     }
 
-    /** Take the lights by hand: the automatic show stands down until AUTO SHOW, or until nobody touches them for VJ_TIMEOUT. */
+    /** Take the lights by hand: the automatic show stands down until AUTO SHOW, or as the hold policy (lightHold) says. */
     takeLightControl() {
         this.lastVJInteraction = performance.now() / 1000;
         this.vjManualMode = true;
+        // A section the show was holding is superseded by the hand-made look.
+        if (this.showDirector && typeof this.showDirector.releaseHold === 'function') this.showDirector.releaseHold();
     }
 
     /** Hand the lights back to the automatic show. */
     resumeAutoShow() {
         this.vjManualMode = false;
         this.lastVJInteraction = 0;
+        if (this.showDirector && typeof this.showDirector.releaseHold === 'function') this.showDirector.releaseHold();
+    }
+
+    // ---- What happens after a hand-made change: keep it, return to the automatic show, or shuffle the colours ----
+
+    static get LIGHT_HOLD_NAMES() {
+        return this._lightHoldNames || (this._lightHoldNames = Object.freeze({
+            resume: 'RETURN TO AUTO', keep: 'KEEP IT', shuffle: 'SHUFFLE COLOURS'
+        }));
+    }
+
+    /** 15 -> "15 S", 60 -> "1 MIN": the same words on every surface. */
+    static lightHoldSecondsName(seconds) {
+        return seconds < 60 ? `${seconds} S` : `${Math.round(seconds / 60)} MIN`;
+    }
+
+    /** The current choice in words, for a button's second line or a panel readout. */
+    lightHoldSummary() {
+        const hold = this.lightHold;
+        if (hold.mode === 'keep') return 'KEPT UNTIL AUTO SHOW';
+        if (hold.mode === 'shuffle') return `NEW COLOURS EVERY ${VRClubUI.lightHoldSecondsName(hold.shuffle)}`;
+        return `AUTO AFTER ${VRClubUI.lightHoldSecondsName(hold.delay)}`;
+    }
+
+    /**
+     * Choose the hold policy: { mode, delay, shuffle }, any subset. Unknown values are ignored, the choice is saved on
+     * this device and a section the show is already holding follows it at once.
+     */
+    setLightHold(patch = {}) {
+        const next = Object.assign({}, this.lightHold);
+        if (VRClubCore.LIGHT_HOLD_MODES.includes(patch.mode)) next.mode = patch.mode;
+        if (VRClubCore.LIGHT_HOLD_DELAYS.includes(patch.delay)) next.delay = patch.delay;
+        if (VRClubCore.LIGHT_SHUFFLE_SECONDS.includes(patch.shuffle)) next.shuffle = patch.shuffle;
+        this.lightHold = next;
+        try { localStorage.setItem('vrclub.lightHold', JSON.stringify(next)); } catch (_) { /* private browsing */ }
+        // A fresh countdown from the moment the choice is made, not from the last touch.
+        if (this.vjManualMode) this.lastVJInteraction = performance.now() / 1000;
+        if (this.vjDirector) this.vjDirector._shuffleAt = 0;
+        if (this.showDirector && typeof this.showDirector.isHeld === 'function' && this.showDirector.isHeld()) {
+            this.showDirector.holdLook(next);
+        }
+        return next;
+    }
+
+    /** Step KEEP IT -> SHUFFLE COLOURS -> RETURN TO AUTO (the VR menu and the desk have one button for it). */
+    cycleLightHoldMode() {
+        const modes = VRClubCore.LIGHT_HOLD_MODES;
+        return this.setLightHold({ mode: modes[(modes.indexOf(this.lightHold.mode) + 1) % modes.length] });
+    }
+
+    /** Step the time that belongs to the current mode: how long until auto returns, or how often the colour changes. */
+    cycleLightHoldTiming() {
+        const hold = this.lightHold;
+        if (hold.mode === 'keep') return hold;
+        const key = hold.mode === 'shuffle' ? 'shuffle' : 'delay';
+        const list = hold.mode === 'shuffle' ? VRClubCore.LIGHT_SHUFFLE_SECONDS : VRClubCore.LIGHT_HOLD_DELAYS;
+        return this.setLightHold({ [key]: list[(list.indexOf(hold[key]) + 1) % list.length] });
+    }
+
+    /**
+     * Jump the automatic show to one of its sections (ARRIVAL, PULSE, ASCENT, IGNITION, AFTERGLOW) and keep it as the
+     * hold policy says. Taking a section after hand-made changes hands the lights back to the show first.
+     * @returns {string|null} the section's title, or null when it could not be picked
+     */
+    pickShowSection(name) {
+        if (!this.guardHostControl('lights')) return null;
+        const show = this.showDirector;
+        if (!show || show.follower) return null;
+        if (this.vjManualMode) this.resumeAutoShow();
+        return show.pickSection(name, this.lightHold);
+    }
+
+    /** The section after the current one, kept as the hold policy says. */
+    nextShowSection() {
+        if (!this.guardHostControl('lights')) return null;
+        const show = this.showDirector;
+        if (!show || show.follower) return null;
+        if (this.vjManualMode) this.resumeAutoShow();
+        return show.nextSection(this.lightHold);
+    }
+
+    /** Step the strobe pattern (all at once, circle, ping-pong ...). */
+    cycleStrobePattern() {
+        const list = VRClubAnimationFinish.STROBE_PATTERNS;
+        const next = list[(list.indexOf(this.strobePattern) + 1) % list.length];
+        this.strobePattern = next;
+        this._strobePatternStep = -1;
+        return next;
+    }
+
+    /** "CIRCLE" for a strobe pattern id. */
+    strobePatternName() {
+        return VRClubAnimationFinish.STROBE_PATTERN_NAMES[this.strobePattern] || 'ALL AT ONCE';
     }
 
     /** One movement speed (0.1..2) for every fixture, as the speed faders set it. */
@@ -336,9 +477,12 @@ class VRClubUI extends VRClubAnimationFinish {
         if (!this.guardHostControl('lights')) return false;
         switch (control) {
             case 'changeColor': this.cycleSpotColor(); break;
+            case 'changeLaserColor': this.cycleLaserColor(); break;
+            case 'matchAllColors': this.matchAllLightColors(); break;
             case 'changeMirrorBallColor': this.cycleMirrorBallColor(); break;
             case 'cycleSpotMode': this.spotlightMode = (this.spotlightMode + 1) % VRClubUI.SPOT_MODE_NAMES.length; break;
             case 'cyclePattern': this.spotlightPattern = (this.spotlightPattern + 1) % VRClubUI.SPOT_PATTERN_NAMES.length; break;
+            case 'cycleStrobePattern': this.cycleStrobePattern(); break;
             case 'cycleGoboPattern': if (typeof this.nextGoboPattern === 'function') this.nextGoboPattern(); break;
             case 'goboActive': if (typeof this.toggleGobo === 'function') this.toggleGobo(); break;
             case 'cycleLedPattern': {
@@ -422,11 +566,14 @@ class VRClubUI extends VRClubAnimationFinish {
             ledMonochrome: false,
             strobesActive: true,
             mirrorBallActive: false,
+            mirrorBallRaysActive: true,
             laserSheetActive: false,
             smokeActive: false,
             spotStrobeActive: true,
+            strobePattern: 'all',
             spotlightMode: 0,
             spotlightPattern: 0,
+            colorLockActive: false,
             goboPatternIndex: 0,
             goboRotationSpeed: 1.0,
             spotlightSpeed: 1.0,
@@ -453,7 +600,7 @@ class VRClubUI extends VRClubAnimationFinish {
     }
 
     /**
-     * Animate in-world 3D button depression and trigger tactile haptic pulse.
+     * Animate in-world 3D button depression.
      * @param {BABYLON.AbstractMesh} mesh
      */
     _pressButton3D(mesh) {
@@ -461,40 +608,12 @@ class VRClubUI extends VRClubAnimationFinish {
         mesh._isPressed = true;
         const origY = mesh.position.y;
         mesh.position.y -= 0.015;
-        this.pulseHaptic(0.85, 35);
         setTimeout(() => {
             if (mesh) {
                 mesh.position.y = origY;
                 mesh._isPressed = false;
             }
         }, 120);
-    }
-
-    /**
-     * Dispatch a sharp tactile haptic pulse to all active VR controllers.
-     * @param {number} [intensity=0.8] 0.0 .. 1.0
-     * @param {number} [duration=30] ms
-     */
-    pulseHaptic(intensity = 0.8, duration = 30) {
-        if (!this.bassHapticsEnabled) return;
-        if (!this._xrControllers || this._xrControllers.length === 0) return;
-        for (let i = 0; i < this._xrControllers.length; i++) {
-            const ctrl = this._xrControllers[i];
-            try {
-                const inputSource = ctrl && ctrl.inputSource;
-                const gp = inputSource && inputSource.gamepad;
-                if (!gp) continue;
-                if (gp.hapticActuators && gp.hapticActuators[0] && gp.hapticActuators[0].pulse) {
-                    gp.hapticActuators[0].pulse(intensity, duration);
-                } else if (gp.vibrationActuator && gp.vibrationActuator.playEffect) {
-                    gp.vibrationActuator.playEffect('dual-rumble', {
-                        duration: duration,
-                        strongMagnitude: intensity,
-                        weakMagnitude: intensity * 0.5
-                    });
-                }
-            } catch (_) { /* ignore */ }
-        }
     }
 
     _drawVRQuickMenuButton(button) {
@@ -529,11 +648,24 @@ class VRClubUI extends VRClubAnimationFinish {
         context.textAlign = 'center';
         context.textBaseline = 'middle';
         const value = this._vrQuickMenuButtonValue(button, active);
-        context.fillText(button.label, 256, value ? 70 : 96, 480);
+        if (button.swatch) {
+            context.fillText(button.label, 218, value ? 66 : 96, 392);
+            context.fillStyle = button.swatch;
+            context.fillRect(438, 51, 46, 82);
+            context.strokeStyle = '#ffffff';
+            context.lineWidth = 4;
+            context.strokeRect(438, 51, 46, 82);
+        } else {
+            context.fillText(button.label, 256, value ? 66 : 96, 480);
+        }
         if (value) {
-            context.fillStyle = disabled ? '#8a919e' : active ? '#b9fff5' : '#c5cad4';
-            context.font = 'bold 32px sans-serif';
-            context.fillText(value, 256, 132, 480);
+            context.fillStyle = disabled ? '#8a919e' : active ? '#d2fff9' : '#d5dae3';
+            // The second line (ON / OFF, the current value, why a button is unavailable) is what a guest checks most: it was
+            // 32 px on a 192 px button, small enough to be unreadable at arm's length in a headset.
+            let size = 40;
+            context.font = `bold ${size}px sans-serif`;
+            while (size > 28 && context.measureText(value).width > 470) context.font = `bold ${--size}px sans-serif`;
+            context.fillText(value, 256, 136, 480);
         }
         button.texture.update();
     }
@@ -541,42 +673,68 @@ class VRClubUI extends VRClubAnimationFinish {
     /** Can this button do nothing right now? (It still answers a press, with a message saying why.) */
     _isVRButtonDisabled(button) {
         if (this.isFollowingHost() && this._isHostOwnedVRButton(button)) return true;
+        // The time belongs to RETURN TO AUTO and SHUFFLE COLOURS; KEEP IT has none.
+        if (button.action === 'holdTiming') return this.lightHold.mode === 'keep';
         if (button.action !== 'net' && button.action !== 'person') return false;
         const mp = this._multiplayer();
         if (!mp) return true;
         if (button.op === 'joinListedRoom') return !!(button.locked || button.full || mp.roomDirectory.loading || mp.connecting);
         if (button.op === 'browseRooms' || button.op === 'moreRooms') return mp.roomDirectory.loading;
-        const needsRoom = ['mic', 'avatar', 'gesture', 'emoji', 'phrase', 'muteAll', 'leave', 'listenAlong'];
+        if (button.op === 'safetyInfo') return true;
+        if (['audienceClear', 'audiencePeer'].includes(button.op) && !mp.canRestrictAudience()) return true;
+        const needsRoom = ['mic', 'avatar', 'gesture', 'emoji', 'phrase', 'muteAll', 'leave'];
         if (needsRoom.includes(button.op) && !mp.connected) return true;
         if (button.op === 'lock' && !mp.isHost()) return true;
         if (button.op === 'peerHost' && (!mp.connected || !mp.isHost() || !mp.client.hostTransferSupported || !mp.client.peers.has(button.peer))) return true;
-        if (button.op === 'listenAlong' && !mp.pendingMusicInfo()) return true;
         if (button.op === 'unblockAll' && !mp.blockedList().length) return true;
         return false;
     }
 
     _isVRQuickMenuButtonActive(button) {
         if (button.op) return this._vrNetActive(button);
+        if (button.action === 'pickCharacter') return this.getLocalCharacter() === button.character;
         if (button.action === 'people') {
             return VRClubCore.peopleCategories(button.people).every(name => this.isPeopleVisible(name));
         }
         if (button.action === 'autoShow') return !this.vjManualMode;
-        if (button.action === 'dj') return this._initialDJId() === button.dj;
-        if (button.action === 'playPause') return this.getPlaybackInfo().playing;
-        if (button.action === 'quality' || button.action === 'cycle') return true;
+        if (button.action === 'dj') return (this._djWanted || this._djId || this._initialDJId()) === button.dj;
+        if (button.action === 'playPause' || button.action === 'play') return this.getPlaybackInfo().playing;
+        if (button.action === 'showSection') {
+            return !!(this.showDirector && this.showDirector._movementName === button.section);
+        }
+        if (button.action === 'folderMode') {
+            return this._localPlaylist ? !!this._localPlaylist.shuffle : !!this._localPlaylistShuffle;
+        }
+        if (button.action === 'quality' || button.action === 'cycle' || button.action === 'nextSection' ||
+            button.action === 'holdMode' || button.action === 'holdTiming') return true;
         if (button.control) return !!this[button.control];
         return false;
     }
 
     /** Buttons that change the room's music or lights: in someone else's room they belong to the host. */
     _isHostOwnedVRButton(button) {
-        if (['seek', 'playPause', 'savedSet', 'setStep', 'musicSetup', 'autoShow', 'reset', 'cycle'].includes(button.action)) return true;
-        return !!button.control && !button.action && !['vrComfortMode', 'photosensitiveSafeMode', 'bassHapticsEnabled'].includes(button.control);
+        if (button.action === 'characterStyle') return true;
+        if (['seek', 'playPause', 'play', 'pause', 'stop', 'sourceStep', 'folderMode', 'savedSet', 'setStep',
+            'musicSetup', 'autoShow', 'reset', 'cycle', 'nextSection', 'showDrop', 'showSection'].includes(button.action)) return true;
+        return !!button.control && !button.action && !['vrComfortMode', 'vrSeatedMode', 'autoQuality', 'photosensitiveSafeMode'].includes(button.control);
     }
 
     _vrQuickMenuButtonValue(button, active) {
+        if (button.action === 'lightweightCharacters') return this.characterStyleStatus().lightweight ? 'ON: QUATERNIUS FOR ME' : 'OFF: FOLLOW ROOM STYLE';
+        if (button.action === 'characterStyle') {
+            const state = this.characterStyleStatus();
+            return this.isFollowingHost() ? 'HOST CHOOSES' : state.loading ? 'LOADING...' : state.selected === 'diverse' ? 'DIVERSE: MORE CPU/GPU' : 'QUATERNIUS: LIGHTWEIGHT';
+        }
         if (button.op || button.action === 'person') return this._vrNetValue(button, active);
-        if (button.action === 'people') return active ? 'HERE' : 'SENT HOME';
+        if (button.action === 'people') {
+            if (button.people === 'dj' && this._roomDJVisible === false) return 'HOST SENT DJ HOME';
+            return active ? 'HERE' : 'SENT HOME';
+        }
+        if (button.action === 'welcomeSafe') return 'NO STROBES';
+        if (button.action === 'welcomeFull') return 'STROBES ON';
+        if (button.action === 'accessNewCode') return 'IF THIS ONE FAILED';
+        if (button.action === 'accessExit') return 'CLOSES NOCTURNE';
+        if (button.action === 'musicSync') return this._immersive ? this._immersive.musicStatus : '';
         if (this.isFollowingHost() && this._isHostOwnedVRButton(button)) return 'HOST ONLY';
         if (button.action === 'dj') return active ? 'SELECTED' : '';
         if (button.action === 'savedSet') {
@@ -584,12 +742,40 @@ class VRClubUI extends VRClubAnimationFinish {
             return item ? item.name.slice(0, 22).toUpperCase() : 'ADD LINKS FIRST';
         }
         if (button.action === 'playPause') return active ? 'PLAYING' : 'PAUSED';
+        if (button.action === 'play') return active ? 'PLAYING' : 'READY';
+        if (button.action === 'pause') return this.getPlaybackInfo().playing ? 'TAP TO PAUSE' : 'PAUSED';
+        if (button.action === 'stop') return this._audioKind ? 'RETURN TO START' : 'NOTHING LOADED';
+        if (button.action === 'folderMode') {
+            const playlist = this._localPlaylist;
+            const shuffle = playlist ? playlist.shuffle : !!this._localPlaylistShuffle;
+            if (!playlist) return `${shuffle ? 'SHUFFLE' : 'IN ORDER'} \u2022 NEXT FOLDER`;
+            return `${shuffle ? 'SHUFFLE' : 'IN ORDER'} \u2022 ${playlist.files.length} TRACKS`;
+        }
+        // These two leave the immersive session for an on-screen page (a headset has no keyboard): say so before the press.
+        if (button.action === 'musicSetup' || button.action === 'credits') return 'LEAVES VR';
+        if (button.action === 'measureHeight') {
+            return this._heightMeasure ? 'MEASURING...'
+                : this.playerEyeHeight ? `EYES ${this.playerEyeHeight.toFixed(2)} M` : 'STAND TALL, TAP';
+        }
+        if (button.action === 'pickCharacter') return button.detail || '';
+        if (button.action === 'page' && button.target === 'character') {
+            const id = this.getLocalCharacter();
+            return id ? String(this.characterLabel(id)).toUpperCase().slice(0, 28) : (this.getLocalAvatarStyle() === 'male' ? 'DEFAULT MAN' : 'DEFAULT WOMAN');
+        }
+        if (button.control === 'autoQuality') return this.autoQuality ? 'ON \u2022 STEPS DOWN IF SLOW' : 'OFF';
+        if (button.control === 'vrSeatedMode') return this.vrSeatedMode ? 'ON \u2022 AVATAR STANDS' : 'OFF';
         if (button.action === 'quality') return this.graphicsTier.toUpperCase();
         if (button.action === 'cycle' && button.control === 'cycleLedPattern') {
             return `PATTERN ${(this.ledPattern || 0) + 1}`;
         }
         if (button.action === 'cycle' && button.control === 'changeColor') {
             return `COLOUR ${(this.spotColorIndex || 0) + 1}`;
+        }
+        if (button.action === 'cycle' && button.control === 'changeLaserColor') {
+            return ['RED', 'GREEN', 'BLUE'][this.currentColorIndex || 0];
+        }
+        if (button.action === 'cycle' && button.control === 'matchAllColors') {
+            return this.colorLockActive ? 'MATCHED' : 'TAP TO MATCH';
         }
         if (button.action === 'cycle' && button.control === 'changeMirrorBallColor') {
             return `COLOUR ${(this.mirrorBallColorIndex || 0) + 1}`;
@@ -604,9 +790,56 @@ class VRClubUI extends VRClubAnimationFinish {
             const name = (this.goboPatterns && this.goboPatterns[this.goboPatternIndex || 0]) || 'circle';
             return name === 'circle' ? 'OPEN' : String(name).toUpperCase();
         }
+        if (button.action === 'cycle' && button.control === 'cycleStrobePattern') {
+            return VRClubAnimationFinish.STROBE_PATTERN_NAMES[this.strobePattern] || 'ALL AT ONCE';
+        }
+        if (button.action === 'holdMode') return VRClubUI.LIGHT_HOLD_NAMES[this.lightHold.mode];
+        if (button.action === 'holdTiming') {
+            const hold = this.lightHold;
+            if (hold.mode === 'keep') return 'NOT NEEDED';
+            return VRClubUI.lightHoldSecondsName(hold.mode === 'shuffle' ? hold.shuffle : hold.delay);
+        }
+        if (button.action === 'nextSection') {
+            const status = this.showDirector && this.showDirector.getStatus();
+            return status ? String(status.movement).slice(0, 22) : '';
+        }
+        if (button.action === 'showDrop') {
+            return this.showDirector && this.showDirector.isDriving() ? 'COUNTDOWN, THEN DROP' : 'PEAK LOOK NOW';
+        }
+        if (button.action === 'showSection') {
+            const held = this.showDirector && this.showDirector.isHeld && this.showDirector.isHeld();
+            return active ? (held ? 'PLAYING \u2022 KEPT' : 'PLAYING') : 'TAP TO JUMP HERE';
+        }
         if (button.action === 'autoShow') return active ? 'ON' : 'MANUAL';
         if (button.control) return active ? 'ON' : 'OFF';
         return '';
+    }
+
+    /**
+     * The character picker: nine buttons a page (women and the default first, then men), the current one lit, a button to flip
+     * the page, BACK and CLOSE. Each button names the kind of person and, beneath, what they wear; it replaced stepping
+     * blindly through seventeen people with NEXT.
+     */
+    _vrCharacterPageDefinitions(common) {
+        const Crowd = window.VRClubAudioCrowd;
+        const labels = (window.ClubMultiplayer && window.ClubMultiplayer.AVATAR_LABELS) || {};
+        const ids = Crowd ? Crowd.MY_CHARACTERS : [];
+        const second = this._vrCharacterPage === 1;
+        const entry = id => {
+            const [kind, ...rest] = String(this.characterLabel ? this.characterLabel(id) : labels[id] || id).split(',').map(part => part.trim());
+            return { label: kind.toUpperCase(), detail: rest.join(', ').toUpperCase(), action: 'pickCharacter', character: id };
+        };
+        const buttons = second
+            ? ids.filter(id => id[0] === 'm').map(entry)
+            : [{ label: 'DEFAULT', detail: this.multiplayer?.connected ? 'RANDOM ROOM CHARACTER' : 'YOUR OWN BODY',
+                action: 'pickCharacter', character: null }, ...ids.filter(id => id[0] === 'f').map(entry)];
+        while (buttons.length < 9) buttons.push(null);
+        return [
+            ...buttons.slice(0, 9),
+            common.back,
+            { label: second ? '\u2190 WOMEN' : 'MEN \u2192', action: 'characterPage' },
+            common.close
+        ];
     }
 
     _vrQuickMenuPageDefinitions(page) {
@@ -616,6 +849,7 @@ class VRClubUI extends VRClubAnimationFinish {
         };
         if (VRClubUI.VR_NET_PAGES.includes(page)) return this._vrNetPageDefinitions(page, common);
         const mp = this._multiplayer();
+        const holdMode = (this.lightHold && this.lightHold.mode) || 'resume';
         // In a room, talking and reacting come first: one press to the mic, the emoji or a quick message.
         const social = mp && mp.connected ? [
             { label: 'TALK', action: 'net', op: 'mic' },
@@ -626,7 +860,7 @@ class VRClubUI extends VRClubAnimationFinish {
             home: [
                 ...social,
                 { label: 'MUSIC', action: 'page', target: 'music' },
-                { label: 'LIGHTING', action: 'page', target: 'lighting' },
+                { label: 'LIGHTS', action: 'page', target: 'lights' },
                 { label: 'EFFECTS', action: 'page', target: 'effects' },
                 { label: 'SHOW', action: 'page', target: 'show' },
                 // Who is in the club gets its own page: it used to sit at the bottom of COMFORT, where nobody found it.
@@ -634,16 +868,30 @@ class VRClubUI extends VRClubAnimationFinish {
                 { label: 'ONLINE', action: 'page', target: 'online' },
                 { label: 'TRAVEL', action: 'page', target: 'travel' },
                 { label: 'COMFORT', action: 'page', target: 'comfort' },
+                // A headset in its free preview (or waiting to be paired) can always get back to its pairing code.
+                ...(this._immersive && this._immersive.needsAccess() ? [{ label: 'ACCESS', action: 'page', target: 'access' }] : []),
                 common.close
             ],
-            lighting: [
+            // Immersive launch (js/immersiveLaunch.js): the first-run photosensitivity choice, and the headset pairing code.
+            welcome: [
+                { label: 'SAFE MODE', action: 'welcomeSafe' },
+                { label: 'FULL LIGHTS', action: 'welcomeFull' }
+            ],
+            access: [
+                { label: 'NEW CODE', action: 'accessNewCode' },
+                this._immersive && this._immersive.mode === 'locked'
+                    ? { label: 'EXIT VR', action: 'accessExit' }
+                    : { label: 'BACK TO CLUB', action: 'back', target: 'home' }
+            ],
+            lights: [
                 { label: 'SPOTS', control: 'lightsActive' },
                 { label: 'LASERS', control: 'lasersActive' },
                 { label: 'LASER SHEET', control: 'laserSheetActive' },
                 { label: 'MIRROR BALL', control: 'mirrorBallActive' },
-                { label: 'LED WALL', control: 'ledWallActive' },
-                { label: 'LED NEXT', control: 'cycleLedPattern', action: 'cycle' },
                 { label: 'SPOT COLOUR', control: 'changeColor', action: 'cycle' },
+                { label: 'LASER COLOUR', control: 'changeLaserColor', action: 'cycle' },
+                { label: 'MIRROR COLOUR', control: 'changeMirrorBallColor', action: 'cycle' },
+                { label: 'MATCH ALL COLOURS', control: 'matchAllColors', action: 'cycle' },
                 { label: 'SPOT MODE', control: 'cycleSpotMode', action: 'cycle' },
                 { label: 'SPOT AIM PATH', control: 'cyclePattern', action: 'cycle' },
                 common.back,
@@ -651,25 +899,39 @@ class VRClubUI extends VRClubAnimationFinish {
             ],
             effects: [
                 { label: 'STROBES', control: 'strobesActive' },
+                { label: 'STROBE PATTERN', control: 'cycleStrobePattern', action: 'cycle' },
                 { label: 'SPOT STROBE', control: 'spotStrobeActive' },
                 { label: 'SMOKE', control: 'smokeActive' },
+                { label: 'LED WALL', control: 'ledWallActive' },
+                { label: 'LED NEXT', control: 'cycleLedPattern', action: 'cycle' },
                 { label: 'LED MONO', control: 'ledMonochrome' },
-                { label: 'MIRROR COLOUR', control: 'changeMirrorBallColor', action: 'cycle' },
-                { label: 'PROJECT GOBO', control: 'goboActive' },
+                { label: 'MIRROR BEAMS', control: 'mirrorBallRaysActive' },
+                { label: 'PROJECTED GOBO', control: 'goboActive' },
                 { label: 'GOBO IMAGE', control: 'cycleGoboPattern', action: 'cycle' },
-                { label: 'SAFE MODE', control: 'photosensitiveSafeMode' },
                 common.back,
                 common.close
             ],
+            // Comfort is how you move and what you see; who you are (character, height, seating) lives on ME. The home page
+            // has no free slot in a room (twelve is the most a page holds), so ME is reached from here.
             comfort: [
                 { label: 'LOCOMOTION', control: 'vrComfortMode' },
                 { label: 'SAFE MODE', control: 'photosensitiveSafeMode' },
-                { label: 'HAPTICS', control: 'bassHapticsEnabled' },
                 { label: 'QUALITY', action: 'quality' },
+                { label: 'AUTO QUALITY', control: 'autoQuality' },
+                { label: 'ME', action: 'page', target: 'me' },
                 { label: 'CREDITS / LICENCES', action: 'credits' },
                 common.back,
                 common.close
             ],
+            me: [
+                { label: 'MY CHARACTER', action: 'page', target: 'character' },
+                { label: 'EDIT MY CHARACTER', action: 'page', target: 'appearanceEditor' },
+                { label: 'MEASURE HEIGHT', action: 'measureHeight' },
+                { label: 'SEATED MODE', control: 'vrSeatedMode' },
+                common.back,
+                common.close
+            ],
+            character: this._vrCharacterPageDefinitions(common),
             // Who is in the club: a personal choice, like Safe Mode, so it is never the host's.
             crowd: [
                 { label: 'DANCERS', action: 'people', people: 'dancers' },
@@ -677,6 +939,10 @@ class VRClubUI extends VRClubAnimationFinish {
                 { label: 'DJ', action: 'people', people: 'dj' },
                 { label: 'CHOOSE DJ', action: 'page', target: 'dj' },
                 { label: 'EVERYONE', action: 'people', people: 'all' },
+                { label: 'CHARACTER STYLE', action: 'characterStyle' },
+                { label: 'LIGHTWEIGHT FOR ME', action: 'lightweightCharacters' },
+                ...(this.characterStyleStatus && this.characterStyleStatus().error
+                    ? [{ label: 'RETRY CHARACTERS', action: 'retryCharacters' }] : []),
                 common.back,
                 common.close
             ],
@@ -691,9 +957,22 @@ class VRClubUI extends VRClubAnimationFinish {
             ],
             show: [
                 { label: 'AUTO SHOW', action: 'autoShow' },
-                { label: 'LED NEXT', control: 'cycleLedPattern', action: 'cycle' },
-                { label: 'SPOT COLOUR', control: 'changeColor', action: 'cycle' },
+                { label: 'COUNTDOWN / DROP', action: 'showDrop' },
+                { label: 'NEXT SECTION', action: 'nextSection' },
+                { label: 'CHOOSE SECTION', action: 'page', target: 'showSections' },
+                // What happens after a change of yours: keep it, return to auto after a time, or shuffle the colours.
+                { label: 'AFTER MY CHANGE', action: 'holdMode' },
+                { label: holdMode === 'shuffle' ? 'COLOUR EVERY' : (holdMode === 'resume' ? 'AUTO AFTER' : 'TIMING'), action: 'holdTiming' },
                 { label: 'RESET SHOW', action: 'reset' },
+                common.back,
+                common.close
+            ],
+            showSections: [
+                { label: 'ARRIVAL', action: 'showSection', section: 'arrival' },
+                { label: 'PULSE', action: 'showSection', section: 'pulse' },
+                { label: 'ASCENT', action: 'showSection', section: 'ascent' },
+                { label: 'IGNITION', action: 'showSection', section: 'ignition' },
+                { label: 'AFTERGLOW', action: 'showSection', section: 'afterglow' },
                 common.back,
                 common.close
             ],
@@ -703,10 +982,27 @@ class VRClubUI extends VRClubAnimationFinish {
                 { label: '\u2212 1 MIN', action: 'seek', delta: -60 },
                 { label: 'PLAY / PAUSE', action: 'playPause' },
                 { label: '+ 1 MIN', action: 'seek', delta: 60 },
-                { label: 'PREVIOUS SET', action: 'setStep', delta: -1 },
-                { label: 'PLAY SAVED SET', action: 'savedSet' },
-                { label: 'NEXT SET', action: 'setStep', delta: 1 },
-                { label: 'ADD MUSIC', action: 'musicSetup' },
+                { label: 'PREVIOUS SOURCE', action: 'sourceStep', delta: -1 },
+                { label: 'STOP', action: 'stop' },
+                { label: 'NEXT SOURCE', action: 'sourceStep', delta: 1 },
+                { label: 'SOURCES', action: 'page', target: 'musicSources' },
+                common.back,
+                common.close
+            ],
+            musicSources: [
+                { label: 'PREVIOUS SOURCE', action: 'sourceStep', delta: -1 },
+                { label: 'PLAY SOURCE', action: 'savedSet' },
+                { label: 'NEXT SOURCE', action: 'sourceStep', delta: 1 },
+                { label: 'FOLDER PLAY MODE', action: 'folderMode' },
+                // An immersive-only app has no keyboard, file picker or 2D page to type a link into: the phone adds them.
+                this._immersive && this._immersive.mode !== 'manual'
+                    ? { label: 'ADD FROM PHONE', action: 'page', target: 'musicPhone' }
+                    : { label: 'ADD URL / FILE / FOLDER', action: 'musicSetup' },
+                common.back,
+                common.close
+            ],
+            musicPhone: [
+                { label: 'SYNC NOW', action: 'musicSync' },
                 common.back,
                 common.close
             ],
@@ -717,13 +1013,26 @@ class VRClubUI extends VRClubAnimationFinish {
                 common.close
             ]
         };
+        if (page.startsWith('appearance')) {
+            return this.avatarEditor?.getVRDefinitions(page) || [
+                { label: 'BACK', action: 'back', target: 'me' },
+                { label: 'CANCEL', action: 'appearanceCancel' }
+            ];
+        }
+        // The panel has twelve button slots: in a room the extra ACCESS row would push CLOSE off the end.
+        if (pages.home.length > 12) pages.home = [...pages.home.slice(0, 11), common.close];
         return pages[page] || pages.home;
     }
 
     _showVRQuickMenuPage(page) {
+        const multiplayer = this._multiplayer();
+        if (page === 'online' && multiplayer && !multiplayer.connected && !multiplayer.hasAcceptedOnlineSafety()) {
+            page = 'onlineSafety';
+        }
         this._vrQuickMenuPage = page;
         if (page === 'chat' && this.multiplayer) this.multiplayer.markChatRead();
         const definitions = this._vrQuickMenuPageDefinitions(page);
+        this._syncVRWardrobe(page);
         this._vrQuickMenuButtons.forEach((button, index) => {
             const definition = definitions[index];
             button.mesh.setEnabled(!!definition);
@@ -742,13 +1051,21 @@ class VRClubUI extends VRClubAnimationFinish {
             button.pool = null;
             button.phrase = null;
             button.people = null;
+            button.section = null;
             button.room = null;
             button.capacity = null;
             button.locked = false;
             button.full = false;
             button.inactive = false;
             button.scope = null;
+            button.reason = null;
+            button.info = null;
             button.danger = false;
+            button.character = undefined;
+            button.detail = '';
+            button.field = null;
+            button.value = null;
+            button.swatch = null;
             Object.assign(button, definition);
             this._drawVRQuickMenuButton(button);
         });
@@ -759,6 +1076,7 @@ class VRClubUI extends VRClubAnimationFinish {
             else this._stopVRMusicTicker();
             this._drawVRSeekBar();
         }
+        this._drawVRQuickMenuBack(definitions);
         if (this._vrQuickMenuHeaderTexture) {
             const context = this._vrQuickMenuHeaderTexture.getContext();
             context.clearRect(0, 0, 1024, 192);
@@ -766,29 +1084,87 @@ class VRClubUI extends VRClubAnimationFinish {
             context.font = 'bold 66px sans-serif';
             context.textAlign = 'left';
             context.textBaseline = 'middle';
-            const titles = { home: 'VR CLUB', room: 'JOIN ROOM', look: 'RANDOM LOOK', gestures: 'REACT', chat: 'CHAT', crowd: 'WHO IS HERE',
-                voiceAudience: 'MICROPHONE AUDIENCE', chatAudience: 'CHAT RECIPIENTS' };
-            context.fillText(titles[page] || page.toUpperCase(), 54, 72);
-            context.fillStyle = '#a7afbf';
-            context.font = '30px sans-serif';
+            const titles = { home: 'VR CLUB', onlineSafety: 'BEFORE YOU GO ONLINE', room: 'JOIN ROOM', look: 'RANDOM LOOK', gestures: 'REACT', chat: 'CHAT', crowd: 'WHO IS HERE',
+                me: 'ME', character: 'YOUR CHARACTER',
+                appearanceEditor: 'PERSONAL WARDROBE', appearanceBase: 'BASE CHARACTER', appearanceHair: 'HAIR STYLE',
+                appearanceOutfit: 'OUTFIT STYLE', appearanceSkin: 'SKIN COLOR', appearanceHairColor: 'HAIR COLOR',
+                appearanceTop: 'TOP COLOR', appearanceBottom: 'BOTTOM COLOR',
+                voiceAudience: 'MICROPHONE AUDIENCE', chatAudience: 'CHAT RECIPIENTS', welcome: 'WELCOME', access: 'LINK YOUR ACCOUNT', musicPhone: 'MUSIC FROM YOUR PHONE' };
+            // Immersive launch pages draw their own words: the pairing code is the title, so it is read at arm's length.
+            const immersiveText = (page === 'welcome' || page === 'access' || page === 'musicPhone') && this._immersive ? this._immersive.pageText(page) : null;
+            context.fillText(immersiveText ? immersiveText.title : (titles[page] || page.toUpperCase()), 54, 72);
+            context.fillStyle = '#b4bccb';
             // In someone else's room the music and lighting pages say whose they are, not only "HOST ONLY" per button.
-            const hostOwned = ['home', 'lighting', 'effects', 'show', 'music'].includes(page) && this.isFollowingHost();
+            const hostOwned = ['home', 'lights', 'effects', 'show', 'showSections', 'music'].includes(page) && this.isFollowingHost();
             const host = hostOwned ? (this.multiplayer.hostName() || 'THE HOST').toUpperCase().slice(0, 18) : '';
             // What each page is for, in plain words: the first thing a new visitor reads.
             const about = {
-                lighting: 'TURN THE CLUB\u2019S LIGHTS ON OR OFF, CHANGE THEIR COLOUR',
-                effects: 'STROBES, SMOKE AND THE MIRROR BALL',
-                show: 'THE AUTOMATIC LIGHT SHOW THAT FOLLOWS THE MUSIC',
+                lights: 'FIXTURES, COLOURS AND SPOT MOVEMENT',
+                effects: 'LED WALL, STROBES, SMOKE, BEAMS AND GOBOS',
+                show: 'THE AUTOMATIC SHOW THAT FOLLOWS THE MUSIC',
+                showSections: 'JUMP TO A MOVEMENT AND KEEP IT BY YOUR HOLD RULE',
                 comfort: 'HOW YOU MOVE, WHAT YOU SEE AND FEEL',
-                crowd: 'SEND THE DANCERS, THE OTHER GUESTS OR THE DJ HOME',
+                me: 'YOUR CHARACTER, YOUR HEIGHT AND SITTING',
+                character: 'YOUR BODY, MIRROR AND ONLINE APPEARANCE',
+                appearanceEditor: 'YOUR DETAILED PERSONAL AVATAR; NO PHOTO OR ACCOUNT UPLOAD',
+                appearanceBase: 'CHOOSE YOUR PERSONAL AVATAR BASE',
+                appearanceHair: 'CHOOSE YOUR PERSONAL HAIR STYLE',
+                appearanceOutfit: 'CHOOSE YOUR PERSONAL OUTFIT',
+                appearanceSkin: 'CHOOSE A SKIN COLOR',
+                appearanceHairColor: 'CHOOSE A HAIR COLOR',
+                appearanceTop: 'CHOOSE A TOP COLOR',
+                appearanceBottom: 'CHOOSE A BOTTOM COLOR',
+                crowd: 'HOST CHOOSES STYLE; LIGHTWEIGHT FOR ME IS PERSONAL',
                 travel: 'POINT AT A PLACE TO JUMP THERE',
-                music: 'POINT + TRIGGER ON THE BAR TO GO ANYWHERE IN THE SET'
+                music: 'CONTROL THE CURRENT TRACK OR CHANGE SOURCE',
+                musicSources: 'SAVED LINKS AND THIS SESSION\u2019S LOCAL FOLDER',
+                onlineSafety: 'KEEP DETAILS PRIVATE \u2022 LEAVE \u2022 REPORT + BLOCK'
             };
-            context.fillText(hostOwned
+            const subtitle = immersiveText ? immersiveText.subtitle : hostOwned
                 ? `${host} IS THE HOST: THEIR MUSIC AND LIGHTS`
-                : about[page] || this._vrNetSubtitle(page) || `${this.graphicsTier.toUpperCase()} QUALITY  \u2022  POINT + TRIGGER`, 56, 142);
+                : about[page] || this._vrNetSubtitle(page) || `${this.graphicsTier.toUpperCase()} QUALITY  \u2022  POINT + TRIGGER`;
+            // Large enough to read in a headset (it was 30 px, about 1 degree); long lines shrink to fit instead of overflowing.
+            let size = 36;
+            context.font = `${size}px sans-serif`;
+            while (size > 26 && context.measureText(subtitle).width > 920) context.font = `${--size}px sans-serif`;
+            context.fillText(subtitle, 56, 142);
             this._vrQuickMenuHeaderTexture.update();
         }
+    }
+
+    /**
+     * The glass behind the controls: a rounded, slightly translucent sheet as tall as this page's last button row.
+     * Row r's buttons are centred at y = 0.36 - r * 0.36 and are 0.27 m tall; the sheet's top edge is y = 0.86 (the
+     * panel mesh is 1.80 m tall and offset so its top stays there) and the texture is 632 px per metre.
+     */
+    _drawVRQuickMenuBack(definitions) {
+        const texture = this._vrQuickMenuBackTexture;
+        if (!texture) return;
+        let last = 0;
+        definitions.forEach((definition, index) => { if (definition) last = index; });
+        const rows = Math.floor(last / 3) + 1;
+        const PX = 632;
+        const bottom = Math.min(1.78, 0.86 - (0.36 - (rows - 1) * 0.36 - 0.135 - 0.07));
+        const w = 1024, top = 6, height = Math.round(bottom * PX) - top - 6, radius = 64;
+        const context = texture.getContext();
+        context.clearRect(0, 0, 1024, 1138);
+        const x = 6, width = w - 12;
+        context.beginPath();
+        context.moveTo(x + radius, top);
+        context.arcTo(x + width, top, x + width, top + height, radius);
+        context.arcTo(x + width, top + height, x, top + height, radius);
+        context.arcTo(x, top + height, x, top, radius);
+        context.arcTo(x, top, x + width, top, radius);
+        context.closePath();
+        const fill = context.createLinearGradient(0, top, 0, top + height);
+        fill.addColorStop(0, 'rgba(10, 20, 30, 0.90)');
+        fill.addColorStop(1, 'rgba(5, 9, 16, 0.84)');
+        context.fillStyle = fill;
+        context.fill();
+        context.lineWidth = 6;
+        context.strokeStyle = 'rgba(143, 255, 238, 0.45)';
+        context.stroke();
+        texture.update();
     }
 
     // ---- The seek bar -------------------------------------------------------------------------------------
@@ -848,7 +1224,7 @@ class VRClubUI extends VRClubAnimationFinish {
             ctx.fill();
         }
         ctx.fillStyle = '#c5cad4';
-        ctx.font = '30px sans-serif';
+        ctx.font = '34px sans-serif';
         ctx.textBaseline = 'alphabetic';
         ctx.textAlign = 'left';
         const clock = window.AudioUtils ? window.AudioUtils.formatClock : (s => String(Math.floor(s)));
@@ -857,7 +1233,8 @@ class VRClubUI extends VRClubAnimationFinish {
             ctx.textAlign = 'right';
             ctx.fillText(clock(info.duration), right, 178);
         } else {
-            ctx.fillText(this._audioKind ? 'Live stream: no position to seek' : 'ADD MUSIC: FILE OR URL', left, 178);
+            ctx.fillText(this._audioKind ? 'Live stream: no position to seek'
+                : (this._immersive && this._immersive.mode !== 'manual' ? 'ADD MUSIC FROM YOUR PHONE' : 'ADD MUSIC: FILE OR URL'), left, 178);
         }
         this._vrSeek.texture.update();
     }
@@ -890,7 +1267,6 @@ class VRClubUI extends VRClubAnimationFinish {
         const fraction = this._vrSeekFractionAt(pickResult.pickedPoint);
         if (fraction === null) return;
         this._vrSeek.drag = { fraction };
-        this.pulseHaptic(0.5, 20);
         this._drawVRSeekBar();
     }
 
@@ -908,14 +1284,23 @@ class VRClubUI extends VRClubAnimationFinish {
         if (!drag) return;
         this._vrSeek.drag = null;
         this.seekAudioFraction(drag.fraction);
-        this.pulseHaptic(0.7, 30);
         this._drawVRSeekBar();
     }
 
     async _openQuestPanel(kind) {
         this.toggleVRQuickMenu(false);
+        // An immersive-only app has no 2D page to come back to: leaving VR would strand the guest on an empty window.
+        if (this._immersive && this._immersive.mode !== 'manual') {
+            this.showErrorMessage(kind === 'credits'
+                ? 'Credits and licences: open this site on your phone and tap About.'
+                : 'Add music from your phone: Music, Sources, ADD FROM PHONE.');
+            return;
+        }
         try {
-            if (this.isInVRMode && this.vrHelper) await this.vrHelper.baseExperience.exitXRAsync();
+            if (this.isInVRMode && this.vrHelper) {
+                window.VRPayment?.holdLeaseForSetup?.();
+                await this.vrHelper.baseExperience.exitXRAsync();
+            }
             const open = kind === 'credits' ? window.openClubCredits : window.openMusicSetup;
             if (!open) throw new Error('The setup panel is not ready.');
             open();
@@ -931,6 +1316,21 @@ class VRClubUI extends VRClubAnimationFinish {
             if (!this.seekAudioBy(button.delta)) this.showErrorMessage('Nothing to seek in.');
         } else if (button.action === 'playPause') {
             this.toggleAudioPlayback();
+        } else if (button.action === 'play') {
+            this.setAudioPlayback(true);
+        } else if (button.action === 'pause') {
+            this.setAudioPlayback(false);
+        } else if (button.action === 'stop') {
+            this.stopAudioPlayback();
+        } else if (button.action === 'sourceStep') {
+            try {
+                await this.stepAudioSource(button.delta);
+            } catch (err) {
+                this.showErrorMessage(`Could not change source: ${err && err.message ? err.message : 'unknown error'}`);
+            }
+        } else if (button.action === 'folderMode') {
+            const shuffle = this._localPlaylist ? this._localPlaylist.shuffle : !!this._localPlaylistShuffle;
+            this.setLocalPlaylistShuffle(!shuffle);
         } else if (button.action === 'musicSetup') {
             await this._openQuestPanel('music');
             return;
@@ -944,13 +1344,24 @@ class VRClubUI extends VRClubAnimationFinish {
                 this.showErrorMessage(`Could not start the music: ${err && err.message ? err.message : 'unknown error'}`);
             }
         }
-        this.pulseHaptic(0.6, 30);
         this._refreshVRQuickMenu();
     }
 
     _refreshVRQuickMenu() {
         if (!this._vrQuickMenuButtons) return;
         this._showVRQuickMenuPage(this._vrQuickMenuPage || 'home');
+    }
+
+    _getAvatarEditor() {
+        if (this.avatarEditor) return this.avatarEditor;
+        if (typeof window.AvatarEditor !== 'function') return null;
+        this.avatarEditor = new window.AvatarEditor(this);
+        return this.avatarEditor;
+    }
+
+    _syncVRWardrobe(page) {
+        if (!this.avatarEditor) return;
+        this.avatarEditor.syncVR(page, this._vrQuickMenuRoot, !!this._vrQuickMenuRoot?.isEnabled());
     }
 
     // ---- ONLINE: the VR face of js/multiplayer.js ----------------------------------------------------------------
@@ -963,7 +1374,10 @@ class VRClubUI extends VRClubAnimationFinish {
         return typeof ClubMultiplayer !== 'undefined' ? new ClubMultiplayer(this) : null;
     }
 
-    static get VR_NET_PAGES() { return ['online', 'rooms', 'gestures', 'chat', 'people', 'person', 'safety', 'room', 'look', 'voiceAudience', 'chatAudience']; }
+    static get VR_NET_PAGES() { return ['onlineSafety', 'online', 'rooms', 'gestures', 'chat', 'people', 'person', 'report', 'safety', 'room', 'look', 'voiceAudience', 'chatAudience']; }
+
+    /** Babylon's default layer mask plus one extra bit: the quick menu is on both, the world only on the first. */
+    static get MENU_LAYER_MASK() { return 0x1FFFFFFF; }
 
     /** The five pages' buttons. Names come from other guests, so they are shortened and never interpreted. */
     _vrNetPageDefinitions(page, common) {
@@ -971,6 +1385,18 @@ class VRClubUI extends VRClubAnimationFinish {
         const back = (target) => ({ ...common.back, target });
         const net = (label, op, extra = {}) => ({ label, action: 'net', op, ...extra });
         if (!mp) return [common.back, common.close];
+        if (page === 'onlineSafety') {
+            const accepted = mp.hasAcceptedOnlineSafety();
+            return [
+                net('KEEP DETAILS PRIVATE', 'safetyInfo', { info: 'NO LOCATION / CONTACT ACCOUNTS' }),
+                net('LEAVE IF PRESSURED', 'safetyInfo', { info: 'DO NOT MOVE CHAT ELSEWHERE' }),
+                net('REPORT + BLOCK ABUSE', 'safetyInfo', { info: 'CONTACT STOPS BOTH WAYS' }),
+                net('START PRIVATE ROOM', 'safetyPrivate', { info: 'RECOMMENDED' }),
+                net(accepted ? 'RETURN TO ONLINE' : 'SHOW ONLINE OPTIONS', 'safetyAccept', { info: accepted ? 'GUIDE ACCEPTED' : 'I UNDERSTAND' }),
+                net('STAY OFFLINE', 'safetyOffline'),
+                common.close
+            ];
+        }
         if (page === 'online') {
             return [
                 net('NETWORK', 'connection'),
@@ -982,7 +1408,6 @@ class VRClubUI extends VRClubAnimationFinish {
                 net('NEW PRIVATE ROOM', 'privateRoom'),
                 { label: 'JOIN ROOM', action: 'page', target: 'room' },
                 net('BROWSE ROOMS', 'browseRooms'),
-                net('LISTEN ALONG', 'listenAlong'),
                 common.back,
                 common.close
             ];
@@ -1051,6 +1476,7 @@ class VRClubUI extends VRClubAnimationFinish {
                 net('LOCK ROOM', 'lock'),
                 net('NOD TO NOD', 'autoNod'),
                 net('UNBLOCK ALL', 'unblockAll'),
+                net('REVIEW SAFETY GUIDE', 'reviewSafety'),
                 net('LEAVE ROOM', 'leave', { danger: true }),
                 back('online'),
                 common.close
@@ -1065,13 +1491,21 @@ class VRClubUI extends VRClubAnimationFinish {
             if (people.length > per) rows.push({ label: 'MORE \u25B8', action: 'net', op: 'morePeople' });
             return [...rows, back('online'), common.close];
         }
+        if (page === 'report') {
+            const person = mp.people().find(item => item.id === this._vrReportPeer);
+            if (!person) return [back('people'), common.close];
+            const reasons = Object.entries(ClubMultiplayer.REPORT_REASONS).map(([reason, label]) =>
+                net(label.toUpperCase(), 'reportReason', { reason }));
+            return [...reasons, back('person'), common.close];
+        }
         // person: one guest, chosen from the list
         const person = mp.people().find(item => item.id === this._vrPerson);
         if (!person) return [back('people'), common.close];
         const armedFor = (op) => this._vrArmed && this._vrArmed.key === `${op}:${person.id}` && this._vrArmed.until > Date.now();
         const rows = [
             net(person.muted ? 'UNMUTE' : 'MUTE', 'peerMute', { peer: person.id }),
-            net('BLOCK', 'peerBlock', { peer: person.id })
+            net('BLOCK', 'peerBlock', { peer: person.id }),
+            net('REPORT + BLOCK', 'peerReport', { peer: person.id, danger: true })
         ];
         if (mp.isHost()) {
             rows.push(net(armedFor('host') ? 'SURE? MAKE HOST' : 'MAKE HOST', 'peerHost', { peer: person.id }));
@@ -1134,7 +1568,6 @@ class VRClubUI extends VRClubAnimationFinish {
             case 'autoNod': return mp.autoNod;
             case 'pool': return mp.avatarPool === button.pool;
             case 'gesture': return button.gesture === 'dance' && mp.dancing;
-            case 'listenAlong': return !!mp.pendingMusicInfo();
             case 'peerMute': {
                 const person = mp.people().find(item => item.id === button.peer);
                 return !!(person && person.muted);
@@ -1153,7 +1586,10 @@ class VRClubUI extends VRClubAnimationFinish {
             case 'browseRooms': return mp.roomDirectory.loading ? 'CHECKING...' : 'PUBLIC + SAVED PRIVATE';
             case 'audienceAll': return active ? 'SELECTED' : '';
             case 'audienceClear': return 'SEND TO NOBODY';
-            case 'audiencePeer': return active ? 'SELECTED' : 'NOT SELECTED';
+            case 'audiencePeer': return !mp.canRestrictAudience() ? 'PRIVATE ROOMS ONLY' : active ? 'SELECTED' : 'NOT SELECTED';
+            case 'safetyInfo': return button.info || '';
+            case 'safetyPrivate': return 'RECOMMENDED';
+            case 'safetyAccept': return 'I UNDERSTAND';
             case 'connection': return mp.connected ? 'CONNECTED' : mp.connecting ? 'CONNECTING' : 'OFFLINE';
             case 'mic': return !mp.connected ? 'JOIN A ROOM FIRST' : active ? (mp.voiceAudience === null ? 'ON: EVERYONE' : 'ON: SELECTED') : 'MIC OFF';
             case 'chatUnread': return mp.chatUnread ? ` NEW` : '';
@@ -1164,7 +1600,6 @@ class VRClubUI extends VRClubAnimationFinish {
             case 'personalSpace': case 'muteAll': case 'autoNod': case 'nameTags': return active ? 'ON' : 'OFF';
             case 'lock': return !mp.isHost() ? 'HOST ONLY' : active ? 'LOCKED' : 'OPEN';
             case 'unblockAll': return `${mp.blockedList().length} BLOCKED`;
-            case 'listenAlong': return active ? 'TAP TO JOIN' : '';
             case 'pool': return active ? 'SELECTED' : '';
             case 'gesture': return button.gesture === 'dance' ? (active ? 'DANCING' : '') : '';
             case 'select': {
@@ -1186,6 +1621,22 @@ class VRClubUI extends VRClubAnimationFinish {
             return true;
         };
         switch (button.op) {
+            case 'safetyAccept':
+                mp.acceptOnlineSafety();
+                this._showVRQuickMenuPage('online');
+                return;
+            case 'safetyPrivate':
+                mp.acceptOnlineSafety();
+                mp.joinNewPrivateRoom();
+                this.showErrorMessage(`Private room ${mp.currentRoom.replace('private-', '')}: share this code only with people you trust`);
+                this._showVRQuickMenuPage('online');
+                return;
+            case 'reviewSafety':
+                this._showVRQuickMenuPage('onlineSafety');
+                return;
+            case 'safetyOffline':
+                this._showVRQuickMenuPage('home');
+                return;
             case 'browseRooms':
             case 'moreRooms':
                 this._showVRQuickMenuPage('rooms');
@@ -1248,7 +1699,6 @@ class VRClubUI extends VRClubAnimationFinish {
                 mp.joinRoom(code);
                 this.showErrorMessage(`Joining room ${code.slice(0, 3)} ${code.slice(3)}\u2026`);
                 this._showVRQuickMenuPage('online');
-                this.pulseHaptic(0.6, 30);
                 return;
             }
             case 'roomBack':
@@ -1259,10 +1709,6 @@ class VRClubUI extends VRClubAnimationFinish {
                 mp.joinLobby();
                 this.showErrorMessage('Joining the public lobby\u2026');
                 break;
-            case 'listenAlong':
-                if (mp.pendingMusicInfo()) mp.acceptListenAlong();
-                else this.showErrorMessage('Nothing to listen along to right now');
-                break;
             case 'gesture':
                 if (!needConnection()) mp.sendGesture(button.gesture);
                 break;
@@ -1272,7 +1718,6 @@ class VRClubUI extends VRClubAnimationFinish {
             case 'select':
                 this._vrPerson = button.peer;
                 this._showVRQuickMenuPage('person');
-                this.pulseHaptic(0.45, 25);
                 return;
             case 'morePeople': {
                 const total = mp.people().length;
@@ -1285,7 +1730,20 @@ class VRClubUI extends VRClubAnimationFinish {
                 if (mp.blockPeer(button.peer)) this.showErrorMessage(`Blocked ${person ? person.name : 'guest'}: you will not see or hear each other`);
                 this._vrPerson = null;
                 this._showVRQuickMenuPage('people');
-                this.pulseHaptic(0.7, 35);
+                return;
+            }
+            case 'peerReport':
+                this._vrReportPeer = button.peer;
+                this._showVRQuickMenuPage('report');
+                return;
+            case 'reportReason': {
+                const person = mp.people().find(item => item.id === this._vrReportPeer);
+                const reason = button.reason;
+                if (person && mp.reportAndBlockPeer(person.id, reason)) {
+                    this.showErrorMessage('Reported and blocked: you cannot see, hear or contact each other.');
+                }
+                this._vrReportPeer = null;
+                this._showVRQuickMenuPage('people');
                 return;
             }
             case 'peerKick':
@@ -1312,7 +1770,6 @@ class VRClubUI extends VRClubAnimationFinish {
                 }
                 this._vrPerson = null;
                 this._showVRQuickMenuPage('people');
-                this.pulseHaptic(0.8, 40);
                 return;
             }
             case 'personalSpace': mp.setPersonalSpace(!mp.personalSpace); break;
@@ -1334,7 +1791,6 @@ class VRClubUI extends VRClubAnimationFinish {
                 break;
             default: break;
         }
-        this.pulseHaptic(0.6, 30);
         this._refreshVRQuickMenu();
     }
 
@@ -1344,17 +1800,75 @@ class VRClubUI extends VRClubAnimationFinish {
             this.toggleVRQuickMenu(false);
             return;
         }
+        if (['welcomeSafe', 'welcomeFull', 'accessNewCode', 'accessExit', 'musicSync'].includes(button.action)) {
+            if (this._immersive) this._immersive.handleMenuAction(button.action);
+            return;
+        }
         if (button.action === 'page') {
+            if (button.target === 'appearanceEditor') {
+                const editor = this._getAvatarEditor();
+                if (!editor) {
+                    this.showErrorMessage('Personal wardrobe is unavailable in this build.');
+                    return;
+                }
+                if (!editor.openVR()) return;
+            }
             // Remember where this page was opened from, so its BACK returns there (REACT is reached from HOME and ONLINE).
             this._vrPageParent = { ...(this._vrPageParent || {}), [button.target]: this._vrQuickMenuPage || 'home' };
+            // The picker opens on the page that holds the current character: women and the default, or men.
+            if (button.target === 'character') this._vrCharacterPage = (this.getLocalCharacter() || '')[0] === 'm' ? 1 : 0;
             this._showVRQuickMenuPage(button.target);
-            this.pulseHaptic(0.45, 25);
             return;
         }
         if (button.action === 'back') {
             const parent = this._vrPageParent && this._vrPageParent[this._vrQuickMenuPage];
             this._showVRQuickMenuPage(parent || button.target || 'home');
-            this.pulseHaptic(0.35, 20);
+            return;
+        }
+        if (button.action === 'appearanceSet') {
+            this.avatarEditor?.setDraftValue(button.field, button.value);
+            this._refreshVRQuickMenu();
+            return;
+        }
+        if (button.action === 'appearanceBasePage') {
+            const editor = this.avatarEditor;
+            if (!editor) return;
+            editor.vrBasePage = Math.max(0, Math.min(2, editor.vrBasePage + button.delta));
+            this._refreshVRQuickMenu();
+            return;
+        }
+        if (button.action === 'appearanceColorPage') {
+            const editor = this.avatarEditor;
+            if (!editor) return;
+            const maxPage = Math.ceil(window.AvatarEditor.COLORS.length / 8) - 1;
+            editor.vrColorPage[button.field] = Math.max(0, Math.min(maxPage,
+                (editor.vrColorPage[button.field] || 0) + button.delta));
+            this._refreshVRQuickMenu();
+            return;
+        }
+        if (button.action === 'appearanceRotate') {
+            this.avatarEditor?.rotateVR(button.delta);
+            return;
+        }
+        if (button.action === 'appearanceSave') {
+            void (async () => {
+                if (!await this.avatarEditor?.saveVR()) return;
+                this._showVRQuickMenuPage('me');
+                this.showErrorMessage('Personal appearance saved.');
+            })();
+            return;
+        }
+        if (button.action === 'appearanceReset') {
+            void (async () => {
+                if (!await this.avatarEditor?.resetVR()) return;
+                this._showVRQuickMenuPage('me');
+                this.showErrorMessage('Personal appearance reset.');
+            })();
+            return;
+        }
+        if (button.action === 'appearanceCancel') {
+            this.avatarEditor?.cancelVR();
+            this._showVRQuickMenuPage('me');
             return;
         }
         if (button.action === 'net' || button.action === 'person') {
@@ -1370,7 +1884,8 @@ class VRClubUI extends VRClubAnimationFinish {
                 .catch(error => this.showErrorMessage(error.message));
             return;
         }
-        if (['seek', 'playPause', 'savedSet', 'setStep', 'musicSetup'].includes(button.action)) {
+        if (['seek', 'playPause', 'play', 'pause', 'stop', 'sourceStep', 'folderMode',
+            'savedSet', 'setStep', 'musicSetup'].includes(button.action)) {
             this._runVRMusicAction(button);
             return;
         }
@@ -1382,7 +1897,6 @@ class VRClubUI extends VRClubAnimationFinish {
         if (button.action === 'quality') {
             const tiers = ['balanced', 'high', 'ultra'];
             this.setGraphicsTier(tiers[(tiers.indexOf(this.graphicsTier) + 1) % tiers.length]);
-            this.pulseHaptic(0.7, 35);
             this._refreshVRQuickMenu();
             return;
         }
@@ -1400,8 +1914,65 @@ class VRClubUI extends VRClubAnimationFinish {
             this._refreshVRQuickMenu();
             return;
         }
+        if (button.action === 'nextSection') {
+            const title = this.nextShowSection();
+            if (title) this.showErrorMessage(`Section: ${title}. ${this.lightHoldSummary().toLowerCase()}`);
+            this._refreshVRQuickMenu();
+            return;
+        }
+        if (button.action === 'showDrop') {
+            if (!this.guardHostControl('lights')) return;
+            if (this.showDirector && this.showDirector.isDriving()) this.showDirector.triggerShowDrop();
+            else if (this.vjDirector) this.vjDirector.triggerDrop();
+            this.showErrorMessage(this.showDirector && this.showDirector.isDriving() ? 'Countdown started' : 'Peak look triggered');
+            this._refreshVRQuickMenu();
+            return;
+        }
+        if (button.action === 'showSection') {
+            const title = this.pickShowSection(button.section);
+            if (title) this.showErrorMessage(`Section: ${title}. ${this.lightHoldSummary().toLowerCase()}`);
+            this._refreshVRQuickMenu();
+            return;
+        }
+        if (button.action === 'holdMode') {
+            this.cycleLightHoldMode();
+            this.showErrorMessage(`After you change a light: ${VRClubUI.LIGHT_HOLD_NAMES[this.lightHold.mode].toLowerCase()}`);
+            this._refreshVRQuickMenu();
+            return;
+        }
+        if (button.action === 'holdTiming') {
+            this.cycleLightHoldTiming();
+            this.showErrorMessage(this.lightHoldSummary().toLowerCase());
+            this._refreshVRQuickMenu();
+            return;
+        }
         if (button.control === 'vrComfortMode') {
             this.setVRComfortMode(!this.vrComfortMode);
+            return;
+        }
+        if (button.control === 'autoQuality') {
+            this.setAutoQuality(!this.autoQuality);
+            return;
+        }
+        if (button.control === 'vrSeatedMode') {
+            this.setSeatedMode(!this.vrSeatedMode);
+            return;
+        }
+        if (button.action === 'pickCharacter') {
+            const id = this.setLocalCharacter(button.character);
+            if (id === false) return;
+            this.showErrorMessage(id ? `Your character: ${button.label.toLowerCase()}, ${button.detail.toLowerCase()}`
+                : this.multiplayer?.connected ? 'Choosing a random room character\u2026' : 'Your character: your own body');
+            return;
+        }
+        if (button.action === 'characterPage') {
+            this._vrCharacterPage = this._vrCharacterPage === 1 ? 0 : 1;
+            this._showVRQuickMenuPage('character');
+            return;
+        }
+        if (button.action === 'measureHeight') {
+            this.startHeightMeasure();
+            this._refreshVRQuickMenu();
             return;
         }
         if (button.control === 'photosensitiveSafeMode') {
@@ -1409,9 +1980,16 @@ class VRClubUI extends VRClubAnimationFinish {
             this._refreshVRQuickMenu();
             return;
         }
-        if (button.control === 'bassHapticsEnabled') {
-            this.setBassHapticsEnabled(!this.bassHapticsEnabled);
-            this._refreshVRQuickMenu();
+        if (button.action === 'characterStyle') {
+            this.setCharacterStyle(this.getRoomCharacterStyle() === 'diverse' ? 'quaternius' : 'diverse');
+            return;
+        }
+        if (button.action === 'lightweightCharacters') {
+            this.setLightweightCharacters(!this.characterStyleStatus().lightweight);
+            return;
+        }
+        if (button.action === 'retryCharacters') {
+            this.retryCharacterStyle();
             return;
         }
         if (button.action === 'people') {
@@ -1420,8 +1998,9 @@ class VRClubUI extends VRClubAnimationFinish {
             const who = button.people === 'all' ? 'Everyone'
                 : button.people === 'dj' ? 'The DJ'
                 : button.people === 'dancers' ? 'The dancers' : 'The bystanders';
-            this.showErrorMessage(here ? `${who}: back in the club` : `${who}: sent home`);
-            this.pulseHaptic(0.6, 30);
+            this.showErrorMessage(button.people === 'dj' && this._roomDJVisible === false
+                ? 'The host has sent the room DJ home. Your own DJ preference is saved.'
+                : here ? `${who}: back in the club` : `${who}: sent home`);
             this._refreshVRQuickMenu();
             return;
         }
@@ -1429,7 +2008,7 @@ class VRClubUI extends VRClubAnimationFinish {
         // The remaining show controls are host-owned in someone else's room (the legacy "lights" guard name is
         // retained for multiplayer protocol compatibility).
         if (!this.guardHostControl('lights')) return;
-        if (this.toggleLightControl(button.control)) this.pulseHaptic(0.7, 35);
+        this.toggleLightControl(button.control);
         this._refreshVRQuickMenu();
     }
 
@@ -1438,18 +2017,25 @@ class VRClubUI extends VRClubAnimationFinish {
         const root = new BABYLON.TransformNode('vrQuickMenuRoot', this.scene);
         const panel = BABYLON.MeshBuilder.CreatePlane('vrQuickMenuPanel', {
             width: 1.62,
-            height: 1.72,
+            height: 1.80,
             sideOrientation: BABYLON.Mesh.DOUBLESIDE
         }, this.scene);
         panel.parent = root;
+        panel.position.y = -0.04; // the plane's top edge stays at the header; the glass is drawn only as tall as the page needs
         panel.isPickable = false;
+        // A rounded, slightly translucent glass sheet drawn into this texture (see _drawVRQuickMenuBack) instead of a hard
+        // opaque slab: it keeps the room visible around the controls and has no dead space below short pages.
+        const backTexture = new BABYLON.DynamicTexture('vrQuickMenuBackTexture', { width: 1024, height: 1138 }, this.scene, true);
+        backTexture.hasAlpha = true;
         const panelMaterial = this.materialFactory.createStandardMaterial('vrQuickMenuPanelMat', {
-            diffuseColor: [0.015, 0.02, 0.03],
-            emissiveColor: [0.025, 0.04, 0.055],
+            emissiveColor: [0, 0, 0],
+            emissiveTexture: backTexture,
+            opacityTexture: backTexture,
             disableLighting: true
         });
-        panelMaterial.alpha = 0.96;
+        panelMaterial.backFaceCulling = false;
         panel.material = panelMaterial;
+        this._vrQuickMenuBackTexture = backTexture;
 
         const header = BABYLON.MeshBuilder.CreatePlane('vrQuickMenuHeader', {
             width: 1.48,
@@ -1538,6 +2124,12 @@ class VRClubUI extends VRClubAnimationFinish {
         this._showVRQuickMenuPage('home');
         root.setEnabled(false);
         this._vrQuickMenuRoot = root;
+        this.scene.onDisposeObservable.add(() => {
+            try { this.avatarEditor?.closeVR(); } catch (_) { /* scene teardown */ }
+        });
+        // The menu stays visible when immersive launch hides the world (see ImmersiveLaunch.setVeil): it also lives on
+        // the extra layer the veil camera looks at.
+        for (const mesh of root.getChildMeshes()) mesh.layerMask = VRClubUI.MENU_LAYER_MASK;
         // The ONLINE pages show live state (who joined, who is speaking): redraw them when the session changes.
         const mp = this._multiplayer();
         if (mp) {
@@ -1555,6 +2147,11 @@ class VRClubUI extends VRClubAnimationFinish {
     }
 
     toggleVRQuickMenu(force) {
+        // The first-run photosensitivity choice and a locked pairing code cannot be waved away.
+        if (this._immersive && this._immersive.menuLocked() && (force === false || (force === undefined && this._vrQuickMenuRoot?.isEnabled()))) {
+            return true;
+        }
+        if (force !== false) this._closeVRSocialWheel();
         this._createVRQuickMenu();
         const camera = this.isInVRMode
             ? this.vrHelper?.baseExperience?.camera : this.scene.activeCamera;
@@ -1564,8 +2161,210 @@ class VRClubUI extends VRClubAnimationFinish {
         if (next) this._refreshVRQuickMenu();
         if (!next) this._stopVRMusicTicker();
         this._vrQuickMenuRoot.setEnabled(next);
-        this.pulseHaptic(next ? 0.8 : 0.35, 35);
+        if (!next) this.avatarEditor?.closeVR();
+        else this._syncVRWardrobe(this._vrQuickMenuPage);
         return next;
+    }
+
+    _socialWheelItems() {
+        const state = this._vrSocialWheel;
+        if (state.page === 'home') return [
+            { label: 'CHAT', target: 'chat' }, { label: 'REACTIONS', target: 'gestures' },
+            { label: 'MICROPHONE', target: 'voiceAudience' }, { label: 'CLOSE', close: true }
+        ];
+        const items = this._vrQuickMenuPageDefinitions(state.page)
+            .filter(item => item && item.action !== 'back' && item.action !== 'close');
+        const start = state.offset * 5;
+        return [...items.slice(start, start + 5),
+            ...(items.length > 5 ? [{ label: 'MORE', more: true }] : []),
+            { label: 'BACK', target: state.page === 'chatAudience' ? 'chat' : 'home' },
+            { label: 'CLOSE', close: true }];
+    }
+
+    _pressVRSocialWheel(x = 0, y = 0) {
+        if (!this.isInVRMode) return;
+        if (!this._multiplayer()?.connected) {
+            this.showErrorMessage('Join a room in People to use chat, reactions and your microphone.');
+            return;
+        }
+        if (!this._vrSocialWheel?.open) {
+            this._createVRSocialWheel();
+            const state = this._vrSocialWheel;
+            this.toggleVRQuickMenu(false);
+            state.page = 'home'; state.offset = 0; state.selected = -1; state.open = true;
+            state.x = x; state.y = y; state.armed = Math.hypot(x, y) < 0.25; state.busy = false;
+            this._vrQuickMenuRoot.setEnabled(false);
+            this._placeVRQuickMenu(this.vrHelper.baseExperience.camera);
+            state.mesh.position.copyFrom(this._vrQuickMenuRoot.position);
+            state.mesh.rotation.copyFrom(this._vrQuickMenuRoot.rotation);
+            state.mesh.setEnabled(true);
+            this._restoreVRSocialTurning();
+            state.turning = [];
+            for (const feature of [this.movementFeature, this.vrHelper.teleportation]) {
+                if (!feature) continue;
+                state.turning.push({ feature, enabled: feature.rotationEnabled });
+                feature.rotationEnabled = false;
+            }
+            this._drawVRSocialWheel();
+            return;
+        }
+        const state = this._vrSocialWheel;
+        if (state.busy || !state.armed) return;
+        const item = this._socialWheelItems()[state.selected];
+        if (!item) return;
+        if (item.close) { this._closeVRSocialWheel(); return; }
+        state.selected = -1;
+        state.armed = false;
+        if (item.more) {
+            const count = this._vrQuickMenuPageDefinitions(state.page).filter(item =>
+                item && item.action !== 'back' && item.action !== 'close').length;
+            state.offset = (state.offset + 1) % Math.ceil(count / 5);
+        } else if (item.target) {
+            state.page = item.target; state.offset = 0;
+        } else {
+            state.busy = true;
+            void this._runVRNetworkAction(item)
+                .catch(error => this.showErrorMessage(`Social action failed: ${error.message}`))
+                .finally(() => {
+                    state.busy = false;
+                    if (state.open) this._drawVRSocialWheel();
+                });
+        }
+        this._drawVRSocialWheel();
+    }
+
+    _createVRSocialWheel() {
+        if (this._vrSocialWheel) return;
+        this._createVRQuickMenu();
+        const texture = new BABYLON.DynamicTexture('vrSocialWheelTexture', { width: 1024, height: 1024 }, this.scene, false);
+        texture.hasAlpha = true;
+        const material = this.materialFactory.createStandardMaterial('vrSocialWheelMaterial', {
+            emissiveTexture: texture, disableLighting: true
+        });
+        material.diffuseTexture = texture;
+        material.useAlphaFromDiffuseTexture = true;
+        material.disableDepthWrite = true;
+        material.backFaceCulling = false;
+        const mesh = BABYLON.MeshBuilder.CreatePlane('vrSocialWheel', { size: 1.35 }, this.scene);
+        mesh.material = material;
+        mesh.renderingGroupId = 2;
+        mesh.isPickable = false;
+        mesh.setEnabled(false);
+        this._vrSocialWheel = {
+            mesh, texture, open: false, selected: -1, x: 0, y: 0,
+            armed: true, busy: false, turning: []
+        };
+        const unsubscribe = this._multiplayer().onChange(() => {
+            if (!this._multiplayer().connected) this._closeVRSocialWheel(true);
+            else if (this._vrSocialWheel.open) {
+                this._vrSocialWheel.selected = -1;
+                this._drawVRSocialWheel();
+            }
+        });
+        this.scene.onDisposeObservable.add(() => {
+            this._closeVRSocialWheel(true);
+            unsubscribe();
+            texture.dispose();
+        });
+    }
+
+    _moveVRSocialWheel(x, y) {
+        const state = this._vrSocialWheel;
+        if (!state) return;
+        state.x = x; state.y = y;
+        if (!state.open) {
+            if (Math.hypot(x, y) < 0.25) this._restoreVRSocialTurning();
+            return;
+        }
+        // Babylon's movement feature registers its axis observer before the UI bindings,
+        // so it may have already copied this event into its private turn state. Clear that
+        // cached value as well as gating future events in _xrMovementOptions().
+        if (this.movementFeature?._movementState) {
+            this.movementFeature._movementState.rotateX = 0;
+            this.movementFeature._movementState.rotateY = 0;
+        }
+        const magnitude = Math.hypot(x, y);
+        if (magnitude < 0.25) {
+            const changed = !state.armed || state.selected !== -1;
+            state.armed = true;
+            state.selected = -1;
+            if (changed) this._drawVRSocialWheel();
+            return;
+        }
+        if (!state.armed || state.busy) return;
+        const items = this._socialWheelItems();
+        const angle = (Math.atan2(x, -y) + Math.PI * 2) % (Math.PI * 2);
+        const selected = magnitude < 0.5 ? -1 : Math.round(angle / (Math.PI * 2 / items.length)) % items.length;
+        if (selected === state.selected) return;
+        state.selected = selected;
+        this._drawVRSocialWheel();
+    }
+
+    _closeVRSocialWheel(restoreNow = false) {
+        const state = this._vrSocialWheel;
+        if (!state) return;
+        state.open = false;
+        state.busy = false;
+        state.selected = -1;
+        state.mesh.setEnabled(false);
+        if (restoreNow || Math.hypot(state.x, state.y) < 0.25) this._restoreVRSocialTurning();
+    }
+
+    _restoreVRSocialTurning() {
+        const state = this._vrSocialWheel;
+        if (!state) return;
+        for (const { feature, enabled } of state.turning) feature.rotationEnabled = enabled;
+        state.turning = [];
+    }
+
+    _drawVRSocialWheel() {
+        const state = this._vrSocialWheel, items = this._socialWheelItems();
+        const ctx = state.texture.getContext();
+        ctx.clearRect(0, 0, 1024, 1024);
+        const step = Math.PI * 2 / items.length;
+        items.forEach((item, index) => {
+            const angle = index * step - Math.PI / 2;
+            ctx.beginPath(); ctx.moveTo(512, 512);
+            ctx.arc(512, 512, 490, angle - step / 2, angle + step / 2);
+            ctx.closePath();
+            const active = item.op && this._vrNetActive(item);
+            ctx.fillStyle = index === state.selected ? '#16818a' : active ? '#164653' : '#141e30';
+            ctx.fill(); ctx.strokeStyle = '#708899'; ctx.lineWidth = 3; ctx.stroke();
+            ctx.fillStyle = item.danger ? '#ffb4b4' : '#ffffff';
+            ctx.textAlign = 'center'; ctx.font = 'bold 25px sans-serif';
+            const x = 512 + Math.cos(angle) * 330, y = 512 + Math.sin(angle) * 330;
+            const words = String(item.label).split(/\s+/);
+            let top = '', bottom = '';
+            for (const word of words) {
+                if (!bottom && `${top} ${word}`.trim().length <= 14) top = `${top} ${word}`.trim();
+                else bottom = `${bottom} ${word}`.trim();
+            }
+            if (bottom.length > 14) bottom = `${bottom.slice(0, 13)}\u2026`;
+            ctx.fillText(top, x, y - (bottom ? 13 : 0));
+            if (bottom) ctx.fillText(bottom, x, y + 16);
+            if (item.op) {
+                ctx.font = '20px sans-serif'; ctx.fillStyle = '#a7eff1';
+                ctx.fillText(this._vrNetValue(item, active), x, y + (bottom ? 44 : 30));
+            }
+        });
+        ctx.beginPath(); ctx.arc(512, 512, 165, 0, Math.PI * 2);
+        ctx.fillStyle = '#080f1a'; ctx.fill();
+        ctx.fillStyle = '#ffffff'; ctx.font = 'bold 28px sans-serif';
+        const titles = {
+            home: 'SOCIAL', gestures: 'REACTIONS', chat: 'CHAT',
+            voiceAudience: 'MICROPHONE', chatAudience: 'CHAT AUDIENCE'
+        };
+        ctx.fillText(titles[state.page] || state.page.toUpperCase(), 512, 485);
+        ctx.font = '22px sans-serif';
+        if (state.busy) {
+            ctx.fillText('WORKING...', 512, 535);
+        } else if (!state.armed) {
+            ctx.fillText('CENTER STICK', 512, 535);
+        } else {
+            ctx.fillText('TILT TO CHOOSE', 512, 525);
+            ctx.fillText('CLICK TO SELECT', 512, 555);
+        }
+        state.texture.update();
     }
 
     /**
@@ -1587,35 +2386,163 @@ class VRClubUI extends VRClubAnimationFinish {
         root.computeWorldMatrix(true);
     }
 
+    _seatFromPick(pickResult) {
+        const metadata = pickResult?.pickedMesh?.metadata;
+        const seats = metadata?.vrclubSeats;
+        if (!Array.isArray(seats) || !seats.length) return null;
+        if (seats.length === 1 || !pickResult.pickedPoint) return seats[0];
+        const point = pickResult.pickedPoint;
+        let best = seats[0], bestDistance = Infinity;
+        for (const seat of seats) {
+            const distance = (point.x - seat.x) ** 2 + (point.z - seat.z) ** 2;
+            if (distance < bestDistance) { best = seat; bestDistance = distance; }
+        }
+        return best;
+    }
+
+    _pressSeat(pickResult) {
+        const seat = this._seatFromPick(pickResult);
+        if (!seat) return false;
+        if (this._activeSeat?.id === seat.id) this.standFromSeat(true);
+        else this.sitAtSeat(seat);
+        return true;
+    }
+
+    _simulatedSeatOccupant(id) {
+        const client = this.networkManager;
+        if (!client?.connected || client.room !== 'private-000032') return null;
+        for (const [peerId, peer] of client.peers) {
+            if (peer.simulated && peer.state?.seat === id && peer.state.seated) return { id: peerId, peer };
+        }
+        return null;
+    }
+
+    _cancelDevSeatWait() {
+        if (this._devSeatWaitObserver) this.scene.onBeforeRenderObservable.remove(this._devSeatWaitObserver);
+        this._devSeatWaitObserver = null;
+        this._devSeatWait = null;
+    }
+
+    _requestDevSeatYield(id) {
+        if (!this._simulatedSeatOccupant(id)) return false;
+        if (!this.networkManager.requestDevSeat(id)) return false;
+        this.showErrorMessage('The simulated guest is making room for you.');
+        return true;
+    }
+
+    sitAtSeat(seat) {
+        if (!seat || !Number.isFinite(seat.x) || !Number.isFinite(seat.z)) return false;
+        const occupant = this._simulatedSeatOccupant(seat.id);
+        if (occupant) {
+            this._cancelDevSeatWait();
+            if (!this._requestDevSeatYield(seat.id)) return false;
+            const request = this._devSeatWait = { seat, id: occupant.id, client: this.networkManager, at: performance.now() };
+            this._devSeatWaitObserver = this.scene.onBeforeRenderObservable.add(() => {
+                if (this._disposed || !this.networkManager?.connected || this.networkManager !== request.client) {
+                    this._cancelDevSeatWait(); return;
+                }
+                if (performance.now() - request.at > 15000) {
+                    this._cancelDevSeatWait();
+                    this.showErrorMessage('That guest cannot move clear yet. Please try another seat.');
+                    return;
+                }
+                if (this._simulatedSeatOccupant(seat.id)) return;
+                const peer = this.avatarManager?.remotes.get(request.id);
+                if (peer && Math.hypot(peer.root.position.x - seat.x, peer.root.position.z - seat.z) < 0.85) return;
+                this._cancelDevSeatWait();
+                this.sitAtSeat(seat);
+            });
+            return false;
+        }
+        this._cancelDevSeatWait();
+        this._activeSeat = seat;
+        // A seat in the room has its own seated pose: Seated mode's lift would double the height.
+        if (this._seatLift) this._seatLift.update(0, 0, false, 0, true);
+        this._seatLiftMoving = false;
+        const camera = this._playerCamera();
+        if (camera) {
+            camera.position.x = seat.viewX;
+            camera.position.z = seat.viewZ;
+            if (this.isInVRMode) {
+                const height = this._xrHeadHeight();
+                if (Number.isFinite(height)) camera.position.y = seat.floorY + height;
+                if (camera._deferOnly && camera._deferredUpdated) camera._deferredPositionUpdate.copyFrom(camera.position);
+            } else {
+                camera.position.y = seat.floorY + 1.2;
+                const target = this._seatLookTarget || (this._seatLookTarget = new BABYLON.Vector3());
+                target.set(seat.x + Math.sin(seat.facing) * 2, seat.floorY + 1.15, seat.z + Math.cos(seat.facing) * 2);
+                if (typeof camera.setTarget === 'function') camera.setTarget(target);
+            }
+        }
+        this._walkLevel = seat.floorY;
+        if (this.jumpState) this.jumpState.active = false;
+        this.showErrorMessage(`Sitting on ${seat.label}. Move or select it again to stand.`);
+        return true;
+    }
+
+    standFromSeat(notify = true) {
+        this._cancelDevSeatWait();
+        const seat = this._activeSeat;
+        if (!seat) return false;
+        this._activeSeat = null;
+        if (!this.isInVRMode) {
+            const camera = this._playerCamera();
+            if (camera) camera.position.y = seat.floorY + 1.7;
+        }
+        if (notify) this.showErrorMessage('Standing up');
+        return true;
+    }
+
     /**
      * Pointer routing for everything pickable in the world: the VR quick menu, its seek bar and the VJ desk at the
-     * DJ table (js/vjDesk.js), whose two touch panels and faders answer a mouse click and a controller ray alike.
+     * DJ table (js/vjDesk.js), plus the room's seats. A mouse click and a controller ray use the same path.
      */
     setupVJControlInteraction() {
-        this.scene.onPointerDown = (evt, pickResult) => {
+        // A press that throws inside the XR frame callback stops the headset's frame loop (the picture freezes while the
+        // music plays on), so nothing a pointer does may escape these handlers: it is logged and the frame carries on.
+        const guarded = (name, action) => {
+            try { action(); } catch (error) {
+                log.warn(`Pointer ${name} failed:`, error);
+                if (this.recordDiagnostic) this.recordDiagnostic('error', `Pointer ${name} failed: ${error.message}`);
+            }
+        };
+        // Both hands have a live pointer, so a drag (the seek bar, a desk fader or knob) belongs to the pointer that started it:
+        // the other hand's move or release must not steer it or end it. Events without a pointer id (a mouse stub) match anything.
+        const dragging = () => !!((this._vrSeek && this._vrSeek.drag) || this._vjDeskDrag || this._vjDeskSeek);
+        const foreign = evt => this._dragPointer !== undefined && evt && evt.pointerId !== undefined && evt.pointerId !== this._dragPointer;
+        this.scene.onPointerDown = (evt, pickResult) => guarded('press', () => {
             if (!pickResult || !pickResult.hit || !pickResult.pickedMesh) return;
+            // A right-click puts a desk knob or the crossfader back to its default (a controller uses A / X, see the bindings).
+            if (evt && evt.button === 2 && typeof this.resetVJDeskAt === 'function' && this.resetVJDeskAt(pickResult)) return;
             const vrMenuButton = this._vrQuickMenuButtons &&
                 this._vrQuickMenuButtons.find(button => button.mesh === pickResult.pickedMesh);
             if (this._vrSeek && pickResult.pickedMesh === this._vrSeek.mesh) {
                 this._beginVRSeek(pickResult);
+                this._dragPointer = dragging() ? (evt && evt.pointerId) : undefined;
                 return;
             }
             if (vrMenuButton) {
                 this._activateVRQuickMenuButton(vrMenuButton);
                 return;
             }
+            if (typeof this._pressStallDoor === 'function' && this._pressStallDoor(pickResult)) return;
+            if (this._pressSeat(pickResult)) return;
             if (typeof this.pressVJDesk === 'function') this.pressVJDesk(pickResult);
-        };
+            this._dragPointer = dragging() ? (evt && evt.pointerId) : undefined;
+        });
 
-        this.scene.onPointerUp = () => {
+        this.scene.onPointerUp = evt => guarded('release', () => {
+            if (foreign(evt)) return;
+            this._dragPointer = undefined;
             this._endVRSeek();
             if (typeof this.releaseVJDesk === 'function') this.releaseVJDesk();
-        };
+        });
 
-        this.scene.onPointerMove = (evt, pickResult) => {
+        this.scene.onPointerMove = (evt, pickResult) => guarded('move', () => {
+            if (foreign(evt)) return;
             this._moveVRSeek(pickResult);
             if (typeof this.dragVJDesk === 'function') this.dragVJDesk(pickResult);
-        };
+        });
     }
 
     _ensureAudioElement() {
@@ -1675,7 +2602,12 @@ class VRClubUI extends VRClubAnimationFinish {
         if (!recovery.hasPlayed) return;
         const delays = VRClubUI.STREAM_RETRY_DELAYS_MS;
         if (recovery.attempts >= delays.length) {
-            this.showErrorMessage('The stream stopped and could not be reconnected. Choose another station.');
+            // Rather than leave the club silent, the club's own set takes over (never in someone else's room).
+            const library = this.musicLibrary;
+            const fallback = library && typeof library.fallBackToDefault === 'function' ? library.fallBackToDefault() : Promise.resolve(false);
+            fallback.then(started => {
+                if (!started) this.showErrorMessage('The stream stopped and could not be reconnected. Choose another station.');
+            });
             return;
         }
         const delay = delays[recovery.attempts++];
@@ -1700,12 +2632,13 @@ class VRClubUI extends VRClubAnimationFinish {
      * @param {string} src
      * @param {'stream'|'file'} kind
      * @param {string} label
-     * @param {{ loop?: boolean }} [options] `loop: false` lets an on-demand episode reach its
-     *        end so the caller can queue the next one. Everything else loops, as before.
+     * @param {{ loop?: boolean, resumeAt?: number }} [options] `loop: false` lets an on-demand episode reach its
+     *        end so the caller can queue the next one. `resumeAt` restores a finite saved set after a reload.
      */
     _playAudio(src, kind, label, options = {}) {
         this._stopSoundCloudPlayer();
         const audio = this._ensureAudioElement();
+        this._stoppedAudioSource = null;
         audio.loop = options.loop !== false;
         this._audioKind = kind;
         this._audioStreamUrl = kind === 'stream' ? src : null;
@@ -1717,6 +2650,15 @@ class VRClubUI extends VRClubAnimationFinish {
         }
         this._setAudioSrc(src);
         this._connectAudioSourceOnce();
+        const resumeAt = Number.isFinite(options.resumeAt) && options.resumeAt > 0 ? options.resumeAt : 0;
+        if (resumeAt > 0) {
+            const seek = () => {
+                if (!Number.isFinite(audio.duration)) return;
+                audio.currentTime = Math.min(resumeAt, Math.max(0, audio.duration - 1));
+            };
+            if (audio.readyState >= 1) seek();
+            else audio.addEventListener('loadedmetadata', seek, { once: true });
+        }
         audio.load();
 
         return audio.play().then(() => {
@@ -1724,21 +2666,29 @@ class VRClubUI extends VRClubAnimationFinish {
             this._shareAudioPosition();
             return audio;
         }).catch(error => {
+            // The club's own set starts on its own at entry, before any press: the browser holding that back is expected, the
+            // first gesture retries it, and nobody should be told to "press Play again" for music they never asked for.
+            if (options.quietBlock && error && error.name === 'NotAllowedError') {
+                log.warn(`🔇 Autoplay of ${kind} is waiting for the first gesture.`);
+                throw error;
+            }
             log.error(`❌ Failed to play ${kind}:`, error);
             this.showErrorMessage('Audio loaded, but playback was blocked. Press Play again.');
             throw error;
         });
     }
 
-    /** @param {{ onDemand?: boolean }} [options] an on-demand episode plays once instead of looping */
+    /** @param {{ onDemand?: boolean, resumeAt?: number, quietBlock?: boolean }} [options] an on-demand episode plays once instead of looping; `quietBlock` makes a blocked autoplay silent (it is retried on the first gesture) */
     startAudioStream(url, options = {}) {
         if (!this._isSafeAudioUrl(url)) {
             log.warn(`🎵 Rejected unsafe audio URL: ${url}`);
             this.showErrorMessage('Invalid audio URL. Use http://, https:// or blob: only.');
             return Promise.reject(new TypeError('Unsafe audio URL'));
         }
+        this._localPlaylist = null;
         this.nowPlayingLabel = url; // a podcast episode replaces this with its title once it has started
-        return this._playAudio(url, 'stream', url, { loop: !options.onDemand });
+        if (typeof this.syncDJFromSet === 'function') this.syncDJFromSet({ label: url, url });
+        return this._playAudio(url, 'stream', url, { loop: !options.onDemand, resumeAt: options.resumeAt, quietBlock: options.quietBlock });
     }
 
     static _loadSoundCloudAPI() {
@@ -1774,6 +2724,7 @@ class VRClubUI extends VRClubAnimationFinish {
             parsed.username || parsed.password) {
             return Promise.reject(new TypeError('Use a SoundCloud track or set page URL.'));
         }
+        this._localPlaylist = null;
         if (this.audioElement) this.audioElement.pause();
         this._stopSoundCloudPlayer();
         const holder = document.getElementById('soundCloudPlayer');
@@ -1860,11 +2811,94 @@ class VRClubUI extends VRClubAnimationFinish {
         this._soundCloudUrl = null;
     }
 
-    startAudioFromFile(file) {
+    startAudioFromFile(file, options = {}) {
+        if (!VRClubUI.isLocalAudioFile(file)) {
+            return Promise.reject(new TypeError('Choose an MP3, M4A, OGG, FLAC, WAV, AAC, Opus or WebM audio file.'));
+        }
+        if (!options.fromPlaylist) this._localPlaylist = null;
         log.info(`🎵 Loading audio file: ${file.name}`);
         const fileUrl = URL.createObjectURL(file);
         this.nowPlayingLabel = file.name;
-        return this._playAudio(fileUrl, 'file', file.name);
+        if (typeof this.syncDJFromSet === 'function') this.syncDJFromSet({ label: file.name });
+        return this._playAudio(fileUrl, 'file', file.name, { loop: !options.fromPlaylist });
+    }
+
+    /**
+     * Play audio files selected through a folder picker. Browser File objects cannot be persisted safely, so the
+     * playlist lasts for this page session; links in MusicLibrary remain the persistent source list.
+     */
+    async startAudioFolder(fileList, options = {}) {
+        if (!this.guardHostControl('music')) return false;
+        const files = Array.from(fileList || []).filter(VRClubUI.isLocalAudioFile);
+        if (!files.length) throw new Error('That folder contains no supported audio files.');
+        files.sort((a, b) => String(a.webkitRelativePath || a.name).localeCompare(
+            String(b.webkitRelativePath || b.name), undefined, { numeric: true, sensitivity: 'base' }
+        ));
+        this._localPlaylist = {
+            files,
+            order: files.map((_, index) => index),
+            position: 0,
+            shuffle: !!options.shuffle
+        };
+        this._localPlaylistShuffle = !!options.shuffle;
+        if (options.shuffle) {
+            for (let i = this._localPlaylist.order.length - 1; i > 0; i--) {
+                const j = Math.floor(Math.random() * (i + 1));
+                [this._localPlaylist.order[i], this._localPlaylist.order[j]] =
+                    [this._localPlaylist.order[j], this._localPlaylist.order[i]];
+            }
+        }
+        return this._playLocalPlaylistPosition(0);
+    }
+
+    setLocalPlaylistShuffle(shuffle) {
+        const playlist = this._localPlaylist;
+        if (!playlist) {
+            this._localPlaylistShuffle = !!shuffle;
+            return false;
+        }
+        const current = playlist.order[playlist.position] ?? 0;
+        const rest = playlist.files.map((_, index) => index).filter(index => index !== current);
+        if (shuffle) {
+            for (let i = rest.length - 1; i > 0; i--) {
+                const j = Math.floor(Math.random() * (i + 1));
+                [rest[i], rest[j]] = [rest[j], rest[i]];
+            }
+        }
+        playlist.shuffle = !!shuffle;
+        playlist.order = shuffle
+            ? [current, ...rest]
+            : playlist.files.map((_, index) => index);
+        playlist.position = shuffle ? 0 : current;
+        return true;
+    }
+
+    async _playLocalPlaylistPosition(position) {
+        const playlist = this._localPlaylist;
+        if (!playlist || !playlist.files.length) throw new Error('No local folder is loaded.');
+        playlist.position = (position + playlist.order.length) % playlist.order.length;
+        const file = playlist.files[playlist.order[playlist.position]];
+        await this.startAudioFromFile(file, { fromPlaylist: true });
+        const audio = this.audioElement;
+        if (audio && !this._onLocalPlaylistEnded) {
+            this._onLocalPlaylistEnded = () => {
+                if (!this._localPlaylist || this._audioKind !== 'file') return;
+                this._playLocalPlaylistPosition(this._localPlaylist.position + 1)
+                    .catch(error => this.showErrorMessage(`Could not play the next folder track: ${error.message}`));
+            };
+            audio.addEventListener('ended', this._onLocalPlaylistEnded);
+        }
+        return file;
+    }
+
+    /** Previous/next means a track in the active folder, otherwise the previous/next saved URL source. */
+    async stepAudioSource(delta) {
+        if (!this.guardHostControl('music')) return false;
+        if (delta !== -1 && delta !== 1) throw new Error('Choose the previous or next source.');
+        if (this._localPlaylist) return this._playLocalPlaylistPosition(this._localPlaylist.position + delta);
+        if (!this.musicLibrary) throw new Error('The music player is not ready yet.');
+        this.musicLibrary.step(delta);
+        return this.musicLibrary.play();
     }
 
     // =========================================================================
@@ -1921,26 +2955,66 @@ class VRClubUI extends VRClubAnimationFinish {
         return info.seekable ? this.seekAudioTo(info.position + delta) : false;
     }
 
-    /** Play or pause what is loaded. Returns true when it is now playing. */
-    toggleAudioPlayback() {
+    /** Explicit play/pause used by the VR transport and the desktop panel. */
+    setAudioPlayback(playing) {
         if (!this.guardHostControl('music')) return false;
         if (this._audioKind === 'soundcloud') {
             this.showErrorMessage('Use the official SoundCloud player in Music to play or pause this set.');
             return false;
         }
         const audio = this.audioElement;
+        if (playing && audio && !audio.src && this._stoppedAudioSource) {
+            this._setAudioSrc(this._stoppedAudioSource.src);
+            audio.load();
+            this._stoppedAudioSource = null;
+        }
         if (!audio || !audio.src) {
             this.showErrorMessage('No music yet. Open Music and add your own audio link or file.');
             return false;
         }
-        if (audio.paused) {
+        if (playing && audio.paused) {
             if (this.audioContext && this.audioContext.state === 'suspended') this.audioContext.resume().catch(() => {});
             audio.play().catch(() => this.showErrorMessage('Playback was blocked. Press Play again.'));
-        } else {
+        } else if (!playing && !audio.paused) {
             audio.pause();
         }
-        this._shareAudioPosition(!audio.paused);
+        this._shareAudioPosition(!!playing);
         return !audio.paused;
+    }
+
+    /** Play or pause what is loaded. Returns true when it is now playing. */
+    toggleAudioPlayback() {
+        if (!this.guardHostControl('music')) return false;
+        const audio = this.audioElement;
+        return this.setAudioPlayback(!!audio?.paused);
+    }
+
+    /** Stop finite media at its beginning; disconnect a live stream so it no longer downloads until Play is pressed. */
+    stopAudioPlayback() {
+        if (!this.guardHostControl('music')) return false;
+        if (this._audioKind === 'soundcloud') {
+            if (this._soundCloudWidget) {
+                this._soundCloudWidget.pause();
+                this._soundCloudWidget.seekTo(0);
+                return true;
+            }
+            return false;
+        }
+        const audio = this.audioElement;
+        if (!audio || !audio.src) {
+            this.showErrorMessage('No music is loaded.');
+            return false;
+        }
+        audio.pause();
+        if (Number.isFinite(audio.duration)) {
+            try { audio.currentTime = 0; } catch (_) { /* media metadata may still be loading */ }
+        } else if (this._audioKind === 'stream' && this._audioStreamUrl) {
+            this._stoppedAudioSource = { src: this._audioStreamUrl };
+            audio.removeAttribute('src');
+            audio.load();
+        }
+        this._shareAudioPosition(false);
+        return true;
     }
 
     /** The room's host publishes the position after a seek or a pause, so listeners follow (guests cannot publish). */
@@ -1956,40 +3030,96 @@ class VRClubUI extends VRClubAnimationFinish {
         });
     }
 
-    showErrorMessage(message) {
+    /**
+     * Is this message a failure or a notice? Failures (could not, cannot, failed, unavailable, blocked playback, ...) are the red
+     * assertive alerts; everything else ("Standing up", "Joining...", "Your character: woman") is a calm, polite status. Pure, so
+     * the wording that drives it is tested; a caller can always say which with the second argument of showErrorMessage().
+     */
+    static toastKind(message) {
+        return /\b(could not|couldn't|cannot|can't|failed|unavailable|not available|not ready|was blocked|were blocked|interrupted|invalid|context lost|stopped and|error|needs an update|denied|not supported)\b/i
+            .test(String(message || '')) ? 'error' : 'info';
+    }
+
+    /**
+     * Show a message. The method keeps its old name (a hundred callers, and tests stub it) but is the one toast: failures appear
+     * red in an assertive live region, notices appear calm, low on the screen, in a polite one, so a screen reader is not
+     * interrupted by "Standing up". `kind` ('error' | 'info') overrides the wording.
+     */
+    showErrorMessage(message, kind) {
         // QC fixes vs. the previous implementation:
         //  - `document.body.removeChild(el)` threw NotFoundError if the node had
         //    already been removed (e.g. two messages fired inside 3 s).
         //  - Concurrent messages stacked at the exact same fixed position, so only
         //    the last one was legible.
         //  - The toast was invisible to assistive technology.
-        if (!this._toastHost) {
+        const isError = (kind || VRClubUI.toastKind(message)) === 'error';
+        const hostKey = isError ? '_toastHost' : '_statusHost';
+        if (!this[hostKey]) {
             const host = document.createElement('div');
-            host.id = 'vrclubToasts';
-            host.setAttribute('role', 'alert');
-            host.setAttribute('aria-live', 'assertive');
+            host.id = isError ? 'vrclubToasts' : 'vrclubStatus';
+            host.setAttribute('role', isError ? 'alert' : 'status');
+            host.setAttribute('aria-live', isError ? 'assertive' : 'polite');
             host.style.cssText = [
-                'position:fixed', 'top:50%', 'left:50%', 'transform:translate(-50%,-50%)',
+                'position:fixed', isError ? 'top:50%' : 'bottom:96px', 'left:50%',
+                isError ? 'transform:translate(-50%,-50%)' : 'transform:translateX(-50%)',
                 'z-index:10000', 'display:flex', 'flex-direction:column', 'gap:8px',
                 'align-items:center', 'pointer-events:none', 'max-width:90vw'
             ].join(';');
             document.body.appendChild(host);
-            this._toastHost = host;
+            this[hostKey] = host;
         }
 
-        const errorDiv = document.createElement('div');
-        errorDiv.style.cssText = [
+        const toast = document.createElement('div');
+        toast.style.cssText = (isError ? [
             'background:rgba(200,0,0,0.92)', 'color:#fff', 'padding:16px 28px',
             'border-radius:10px', 'font-size:17px', 'font-weight:700',
             'text-align:center', 'box-shadow:0 8px 24px rgba(0,0,0,0.5)'
-        ].join(';');
-        errorDiv.textContent = message; // textContent, never innerHTML — message may echo user input
-        this._toastHost.appendChild(errorDiv);
+        ] : [
+            'background:rgba(16,22,32,0.92)', 'color:#e8fffb', 'padding:10px 20px',
+            'border:1px solid rgba(143,255,238,0.45)', 'border-radius:999px', 'font-size:15px', 'font-weight:600',
+            'text-align:center', 'box-shadow:0 6px 18px rgba(0,0,0,0.45)'
+        ]).join(';');
+        toast.textContent = message; // textContent, never innerHTML — message may echo user input
+        this[hostKey].appendChild(toast);
 
-        setTimeout(() => errorDiv.remove(), 4000);
+        setTimeout(() => toast.remove(), isError ? 4000 : 3000);
+    }
+
+    /**
+     * Automatic quality: while on, a tier that keeps missing the frame budget is lowered for this session (never raised,
+     * never saved). Personal and local, like Safe Mode.
+     */
+    setAutoQuality(enabled) {
+        this.autoQuality = !!enabled;
+        try { localStorage.setItem('vrclub.autoQuality', this.autoQuality ? '1' : '0'); } catch (_) { /* private mode */ }
+        if (this._autoQuality) this._autoQuality.pause(performance.now() / 1000);
+        if (this._frameStats) this._frameStats.reset();
+        this.showErrorMessage(this.autoQuality ? 'Auto quality on: graphics step down if frames are missed' : 'Auto quality off');
+        this._refreshVRQuickMenu();
+        const button = typeof document !== 'undefined' ? document.getElementById('vjAutoQualityBtn') : null;
+        if (button) { button.setAttribute('aria-pressed', String(this.autoQuality)); button.classList.toggle('active', this.autoQuality); }
+        return this.autoQuality;
+    }
+
+    /**
+     * Seated mode: the player sits, the avatar stands. The view is lifted to the body's standing eye height (see
+     * `PlayerHeight.SeatedLift`, applied through `_xrHeadHeight()`), so others see a standing person at their height.
+     * Personal and local, never host-gated.
+     */
+    setSeatedMode(enabled) {
+        this.vrSeatedMode = !!enabled;
+        try { localStorage.setItem('vrclub.seatedMode', this.vrSeatedMode ? '1' : '0'); } catch (_) { /* private mode */ }
+        // A sitter's low head must not feed the standing-height estimate, and it re-learns once they stand.
+        if (this._heightEstimator) this._heightEstimator.reset();
+        this.showErrorMessage(this.vrSeatedMode
+            ? 'Seated mode on: you sit, your avatar stands'
+            : 'Seated mode off: your avatar follows your real height');
+        this._refreshVRQuickMenu();
+        return this.vrSeatedMode;
     }
 
     setVRComfortMode(enabled) {
+        this._closeVRSocialWheel(true);
         this.vrComfortMode = !!enabled;
         try { localStorage.setItem('vrclub.vrComfort', this.vrComfortMode ? '1' : '0'); } catch (_) {}
         this._applyXRLocomotionMode();
@@ -2018,17 +3148,41 @@ class VRClubUI extends VRClubAnimationFinish {
         return this.vrComfortMode;
     }
 
-    /** Surfaces the VR teleport arc may land on: the club floor, the balcony deck and stair, the entrance's floors and stair, and the street. */
+    /** Surfaces the VR teleport arc may land on: the club floor, the balcony deck and stair, the entrance's floors and stair, the restroom floor, and the street. */
     _teleportFloorMeshes() {
-        return [this.floorMesh, this._mezzDeck, this._vestibuleFloor, this._vestibuleStair, ...(this._cityGround || [])].filter(Boolean);
+        return [this.floorMesh, this._mezzDeck, this._vestibuleFloor, this._vestibuleStair, this._restroomFloor, ...(this._cityGround || [])].filter(Boolean);
     }
 
     _teleportBlockerMeshes() {
         const floors = this._teleportFloorMeshes();
-        return this.scene.meshes.filter(mesh => mesh.checkCollisions && mesh.isEnabled() && !floors.includes(mesh));
+        const blockers = this.scene.meshes.filter(mesh => mesh.checkCollisions && mesh.isEnabled() && !floors.includes(mesh));
+        // Keep this safety-critical barrier explicit. It is normally covered by the
+        // generic collision sweep, but must remain a teleport blocker if the wall's
+        // render mesh or collision flags are changed independently.
+        if (this._ledWallCollider && this._ledWallCollider.isEnabled() &&
+            !floors.includes(this._ledWallCollider) && !blockers.includes(this._ledWallCollider)) {
+            blockers.push(this._ledWallCollider);
+        }
+        return blockers;
     }
 
     _xrMovementOptions() {
+        const registrations = BABYLON.WebXRControllerMovement.REGISTRATIONS.default.map(registration => {
+            const forceHandedness = registration.forceHandedness === 'left' ? 'right' : 'left';
+            if (forceHandedness !== 'right') return { ...registration, forceHandedness };
+            return {
+                ...registration,
+                forceHandedness,
+                axisChangedHandler: (axes, movementState, featureContext) => {
+                    if (this._vrSocialWheel?.open) {
+                        movementState.rotateX = 0;
+                        movementState.rotateY = 0;
+                        return;
+                    }
+                    registration.axisChangedHandler(axes, movementState, featureContext);
+                }
+            };
+        });
         return {
             xrInput: this.vrHelper.input,
             movementEnabled: true,
@@ -2040,10 +3194,7 @@ class VRClubUI extends VRClubAnimationFinish {
             movementOrientationFollowsViewerPose: true,
             movementOrientationFollowsController: false,
             // Reuse Babylon's dead-zone handlers, swapping its default right-walk/left-turn layout.
-            customRegistrationConfigurations: BABYLON.WebXRControllerMovement.REGISTRATIONS.default.map(registration => ({
-                ...registration,
-                forceHandedness: registration.forceHandedness === 'left' ? 'right' : 'left'
-            }))
+            customRegistrationConfigurations: registrations
         };
     }
 
@@ -2139,7 +3290,7 @@ class VRClubUI extends VRClubAnimationFinish {
         
         const p = presets[preset];
         if (preset === 'street' && !(this._streetDoor && this._streetDoor.open)) {
-            this.showErrorMessage('The street is not available yet.');
+            this.showErrorMessage('The street is not available yet.', 'info');
             return;
         }
         if (p) {

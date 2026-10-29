@@ -4,6 +4,11 @@ test('isolated live relay admits 32 guests, rejects guest 33 and discards the em
     const relay = process.env.VRCLUB_SFU_RELAY_URL;
     test.skip(!relay, 'Set VRCLUB_SFU_RELAY_URL to an isolated development relay.');
     test.setTimeout(120_000);
+    const endpoint = new URL(relay);
+    expect(['ws:', 'wss:']).toContain(endpoint.protocol);
+    expect(endpoint.hostname).not.toBe('vrclub-network.garfieldapp.workers.dev');
+    expect(endpoint.hostname === 'localhost' || endpoint.hostname === '127.0.0.1' ||
+        /dev/i.test(endpoint.hostname.split('.')[0])).toBeTruthy();
     await page.route('**/capacity-test', route => route.fulfill({
         contentType: 'text/html', body: '<!doctype html><title>Development room capacity test</title>'
     }));
@@ -17,6 +22,8 @@ test('isolated live relay admits 32 guests, rejects guest 33 and discards the em
                 const url = new URL(relay);
                 url.searchParams.set('room', room);
                 url.searchParams.set('name', `Load guest ${i + 1}`);
+                url.searchParams.set('sfu', '1');
+                url.searchParams.set('poseBatch', '1');
                 const socket = new WebSocket(url);
                 window.capacitySockets.push(socket);
                 const welcome = await new Promise((resolve, reject) => {
@@ -31,6 +38,7 @@ test('isolated live relay admits 32 guests, rejects guest 33 and discards the em
             }
             const extraUrl = new URL(relay);
             extraUrl.searchParams.set('room', room);
+            extraUrl.searchParams.set('sfu', '1');
             const extra = new WebSocket(extraUrl);
             window.capacitySockets.push(extra);
             const extraCode = await new Promise((resolve, reject) => {

@@ -53,7 +53,7 @@
  * --------------
  * Only pre-existing state vars on the VRClub instance (the same ones the VJ
  * buttons drive), so no subsystem needs to know this file exists:
- *   lightsActive, lasersActive, strobesActive, mirrorBallActive,
+ *   lightsActive, lasersActive, strobesActive, mirrorBallActive, mirrorBallRaysActive,
  *   smokeActive, ledWallActive, spotlightPattern, spotlightMode, spotlightSpeed,
  *   goboEnabled, goboPatternIndex, goboRotationSpeed, laserSpeed, ledPattern,
  *   ledWallSpeed, mirrorBallSpeed, strobeSpeed, fogIntensity,
@@ -69,6 +69,8 @@ class ShowDirector {
     // Musical grid constants.
     static BEATS_PER_BAR = 4;
     static BARS_PER_PHRASE = 4;   // 16 beats
+    static BUILD_TREND_BARS = 4;
+    static BUILD_TREND_MIN_RISE = 0.035;
 
     /** Look keys that describe the cue itself and must never be written onto the club. */
     static META_KEYS = new Set(['intensity', 'palette', 'punch', 'colorLock', 'hue', 'ledHarmony', 'ledLevel']);
@@ -120,11 +122,17 @@ class ShowDirector {
         //     change look mid-phrase; that is what made the old system twitchy).
         this._energy = 0;
         this._barsSinceMovement = 0;
+        this._energyHistory = new Float32Array(ShowDirector.BUILD_TREND_BARS + 1);
+        this._energyHistoryCount = 0;
+        this._energyHistoryIndex = 0;
 
         // --- Continuous modulation
         this._blackoutBeats = 0;       // Counts down in beats
         this._flashHold = 0;           // Frames of white-out remaining
         this._intensity = 1.0;         // Smoothed master level
+
+        // --- Hold (a section the guest picked and asked to keep; see holdLook)
+        this._hold = null;
 
         // --- Structure reading (breakdown / release)
         this._hasAudio = false;
@@ -191,6 +199,16 @@ class ShowDirector {
         // --- Read the track's structure: kick gone (breakdown) / kick back (release).
         //     A follower is told by the host instead.
         if (!this.follower) this._watchKick(vj, audioData);
+
+        // --- A held look whose colour shuffles: a new random hue every few seconds, nothing else changes.
+        const hold = this._hold;
+        if (hold && hold.shuffleMs && !this.follower) {
+            const now = performance.now();
+            if (now >= hold.nextShuffle) {
+                hold.nextShuffle = now + hold.shuffleMs;
+                if (typeof vj.shufflePalette === 'function') vj.shufflePalette();
+            }
+        }
 
         // --- Continuous (per-frame) modulation on top of the discrete cue state
         this._applyContinuous(vj, audioData);
@@ -276,6 +294,14 @@ class ShowDirector {
 
         // A follower never decides: it keeps the grid for the ramps and waits for the host's next frame.
         if (this.follower) return;
+        this._recordBarEnergy();
+
+        // A look the guest picked and asked to keep stays exactly as it is: no cue advances and no breakdown is read.
+        // Under 'resume' the hold ends by itself after the chosen time, and the show carries on from here.
+        if (this._hold && !this._setPiece) {
+            if (performance.now() < this._hold.until) return;
+            this.releaseHold();
+        }
 
         // A set-piece owns the rig until it finishes; nothing interrupts it.
         if (this._setPiece) {
@@ -303,6 +329,20 @@ class ShowDirector {
         }
     }
 
+    _recordBarEnergy() {
+        this._energyHistory[this._energyHistoryIndex] = this._energy;
+        this._energyHistoryIndex = (this._energyHistoryIndex + 1) % this._energyHistory.length;
+        this._energyHistoryCount = Math.min(this._energyHistoryCount + 1, this._energyHistory.length);
+    }
+
+    _hasBuildMomentum() {
+        if (this._energyHistoryCount < this._energyHistory.length) return false;
+        const history = this._energyHistory;
+        const current = history[(this._energyHistoryIndex - 1 + history.length) % history.length];
+        const baseline = history[this._energyHistoryIndex];
+        return current - baseline >= ShowDirector.BUILD_TREND_MIN_RISE;
+    }
+
     _advanceCue() {
         const atMovementEnd = this._cueIndex + 1 >= this._movement.cues.length;
 
@@ -313,7 +353,7 @@ class ShowDirector {
                 // where a designer earns their fee. Escalating into the drop gets
                 // the countdown; collapsing out of it gets the cut to black.
                 const bridge = this._bridgeFor(this._movementName, next);
-                if (bridge) {
+                if (bridge && (bridge !== 'countdown' || this._hasBuildMomentum())) {
                     this._beginSetPiece(bridge, next);
                     return;
                 }
@@ -361,6 +401,7 @@ class ShowDirector {
         const movement = this.movements[name];
         if (!movement) return;
 
+        this._hold = null;
         this._movement = movement;
         this._movementName = name;
         this._cueIndex = 0;
@@ -411,6 +452,7 @@ class ShowDirector {
         club.strobePattern = look.strobePattern || 'all';
         club.strobeSync = look.strobeSync || 'free';
         club.colorLockActive = !!look.colorLock;
+        club.mirrorBallRaysActive = look.mirrorBallRaysActive !== false;
         club.ledMulti = false;          // a look that wants a multi-colour wall says so
         // How bright the wall runs (0..1). Reset for every look: a look that omits it is a full-strength
         // wall, it does not inherit the previous cue's dimmed accompaniment.
@@ -431,6 +473,17 @@ class ShowDirector {
             club[key] = value;
         }
 
+        if (safe && look.strobesActive === true &&
+            !look.lightsActive && !look.lasersActive && !look.laserSheetActive &&
+            !look.mirrorBallActive && !look.ledWallActive) {
+            club.ledWallActive = true;
+            club.ledMonochrome = false;
+            club.ledMulti = false;
+            club.ledPattern = 16;
+            club.ledWallSpeed = 0.35;
+            club.ledWallLevel = 0.45;
+        }
+
         if (club.laserSheetActive && typeof club.configureLaserSheetVariant === 'function') {
             club.configureLaserSheetVariant();
         }
@@ -447,6 +500,16 @@ class ShowDirector {
             // is reset here: a look that omits ledHarmony matches the beams, it does not
             // inherit the previous cue's contrast.
             if (typeof vj.setLedHarmony === 'function') vj.setLedHarmony(look.ledHarmony || 'match');
+        }
+    }
+
+    /** Recompose the current cue immediately when Safe Mode changes. */
+    onPhotosensitiveModeChanged() {
+        if (!this.isDriving()) return;
+        const look = this._cue && this.looks[this._cue.look];
+        if (look) this._applyLook(look);
+        if (this._setPiece && this._setPiece.onBar) {
+            this._setPiece.onBar(this, this._setPieceBar);
         }
     }
 
@@ -534,6 +597,7 @@ class ShowDirector {
         const piece = this.setPieces[name];
         if (!piece) { this._enterMovement(thenMovement); return; }
 
+        this._hold = null;
         this._setPiece = piece;
         this._setPieceStartBar = this._barCounter;
         this._setPieceBar = 0;
@@ -577,6 +641,58 @@ class ShowDirector {
         const next = names[(i + 1) % names.length];
         this.forceMovement(next);
         return this.movements[next].title;
+    }
+
+    /**
+     * Keep the look the show is on, as the guest's hold policy says (VRClub.lightHold):
+     *   'keep'    it stays until releaseHold() (AUTO SHOW);
+     *   'resume'  it stays for `delay` seconds, then the show carries on from there;
+     *   'shuffle' it stays, and its colour moves to a new random one every `shuffle` seconds.
+     * The colour is held with it (the hue is pinned), so the palette rotation cannot repaint a look the guest chose.
+     */
+    holdLook(policy) {
+        if (this.follower || !policy) return false;
+        const now = performance.now();
+        const shuffleMs = policy.mode === 'shuffle' ? policy.shuffle * 1000 : 0;
+        this._hold = {
+            until: policy.mode === 'resume' ? now + policy.delay * 1000 : Infinity,
+            shuffleMs,
+            nextShuffle: shuffleMs ? now + shuffleMs : Infinity
+        };
+        const vj = this.club.vjDirector;
+        if (vj && typeof vj.setMasterHue === 'function') vj.setMasterHue(vj.masterHue);
+        return true;
+    }
+
+    /** End a hold; the show resumes from the held cue on the next bar line. */
+    releaseHold() {
+        if (!this._hold) return false;
+        this._hold = null;
+        const vj = this.club.vjDirector;
+        if (vj && typeof vj.unlockHue === 'function') vj.unlockHue();
+        return true;
+    }
+
+    /** Jump to a named section (ARRIVAL, PULSE, ASCENT, IGNITION, AFTERGLOW) and keep it as the guest's policy says. */
+    pickSection(name, policy) {
+        if (!this.forceMovement(name)) return null;
+        this.holdLook(policy);
+        return this.movements[name].title;
+    }
+
+    /** The next section in the running order, kept as the guest's policy says. */
+    nextSection(policy) {
+        const names = Object.keys(this.movements);
+        const next = names[(names.indexOf(this._movementName) + 1) % names.length];
+        return this.pickSection(next, policy);
+    }
+
+    isHeld() { return !!this._hold; }
+
+    /** Seconds until a timed hold ends; null for a hold with no end, or no hold. */
+    holdSecondsLeft() {
+        if (!this._hold || !Number.isFinite(this._hold.until)) return null;
+        return Math.max(0, Math.ceil((this._hold.until - performance.now()) / 1000));
     }
 
     /** Hand the rig back to the legacy cycler / manual VJ control. */
@@ -697,7 +813,9 @@ class ShowDirector {
             cue: this._cue ? this._cue.look : '—',
             setPiece: this._setPiece ? this._setPiece.title : null,
             bar: this._barCounter,
-            energy: this._energy
+            energy: this._energy,
+            held: !!this._hold,
+            heldSecondsLeft: this.holdSecondsLeft()
         };
     }
 
@@ -793,7 +911,7 @@ class ShowDirector {
             deepBlue: {
                 intensity: 0.42, punch: 0.10, palette: 'analogous',
                 lightsActive: false, lasersActive: false, strobesActive: false,
-                mirrorBallActive: true, smokeActive: true,
+                mirrorBallActive: true, mirrorBallRaysActive: true, smokeActive: true,
                 ledWallActive: false, ledMonochrome: true, ledPattern: 5, ledWallSpeed: 0.35,
                 mirrorBallSpeed: 0.30, fogIntensity: 1.5,
                 goboEnabled: false
@@ -816,7 +934,7 @@ class ShowDirector {
             eclipse: {
                 intensity: 0.38, punch: 0.12, palette: 'analogous',
                 lightsActive: false, lasersActive: false, strobesActive: false,
-                mirrorBallActive: true, smokeActive: true,
+                mirrorBallActive: true, mirrorBallRaysActive: false, smokeActive: true,
                 ledWallActive: false, ledMonochrome: false,
                 spotlightPattern: 1, spotlightMode: 3, spotlightSpeed: 0.25,
                 goboEnabled: false, goboPatternIndex: 0, goboRotationSpeed: 0.10,
@@ -827,9 +945,8 @@ class ShowDirector {
             // II. PULSE — the groove. Sustained, hypnotic, never peaking.
             // ---------------------------------------------------------------
 
-            // The wall gets a solo with every aerial fixture dark: the Underground
-            // Sequence (pattern 18), a 38-bar basement film that opens on DESCENT.
-            // This makes the wall's later return behind beams read as a deliberate layer.
+            // Give the complete 38-bar Underground Sequence one uninterrupted wall
+            // solo. The pattern keeps its bar origin when another cue later takes over.
             theWave: {
                 intensity: 0.82, punch: 0.22, palette: 'analogous',
                 lightsActive: false, lasersActive: false, strobesActive: false,
@@ -1053,7 +1170,7 @@ class ShowDirector {
             theVoid: {
                 intensity: 0.30, punch: 0.08, palette: 'analogous',
                 lightsActive: false, lasersActive: false, strobesActive: false,
-                mirrorBallActive: true, smokeActive: true,
+                mirrorBallActive: true, mirrorBallRaysActive: false, smokeActive: true,
                 ledWallActive: false, ledMonochrome: true, ledPattern: 16, ledWallSpeed: 0.4,
                 mirrorBallSpeed: 0.25, fogIntensity: 1.6, goboEnabled: false
             },
@@ -1082,7 +1199,7 @@ class ShowDirector {
             bdFall: {
                 intensity: 0.40, punch: 0.10, palette: 'analogous', colorLock: true, hue: 0.64,
                 lightsActive: false, lasersActive: false, strobesActive: false,
-                mirrorBallActive: true, smokeActive: true,
+                mirrorBallActive: true, mirrorBallRaysActive: true, smokeActive: true,
                 ledWallActive: false, ledMonochrome: false,
                 mirrorBallSpeed: 0.28, fogIntensity: 1.8, goboEnabled: false
             },
@@ -1203,7 +1320,7 @@ class ShowDirector {
                 title: 'II · PULSE',
                 minBars: 24,
                 cues: [
-                    { look: 'theWave',   bars: 8 },
+                    { look: 'theWave',   bars: 38 },
                     { look: 'sideways',  bars: 16 },
                     { look: 'deepBlue',  bars: 8 },
                     { look: 'crossfire', bars: 4 },
@@ -1348,6 +1465,7 @@ class ShowDirector {
                     // room re-forms out of the dark rather than snapping back.
                     if (bar === 1) {
                         show.club.mirrorBallActive = true;
+                        show.club.mirrorBallRaysActive = false;
                         show.club.mirrorBallSpeed = 0.22;
                         show.club.ledWallActive = true;
                         show.club.ledPattern = 16;   // aurora

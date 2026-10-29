@@ -142,6 +142,23 @@ html, body {
     letter-spacing: 0.02em;
 }
 
+.ui-icon-defs {
+    position: absolute;
+    width: 0;
+    height: 0;
+    overflow: hidden;
+}
+
+.app-icon {
+    width: 22px;
+    height: 22px;
+    fill: none;
+    stroke: currentColor;
+    stroke-width: 1.8;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+}
+
 .camera-controls-toggle:hover,
 .camera-controls-toggle[aria-expanded="true"] {
     background: rgba(102, 126, 234, 0.65);
@@ -256,6 +273,29 @@ html, body {
     overflow-y: auto;
 }
 
+.experience-overview {
+    max-width: 52rem;
+    margin-bottom: 10px;
+    padding-bottom: 10px;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.18);
+    line-height: 1.45;
+}
+
+.experience-overview h1 {
+    margin: 0 0 6px;
+    color: #ffffff;
+    font-size: 17px;
+}
+
+.experience-overview p {
+    margin: 0 0 6px;
+}
+
+.experience-overview ul {
+    margin: 0;
+    padding-left: 18px;
+}
+
 #modelCredits .credits-heading {
     margin-bottom: 3px;
 }
@@ -283,6 +323,31 @@ html, body {
     color: #ffffff;
 }
 
+#modelCredits .install-app {
+    margin: 8px 0 10px;
+}
+
+#modelCredits .install-app[hidden] {
+    display: none;
+}
+
+#modelCredits .install-app button {
+    margin-top: 6px;
+    padding: 8px 12px;
+    border: 1px solid #7aa2ff;
+    border-radius: 4px;
+    background: #244a86;
+    color: #fff;
+    font: inherit;
+    font-weight: 700;
+    cursor: pointer;
+}
+
+#modelCredits .install-app button:disabled {
+    cursor: wait;
+    opacity: 0.72;
+}
+
 @keyframes fadeOut {
     0% { opacity: 1; }
     70% { opacity: 1; }
@@ -308,6 +373,17 @@ html, body {
     transition: opacity var(--transition-normal);
     scrollbar-color: rgba(139, 176, 255, 0.75) rgba(255, 255, 255, 0.06);
     scrollbar-width: thin;
+}
+
+/* A side panel can cover the corner controls on compact viewports. Do not leave a visible button that cannot receive
+   a click; the panel's own switcher replaces Show, Music and Online until it is closed. */
+body:has(.panel:not(.hidden)) .payment-toggle,
+#mainExperience:has(.panel:not(.hidden)) > #vjToggle,
+#mainExperience:has(.panel:not(.hidden)) > #audioToggle,
+#mainExperience:has(.panel:not(.hidden)) > #networkToggle,
+#mainExperience:has(.panel:not(.hidden)) > #cameraControls {
+    visibility: hidden;
+    pointer-events: none;
 }
 
 .panel-header {
@@ -344,6 +420,54 @@ html, body {
     gap: 8px;
 }
 
+.panel-switcher {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 4px;
+    margin-bottom: 10px;
+    padding: 3px;
+    border-radius: 8px;
+    background: rgba(255, 255, 255, 0.06);
+}
+
+.panel-switcher button,
+.vj-tabs button,
+.audio-source-tab {
+    min-height: 38px;
+    border: 1px solid transparent;
+    border-radius: 6px;
+    background: transparent;
+    color: rgba(255, 255, 255, 0.72);
+    font: 600 11px/1 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+    letter-spacing: 0.03em;
+    text-transform: uppercase;
+    cursor: pointer;
+}
+
+.panel-switcher button:hover,
+.panel-switcher button[aria-current="page"],
+.vj-tabs button:hover,
+.vj-tabs button.active,
+.audio-source-tab:hover,
+.audio-source-tab.active {
+    border-color: rgba(122, 162, 255, 0.6);
+    background: rgba(102, 126, 234, 0.35);
+    color: #ffffff;
+}
+
+.vj-tabs,
+.audio-source-tabs {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 4px;
+    margin-bottom: 12px;
+}
+
+.audio-source-tabs {
+    grid-template-columns: repeat(3, 1fr);
+    margin-top: 8px;
+}
+
 /* 44px: the practical minimum for a Quest raycast pointer, which jitters far more
    than a mouse. Mis-hitting "close" loses all panel state. */
 .panel-btn-icon {
@@ -366,6 +490,223 @@ html, body {
     transform: scale(1.08);
 }
 
+/* Personal wardrobe editor: a separate, accessible surface over the club. */
+.avatar-editor {
+    position: fixed;
+    inset: 0;
+    z-index: 1200;
+    display: grid;
+    place-items: center;
+    padding: 20px;
+    overflow-y: auto;
+    background: rgba(3, 7, 13, 0.88);
+    color: #f5f7fb;
+    font: 16px/1.45 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+}
+
+.avatar-editor__panel {
+    width: min(900px, 100%);
+    max-height: calc(100dvh - 40px);
+    overflow-y: auto;
+    padding: 20px;
+    border: 1px solid rgba(143, 255, 238, 0.45);
+    border-radius: 16px;
+    background: #101722;
+    box-shadow: 0 20px 70px rgba(0, 0, 0, 0.55);
+}
+
+.avatar-editor__header,
+.avatar-editor__actions,
+.avatar-editor__rotate {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+}
+
+.avatar-editor__header {
+    position: sticky;
+    top: -20px;
+    z-index: 2;
+    background: #101722;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.15);
+    margin-bottom: 12px;
+    padding-bottom: 10px;
+}
+
+.avatar-editor__header h2 {
+    margin: 0;
+    font-size: 1.35rem;
+}
+
+.avatar-editor__privacy,
+.avatar-editor__notice {
+    margin: 8px 0;
+    color: #d5dce7;
+}
+
+.avatar-editor__notice {
+    color: #a9e6db;
+}
+
+.avatar-editor__layout {
+    display: grid;
+    grid-template-columns: minmax(240px, 1.15fr) minmax(220px, 0.85fr);
+    gap: 18px;
+    margin-top: 16px;
+}
+
+.avatar-editor__preview-wrap {
+    min-width: 0;
+}
+
+.avatar-editor__canvas {
+    display: block;
+    width: 100%;
+    height: min(48vh, 420px);
+    min-height: 230px;
+    border: 1px solid rgba(255, 255, 255, 0.18);
+    border-radius: 10px;
+    touch-action: none;
+}
+
+.avatar-editor__rotate {
+    justify-content: center;
+    margin-top: 8px;
+}
+
+.avatar-editor__hint {
+    margin: 6px 0;
+    color: #c2cad5;
+    text-align: center;
+}
+
+.avatar-editor__form {
+    display: grid;
+    align-content: start;
+    gap: 11px;
+}
+
+.avatar-editor__form label {
+    display: grid;
+    gap: 5px;
+    font-weight: 600;
+}
+
+.avatar-editor__form select,
+.avatar-editor__form input,
+.avatar-editor button {
+    min-height: 44px;
+    border: 1px solid rgba(255, 255, 255, 0.22);
+    border-radius: 8px;
+    background: #1c2735;
+    color: #fff;
+    font: inherit;
+}
+
+.avatar-editor__form select {
+    padding: 8px;
+}
+
+.avatar-editor__form input[type="color"] {
+    width: 100%;
+    padding: 4px;
+}
+
+.avatar-editor button {
+    padding: 8px 12px;
+    cursor: pointer;
+}
+
+.avatar-editor button:hover,
+.avatar-editor button:focus-visible {
+    border-color: #8fffee;
+    outline: 2px solid #8fffee;
+    outline-offset: 2px;
+}
+
+.avatar-editor button:disabled {
+    cursor: wait;
+    opacity: 0.65;
+}
+
+.avatar-editor button.is-primary {
+    border-color: #63d6c6;
+    background: #176e68;
+    font-weight: 700;
+}
+
+.avatar-editor__actions {
+    position: sticky;
+    bottom: -20px;
+    z-index: 2;
+    padding: 12px 0;
+    background: #101722;
+    margin-top: 16px;
+    flex-wrap: wrap;
+    justify-content: flex-end;
+}
+
+.avatar-editor__actions > span {
+    flex: 1;
+}
+
+.avatar-editor__status,
+.avatar-editor__error {
+    margin: 10px 0 0;
+    padding: 9px 12px;
+    border-radius: 6px;
+    background: rgba(45, 104, 120, 0.35);
+}
+
+.avatar-editor__error {
+    background: rgba(136, 38, 55, 0.4);
+    color: #ffd9df;
+}
+
+.avatar-editor [hidden] {
+    display: none !important;
+}
+
+@media (max-width: 640px) {
+    .avatar-editor {
+        place-items: start center;
+        padding: 8px;
+    }
+
+    .avatar-editor__panel {
+        max-height: calc(100dvh - 16px);
+        padding: 14px;
+    }
+
+    .avatar-editor__header {
+        top: -14px;
+    }
+
+    .avatar-editor__actions {
+        bottom: -14px;
+    }
+
+    .avatar-editor__layout {
+        grid-template-columns: minmax(0, 1fr);
+        gap: 10px;
+    }
+
+    .avatar-editor__canvas {
+        height: 32dvh;
+        min-height: 190px;
+    }
+
+    .avatar-editor__actions > span {
+        display: none;
+    }
+
+    .avatar-editor__actions {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+    }
+}
+
 /* VJ Control Menu */
 #vjMenu {
     position: absolute;
@@ -379,6 +720,20 @@ html, body {
        on every laptop/phone/Quest viewport, and offers no scrollbar - which put the
        accessibility section permanently out of reach. It also ends above the credits link. */
     max-height: calc(100dvh - 120px);
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+    overscroll-behavior: contain;
+}
+
+#vjMenu .panel-header,
+#vjMenu .panel-switcher,
+#vjMenu .vj-tabs {
+    flex-shrink: 0;
+}
+
+#vjMenu .vj-content {
+    min-height: 0;
     overflow-y: auto;
     overscroll-behavior: contain;
 }
@@ -392,6 +747,13 @@ html, body {
 }
 
 #vjMenu.minimized .vj-content {
+    display: none;
+}
+
+#vjMenu.minimized .panel-switcher,
+#vjMenu.minimized .vj-tabs,
+#audioMenu.minimized .panel-switcher,
+#networkMenu.minimized .panel-switcher {
     display: none;
 }
 
@@ -441,6 +803,15 @@ html, body {
     transition: transform var(--transition-fast), background var(--transition-fast);
     text-align: center;
     font-weight: 500;
+}
+
+.button-state {
+    display: block;
+    margin-top: 4px;
+    color: rgba(255, 255, 255, 0.7);
+    font-size: 9px;
+    font-weight: 700;
+    letter-spacing: 0.12em;
 }
 
 .vj-button-wide {
@@ -624,6 +995,53 @@ html, body {
     line-height: 1.4;
     opacity: 0.8;
     margin: 6px 0 8px;
+}
+
+.network-safety-gate {
+    border: 1px solid rgba(143, 255, 238, 0.55);
+    border-radius: 10px;
+    background: linear-gradient(145deg, rgba(17, 51, 66, 0.82), rgba(20, 20, 31, 0.94));
+    padding: 14px;
+}
+
+.network-safety-lead {
+    margin: 7px 0;
+    font-size: 14px;
+    font-weight: 700;
+    line-height: 1.4;
+}
+
+.network-safety-rules {
+    margin: 8px 0;
+    padding-left: 20px;
+    font-size: 12px;
+    line-height: 1.45;
+}
+
+.network-safety-rules li + li {
+    margin-top: 6px;
+}
+
+#networkSafetyPrivate {
+    display: flex;
+    flex-direction: column;
+    gap: 3px;
+}
+
+#networkSafetyPrivate small {
+    font-size: 11px;
+    font-weight: 500;
+    opacity: 0.82;
+}
+
+.network-report-reason {
+    flex: 1 1 100%;
+    min-height: 38px;
+    border: 1px solid #657080;
+    border-radius: 6px;
+    background: #171b24;
+    color: #fff;
+    padding: 6px 8px;
 }
 
 .network-people {
@@ -1045,14 +1463,157 @@ html, body {
     margin-bottom: 12px;
 }
 
+.audio-source-panel {
+    display: grid;
+    gap: 8px;
+    margin-top: 8px;
+    padding: 10px;
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    border-radius: 8px;
+    background: rgba(255, 255, 255, 0.035);
+}
+
+.audio-source-panel > .audio-primary-button {
+    width: 100%;
+    justify-content: center;
+}
+
+/* "Play now" and "Save to my sets" sit side by side; each can be disabled when it has nothing to do. */
+.audio-link-actions {
+    display: flex;
+    gap: 8px;
+    margin-top: 8px;
+}
+
+.audio-link-actions .audio-button {
+    flex: 1 1 0;
+    min-width: 0;
+    justify-content: center;
+    white-space: nowrap;
+}
+
+.audio-link-actions .audio-button:disabled {
+    opacity: 0.55;
+}
+
+.audio-optional {
+    opacity: 0.62;
+    font-weight: 400;
+}
+
+#audioTransportSection[aria-disabled="true"] {
+    opacity: 0.55;
+}
+
+.audio-button:disabled {
+    cursor: not-allowed;
+    opacity: 0.45;
+    transform: none;
+}
+
+.panel,
+.vj-content,
+.audio-content,
+.payment-card {
+    scrollbar-width: thin;
+    scrollbar-color: rgba(122, 162, 255, 0.65) rgba(255, 255, 255, 0.06);
+}
+
+.panel::-webkit-scrollbar,
+.vj-content::-webkit-scrollbar,
+.audio-content::-webkit-scrollbar,
+.payment-card::-webkit-scrollbar {
+    width: 8px;
+}
+
+.panel::-webkit-scrollbar-thumb,
+.vj-content::-webkit-scrollbar-thumb,
+.audio-content::-webkit-scrollbar-thumb,
+.payment-card::-webkit-scrollbar-thumb {
+    border: 2px solid transparent;
+    border-radius: 8px;
+    background: rgba(122, 162, 255, 0.65);
+    background-clip: padding-box;
+}
+
+[hidden] {
+    display: none !important;
+}
+
+.first-run-hint {
+    position: fixed;
+    left: 50%;
+    bottom: calc(28px + env(safe-area-inset-bottom, 0px));
+    z-index: 104;
+    display: grid;
+    gap: 3px;
+    width: min(430px, calc(100vw - 32px));
+    box-sizing: border-box;
+    padding: 14px 48px 14px 16px;
+    border: 1px solid rgba(122, 162, 255, 0.65);
+    border-radius: 10px;
+    background: rgba(6, 8, 18, 0.94);
+    color: white;
+    box-shadow: var(--shadow-lg);
+    font: 13px/1.45 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+}
+
+.first-run-hint strong {
+    color: #a8bcff;
+    letter-spacing: 0.04em;
+}
+
+.first-run-hint span {
+    color: rgba(255, 255, 255, 0.78);
+}
+
+.first-run-hint button {
+    position: absolute;
+    top: 5px;
+    right: 5px;
+    width: 38px;
+    height: 38px;
+    border: 0;
+    background: transparent;
+    color: white;
+    font-size: 22px;
+    cursor: pointer;
+}
+
 .audio-section:last-child {
     margin-bottom: 0;
 }
 
 .audio-input-group {
     display: flex;
+    flex-wrap: wrap;
     gap: 8px;
     margin-bottom: 8px;
+}
+
+.audio-input-group .audio-input {
+    flex: 1 1 100%;
+}
+
+.audio-primary-button {
+    min-width: 0;
+    flex: 1 1 0;
+    justify-content: center;
+    white-space: nowrap;
+}
+
+.audio-input-group .audio-paste-button {
+    min-width: 0;
+    flex: 1 1 0;
+    justify-content: center;
+    padding-inline: 12px;
+    white-space: nowrap;
+    background: rgba(255, 255, 255, 0.12);
+    border: 1px solid rgba(255, 255, 255, 0.28);
+}
+
+.audio-input-group .audio-paste-button:hover {
+    background: rgba(255, 255, 255, 0.22);
 }
 
 .audio-input {
@@ -1066,6 +1627,7 @@ html, body {
     color: white;
     font-size: 13px;
     font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+    min-height: 44px;
 }
 
 .audio-input::placeholder {
@@ -1087,6 +1649,7 @@ html, body {
     cursor: pointer;
     font-size: 13px;
     font-weight: 500;
+    min-height: 44px;
     transition: background var(--transition-fast), transform var(--transition-fast);
     display: flex;
     align-items: center;
@@ -1190,6 +1753,23 @@ html, body {
     gap: 8px;
 }
 
+.audio-folder-options {
+    display: grid;
+    gap: 6px;
+    margin: 10px 0 8px;
+}
+
+.audio-transport {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 8px;
+}
+
+.audio-transport .audio-button {
+    justify-content: center;
+    min-width: 0;
+}
+
 .audio-file-label {
     background: rgba(102, 126, 234, 0.3);
     border: 1px solid rgba(102, 126, 234, 0.5);
@@ -1237,13 +1817,130 @@ html, body {
 
 .audio-now-playing {
     font-size: 13px;
+    line-height: 1.35;
     padding: 8px 10px;
     border-radius: 6px;
     background: rgba(255, 255, 255, 0.08);
     border: 1px solid rgba(255, 255, 255, 0.12);
-    text-overflow: ellipsis;
+    /* A status can be a full sentence ("No music included. Open Music to add your own set."): wrap it, do not clip it. */
+    overflow-wrap: anywhere;
+    max-height: 3.9em;
     overflow: hidden;
-    white-space: nowrap;
+}
+
+/* The long "what can I paste" explanation stays one tap away instead of pushing the controls down the panel. */
+/* The saved-sets form reads top to bottom: a small label above each full-width field (they used to run together
+   on one line, with 16 px labels beside half-width inputs). */
+#audioMenu .audio-section > label {
+    display: block;
+    margin: 10px 0 4px;
+    font-size: 12px;
+    font-weight: 600;
+    opacity: 0.85;
+}
+
+#audioMenu .audio-section > label:first-child {
+    margin-top: 0;
+}
+
+#audioMenu .audio-section > .audio-input {
+    display: block;
+    width: 100%;
+    margin-bottom: 8px;
+}
+
+.audio-help {
+    margin-top: 10px;
+    font-size: 12px;
+}
+
+.audio-help summary {
+    cursor: pointer;
+    min-height: 32px;
+    display: flex;
+    align-items: center;
+    color: #9fb0ff;
+    font-weight: 600;
+}
+
+.audio-help summary:focus-visible {
+    outline: 3px solid #7aa2ff;
+    outline-offset: 2px;
+    border-radius: 4px;
+}
+
+.audio-help ul {
+    margin: 4px 0 0;
+    padding-left: 18px;
+}
+
+.audio-help li {
+    margin: 4px 0;
+}
+
+.audio-source-hint {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    min-height: 18px;
+    margin: -2px 2px 8px;
+    color: rgba(255, 255, 255, 0.72);
+    font-size: 11px;
+    line-height: 1.35;
+}
+
+.audio-source-hint[hidden] {
+    display: none;
+}
+
+.audio-source-hint::before {
+    content: '';
+    width: 6px;
+    height: 6px;
+    flex: 0 0 6px;
+    border-radius: 50%;
+    background: #8b93a8;
+    box-shadow: 0 0 8px rgba(139, 147, 168, 0.45);
+}
+
+.audio-source-hint[data-source="analysed"] {
+    color: #8fffe7;
+}
+
+.audio-source-hint[data-source="analysed"]::before {
+    background: #00e6bd;
+    box-shadow: 0 0 8px rgba(0, 230, 189, 0.7);
+}
+
+.audio-source-hint[data-source="player"] {
+    color: #d8b8ff;
+}
+
+.audio-source-hint[data-source="player"]::before {
+    background: #c178ff;
+    box-shadow: 0 0 8px rgba(193, 120, 255, 0.7);
+}
+
+.audio-episode-row {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    margin: 0 0 8px;
+}
+
+.audio-episode-row[hidden] {
+    display: none;
+}
+
+.audio-episode-row label {
+    font-size: 12px;
+    opacity: 0.85;
+}
+
+.audio-episode-row select {
+    flex: none;
+    width: 100%;
+    text-overflow: ellipsis;
 }
 
 .audio-file-name {
@@ -1253,6 +1950,22 @@ html, body {
     text-overflow: ellipsis;
     overflow: hidden;
     white-space: nowrap;
+}
+
+.audio-fallback {
+    margin: 8px 0;
+    padding: 10px 12px;
+    border-radius: 6px;
+    background: rgba(193, 120, 255, 0.12);
+    border: 1px solid rgba(193, 120, 255, 0.35);
+}
+
+.audio-fallback[hidden] {
+    display: none;
+}
+
+.audio-fallback .audio-button {
+    margin-top: 8px;
 }
 
 .soundcloud-player {
@@ -1285,6 +1998,26 @@ html, body {
 .audio-status.error {
     background: rgba(255, 0, 0, 0.25);
     color: #ff9d9d;
+}
+
+.audio-button:disabled {
+    cursor: wait;
+    opacity: 0.72;
+    transform: none;
+}
+
+@media (max-width: 430px) {
+    .audio-input-group {
+        flex-direction: column;
+    }
+
+    .audio-primary-button {
+        width: 100%;
+    }
+
+    .audio-input-group .audio-paste-button {
+        width: 100%;
+    }
 }
 
 /* The audio toggle used to share `bottom:20px; left:50%` with #cameraControls and
@@ -1554,6 +2287,40 @@ html, body {
     border-color: #00ffff;
 }
 
+.splash-room-invite {
+    max-width: 420px;
+    margin: 0 auto clamp(10px, 2.4vmin, 20px);
+    padding: 12px 16px;
+    border-radius: 10px;
+    border: 1px solid rgba(0, 255, 255, 0.45);
+    background: rgba(0, 255, 255, 0.08);
+    text-align: left;
+}
+
+.splash-room-invite[hidden] {
+    display: none;
+}
+
+.splash-room-title {
+    font-size: 13px;
+    font-weight: 700;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    color: #00ffff;
+    margin-bottom: 6px;
+}
+
+.splash-room-field {
+    display: block;
+    font-size: 12px;
+    color: rgba(255, 255, 255, 0.85);
+    margin-bottom: 4px;
+}
+
+.splash-room-input {
+    width: 100%;
+}
+
 /* A hint belongs to the control above it: keep them together, and space the pair from what follows. */
 .splash-toggle:has(+ .splash-hint) {
     margin-bottom: 0;
@@ -1818,6 +2585,19 @@ button:active,
         font-size: 11px;
     }
 
+    /* Opened, the plate is a full-width sheet above the camera controls instead of a 60%-wide box that grew up over the "Go to"
+       button in the middle of the bottom edge (at 375x667 a tap or a hit-test there landed on the credits). */
+    #modelCredits[open] {
+        right: calc(10px + env(safe-area-inset-right, 0px));
+        max-width: none;
+        bottom: calc(84px + env(safe-area-inset-bottom, 0px));
+        font-size: 12px;
+    }
+
+    #modelCredits[open] .credits-body {
+        max-height: calc(100dvh - 200px);
+    }
+
     .splash-content {
         padding: 20px 14px;
     }
@@ -1869,6 +2649,8 @@ button:active,
     font-weight: 700;
 }
 .payment-primary:hover { background: #009090; }
+.payment-paths { display: grid; gap: .65rem; }
+.payment-paths .audio-button { width: 100%; justify-content: center; }
 .payment-content > *, .payment-content input { min-width: 0; }
 .payment-keypad { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: .4rem; }
 .payment-keypad button { min-height: 48px; padding: .5rem; font-size: 1.05rem; }
@@ -1879,17 +2661,36 @@ button:active,
 .payment-devices button { display: block; width: 100%; margin-top: .35rem; }
 .payment-toggle {
     position: fixed;
-    top: 132px;
+    top: 144px;
     right: calc(20px + env(safe-area-inset-right, 0px));
     z-index: 101;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 2px;
+    line-height: 1;
+    min-width: 44px;
     min-height: 44px;
-    max-width: 130px;
     padding: 7px 12px;
-    border: 1px solid rgba(255, 255, 255, .2);
-    border-radius: 6px;
-    background: #23283b;
+    border: 1px solid rgba(255, 255, 255, 0.14);
+    border-radius: 8px;
+    background: rgba(0, 0, 0, 0.8);
+    -webkit-backdrop-filter: var(--blur-light);
+    backdrop-filter: var(--blur-light);
     color: white;
+    font-size: 16px;
     cursor: pointer;
+    transition: background var(--transition-fast), transform var(--transition-fast);
+}
+.payment-toggle:hover { background: var(--accent); transform: scale(1.05); }
+.payment-toggle:focus-visible { outline: 3px solid #7aa2ff; outline-offset: 2px; }
+.payment-icon {
+    width: 22px;
+    height: 22px;
+    background: currentColor;
+    -webkit-mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2'%3E%3Ccircle cx='8' cy='12' r='4'/%3E%3Cpath d='M12 12h9M17 12v3M20 12v2'/%3E%3C/svg%3E") center / contain no-repeat;
+    mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2'%3E%3Ccircle cx='8' cy='12' r='4'/%3E%3Cpath d='M12 12h9M17 12v3M20 12v2'/%3E%3C/svg%3E") center / contain no-repeat;
 }
 .payment-close {
     min-width: 64px;

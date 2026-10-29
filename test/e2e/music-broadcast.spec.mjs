@@ -84,10 +84,6 @@ test('a real local file reaches a consenting guest through WebRTC and the club P
 
         }
         await host.click('#play');
-        await expect.poll(() => guest.evaluate(() => !!window.club.multiplayer.pendingMusic?.broadcast)).toBe(true);
-        expect(await guest.evaluate(() => window.club.multiplayer.client.peers.get('host').musicPc == null)).toBe(true);
-        expect(await guest.evaluate(() => window.level())).toBe(0);
-        await guest.click('#listen');
         await expect.poll(() => guest.evaluate(() => window.level()), { timeout: 20000 }).toBeGreaterThan(0.03);
         const routing = await guest.evaluate(() => ({
             source: window.club._audioKind,

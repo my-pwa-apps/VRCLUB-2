@@ -9,6 +9,10 @@ useQuestHarness();
  */
 const frozenCharacters = page => page.evaluate(async () => {
     const club = window.vrClub;
+    // The street people outside are (correctly) held while you face away from them, so face the street: nobody is then behind
+    // the viewer, and every enabled character must be moving.
+    club.camera.rotation.y = 0;
+    for (let i = 0; i < 6; i++) await new Promise(resolve => club.scene.onAfterRenderObservable.addOnce(() => resolve()));
     const people = club.npcAvatars.filter(npc => npc.root.isEnabled() && npc.animations.length > 0);
     const pose = () => people.map(npc => npc.root.getChildTransformNodes(false)
         .filter(node => node.rotationQuaternion).slice(0, 12)
@@ -24,6 +28,9 @@ test('lowering and raising the graphics tier brings every character back moving'
     await enterClub(page);
     await page.evaluate(() => { window.vrClub.setGraphicsTier('ultra'); });
     await page.waitForFunction(() => window.vrClub.npcAvatars.filter(npc => /^(dancer|guest)/.test(npc.name) && npc.root.isEnabled()).length >= 22,
+        null, { timeout: 300_000 });
+    // The street people load their own files in the background; count them from the start so the tiers compare like with like.
+    await page.waitForFunction(() => window.vrClub.npcAvatars.some(npc => npc.name === 'bouncer') && !window.vrClub._streetTopUp,
         null, { timeout: 300_000 });
     const ultra = await frozenCharacters(page);
     expect(ultra.frozen).toEqual([]);

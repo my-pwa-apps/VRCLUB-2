@@ -46,7 +46,7 @@ test('Quest controller movements reach the assigned network avatar through the r
             const wrist = node.getAbsolutePosition();
             result[side] = {
                 error: hand ? Math.hypot(wrist.x - peer.root.position.x - hand.x,
-                    wrist.y - peer.root.position.y - 1.7 - hand.y, wrist.z - peer.root.position.z - hand.z) : 100,
+                    wrist.y - peer.root.position.y - peer.eyeHeight - hand.y, wrist.z - peer.root.position.z - hand.z) : 100,
                 y: wrist.y,
                 tracked: !!window.lastTrackedState?.hands?.[side]
             };

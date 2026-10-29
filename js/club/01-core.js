@@ -27,7 +27,12 @@ const ROOM_INTERIOR = {
     x: { min: -12.25, max: 12.25 },
     y: { min: 0, max: 9.85 },
     z: { min: -20, max: -0.25 },
-    entrance: { halfWidth: 1.86, height: 3.26 }
+    entrance: { halfWidth: 1.86, height: 3.26 },
+    // Concrete columns (createIndustrialWallDetails) are 0.6 m square, centred on the side wall planes x ±12.5, so
+    // their faces stand 0.05 m proud of the wall: optics that land on the wall plane end up inside the column.
+    columns: { z: [-5, -15], halfWidth: 0.3, faceX: 12.2 },
+    // The restroom doorway in the left wall; the frame's posts and lintel narrow the opening by `frame`.
+    restroomDoor: { z0: -4.1, z1: -2.3, height: 2.8, frame: 0.12 }
 };
 window.ROOM_INTERIOR = ROOM_INTERIOR;
 
@@ -56,7 +61,9 @@ class VRClubCore {
     constructor() {
         this.canvas = document.getElementById('canvas');
         this.engine = new BABYLON.Engine(this.canvas, true, {
-            preserveDrawingBuffer: true,
+            // Browser/Playwright screenshots use the compositor and no runtime path
+            // reads the previous back buffer. Let the mobile tile renderer discard it.
+            preserveDrawingBuffer: false,
             stencil: true,
             antialias: true,
             // PERFORMANCE: Additional engine optimizations
@@ -73,6 +80,7 @@ class VRClubCore {
         // setting that is either too heavy for laptops or too timid for a desktop GPU,
         // the renderer picks a tier and every heavy effect is gated behind it.
         // A user override persists so the choice survives a reload.
+        this.isQuestBrowser = VRClubCore.isQuestBrowser(navigator.userAgent);
         this.graphicsTier = this.detectGraphicsTier();
         log.info(`🎨 Graphics tier: ${this.graphicsTier}`);
 
@@ -84,10 +92,18 @@ class VRClubCore {
                 pipelineSamples: 4,        // MSAA on the pipeline render target
                 bloomKernel: 160,
                 vrBloomKernel: 64,
-                vrMsaaSamples: 4,
+                vrMsaaSamples: 2,
                 vrAnisotropy: 12,
                 vrHazeEmitRate: 90,
                 vrDustEmitRate: 50,
+                vrFogOutputScale: 0.85,
+                vrLedUpdateHz: 72,
+                vrMirrorUpdateHz: 72,
+                vrPeakEffectFloor: 0.78,
+                hazeCapacity: 1500,
+                fogParticleCapacity: 800,
+                laserSheetNoiseSize: 256,
+                vrLaserUpdateHz: 0,       // full headset refresh rate
                 vrFoveation: 0.2,
                 ssr: true,
                 ssrQuality: 'high',
@@ -112,10 +128,18 @@ class VRClubCore {
                 pipelineSamples: 4,
                 bloomKernel: 128,
                 vrBloomKernel: 48,
-                vrMsaaSamples: 4,
+                vrMsaaSamples: 2,
                 vrAnisotropy: 8,
                 vrHazeEmitRate: 78,
                 vrDustEmitRate: 40,
+                vrFogOutputScale: 0.70,
+                vrLedUpdateHz: 60,
+                vrMirrorUpdateHz: 60,
+                vrPeakEffectFloor: 0.68,
+                hazeCapacity: 1100,
+                fogParticleCapacity: 600,
+                laserSheetNoiseSize: 128,
+                vrLaserUpdateHz: 60,
                 vrFoveation: 0.3,
                 ssr: true,
                 ssrQuality: 'balanced',
@@ -140,10 +164,18 @@ class VRClubCore {
                 pipelineSamples: 1,
                 bloomKernel: 96,
                 vrBloomKernel: 32,
-                vrMsaaSamples: 4, // the shipped Quest default; MSAA tops out at 4, so the tiers differ elsewhere
+                vrMsaaSamples: 1,
                 vrAnisotropy: 4,
                 vrHazeEmitRate: 65,
                 vrDustEmitRate: 30,
+                vrFogOutputScale: 0.55,
+                vrLedUpdateHz: 45,
+                vrMirrorUpdateHz: 45,
+                vrPeakEffectFloor: 0.58,
+                hazeCapacity: 800,
+                fogParticleCapacity: 400,
+                laserSheetNoiseSize: 64,
+                vrLaserUpdateHz: 45,
                 vrFoveation: 0.4,
                 ssr: false,
                 ssrQuality: 'balanced',
@@ -158,8 +190,8 @@ class VRClubCore {
                 floorShadows: false,
                 // Skinned characters are the most expensive per-object thing in the
                 // scene (one skeleton + one animation group evaluation each), so the
-                // headcount is the first thing to give on weak GPUs. Quest is always
-                // `balanced`, so this is the number a headset actually renders.
+                // Headcount is the first thing to give on weak GPUs. Quest 3S and
+                // legacy Quest defaults use this count; Quest 3 retains Ultra by default.
                 crowdSize: 6,
                 guestSize: 2,                // the talking pair; headset cost of extra skeletons is unmeasured
                 queueSize: 4,                // outside, and hidden with the street whenever a guest is deep in the club
@@ -176,7 +208,9 @@ class VRClubCore {
         // VR optimization settings configuration - ENHANCED FOR HYPERREALISM
         this.vrSettings = {
             desktop: {
-                exposure: 1.2,
+                // Matched to the old 1.2 exposure once the 0.5 output gain was removed, so the dark-room
+                // mean stays put while a tonemapped white (and a strobe) can reach full scale.
+                exposure: 0.6,
                 contrast: 1.2,
                 bloomWeight: 0.28,
                 bloomThreshold: 0.8,
@@ -184,21 +218,23 @@ class VRClubCore {
                 glowIntensity: 0.65,
                 hazeAlpha: [0.04, 0.03],
                 ambientIntensity: 0.08,
-                environmentIntensity: 0.6, // Rich PBR reflections for wet/metallic surfaces
+                environmentIntensity: 0.4, // Rich PBR reflections for wet/metallic surfaces (the value the club starts with, and returns to after VR)
                 clearColor: new BABYLON.Color3(0.003, 0.003, 0.008), // Near-black with subtle blue tint
                 grainEnabled: false,
                 chromaticAberrationEnabled: false,
                 toneMappingEnabled: true,
                 fxaaEnabled: true,
-                sharpenAmount: 0.5, // NB: a brightness gain, not a sharpness (see vr.sharpenGain); see BACKLOG.md
+                // A brightness gain, not a sharpness (see vr.sharpenGain). It must stay 1.0: a value
+                // below 1 caps peak white. Brightness is `exposure` (0.6 replaces the old 1.2 × 0.5 gain).
+                sharpenAmount: 1.0,
                 // Whole-room impulse a strobe adds for its few milliseconds (see updateStrobes()).
                 strobeImpulse: { ambient: 3.2, retinal: 0.18, exposure: 2.1 },
                 fogDensity: 0.028 // Haze/smoke density tuned so spot/laser beams are clearly visible
             },
             vr: {
-                // Base exposure. Tuned for the corrected output gain below: about 1.8x the desktop
-                // frame's mean luminance (a headset panel is dimmer than a monitor) with full-scale
-                // peaks. It was 1.35 while the image was being output at 10% brightness.
+                // Base exposure. The 1.8x headset/desktop ratio was measured while desktop gain was 0.5.
+                // Desktop gain is now 1.0 and its exposure is 0.6, so this value may need to rise if
+                // vr-parity.spec.mjs reports a ratio below 1.0. Do not put the desktop gain back below 1.
                 exposure: 0.6,
                 contrast: 1.18,
                 bloomWeight: 0.22,
@@ -216,7 +252,10 @@ class VRClubCore {
                 grainEnabled: false,
                 chromaticAberrationEnabled: false,
                 toneMappingEnabled: true, // ENABLE — same color/luminance response as desktop
-                framebufferScaleFactor: 1.2, // Moderate supersampling for thin truss and rail edges
+                // The pipeline already resolves MSAA and FXAA before the XR layer.
+                // Supersampling this layer at 1.2 multiplied every stereo post-process
+                // target by 1.44 on the fill-limited Quest 3S.
+                framebufferScaleFactor: 1.0,
                 edgeSharpness: 0.1, // Do not re-amplify residual stair-stepping after FXAA
                 // Babylon's sharpen stage computes `colour * gain - edge * edgeAmount`, so this is a
                 // brightness MULTIPLIER on the final image, not a strength. It was 0.1 ("colorSharpness"),
@@ -235,11 +274,10 @@ class VRClubCore {
                 // MSAA on the headset pipeline's render target (1, 2 or 4). The scene is drawn into
                 // this offscreen target before the post chain reaches the XR layer, so the layer's own
                 // `antialias` never touches geometry edges: with 1 only FXAA was running and the DJ,
-                // rails and truss stair-stepped (measured: clean edges at 4, rough at 1). A tiled
-                // mobile GPU resolves MSAA cheaply, but this is NOT measured on a Quest 3S. Clamped to
-                // the GPU's limit; override with localStorage `vrclub.vrMsaa` (1 | 2 | 4) to trade
-                // edge quality for frame time without a rebuild.
-                msaaSamples: 4,
+                // rails and truss stair-stepped (measured: clean edges at 4, rough at 1).
+                // The tier normally supplies 2x on Ultra/High and FXAA-only on Balanced;
+                // override with localStorage `vrclub.vrMsaa` (1 | 2 | 4) for diagnostics.
+                msaaSamples: 2,
                 fogDensity: 0.022 // Smoke in VR — denser so beams read as 3D volumes, not flat lines
             }
         };
@@ -269,8 +307,19 @@ class VRClubCore {
         this.audioElement = null;
         this.audioMasterGain = null;     // Master gain node (post-analyser, pre-destination)
         this.audioCompressor = null;     // Mastering compressor for "loud club" feel without clipping
-
-        // === ACCESSIBILITY ===
+        this._djEffects = null;
+        this.djFxInput = null;
+        this.djFxOutput = null;
+        this.djFxLowpass = null;
+        this.djFxHighpass = null;
+        this.djFxEchoFeedback = null;
+        this.djFxEchoWet = null;
+        this.djFxFlangerWet = null;
+        this.djFxFlangerLfo = null;
+        this.djFxChannel = null;
+        this.djFxReverb = null;
+        this.djFxGate = null;
+        this.djFxExtra = null;            // phaser, noise sweep, gater, distortion and bit crusher nodes
         // Photosensitive Safe Mode: globally disables all strobe lights and sharp flashes.
         // Persists across sessions so a returning user with photosensitive epilepsy
         // never sees a strobe by accident. Honored at the single strobe render gate
@@ -283,7 +332,12 @@ class VRClubCore {
             count: 0
         };
         this.vrComfortMode = VRClubCore.resolveVRComfortMode();
-
+        // Seated mode keeps the avatar standing while the player sits; playerEyeHeight (null = unmeasured, a 1.7 m
+        // body) sizes that body to the player. Both are personal and local, like comfort and Safe Mode.
+        this.vrSeatedMode = VRClubCore.resolveSeatedMode();
+        // Opt-in: lower the graphics tier (this session only) when frames keep missing the budget. See js/frameStats.js.
+        this.autoQuality = VRClubCore.resolveAutoQuality();
+        this.playerEyeHeight = VRClubCore.resolvePlayerEyeHeight();
         // === WHO IS IN THE CLUB ===
         // Each group of characters can be sent home: the dancers on the floor, the bystanders (the guests at the
         // sides, the mingler, the bartender, and the bouncer and queue outside) and the DJ. Local and personal,
@@ -291,14 +345,7 @@ class VRClubCore {
         // cannot bring anyone back. Persisted as the list of HIDDEN groups, so a new visitor gets the full club.
         this.peopleVisibility = VRClubCore.resolvePeopleVisibility();
 
-        // === HAPTICS ===
-        // Bass-driven controller rumble. Off by default to respect battery /
-        // user preference; toggle in the VJ menu. Persists across sessions.
-        this.bassHapticsEnabled = (() => {
-            try { return localStorage.getItem('vrclub.bassHaptics') === '1'; } catch (_) { return false; }
-        })();
-        this._lastHapticPulseAt = 0;     // ms timestamp guard (prevents rumble spam)
-        this._xrControllers = [];        // Tracked controllers for haptic dispatch
+        this._xrControllers = [];        // Tracked controllers (body arms, pointer selection)
 
         // === EMBODIMENT ===
         // Desktop walking head-bob. A camera that glides at a fixed height reads as a
@@ -499,6 +546,7 @@ class VRClubCore {
         // 'roll' = every kick and every offbeat (the build-up roll).
         this.strobeSync = 'free';
         this.mirrorBallActive = false; // Mirror ball effect (turns off all other lights)
+        this.mirrorBallRaysActive = true; // Outgoing mirror-ball rays; reflected spots remain visible when disabled
         this.laserSheetActive = false; // Laser sheet effect
         this.laserSheetOrigin = 'both'; // truss mount: 'both' (default), 'ceilingLeft' or 'ceilingRight'
         this.laserSheetMotion = 'vertical'; // 'vertical' or 'lateral'
@@ -582,7 +630,10 @@ class VRClubCore {
         this.multiplayer = null;
         this.isMultiplayer = false;
         this.vjManualMode = false;
-        this.VJ_TIMEOUT = 60; // Seconds before resuming automated patterns (1 minute)
+        // Seconds before the automatic show returns after a hand-made change, while the hold mode is 'resume'
+        // (the default); see resolveLightHold() and lightHandBackSeconds().
+        this.VJ_TIMEOUT = 60;
+        this.lightHold = VRClubCore.resolveLightHold();
         
         // Animation phase tracking for smooth spotlight animations
         this.lastActivePhase = 0; // Initialize phase counter
@@ -699,9 +750,10 @@ class VRClubCore {
 
         // OPTIMIZED: Disable SSAO in VR (too expensive)
         if (this.ssaoPipeline) {
-            // SSAO remains owned by the inactive desktop camera. Ensure it is not
-            // accidentally attached to the XR camera.
-            this.scene.postProcessRenderPipelineManager.detachCamerasFromRenderPipeline("ssao", xrCamera);
+            // SSAO stays on the inactive desktop camera. Detach the XR camera only if it
+            // was actually attached: Babylon's detach splices indexOf, and -1 removes the
+            // LAST camera, which is what emptied this pipeline on every VR entry.
+            VRClubCore.detachPipelineCamera(this.scene.postProcessRenderPipelineManager, 'ssao', xrCamera);
         }
 
         // Screen-space reflections are far too expensive for a standalone headset:
@@ -709,7 +761,7 @@ class VRClubCore {
         // doubles exactly where the frame budget is tightest.
         if (this.ssrPipeline) {
             this.ssrPipeline.isEnabled = false;
-            this.scene.postProcessRenderPipelineManager.detachCamerasFromRenderPipeline("ssr", xrCamera);
+            VRClubCore.detachPipelineCamera(this.scene.postProcessRenderPipelineManager, 'ssr', xrCamera);
             log.info('⚡ Screen-space reflections disabled for VR');
         }
 
@@ -890,17 +942,34 @@ class VRClubCore {
             }
 
             this._applyTierToPipeline();
+            if (this.renderPipeline.sharpen) {
+                this.renderPipeline.sharpen.colorAmount = desktop.sharpenAmount;
+                this.renderPipeline.sharpen.edgeAmount = 0.35;
+            }
             
             log.info('✨ Re-enabled post-processing pipeline for desktop');
         }
 
-        // Enable SSAO in Desktop mode
-        // It remains attached to the desktop camera while XR is active, so there is
-        // nothing to reattach here (reattaching non-reusable passes logs errors).
+        // SSAO is desktop-only. Reattach the desktop camera if a visit cleared the list;
+        // skip the call when it is already attached (a second attach logs a reuse error).
+        if (this.ssaoPipeline) {
+            try {
+                VRClubCore.attachMissingPipelineCamera(
+                    this.scene.postProcessRenderPipelineManager, 'ssao', this.camera);
+            } catch (err) {
+                log.warn('Could not reattach SSAO:', err);
+            }
+        }
 
         // Restore the heavy desktop-only realism effects.
         if (this.ssrPipeline) {
             this.ssrPipeline.isEnabled = true;
+            try {
+                VRClubCore.attachMissingPipelineCamera(
+                    this.scene.postProcessRenderPipelineManager, 'ssr', this.camera);
+            } catch (err) {
+                log.warn('Could not reattach SSR:', err);
+            }
         } else {
             this._createScreenSpaceReflections();
         }
@@ -910,7 +979,7 @@ class VRClubCore {
         // native resolution and is downsampled on present, which removes shader aliasing
         // that no post-process AA can reach - specular glints on the trusses, the LED
         // wall pixel grid, and the hard edges of every light beam.
-        this.engine.setHardwareScalingLevel(this.tierSettings.renderScale);
+        this.engine.setHardwareScalingLevel(this.getDesktopRenderScale());
         
         // The selective glow layer stays disabled on desktop too (see applyVRSettings).
         if (this.glowLayer) {
@@ -963,9 +1032,9 @@ class VRClubCore {
      *
      * Detection is deliberately conservative: anything we cannot positively identify
      * as a discrete desktop GPU falls back to 'high', and phones/tablets fall to 'balanced'.
-     * A Quest browser starts on 'ultra' (the owner's Quest 3 runs it; Quest 3S is unmeasured). The headset's
-     * pipeline overrides in `vrSettings` still apply, and the VR menu can step down to High or Balanced.
-     * A stored user override always wins.
+     * Quest 3 and 3S start on Ultra; older Quest models use Balanced. No measured 3S
+     * tier sustains 72 Hz, so the default is a quality preference, not a performance
+     * guarantee. Stored choices always win.
      *
      * @returns {'ultra'|'high'|'balanced'}
      */
@@ -980,7 +1049,9 @@ class VRClubCore {
         } catch (_) { /* private browsing - fall through to detection */ }
 
         const ua = navigator.userAgent.toLowerCase();
-        if (ua.includes('quest') || ua.includes('oculus')) return 'ultra';
+        // Quest 3S owners report that Ultra works well; keep lower tiers available as an opt-in.
+        if (VRClubCore.isLegacyQuest(ua)) return 'balanced';
+        if (VRClubCore.isQuestBrowser(ua)) return 'ultra';
         if (/android|iphone|ipad|mobile/i.test(ua)) return 'balanced';
 
         // 2. WebGL2 is a hard requirement for SSR; without it 'ultra' is pointless.
@@ -1015,7 +1086,7 @@ class VRClubCore {
      * Persists the choice so it survives a reload.
      * @param {'ultra'|'high'|'balanced'} tier
      */
-    setGraphicsTier(tier) {
+    setGraphicsTier(tier, { persist = true } = {}) {
         if (!this.qualityTiers[tier]) {
             log.warn(`⚠️ Unknown graphics tier: ${tier}`);
             return;
@@ -1023,7 +1094,8 @@ class VRClubCore {
         if (tier === this.graphicsTier) return;
 
         this.graphicsTier = tier;
-        try { localStorage.setItem('vrclub.graphicsTier', tier); } catch (_) { /* ignore */ }
+        // Automatic quality lowers the tier for this session only: the player's own choice is what the next visit starts from.
+        if (persist) { try { localStorage.setItem('vrclub.graphicsTier', tier); } catch (_) { /* ignore */ } }
 
         // Tear down tier-owned pipelines; they are rebuilt with the new settings.
         if (this.ssrPipeline) { this.ssrPipeline.dispose(); this.ssrPipeline = null; }
@@ -1085,6 +1157,10 @@ class VRClubCore {
         return this.qualityTiers[this.graphicsTier] || this.qualityTiers.high;
     }
 
+    getDesktopRenderScale() {
+        return this.isQuestBrowser ? 1.0 : this.tierSettings.renderScale;
+    }
+
     _reportInitProgress(progress, stage) {
         const value = Math.max(this._initProgress || 0, Math.min(1, progress));
         this._initProgress = value;
@@ -1119,6 +1195,45 @@ class VRClubCore {
     }
 
     /**
+     * Frame timing and render-load counters for a measurement scenario. `resetFrameStats()` starts a window,
+     * `getPerformanceReport()` reads it. Frame/update/submit times are measured (see js/frameStats.js); GPU time is NOT
+     * measurable from the page, so none is reported. Counters come from the engine for the last rendered frame.
+     */
+    resetFrameStats() {
+        if (this._frameStats) this._frameStats.reset();
+    }
+
+    /** The frame budget the player is judged against: the headset's refresh rate in VR (72 Hz if it does not say), 60 Hz on desktop. */
+    frameBudgetMs() {
+        const session = this.vrHelper && this.vrHelper.baseExperience && this.vrHelper.baseExperience.sessionManager
+            && this.vrHelper.baseExperience.sessionManager.session;
+        const hz = this.isInVRMode ? (session && session.frameRate) || 72 : 60;
+        return 1000 / hz;
+    }
+
+    getPerformanceReport() {
+        const scene = this.scene, engine = this.engine;
+        const memory = typeof performance !== 'undefined' ? performance.memory : null;
+        let enabledLights = 0;
+        if (scene) for (const light of scene.lights) if (light.isEnabled()) enabledLights++;
+        return {
+            mode: this.isInVRMode ? 'xr' : 'desktop',
+            tier: this.graphicsTier,
+            time: this._frameStats ? this._frameStats.summary(this.frameBudgetMs()) : null,
+            drawCalls: this.drawCallsPerFrame || 0,
+            activeMeshes: scene ? scene.getActiveMeshes().length : 0,
+            activeTriangles: scene ? Math.round(scene.getActiveIndices() / 3) : 0,
+            activeBones: scene ? scene.getActiveBones() : 0,
+            enabledLights,
+            renderTargets: scene && scene.customRenderTargets ? scene.customRenderTargets.length : 0,
+            particleSystems: scene ? scene.particleSystems.length : 0,
+            // Chromium only; coarse. A rising value over a steady scenario indicates allocation pressure.
+            jsHeapMB: memory ? Math.round(memory.usedJSHeapSize / 104857.6) / 10 : null,
+            engineFps: engine ? Math.round(engine.getFps()) : 0
+        };
+    }
+
+    /**
      * Export complete runtime diagnostics snapshot.
      */
     getDiagnostics() {
@@ -1133,7 +1248,6 @@ class VRClubCore {
             materials: this.scene ? this.scene.materials.length : 0,
             audioState: this.audioContext ? this.audioContext.state : 'none',
             safeMode: this.photosensitiveSafeMode,
-            bassHaptics: this.bassHapticsEnabled,
             multiplayer: this.avatarManager?.getDiagnostics() || null,
             recentLogs: this.diagnosticsBuffer ? this.diagnosticsBuffer.slice(-25) : []
         };
@@ -1175,8 +1289,70 @@ class VRClubCore {
         return samples;
     }
 
+    /**
+     * Detach `camera` from a named post-process pipeline only when it is actually in that
+     * pipeline's camera list. Forwarding a camera that is not attached is not a no-op:
+     * PostProcessRenderPipeline._detachCameras splices `indexOf`, and -1 deletes the last camera.
+     * Returns whether a detach was forwarded.
+     */
+    static detachPipelineCamera(manager, name, camera) {
+        const pipeline = manager && manager._renderPipelines && manager._renderPipelines[name];
+        const cameras = pipeline && pipeline._cameras;
+        if (!camera || !cameras || cameras.indexOf(camera) < 0) return false;
+        manager.detachCamerasFromRenderPipeline(name, camera);
+        return true;
+    }
+
+    /**
+     * Attach `camera` when a pipeline exists and does not already include it.
+     * A second attach of a non-reusable pass logs a reuse error and must not be sent.
+     * Returns whether an attach was forwarded.
+     */
+    static attachMissingPipelineCamera(manager, name, camera) {
+        const pipeline = manager && manager._renderPipelines && manager._renderPipelines[name];
+        const cameras = pipeline && pipeline._cameras;
+        if (!pipeline || !camera || (cameras && cameras.indexOf(camera) !== -1)) return false;
+        manager.attachCamerasToRenderPipeline(name, camera);
+        return true;
+    }
+
     static resolveVRComfortMode() {
         try { return localStorage.getItem('vrclub.vrComfort') === '1'; } catch (_) { return false; }
+    }
+
+    /** Automatic quality is off for new visitors; only a stored '1' enables it. */
+    static resolveAutoQuality(storage) {
+        try { return (storage || localStorage).getItem('vrclub.autoQuality') === '1'; } catch (_) { return false; }
+    }
+
+    /**
+     * Quest 1, Quest 2 or Quest Pro, from the model token in the browser's user agent ("...; Quest 2) ..."; a Quest 1 says only
+     * "Quest"). A Quest 3 / 3S, an unknown model or any other browser is not legacy. Pure, so it is tested without a headset.
+     */
+    static isLegacyQuest(userAgent) {
+        const match = /\bquest(?:\s+([a-z0-9]+))?\s*[;)]/i.exec(String(userAgent || ''));
+        if (!match) return false;
+        const model = (match[1] || '').toLowerCase();
+        return model === '' || model === '2' || model === 'pro';
+    }
+
+    static isQuestBrowser(userAgent) {
+        return /quest|oculus/i.test(String(userAgent || ''));
+    }
+
+    /** Seated mode is off for new visitors; only a stored '1' enables it. */
+    static resolveSeatedMode(storage) {
+        try { return (storage || localStorage).getItem('vrclub.seatedMode') === '1'; } catch (_) { return false; }
+    }
+
+    /** The player's remembered standing eye height in metres, or null when none has been measured. */
+    static resolvePlayerEyeHeight(storage) {
+        try {
+            const raw = (storage || localStorage).getItem('vrclub.playerEyeHeight');
+            const value = raw == null ? NaN : Number(raw);
+            const range = window.PlayerHeight;
+            return Number.isFinite(value) && range && value >= range.MIN_EYE && value <= range.MAX_EYE ? value : null;
+        } catch (_) { return null; }
     }
 
     /** The groups of characters a visitor can send home, in the order the two control surfaces list them. */
@@ -1205,6 +1381,36 @@ class VRClubCore {
         }
         return visibility;
     }
+
+    /**
+     * What happens to the lights after a guest changes something by hand (a colour, a toggle, a show section):
+     *   'resume'  the automatic show takes over again after `delay` seconds without a touch (the old fixed 60 s);
+     *   'keep'    nothing is ever taken back, until AUTO SHOW is pressed;
+     *   'shuffle' everything is kept but the colour keeps changing, to a new random one every `shuffle` seconds.
+     * One resolver for the constructor and the control surfaces; anything unreadable or out of range falls back to
+     * the old behaviour, so a damaged value can never strand the lights in a mode nobody chose.
+     */
+    static resolveLightHold(storage) {
+        const hold = { mode: 'resume', delay: 60, shuffle: 15 };
+        let raw = null;
+        try {
+            raw = (storage || localStorage).getItem('vrclub.lightHold');
+        } catch (_) { return hold; }   // private browsing
+        if (!raw) return hold;
+        let data = null;
+        try { data = JSON.parse(raw); } catch (_) { return hold; }
+        if (!data || typeof data !== 'object') return hold;
+        if (VRClubCore.LIGHT_HOLD_MODES.includes(data.mode)) hold.mode = data.mode;
+        if (VRClubCore.LIGHT_HOLD_DELAYS.includes(data.delay)) hold.delay = data.delay;
+        if (VRClubCore.LIGHT_SHUFFLE_SECONDS.includes(data.shuffle)) hold.shuffle = data.shuffle;
+        return hold;
+    }
+
+    static get LIGHT_HOLD_MODES() { return ['resume', 'keep', 'shuffle']; }
+    /** Seconds without a touch before the automatic show returns (mode 'resume'). */
+    static get LIGHT_HOLD_DELAYS() { return [15, 30, 60, 120, 300, 600]; }
+    /** Seconds between random colours (mode 'shuffle'). */
+    static get LIGHT_SHUFFLE_SECONDS() { return [5, 10, 15, 30, 60]; }
 
     /**
      * One resolver for the splash and the constructor. Safe Mode is OFF unless the guest has

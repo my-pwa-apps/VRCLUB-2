@@ -35,12 +35,47 @@ const MEZZANINE = {
         if (onDeck && level >= D.top - 0.5) return D.top;
         // Not on anything that can carry this height (stepped off the edge, or walking beneath): the floor.
         return 0;
+    },
+
+    /**
+     * How the flown PA reaches this ear. `cover` is 1 when the deck or stair soffit is between the
+     * listener and the boxes; `onDeck` is 1 when the ear is on the open balcony, near the horns.
+     * Both are 0 on the dance floor. Writes `out` so the listener can call it every frame.
+     */
+    paZones(x, y, z, out) {
+        const D = this.deck, S = this.stairs;
+        const result = out || { cover: 0, onDeck: 0 };
+        const edge = (outer, inner, value) => {
+            const t = Math.min(1, Math.max(0, (value - outer) / (inner - outer)));
+            return t * t * (3 - 2 * t);
+        };
+        const soffit = D.top - D.thickness;
+        // Room-facing edges ramp over more than two metres. The filter closes about 4.7 octaves,
+        // and a smoothstep's steepest 10 cm step must stay under a third of an octave.
+        const deckFoot = edge(D.x1 + 1.7, D.x1 - 0.7, x)
+            * edge(D.x0 - 0.2, D.x0 + 0.05, x)
+            * edge(D.z0 - 0.3, D.z0 + 0.15, z)
+            * edge(D.z1 + 1.5, D.z1 - 0.8, z);
+        const underDeck = deckFoot * edge(soffit + 0.9, soffit - 1.3, y);
+        const span = S.zBottom - S.zTop;
+        const stairFoot = edge(S.x1 + 1.5, S.x1 - 0.7, x)
+            * edge(S.x0 - 0.2, S.x0 + 0.05, x)
+            * edge(S.zBottom + 1.2, S.zBottom - 0.8, z)
+            * edge(S.zTop - 0.4, S.zTop + 0.2, z);
+        const rise = D.top * (S.zBottom - z) / span;
+        const underStair = stairFoot * edge(rise + 0.9, rise - 1.2, y);
+        const headroom = edge(D.top + 0.2, D.top + 0.85, y) * edge(D.top + 2.3, D.top + 1.5, y);
+        result.cover = Math.max(underDeck, underStair);
+        result.onDeck = deckFoot * headroom;
+        return result;
     }
 };
 window.MezzanineLayout = MEZZANINE;
 
 // The DJ riser's walkable top (djPlatform in createDJBooth: 6 x 4 m centred on z -18, 0.5 m high).
 const DJ_RISER = { x0: -3, x1: 3, z0: -20, z1: -16, top: 0.5 };
+// How fast a guest steps up onto, or down off, the riser (m/s): 0.5 m in about a sixth of a second.
+const RISER_STEP_SPEED = 3;
 
 const Mezzanine = {
     _steelMaterial(name, textures, fallback) {
@@ -202,7 +237,13 @@ const Mezzanine = {
             root.position.z = stool.z;
             root.rotation.y = rootMesh.rotation.y + stool.face;
             root.computeWorldMatrix(true);
-            root.getChildMeshes().forEach(mesh => { mesh.isPickable = false; placed.push(mesh); });
+            const meshes = root.getChildMeshes();
+            const facing = index === 0 ? 0 : Math.PI;
+            const fx = Math.sin(facing), fz = Math.cos(facing);
+            const seat = this._seat('a balcony stool', `balcony-${index}`, stool.x, stool.z,
+                MEZZANINE.deck.top, MEZZANINE.deck.top + 0.76, facing, stool.x - fx * 0.45, stool.z - fz * 0.45);
+            this._tagSeatMeshes(meshes, [seat]);
+            meshes.forEach(mesh => placed.push(mesh));
         });
         this._extendAccentLight(this._mezzLight, placed);
         this._mezzStools = placed;
@@ -210,16 +251,31 @@ const Mezzanine = {
 
     /**
      * The surface under (x, z) anywhere a guest can walk: the entrance stair, its galleries and the street (outward of
-     * the club's front wall, VenueLayout.vestibule.walkLevel), otherwise the balcony, its stair or the floor.
+     * the club's front wall, VenueLayout.vestibule.walkLevel), otherwise the DJ riser, the balcony, its stair or the floor.
+     * The riser is stepped onto from any side, on foot, from the floor (`level` is the walker's feet): it is 0.5 m, one
+     * stage step. It used to count only for a walker already within 0.3 m of its top, which in a headset meant walking
+     * straight into the stage at floor level and being inside it until a jump landed on top.
      */
     _walkSurfaceLevel(x, z, level) {
         const layout = typeof window !== 'undefined' && window.VenueLayout && window.VenueLayout.vestibule;
         const entrance = layout && layout.walkLevel ? layout.walkLevel(x, z) : null;
         if (entrance !== null) return entrance;
         const R = DJ_RISER;
-        if (x >= R.x0 && x <= R.x1 && z >= R.z0 && z <= R.z1 &&
-            (!this.isInVRMode || Math.abs(level - R.top) < 0.3)) return R.top;
+        if (x >= R.x0 && x <= R.x1 && z >= R.z0 && z <= R.z1 && level < R.top + 0.35) return R.top;
         return MEZZANINE.walkLevel(x, z, level);
+    },
+
+    /**
+     * Ease a change between the floor and the riser instead of snapping 0.5 m in one frame (a step, not a teleport). Only
+     * the riser's own band is eased: stair ramps are already continuous, and a teleport or preset travel to the deck must
+     * land at once. `current` and `target` are feet levels.
+     */
+    _easeRiserLevel(x, z, current, target, dt) {
+        const R = DJ_RISER;
+        const near = x > R.x0 - 0.8 && x < R.x1 + 0.8 && z > R.z0 - 0.8 && z < R.z1 + 0.8;
+        if (!near || current < -1e-6 || current > R.top + 1e-6 || target < -1e-6 || target > R.top + 1e-6) return target;
+        const step = RISER_STEP_SPEED * Math.min(0.1, Math.max(0.001, dt));
+        return current + Math.max(-step, Math.min(step, target - current));
     },
 
     _guardDesktopCameraSteps(camera) {
@@ -257,7 +313,9 @@ const Mezzanine = {
             return;
         }
         const level = this._walkLevel || 0;
-        const next = this._walkSurfaceLevel(camera.position.x, camera.position.z, level);
+        const frameDt = this.engine && this.engine.getDeltaTime ? this.engine.getDeltaTime() / 1000 : 1 / 60;
+        let next = this._walkSurfaceLevel(camera.position.x, camera.position.z, level);
+        next = this._easeRiserLevel(camera.position.x, camera.position.z, level, next, frameDt);
         this._walkLevel = next;
         const jump = this._desktopJump;
         if (jump?.active) {
@@ -287,12 +345,13 @@ const Mezzanine = {
         const feet = camera.position.y - eye;
         const x = camera.position.x, z = camera.position.z;
         let next = this._walkSurfaceLevel(x, z, feet);
-        // The DJ riser (djPlatform: 6 x 4 m, top 0.5) is the other raised floor a headset can stand on: the DJ Booth
-        // destination puts it there.
-        const R = DJ_RISER;
-        if (next === 0 && x > R.x0 && x < R.x1 && z > R.z0 && z < R.z1 && Math.abs(feet - R.top) < 0.3) next = R.top;
-        // Up a stair or a riser: step straight onto it. Down more than a stair's step in one frame (off an edge, not a
-        // slow frame on the stair, which walkLevel allows up to 0.5 m): fall, under gravity.
+        // Up a stair or a riser: step onto it. Down more than a stair's step in one frame (off an edge, not a
+        // slow frame on the stair, which walkLevel allows up to 0.5 m): fall, under gravity. The riser's own 0.5 m step
+        // up is eased (a quick climb rather than a 0.5 m jump of the viewpoint, which a headset feels as a lurch).
+        if (next > feet && next <= DJ_RISER.top + 1e-6 && feet >= -1e-6) {
+            const frameMs = this.engine && this.engine.getDeltaTime ? this.engine.getDeltaTime() : 16.667;
+            next = this._easeRiserLevel(x, z, feet, next, frameMs / 1000);
+        }
         let target = next;
         if (next < feet - 0.45) {
             const frameMs = this.engine && this.engine.getDeltaTime ? this.engine.getDeltaTime() : 16.667;
@@ -302,7 +361,7 @@ const Mezzanine = {
         } else {
             this._vrFallSpeed = 0;
         }
-        if (this._vrFallSpeed > 0 || Math.abs(feet - target) > 0.02) camera.position.y = target + eye;
+        if (this._vrFallSpeed > 0 || this._seatLiftMoving || Math.abs(feet - target) > 0.02) camera.position.y = target + eye;
         // Babylon queues XR locomotion until the next XR frame. Its queued transform
         // must carry this correction too, otherwise it overwrites the floor height.
         if (camera._deferOnly && camera._deferredUpdated) camera._deferredPositionUpdate.y = camera.position.y;
@@ -385,6 +444,7 @@ const Mezzanine = {
             this._xrHeightResetObserver = sessionManager.onXRSessionInit.add(() => {
                 this._xrEyeHeight = null;
                 this._vrFallSpeed = 0;
+                this._resetPlayerHeightTracking();
             });
             // Sample before the camera/locomotion observers, so crouching and recentering
             // use this frame's physical height rather than the previous frame's.
@@ -396,13 +456,97 @@ const Mezzanine = {
                     if (!Number.isFinite(height)) throw new Error('Non-finite XR head height');
                     this._xrEyeHeight = height;
                     this._xrHeightError = false;
+                    this._trackPlayerHeight(height);
                 } catch (error) {
                     if (!this._xrHeightError) log.warn('Could not sample XR head height:', error);
                     this._xrHeightError = true;
                 }
             }, -1, true);
         }
-        return Number.isFinite(this._xrEyeHeight) ? this._xrEyeHeight : null;
+        // The tracked height plus Seated mode's lift (zero otherwise): every caller treats it as "head above the feet".
+        return Number.isFinite(this._xrEyeHeight) ? this._xrEyeHeight + (this._seatLift ? this._seatLift.lift : 0) : null;
+    },
+
+    _resetPlayerHeightTracking() {
+        if (this._seatLift) this._seatLift.reset();
+        if (this._heightEstimator) this._heightEstimator.reset();
+        this._heightAt = null;
+        this._seatLiftMoving = false;
+        this._heightMeasure = null;
+    },
+
+    /**
+     * Per XR frame: feed the player's real head height to the seated-mode lift, the standing-height estimator and the
+     * MEASURE HEIGHT countdown. Allocation-free except when a measurement finishes.
+     */
+    _trackPlayerHeight(real) {
+        const H = window.PlayerHeight;
+        if (!H) return;
+        const now = performance.now() / 1000;
+        const dt = this._heightAt == null ? 0 : now - this._heightAt;
+        this._heightAt = now;
+        const lift = this._seatLift || (this._seatLift = new H.SeatedLift());
+        const before = lift.lift;
+        lift.update(real, dt, !!this.vrSeatedMode, this._bodyEyeHeight(), !!this._activeSeat);
+        this._seatLiftMoving = Math.abs(lift.lift - before) > 1e-6;
+
+        const measure = this._heightMeasure;
+        if (measure) {
+            measure.samples.push(real, now);
+            if (now >= measure.until) {
+                this._heightMeasure = null;
+                this._finishHeightMeasure(measure, now);
+            }
+            return;
+        }
+        // Standing mode: the body follows the player's height. Seated mode, and a seat in the room, never sample.
+        if (this.vrSeatedMode || this._activeSeat) return;
+        const estimator = this._heightEstimator || (this._heightEstimator = new H.HeightEstimator());
+        estimator.add(real, now);
+        if (now - (this._heightAppliedAt || 0) < 2) return;
+        this._heightAppliedAt = now;
+        const estimate = estimator.estimate();
+        if (estimate !== null && estimate >= H.AUTO_MIN_EYE && Math.abs(estimate - (this.playerEyeHeight || H.DEFAULT_EYE)) >= 0.03) {
+            this.setPlayerEyeHeight(estimate);
+        }
+    },
+
+    /** Remember the player's standing eye height; the local body and every other guest's view of it follow. */
+    setPlayerEyeHeight(height) {
+        const H = window.PlayerHeight;
+        if (!H || !Number.isFinite(height)) return null;
+        this.playerEyeHeight = Math.round(H.clampEye(height) * 100) / 100;
+        try { localStorage.setItem('vrclub.playerEyeHeight', String(this.playerEyeHeight)); } catch (_) { /* private mode */ }
+        this._refreshVRQuickMenu();
+        return this.playerEyeHeight;
+    },
+
+    /** Start the three-second MEASURE HEIGHT: stand tall; the median of the final second is kept. */
+    startHeightMeasure() {
+        if (!this.isInVRMode || !Number.isFinite(this._xrEyeHeight)) {
+            this.showErrorMessage('Height can be measured in the headset.');
+            return false;
+        }
+        const now = performance.now() / 1000;
+        this._heightMeasure = { until: now + 3, samples: [] };
+        this.showErrorMessage('Stand up straight and look ahead: measuring for 3 seconds');
+        return true;
+    },
+
+    _finishHeightMeasure(measure, now) {
+        const H = window.PlayerHeight;
+        const recent = [];
+        for (let i = 0; i < measure.samples.length; i += 2) {
+            if (measure.samples[i + 1] >= now - 1) recent.push(measure.samples[i]);
+        }
+        const value = H.median(recent);
+        if (value === null || value < H.MIN_EYE || value > H.MAX_EYE) {
+            this.showErrorMessage('Could not measure your height. Try again, standing up straight.');
+            return;
+        }
+        this.setPlayerEyeHeight(value);
+        if (this._heightEstimator) this._heightEstimator.reset();
+        this.showErrorMessage(`Your eye height is ${value.toFixed(2)} m. The avatar now matches it.`);
     }
 };
 window.Mezzanine = Mezzanine;

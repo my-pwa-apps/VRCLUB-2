@@ -14,7 +14,9 @@
  *     hips after their eyes), the head/neck/spine share the remaining twist;
  *   - arms swing against the legs on desktop; in VR each arm is IK'd to its controller
  *     and the hand takes the controller's orientation;
- *   - crouching, flying and the DJ riser fall out of the same maths (root height).
+ *   - crouching, flying and the DJ riser fall out of the same maths (root height);
+ *   - an explicit seat pose lowers the pelvis onto furniture and keeps both feet planted,
+ *     independently of the physical headset height.
  *
  * Maths policy: every rotation is expressed as a rotation of WORLD vectors (aim A at B)
  * and converted to a bone-local quaternion through the parent's world matrix. That keeps
@@ -74,7 +76,8 @@ class AvatarRig {
         // --- bones by name -----------------------------------------------------------
         const strip = `${prefix}_`;
         const nodes = {};
-        root.getChildTransformNodes(false).forEach(node => {
+        const hierarchy = root.getChildTransformNodes(false);
+        hierarchy.forEach(node => {
             if (node.name.startsWith(strip)) nodes[node.name.slice(strip.length)] = node;
         });
         this.bone = nodes;
@@ -91,8 +94,9 @@ class AvatarRig {
         for (const name of AvatarRig.BONES) {
             for (let n = nodes[name]; n && n !== root; n = n.parent) needed.add(n);
         }
-        const depth = n => { let d = 0; for (let p = n; p && p !== root; p = p.parent) d++; return d; };
-        this.order = Array.from(needed).sort((a, b) => depth(a) - depth(b));
+        // Babylon returns a parent-before-child hierarchy walk. Filtering that one walk is
+        // enough; sorting every node by repeatedly walking its ancestors was quadratic.
+        this.order = hierarchy.filter(node => needed.has(node));
         this.index = new Map();
         this.order.forEach((n, i) => this.index.set(n, i));
         this.ix = {};
@@ -148,7 +152,8 @@ class AvatarRig {
     static createTrackedArms(root, prefix) {
         const rig = Object.create(AvatarRig.prototype);
         const nodes = {};
-        root.getChildTransformNodes(false).forEach(node => {
+        const hierarchy = root.getChildTransformNodes(false);
+        hierarchy.forEach(node => {
             if (node.name.startsWith(prefix)) nodes[node.name.slice(prefix.length)] = node;
         });
         const names = {};
@@ -164,8 +169,7 @@ class AvatarRig {
             if (!nodes[name]) return null;
             for (let node = nodes[name]; node && node !== root; node = node.parent) needed.add(node);
         }
-        const depth = node => { let d = 0; for (let p = node.parent; p && p !== root; p = p.parent) d++; return d; };
-        rig.order = [...needed].sort((a, b) => depth(a) - depth(b));
+        rig.order = hierarchy.filter(node => needed.has(node));
         rig.index = new Map(rig.order.map((node, i) => [node, i]));
         rig.ix = {};
         for (const [key, name] of Object.entries(names)) rig.ix[key] = rig.index.get(nodes[name]);
@@ -311,10 +315,13 @@ class AvatarRig {
         this.par = new Int16Array(n);
         this.ext = new Array(n);
         this.Lt = new Array(n); this.Ls = new Array(n); this.Lq = new Array(n); this.restQ = new Array(n);
-        this.W = new Array(n); this.pos = new Array(n); this.desc = new Array(n);
+        this.W = new Array(n); this.pos = new Array(n); this.children = new Array(n);
+        this._limbL1 = new Float64Array(n); this._limbL2 = new Float64Array(n);
+        for (let i = 0; i < n; i++) this.children[i] = [];
         this.order.forEach((node, i) => {
             const p = this.index.has(node.parent) ? this.index.get(node.parent) : -1;
             this.par[i] = p;
+            if (p >= 0) this.children[p].push(i);
             this.ext[i] = p < 0 ? node.parent : null;
             this.Lt[i] = node.position.clone();
             this.Ls[i] = node.scaling.clone();
@@ -323,13 +330,6 @@ class AvatarRig {
             this.W[i] = new M();
             this.pos[i] = new V();
         });
-        for (let i = 0; i < n; i++) {
-            const list = [];
-            for (let j = i + 1; j < n; j++) {
-                for (let a = this.par[j]; a >= 0; a = this.par[a]) { if (a === i) { list.push(j); break; } }
-            }
-            this.desc[i] = list;
-        }
         this._extNodes = Array.from(new Set(this.ext.filter(Boolean)));
     }
 
@@ -345,8 +345,8 @@ class AvatarRig {
     /** Recompute node `i` and everything below it. */
     _refreshFrom(i) {
         this._updateNode(i);
-        const d = this.desc[i];
-        for (let k = 0; k < d.length; k++) this._updateNode(d[k]);
+        const children = this.children[i];
+        for (let k = 0; k < children.length; k++) this._refreshFrom(children[k]);
     }
 
     _refreshCache() {
@@ -409,10 +409,21 @@ class AvatarRig {
      * direction (poleX, poleY, poleZ). Reach is clamped, so an out-of-range target
      * straightens the limb instead of stretching it.
      */
+    _reach(upper, mid, end) {
+        let l1 = this._limbL1[upper], l2 = this._limbL2[upper];
+        if (!(l1 > 0 && l2 > 0)) {
+            const S = this.pos[upper], E = this.pos[mid], H = this.pos[end];
+            l1 = this._limbL1[upper] = Math.hypot(S.x - E.x, S.y - E.y, S.z - E.z);
+            l2 = this._limbL2[upper] = Math.hypot(E.x - H.x, E.y - H.y, E.z - H.z);
+        }
+        return l1 + l2;
+    }
+
     _limb(upper, mid, end, target, poleX, poleY, poleZ) {
         const v = this._v;
-        const S = this.pos[upper], E = this.pos[mid], H = this.pos[end];
-        const l1 = BABYLON.Vector3.Distance(S, E), l2 = BABYLON.Vector3.Distance(E, H);
+        const S = this.pos[upper];
+        this._reach(upper, mid, end);
+        const l1 = this._limbL1[upper], l2 = this._limbL2[upper];
         const dir = v[0];
         target.subtractToRef(S, dir);
         const dist = dir.length();
@@ -465,6 +476,7 @@ class AvatarRig {
      * Pose the skeleton for one frame.
      * @param {number} dt seconds
      * @param {{x:number,z:number,groundY:number,eyeY:number,headYaw:number,headPitch:number,
+     *   bodyYaw?:number,seated?:boolean,seatY?:number,
      *   left?:object|null,right?:object|null}} pose  headPitch > 0 looks up. Hands carry a
      *   world position (x,y,z), forward (fx,fy,fz) and up (ux,uy,uz); null = relaxed arm.
      */
@@ -478,22 +490,27 @@ class AvatarRig {
         const ground = num(pose.groundY, 0);
         const eyeY = num(pose.eyeY, ground + this.standEye);
         const headYaw = num(pose.headYaw, 0);
+        const seated = pose.seated === true;
+        const facingYaw = num(pose.bodyYaw, headYaw);
 
         // --- velocity, from where the player actually moved ------------------------
         let wvx = 0, wvz = 0;
-        if (this._placed) {
+        if (this._placed && !seated) {
             wvx = (px - this._prevX) / dt;
             wvz = (pz - this._prevZ) / dt;
             if (wvx * wvx + wvz * wvz > 144) { wvx = 0; wvz = 0; }     // a teleport is not a sprint
         } else {
-            this.bodyYaw = headYaw;
+            this.bodyYaw = facingYaw;
             this._placed = true;
         }
         this._prevX = px; this._prevZ = pz;
 
         // --- body yaw: hips follow the eyes with a dead-zone -----------------------
-        const off = AvatarRig.shortestAngle(this.bodyYaw, headYaw);
-        if (this.speed > 0.3) {
+        const off = AvatarRig.shortestAngle(this.bodyYaw, facingYaw);
+        if (seated) {
+            this.bodyYaw = facingYaw;
+            this.turning = false;
+        } else if (this.speed > 0.3) {
             this.turning = false;
             this.bodyYaw += off * (1 - Math.exp(-6 * dt));
         } else {
@@ -510,9 +527,15 @@ class AvatarRig {
         this.vF += ((wvx * F.x + wvz * F.z) - this.vF) * kv;
         this.vR += ((wvx * R.x + wvz * R.z) - this.vR) * kv;
         this.speed = Math.hypot(this.vF, this.vR);
+        if (seated) {
+            this.vF = 0;
+            this.vR = 0;
+            this.speed = 0;
+        }
         const mF = this.speed > 1e-3 ? this.vF / this.speed : 1;
         const mR = this.speed > 1e-3 ? this.vR / this.speed : 0;
         this.walkW += ((this.speed > 0.15 ? 1 : 0) - this.walkW) * (1 - Math.exp(-8 * dt));
+        if (seated) this.walkW = 0;
         const sp = Math.min(this.speed, 7);
         const L = Math.max(0.35, Math.min(0.95, 0.40 + 0.20 * sp));         // step length, m
         this.phase = (this.phase + this.speed * dt / (2 * L)) % 1;
@@ -530,9 +553,10 @@ class AvatarRig {
         const back = 0.06 + 0.13 * Math.min(1, down / 1.0);
         const cx = px - F.x * back, cz = pz - F.z * back;
         root.rotation.y = (this.bodyYaw - this.yaw0) * this.yawDir;
+        const rootY = seated ? num(pose.seatY, ground + 0.48) - this.pelvisH : Math.max(ground - 0.7, bodyFloor) + bob;
         root.position.set(
             cx - (F.x * this.pelvisF + R.x * this.pelvisR),
-            Math.max(ground - 0.7, bodyFloor) + bob,
+            rootY,
             cz - (F.z * this.pelvisF + R.z * this.pelvisR)
         );
         root.computeWorldMatrix(true);
@@ -545,7 +569,7 @@ class AvatarRig {
         const lean = Math.min(0.12, 0.02 + 0.012 * sp) * walkW + 0.01;
         const breath = 0.012 * Math.sin(this.time * 1.7);
         // An optional extra forward bend (radians), spread over the spine: a DJ leaning over the decks.
-        const bend = Math.max(0, Math.min(0.6, num(pose.lean, 0)));
+        const bend = Math.max(0, Math.min(0.6, num(pose.lean, 0) + (seated ? 0.08 : 0)));
         this._yawBy(ix.pelvis, -0.08 * tw);
         this._tiltBy(ix.spine_01, lean * 0.45 + bend * 0.4, F.x, F.z);
         this._yawBy(ix.spine_01, 0.06 * tw);
@@ -572,6 +596,19 @@ class AvatarRig {
         legs[1].thigh = ix.thigh_r; legs[1].calf = ix.calf_r; legs[1].foot = ix.foot_r; legs[1].ball = ix.ball_r; legs[1].side = -this.sideL;
         for (let i = 0; i < 2; i++) {
             const leg = legs[i];
+            if (seated) {
+                leg.u = 0;
+                const t = v[4];
+                t.set(
+                    cx + F.x * 0.38 + R.x * leg.side * hip,
+                    ground + this.ankleH,
+                    cz + F.z * 0.38 + R.z * leg.side * hip
+                );
+                this._limb(leg.thigh, leg.calf, leg.foot, t, F.x + R.x * leg.side * 0.15, 0.2, F.z + R.z * leg.side * 0.15);
+                v[6].set(F.x * Math.cos(this.restBallPitch), Math.sin(this.restBallPitch), F.z * Math.cos(this.restBallPitch));
+                this._aim(leg.foot, leg.ball, v[6]);
+                continue;
+            }
             const psi = (this.phase + leg.psi) % 1;
             let u, lift = 0, toe = 0;
             if (psi < 0.6) {
@@ -604,7 +641,7 @@ class AvatarRig {
             const opp = legs[(a === 0) === (this.sideL < 0) ? 1 : 0].u;
             const upper = ix[`upperarm_${sfx}`], lower = ix[`lowerarm_${sfx}`], hand = ix[`hand_${sfx}`];
             const sh = this.pos[upper];
-            const reach = BABYLON.Vector3.Distance(sh, this.pos[lower]) + BABYLON.Vector3.Distance(this.pos[lower], this.pos[hand]);
+            const reach = this._reach(upper, lower, hand);
             const t = v[4];
             const h = a === 0 ? pose.left : pose.right;
             if (h && Number.isFinite(h.x)) {
@@ -651,12 +688,20 @@ class AvatarRig {
         if (this.root) this.root.setEnabled(!!visible);
     }
 
+    /** Forget the cached limb lengths: the character was rescaled, so they are measured again on the next pose. */
+    invalidateLimbs() {
+        if (this._limbL1) this._limbL1.fill(0);
+        if (this._limbL2) this._limbL2.fill(0);
+    }
+
     /** Re-fit the body when the active mode's eye-height calibration changes. */
     setEyeHeight(eyeHeight) {
         if (!this.ok || !(eyeHeight > 0.8) || Math.abs(eyeHeight - this.standEye) < 0.04) return;
         const yaw = this.root.rotation.y, pos = this.root.position.clone();
         this.order.forEach((n, i) => n.rotationQuaternion.copyFrom(this.restQ[i]));
         this._measure(Math.min(2.1, eyeHeight));
+        this._limbL1.fill(0);
+        this._limbL2.fill(0);
         this.root.rotation.y = yaw;
         this.root.position.copyFrom(pos);
     }

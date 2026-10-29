@@ -37,9 +37,13 @@ const dirs = { women: argument('--women'), men: argument('--men') };
 const outDir = argument('--out') || join(ROOT, 'js/models/avatars');
 const only = argument('--only');
 const refreshStatic = process.argv.includes('--refresh-static');
-if ((!dirs.women || !dirs.men) && !refreshStatic) {
+const variantsOnly = process.argv.includes('--variants');
+const refreshWardrobe = process.argv.includes('--refresh-wardrobe');
+if ((!dirs.women || !dirs.men) && !refreshStatic && !variantsOnly && !refreshWardrobe) {
     console.error('usage: node scripts/build-crowd-glbs.mjs --women "<dir>" --men "<dir>" [--out <dir>] [--only id,id] [--optimize]');
     console.error('   or: node scripts/build-crowd-glbs.mjs --refresh-static [--out <dir>]');
+    console.error('   or: node scripts/build-crowd-glbs.mjs --variants [--only id,id] [--optimize]   (no packs needed)');
+    console.error('   or: node scripts/build-crowd-glbs.mjs --refresh-wardrobe [--only id,id] [--optimize]   (bouncer and variants, no packs needed)');
     process.exit(1);
 }
 
@@ -64,7 +68,7 @@ const CAST = [
     { id: 'f3', base: 'women', file: 'Punk', skin: 'tan', colors: { Pink: '#16b8c8' } },
     { id: 'f4', base: 'women', file: 'Formal', skin: 'brown', mirror: true, colors: { LimeGreen: '#7c1733', 'Head:Red': BLACK_HAIR } },
     { id: 'f5', base: 'women', file: 'Formal', skin: 'light', colors: { LimeGreen: '#1c3270', 'Head:Red': '#b9893d' } },
-    { id: 'f6', base: 'women', file: 'Suit', skin: 'fair', guest: true, colors: { Hair_Blond: SILVER, Hair_Brown: '#9a9aa2', Black: '#2b2230', White: '#cdd2ea' } },
+    { id: 'f6', base: 'women', file: 'Suit', skin: 'fair', guest: true, seated: true, colors: { Hair_Blond: SILVER, Hair_Brown: '#9a9aa2', Black: '#2b2230', White: '#cdd2ea' } },
     { id: 'f7', base: 'women', file: 'Suit', skin: 'espresso', guest: true, colors: { Hair_Blond: '#0d0b0a', Hair_Brown: '#0d0b0a', Black: '#7b1e2c' } },
     { id: 'f8', base: 'women', file: 'Casual', skin: 'medium', guest: true, colors: { Hair_Blond: '#2b1b12', White: '#e8d6a0', Orange: '#3a2a4a' } },
     // Men
@@ -77,8 +81,8 @@ const CAST = [
     { id: 'm7', base: 'men', file: 'Suit', skin: 'deep', mirror: true, colors: { Hair: BLACK_HAIR, Eyebrows: BLACK_HAIR, Suit: '#4b202c' } },
     { id: 'm8', base: 'men', file: 'Beach', skin: 'light', guest: true, colors: { Hair: '#c9a459', Eyebrows: '#8a6b34', LightBrown: '#e2d9bd', Red_Dark: '#1f6090' } },
     { id: 'm9', base: 'men', file: 'Casual_2', skin: 'medium', colors: { Hair: '#4a2f1a', LightBrown: '#6a3c8d' } },
-    // The bouncer at the street door: black suit, black shirt and tie. Not a guest slot; he uses a relaxed idle.
-    { id: 'bouncer', base: 'men', file: 'Suit', skin: 'espresso', guest: true, colors: { Hair: BLACK_HAIR, Eyebrows: BLACK_HAIR, Suit: '#111114', Tie: '#08080a', White: '#1d1d22' } }
+    // The bouncer keeps his dark suit, with a lighter shirt separating the lapels from his face.
+    { id: 'bouncer', base: 'men', file: 'Suit', skin: 'espresso', guest: true, colors: { Hair: BLACK_HAIR, Eyebrows: BLACK_HAIR, Suit: '#303747', Tie: '#08080a', White: '#a6adb8' } }
 ];
 const GUEST_CLIPS = ['Dance_Loop', 'Idle_Loop', 'Idle_Talking_Loop', 'Idle_FoldArms_Loop', 'Idle_TalkingPhone_Loop', 'Yes'];
 // Everybody can dance and nod (`Yes`); the guests who stand about also carry the idle poses. The people who walk the
@@ -385,91 +389,150 @@ const GROOVE_BPM = 120;
 // 10 keys a beat: a beat always falls on a key (a clap meets exactly there), and smooth motion needs no more.
 const GROOVE_FPS = 20;
 const TAU = 2 * Math.PI;
+// How far each wrist is from the midline when the palms are together in a clap (the palm centres end up ~3 cm apart).
+const CLAP_TOUCH = 0.017;
+// The grooves `--refresh-static` re-authors on the shipped dancers (no asset packs needed). Names only: see GROOVES.
+const REFRESHED_GROOVES = ['Groove_Bounce', 'Groove_SideTap', 'Groove_Clap', 'Groove_ClapUp', 'Groove_Pump', 'Groove_Twist', 'Groove_HandsUp',
+    'Groove_Sway', 'Groove_ArmsWide', 'Groove_ArmsUp', 'Groove_Still'];
 /** 1 on the beat, 0 half way to the next: the shape of a bounce that lands on the beat. */
 const onBeat = beat => 0.5 + 0.5 * Math.cos(TAU * beat);
+/**
+ * A body's bounce rather than a cosine: it lets go of the beat slowly and falls back into the next one faster, so the
+ * weight drops ON the beat. 1 on every beat, 0 about half way; smooth through the beat. Shifting `beat` back by a few
+ * hundredths makes a part that FOLLOWS the hips (the chest, then the head, then the hands): overlapping action.
+ */
+const dip = beat => onBeat(Math.pow(beat - Math.floor(beat), 1.3));
 const smooth = t => { const c = Math.min(1, Math.max(0, t)); return c * c * (3 - 2 * c); };
 const lerp3 = (a, b, t) => a.map((v, i) => v + (b[i] - v) * t);
 /** A step that leaves its key in the second half of a beat and lands exactly on the next: keys are per beat. */
 const stepped = (keys, beat) => {
-    const i = Math.floor(beat) % keys.length, frac = beat - Math.floor(beat);
+    const n = keys.length, at = ((beat % n) + n) % n;
+    const i = Math.floor(at), frac = at - i;
     const travel = smooth((frac - 0.45) / 0.55);
-    const from = keys[i], to = keys[(i + 1) % keys.length];
+    const from = keys[i], to = keys[(i + 1) % n];
     return { value: from + (to - from) * travel, moving: from !== to ? Math.sin(Math.PI * Math.min(1, Math.max(0, (frac - 0.45) / 0.55))) : 0 };
 };
 
 const GROOVES = [
     {
-        // Knees bend down on every beat, weight rocks side to side, arms swing low with bent elbows, head nods.
-        name: 'Groove_Bounce', beats: 2,
+        // Knees bend down on every beat, weight rocks side to side every two beats, arms swing low with bent elbows, head
+        // nods. Eight beats long: the hips drop first and the chest, head and hands follow a beat's fraction later
+        // (overlapping action), the weight settles a little differently each bar, the head wanders, the arms open a
+        // little through the phrase and the bar line is pressed a bit harder. Nobody repeats a two-beat loop for a minute.
+        name: 'Groove_Bounce', beats: 8,
         pose: b => {
-            const p = onBeat(b), c = Math.cos(Math.PI * b);
+            const p = dip(b), pc = dip(b - 0.06), ph = dip(b - 0.13), pa = dip(b - 0.18);
+            const c = Math.cos(Math.PI * b), cs = Math.cos(Math.PI * (b - 0.07)), ca = Math.cos(Math.PI * (b - 0.14));
+            const w8 = Math.sin(TAU * b / 8), v8 = Math.cos(TAU * b / 8 + 0.7), q4 = Math.sin(TAU * b / 4 + 1.1);
+            const grow = 1 + 0.3 * (0.5 - 0.5 * Math.cos(TAU * b / 8 - 0.6));
+            const stress = 0.5 + 0.5 * Math.cos(TAU * b / 4);
             return {
-                hip: [0.03 * c, -(0.03 + 0.055 * p), 0.015 * p], hipRot: [0.05 + 0.05 * p, 0.08 * c, 0.05 * c],
-                spine: [0.03 * p, -0.12 * c, -0.04 * c], head: [-0.04 + 0.16 * p, 0.05 * c, 0.06 * c],
-                hands: { R: { at: [0.05, -0.30 + 0.05 * p, 0.17 + 0.1 * c] }, L: { at: [-0.05, -0.30 + 0.05 * p, 0.17 - 0.1 * c] } }
-            };
-        }
-    },
-    {
-        // Side taps: the right foot taps out on beat 1 and back on 2, the left out on 3 and back on 4; the arms open
-        // toward the tapping side and the head follows it.
-        name: 'Groove_SideTap', beats: 4,
-        pose: b => {
-            const p = onBeat(b);
-            const r = stepped([0.22, 0, 0, 0], b), l = stepped([0, 0, -0.22, 0], b);
-            const outR = r.value / 0.22, outL = -l.value / 0.22;
-            const restR = [0.05, -0.32, 0.15], restL = [-0.05, -0.32, 0.15];
-            return {
-                hip: [-0.25 * (r.value + l.value), -(0.03 + 0.04 * p), 0], hipRot: [0.05 + 0.03 * p, 0.1 * (outR - outL), 0.1 * (outR - outL)],
-                spine: [0.02 * p, -0.06 * (outR - outL), -0.06 * (outR - outL)], head: [0.08 * p, 0.25 * (outR - outL), 0.05 * (outR - outL)],
-                hands: { R: { at: lerp3(restR, [0.3, -0.1, 0.12], outR) }, L: { at: lerp3(restL, [-0.3, -0.1, 0.12], outL) } },
-                feet: { R: [0.03 + r.value, 0.07 * r.moving, 0.05 * outR], L: [-0.03 + l.value, 0.07 * l.moving, 0.05 * outL] }
-            };
-        }
-    },
-    {
-        // A clap on every beat in front of the chest, bouncing with it.
-        name: 'Groove_Clap', beats: 2,
-        pose: (b, rig) => {
-            const p = onBeat(b), c = Math.cos(Math.PI * b);
-            const open = Math.pow(Math.sin(Math.PI * (b % 1)), 1.2);
-            const half = 0.045 + 0.17 * open;
-            return {
-                hip: [0.015 * c, -(0.025 + 0.045 * p), 0.01 * p], hipRot: [0.06 + 0.04 * p, 0.05 * c, 0.03 * c],
-                spine: [0.03 * p, -0.06 * c, 0], head: [-0.02 + 0.12 * p, 0.06 * c, 0.04 * c],
+                hip: [0.03 * c + 0.012 * w8, -(0.03 + 0.055 * p * (1 + 0.3 * stress)), 0.015 * p],
+                hipRot: [0.05 + 0.05 * p, 0.08 * c + 0.03 * q4, 0.05 * c],
+                spine: [0.03 * pc, -0.12 * cs * grow + 0.04 * w8, -0.04 * cs],
+                head: [-0.04 + 0.16 * ph, 0.05 * cs + 0.1 * v8, 0.06 * cs],
                 hands: {
-                    R: { at: [-rig.shoulder + half, -0.17 + 0.03 * open, 0.3], pole: [0.7, -0.6, -0.3], fingers: [-0.25, 0.5, 1] },
-                    L: { at: [rig.shoulder - half, -0.17 + 0.03 * open, 0.3], pole: [-0.7, -0.6, -0.3], fingers: [0.25, 0.5, 1] }
+                    R: { at: [0.05 + 0.03 * w8, -0.30 + 0.05 * pa + 0.02 * v8, 0.17 + 0.1 * ca * grow] },
+                    L: { at: [-0.05 - 0.02 * w8, -0.30 + 0.05 * pa - 0.02 * v8, 0.17 - 0.09 * ca * grow] }
                 }
             };
         }
     },
     {
-        // A fist punched up on every beat, the other hand low; the body turns a little over the bar.
-        name: 'Groove_Pump', beats: 4,
+        // Side taps: the right foot taps out on beat 1 and back on 2, the left out on 3 and back on 4; the arms open
+        // toward the tapping side and the head follows it. The second bar starts on the left and ends on the right, so
+        // the phrase is eight beats and the weight does not always go the same way first.
+        name: 'Groove_SideTap', beats: 8,
         pose: b => {
-            const p = onBeat(b), s = Math.sin(Math.PI * b / 2);
+            const p = dip(b), pc = dip(b - 0.06), ph = dip(b - 0.12);
+            const w8 = Math.sin(TAU * b / 8), v8 = Math.cos(TAU * b / 8 + 0.7);
+            const keysR = [0.22, 0, 0, 0, 0, 0, 0.22, 0], keysL = [0, 0, -0.22, 0, -0.22, 0, 0, 0];
+            const r = stepped(keysR, b), l = stepped(keysL, b);
+            const rh = stepped(keysR, b - 0.12), lh = stepped(keysL, b - 0.12);
+            const outR = r.value / 0.22, outL = -l.value / 0.22;
+            const lagR = rh.value / 0.22, lagL = -lh.value / 0.22;
+            const restR = [0.05, -0.32, 0.15], restL = [-0.05, -0.32, 0.15];
             return {
-                hip: [0.02 * s, -(0.03 + 0.05 * p), 0.01 * p], hipRot: [0.04 + 0.04 * p, 0.12 + 0.08 * s, 0.03 * s],
-                spine: [0.02 * p, -0.05 * s, 0.03], head: [-0.06 + 0.12 * p, 0.1 + 0.05 * s, 0.03],
+                hip: [-0.25 * (r.value + l.value), -(0.03 + 0.04 * p), 0], hipRot: [0.05 + 0.03 * p, 0.1 * (outR - outL), 0.1 * (outR - outL)],
+                spine: [0.02 * pc, -0.06 * (lagR - lagL), -0.06 * (lagR - lagL)], head: [0.08 * ph, 0.25 * (lagR - lagL) + 0.08 * v8, 0.05 * (lagR - lagL)],
                 hands: {
-                    R: { at: [0.1, 0.3 + 0.12 * p, 0.16 + 0.04 * p], pole: [1, -0.2, -0.4], fingers: [0, 1, 0.2] },
-                    L: { at: [-0.04, -0.28 + 0.04 * p, 0.2] }
+                    R: { at: lerp3(restR, [0.3, -0.1 + 0.03 * w8, 0.12], lagR) },
+                    L: { at: lerp3(restL, [-0.3, -0.1 - 0.03 * w8, 0.12], lagL) }
                 },
-                shrug: { R: 0.18 }
+                feet: { R: [0.03 + r.value, 0.07 * r.moving, 0.05 * outR], L: [-0.03 + l.value, 0.07 * l.moving, 0.05 * outL] }
             };
         }
     },
     {
-        // The twist: hips turn one way on each beat, shoulders the other, feet pivot, forearms forward.
-        name: 'Groove_Twist', beats: 2,
-        pose: b => {
-            const p = onBeat(b), c = Math.cos(Math.PI * b);
+        // A clap on every beat in front of the chest, bouncing with it. The palms FACE each other (thumbs up, fingers
+        // forward and a little up) and meet flat, rather than the edges or backs of the hands knocking together.
+        name: 'Groove_Clap', beats: 2,
+        pose: (b, rig) => {
+            const p = dip(b), ph = dip(b - 0.1), c = Math.cos(Math.PI * b), cs = Math.cos(Math.PI * (b - 0.08));
+            const open = Math.pow(Math.sin(Math.PI * (b % 1)), 1.2);
+            const half = CLAP_TOUCH + 0.17 * open;
             return {
-                hip: [0, -(0.04 + 0.04 * p), 0], hipRot: [0.06, 0.38 * c, 0.03 * c],
-                spine: [0.04, -0.55 * c, -0.02 * c], head: [0.04 + 0.06 * p, -0.15 * c, 0],
-                hands: { R: { at: [-0.02, -0.22, 0.26] }, L: { at: [0.02, -0.22, 0.26] } },
-                feet: { R: [0.06, 0, 0], L: [-0.06, 0, 0] }, feetYaw: 0.3 * c
+                hip: [0.015 * c, -(0.025 + 0.045 * p), 0.01 * p], hipRot: [0.06 + 0.04 * p, 0.05 * c, 0.03 * c],
+                spine: [0.03 * dip(b - 0.05), -0.06 * cs, 0], head: [-0.02 + 0.12 * ph, 0.06 * cs, 0.04 * cs],
+                hands: {
+                    R: { at: [-rig.shoulder + half, -0.17 + 0.03 * open, 0.3], pole: [0.7, -0.6, -0.3], fingers: [0, 0.45, 1], thumb: [0, 1, 0] },
+                    L: { at: [rig.shoulder - half, -0.17 + 0.03 * open, 0.3], pole: [-0.7, -0.6, -0.3], fingers: [0, 0.45, 1], thumb: [0, 1, 0] }
+                }
+            };
+        }
+    },
+    {
+        // The same clap held above the head: arms up, hands meeting palm to palm over the crown (fingers up, thumbs back).
+        name: 'Groove_ClapUp', beats: 2,
+        pose: (b, rig) => {
+            const p = dip(b), ph = dip(b - 0.1), c = Math.cos(Math.PI * b), cs = Math.cos(Math.PI * (b - 0.08));
+            const open = Math.pow(Math.sin(Math.PI * (b % 1)), 1.2);
+            const half = CLAP_TOUCH + 0.2 * open;
+            return {
+                hip: [0.015 * c, -(0.025 + 0.045 * p), 0.01 * p], hipRot: [0.03 + 0.03 * p, 0.05 * c, 0.03 * c],
+                spine: [-0.05, -0.05 * cs, 0], head: [-0.2 + 0.08 * ph, 0.05 * cs, 0.03 * cs],
+                hands: {
+                    R: { at: [-rig.shoulder + half, 0.44 + 0.03 * open, 0.07], pole: [1, 0.2, -0.3], fingers: [0, 1, 0.12], thumb: [0, 0, -1] },
+                    L: { at: [rig.shoulder - half, 0.44 + 0.03 * open, 0.07], pole: [-1, 0.2, -0.3], fingers: [0, 1, 0.12], thumb: [0, 0, -1] }
+                },
+                shrug: { R: 0.22, L: 0.22 }
+            };
+        }
+    },
+    {
+        // A fist punched up on every beat. Eight beats: the right fist for a bar, then the other arm takes over between
+        // two beats (never on one, so a fist is always up ON the beat), the body turns a little over the phrase and the
+        // head and shoulder follow the punch a moment late.
+        name: 'Groove_Pump', beats: 8,
+        pose: b => {
+            const p = dip(b), pa = dip(b - 0.1), ph = dip(b - 0.14), s = Math.sin(Math.PI * b / 4);
+            const la = b < 3.25 ? 0 : b < 3.75 ? smooth((b - 3.25) / 0.5) : b < 7.25 ? 1 : b < 7.75 ? 1 - smooth((b - 7.25) / 0.5) : 0;
+            const arm = (sign, amt) => ({
+                at: lerp3([0.05 * sign, -0.28 + 0.04 * pa, 0.2], [0.17 * sign, 0.2 + 0.12 * pa, 0.14], amt),
+                pole: lerp3([0.5 * sign, -0.4, -0.7], [sign, -0.2, -0.4], amt),
+                fingers: lerp3([0.05 * sign, -0.7, 0.6], [0, 1, 0.2], amt)
+            });
+            return {
+                hip: [0.02 * s, -(0.03 + 0.05 * p), 0.01 * p], hipRot: [0.04 + 0.04 * p, 0.1 * (1 - 2 * la) + 0.08 * s, 0.03 * s],
+                spine: [0.02 * dip(b - 0.06), -0.05 * s, 0.03 * (1 - 2 * la)], head: [-0.06 + 0.12 * ph, 0.1 + 0.05 * s, 0.03],
+                hands: { R: arm(1, 1 - la), L: arm(-1, la) },
+                shrug: { R: 0.18 * (1 - la), L: 0.18 * la }
+            };
+        }
+    },
+    {
+        // The twist: hips turn one way on each beat, shoulders the other (a little behind), feet pivot, forearms swing
+        // across. Four beats: the left turn alternates bigger and smaller, so it is a phrase and not a metronome.
+        name: 'Groove_Twist', beats: 4,
+        pose: b => {
+            const p = dip(b), ph = dip(b - 0.12);
+            const c = Math.cos(Math.PI * b), cs = Math.cos(Math.PI * (b - 0.1)), ch = Math.cos(Math.PI * (b - 0.2));
+            const a = 1 + 0.2 * Math.cos(Math.PI * b / 2);
+            return {
+                hip: [0, -(0.04 + 0.04 * p), 0], hipRot: [0.06, 0.38 * c * a, 0.03 * c],
+                spine: [0.04, -0.55 * cs * a, -0.02 * cs], head: [0.04 + 0.06 * ph, -0.15 * ch * a, 0],
+                hands: { R: { at: [-0.02 + 0.05 * cs, -0.22, 0.26 - 0.04 * cs] }, L: { at: [0.02 + 0.05 * cs, -0.22, 0.26 + 0.04 * cs] } },
+                feet: { R: [0.06, 0, 0], L: [-0.06, 0, 0] }, feetYaw: 0.3 * c * a
             };
         }
     },
@@ -477,15 +540,48 @@ const GROOVES = [
         // Both hands up, swaying across over the bar, bouncing on every beat, looking up.
         name: 'Groove_HandsUp', beats: 4,
         pose: b => {
-            const p = onBeat(b), w = Math.sin(TAU * b / 4);
+            const p = dip(b), ph = dip(b - 0.13), pa = dip(b - 0.2), w = Math.sin(TAU * b / 4);
             return {
                 hip: [0.04 * w, -(0.03 + 0.05 * p), 0], hipRot: [0.02 + 0.03 * p, 0.04 * w, -0.06 * w],
-                spine: [-0.04, 0, 0.04 * w], head: [-0.18 + 0.1 * p, 0.05 * w, 0.05 * w],
+                spine: [-0.04, 0, 0.04 * w], head: [-0.18 + 0.1 * ph, 0.05 * w, 0.05 * w],
                 hands: {
-                    R: { at: [0.1 + 0.12 * w, 0.4, 0.06], pole: [1, 0, -0.3], fingers: [0.3 * w, 1, 0.1] },
-                    L: { at: [-0.1 + 0.12 * w, 0.4, 0.06], pole: [-1, 0, -0.3], fingers: [0.3 * w, 1, 0.1] }
+                    R: { at: [0.1 + 0.12 * w, 0.4 + 0.02 * pa, 0.06], pole: [1, 0, -0.3], fingers: [0.3 * w, 1, 0.1] },
+                    L: { at: [-0.1 + 0.12 * w, 0.4 + 0.018 * pa, 0.06], pole: [-1, 0, -0.3], fingers: [0.3 * w, 1, 0.1] }
                 },
                 shrug: { R: 0.25, L: 0.25 }
+            };
+        }
+    },
+    {
+        // Free-running (no beat): arms spread wide with open palms up, a slow undulation through the shoulders, the face
+        // tipped up. What somebody does when a pad swells and there is nothing to keep time to.
+        name: 'Groove_ArmsWide', beats: 8,
+        pose: b => {
+            const w = Math.sin(TAU * b / 8), c = Math.cos(TAU * b / 8), r = Math.sin(TAU * b / 4 + 0.6);
+            return {
+                hip: [0.03 * w, -0.03, 0], hipRot: [0.02, 0.07 * w, 0.06 * w],
+                spine: [-0.04, -0.06 * w, -0.07 * w], head: [-0.2 + 0.03 * c, 0.1 * w, 0.08 * w],
+                hands: {
+                    R: { at: [0.46, 0.06 + 0.05 * r, 0.04], pole: [0.4, -1, -0.3], fingers: [1, 0.25, 0.1], thumb: [0, 0, -1] },
+                    L: { at: [-0.46, 0.06 - 0.05 * r, 0.04], pole: [-0.4, -1, -0.3], fingers: [-1, 0.25, 0.1], thumb: [0, 0, -1] }
+                },
+                shrug: { R: 0.05, L: 0.05 }
+            };
+        }
+    },
+    {
+        // Free-running (no beat): both arms up in a slow V, swaying across, palms forward, looking up.
+        name: 'Groove_ArmsUp', beats: 8,
+        pose: b => {
+            const w = Math.sin(TAU * b / 8), c = Math.cos(TAU * b / 8), r = Math.sin(TAU * b / 4 + 0.6);
+            return {
+                hip: [0.035 * w, -0.03, 0], hipRot: [0.02, 0.05 * w, -0.06 * w],
+                spine: [-0.05, 0, 0.05 * w], head: [-0.22 + 0.03 * c, 0.06 * w, 0.06 * w],
+                hands: {
+                    R: { at: [0.16 + 0.08 * w, 0.42 + 0.03 * r, 0.06], pole: [1, 0.1, -0.3], fingers: [0.3 + 0.2 * w, 1, 0.1], thumb: [-1, 0, 0] },
+                    L: { at: [-0.16 + 0.08 * w, 0.42 - 0.03 * r, 0.06], pole: [-1, 0.1, -0.3], fingers: [-0.3 + 0.2 * w, 1, 0.1], thumb: [1, 0, 0] }
+                },
+                shrug: { R: 0.24, L: 0.24 }
             };
         }
     },
@@ -545,36 +641,195 @@ const RAILING_POSE = {
     }
 };
 
-// The mingler's bar stop: the right hand raises a cup, holds it for a sip, then lowers it. The cup itself is a
-// single runtime mesh following Wrist.R; this clip supplies the body language without adding another character rig.
+// The mingler's bar stop, standing at the counter. The cup is a single runtime mesh that rides IN HIS HAND (palm centre,
+// 4.5 cm toward the palm's face, its axis along the thumb side), so everything below is about the hand: it only has to
+// reach the glass, wrap round it, carry it up, tip it to his lips, put it down and let go, and the cup follows exactly.
+// Phases (of 8 beats; the club plays 0-0.2 as the pickup, 0.2-0.68 as the drink and 0.68-0.9 as the return):
+//   0.00-0.14 the hand leaves his side and reaches the glass     0.14-0.20 the fingers wrap round it
+//   0.20-0.40 lift, the elbow staying low, the wrist rolling     0.30-0.40 the cup tips toward his lips, his head back
+//   0.40-0.52 a sip and a swallow                                 0.52-0.62 down to chest height, then a look at the bartender
+//   0.68-0.86 down to the counter, the cup upright again         0.86-0.90 the fingers open; 0.90-1.00 back to his side
+// His other hand rests on the counter and he leans on it a little: nobody stands bolt upright at a bar. `.R` is the
+// avatar's physical LEFT in this world (the rig is mirrored), which is the side the glass is on.
+const DRINK = {
+    rest: [0.07, -0.34, 0.14],            // the drinking hand hanging at his side (shoulder-relative, body frame)
+    glass: [0.218, -0.155, 0.235],        // the wrist when the hand is round the glass on the counter
+    lips: [-0.11, 0.17, 0.17],            // the wrist with the cup at his lips
+    tilt: 1.0,                            // how far the cup tips for the sip (radians from upright)
+    other: [-0.14, -0.23, 0.37]           // the free hand's wrist, resting on the counter
+};
 const DRINK_POSE = {
     name: 'Drink_Loop',
     beats: 8,
     pose: b => {
         const phase = b / 8;
-        // Reach the counter first, lift the glass to the mouth, hold it there, then put it back. Runtime transfers
-        // ownership only at the two counter contacts, so the glass never moves independently of a hand.
-        const raise = phase < 0.2 ? 0
-            : phase < 0.42 ? (phase - 0.2) / 0.22
-                : phase < 0.68 ? 1
-                    : phase < 0.9 ? 1 - (phase - 0.68) / 0.22 : 0;
-        const eased = raise * raise * (3 - 2 * raise);
         const breath = Math.sin(TAU * b / 4);
-        const reach = [0.04, -0.36, 0.58];
-        const sip = [-0.15, 0.16, -0.01];
+        // 0 at his side, 1 at the glass; leaves at the start and goes back at the end.
+        const toGlass = phase < 0.9 ? smooth(phase / 0.14) : 1 - smooth((phase - 0.9) / 0.1);
+        const grip = phase < 0.9 ? smooth((phase - 0.12) / 0.08) * (1 - smooth((phase - 0.86) / 0.04)) : 0;
+        // 0 on the counter, 1 at the lips: lift, hold through the sip, down to the chest, hold, then down to the counter.
+        let lift = smooth((phase - 0.2) / 0.2);
+        if (phase > 0.52) lift = 1 - 0.65 * smooth((phase - 0.52) / 0.1);
+        if (phase > 0.68) lift = 0.35 * (1 - smooth((phase - 0.68) / 0.18));
+        // The cup tips only for the sip.
+        let tilt = smooth((phase - 0.3) / 0.1);
+        if (phase > 0.52) tilt = 1 - smooth((phase - 0.52) / 0.06);
+        const phi = DRINK.tilt * tilt;
+        const swallow = phase > 0.47 && phase < 0.55 ? Math.sin(Math.PI * (phase - 0.47) / 0.08) : 0;
+        // Rotate a body-frame direction about the lateral axis, so the fingers and the thumb tip with the cup.
+        const tip = ([x, y, z]) => [x, y * Math.cos(phi) + z * Math.sin(phi), -y * Math.sin(phi) + z * Math.cos(phi)];
+        const reach = lerp3(DRINK.rest, DRINK.glass, toGlass);
+        const at = lerp3(reach, DRINK.lips, lift);
+        // A little arc on the way out so the hand does not slide in a straight line: it rises, then settles on the glass.
+        at[1] += 0.05 * Math.sin(Math.PI * Math.min(1, phase / 0.14)) * (phase < 0.2 ? 1 : 0);
+        const wrap = [[-0.25, 0, 1], [-0.8, -0.05, 0.5], [-0.7, -0.1, -0.5]].map(tip);
+        const open = [0, -0.2, 1];
         return {
-            hip: [0, -0.015, 0], hipRot: [0.01, 0, 0],
-            spine: [0.04 + 0.05 * (1 - eased), 0, -0.025 * eased],
-            head: [-0.02 - 0.12 * eased, 0.03 * Math.sin(TAU * b / 8), 0],
+            hip: [0.01 * toGlass, -0.02, 0.05 * toGlass], hipRot: [0.05 + 0.05 * toGlass - 0.04 * lift, 0, 0],
+            spine: [0.06 + 0.17 * toGlass - 0.14 * lift + 0.01 * breath, 0.05 * toGlass, -0.02 * lift],
+            head: [-0.18 * toGlass * (1 - lift) - 0.30 * tilt + 0.06 * swallow, 0.04 * Math.sin(TAU * b / 8), 0],
             hands: {
                 R: {
-                    at: reach.map((value, i) => value + (sip[i] - value) * eased),
-                    pole: [0.65, -0.25, -0.4],
-                    fingers: [0, 0.15 + 0.85 * eased, 1]
+                    at,
+                    pole: [0.55, -1, -0.15],
+                    fingers: lerp3(lerp3(open, [0, -0.1, 1], toGlass), tip([-0.1, 0.05, 1]), grip),
+                    thumb: lerp3([-1, 0, 0], [0, Math.cos(phi), -Math.sin(phi) - 0.28 * (1 - tilt)], grip),
+                    grip: wrap.map(joint => lerp3(open, joint, grip))
                 },
-                L: { at: [-0.06, -0.40, 0.08], pole: [-0.6, -0.35, -0.5] }
+                L: {
+                    at: lerp3([-0.06, -0.40, 0.08], DRINK.other, smooth(phase / 0.16) * (phase < 0.9 ? 1 : 1 - smooth((phase - 0.9) / 0.1))),
+                    pole: [-0.6, -1, -0.15], fingers: [0, -0.15, 1], thumb: [1, 0, 0]
+                }
             },
-            shrug: { R: 0.08 * eased, L: 0.02 * breath }
+            shrug: { R: 0.06 * lift, L: 0.02 * breath }
+        };
+    }
+};
+
+// Every network avatar can intentionally use the room's seats. This generic upright seated idle is separate from f6's
+// bar-specific clips so AvatarManager has one stable clip name regardless of which of the seventeen looks the relay
+// assigned (the couch and the balcony stools have no counter to lean on).
+const SEATED_IDLE_POSE = {
+    name: 'Seated_Loop',
+    beats: 24,
+    pose: b => {
+        const breath = Math.sin(TAU * b / 6);
+        const look = 0.72 * Math.sin(TAU * b / 24) + 0.28 * Math.sin(TAU * b / 9 + 0.7);
+        return {
+            hip: [0, -0.09, 0.14], hipRot: [-0.08, 0.025 * look, 0],
+            spine: [0.08 + 0.012 * breath, 0.04 * look, -0.015 * look],
+            head: [-0.035 + 0.012 * breath, 0.32 * look, 0.025 * Math.sin(TAU * b / 13)],
+            hands: {
+                R: { at: [0.12, -0.10, 0.70], pole: [0.65, -0.3, -0.4], fingers: [0, -0.2, 1] },
+                L: { at: [-0.12, -0.11, 0.68], pole: [-0.65, -0.3, -0.4], fingers: [0, -0.15, 1] }
+            },
+            feet: { R: [0.07, 0, 0.31], L: [-0.07, 0, 0.31] },
+            shrug: { R: 0.015 * breath, L: -0.01 * breath }
+        };
+    }
+};
+
+// A real sit on a LOW seat (the lounge couch and the toilets, cushion 0.40-0.42 m): the pelvis on the cushion, thighs about
+// level, shins down to feet planted on the floor in front, an upright relaxed back and the hands resting on the thighs.
+// `Seated_Loop` above is the stool posture (pelvis ~0.88 m, hands out to a counter); on a couch it left the sitter squatting
+// 48 cm above the cushion with straight arms. The pelvis sits 6 cm BEHIND the head column the seat is placed by.
+const SEATED_LOW_POSE = {
+    name: 'Seated_Low_Loop',
+    beats: 24,
+    pose: b => {
+        const breath = Math.sin(TAU * b / 6);
+        const look = 0.72 * Math.sin(TAU * b / 24) + 0.28 * Math.sin(TAU * b / 9 + 0.7);
+        return {
+            hip: [0, -0.47, -0.13], hipRot: [-0.05, 0.02 * look, 0],
+            spine: [0.02 + 0.012 * breath, 0.04 * look, -0.015 * look],
+            head: [-0.02 + 0.012 * breath, 0.30 * look, 0.025 * Math.sin(TAU * b / 13)],
+            hands: {
+                R: { at: [0.10, -0.40, 0.30 + 0.01 * breath], pole: [0.65, -0.3, -0.4], fingers: [0, -0.35, 1] },
+                L: { at: [-0.10, -0.40, 0.29 + 0.01 * breath], pole: [-0.65, -0.3, -0.4], fingers: [0, -0.35, 1] }
+            },
+            feet: { R: [0.07, 0, 0.40], L: [-0.07, 0, 0.40] },
+            shrug: { R: 0.01 * breath, L: -0.008 * breath }
+        };
+    }
+};
+
+// The regular at the bar sits on the real stool, feet planted, and LEANS ON THE COUNTER: the torso tips forward, the
+// elbows are bent and the forearms rest on the bar, with her right hand beside her bottle. Hand targets are relative to
+// each shoulder in the chest's own frame [right, up, forward], so they tilt with the lean. Both bar clips share this
+// posture and the bottle/rest hand so the idle, the grasp and the put-down meet exactly where the bottle stands (the
+// runtime bottle stands where her right wrist is at rest, see VRClubAudioCrowd._createBarPatronBottle).
+const BAR_REST = { R: [0.07, 0.11, 0.40], L: [-0.13, 0.11, 0.38] };
+const BAR_LEAN = 0.50;
+const barPosture = (b, look, breath, extra = {}) => ({
+    hip: [0, -0.09, 0.14], hipRot: [-0.08, 0.02 * look, 0],
+    spine: [BAR_LEAN + 0.012 * breath + (extra.lean || 0), 0.05 * look, -0.015 * look],
+    head: [-0.44 + (extra.nod || 0) + 0.012 * breath, 0.30 * look, 0.025 * Math.sin(TAU * b / 13)],
+    feet: { R: [0.07, 0, 0.31], L: [-0.07, 0, 0.31] }
+});
+
+const SEATED_BAR_IDLE_POSE = {
+    name: 'Seated_Bar_Idle_Loop',
+    beats: 24,
+    pose: b => {
+        const breath = Math.sin(TAU * b / 6);
+        const look = 0.72 * Math.sin(TAU * b / 24) + 0.28 * Math.sin(TAU * b / 9 + 0.7);
+        // Now and then she shifts her weight a little forward and settles back, and her left fingers drum once.
+        const settle = 0.5 + 0.5 * Math.sin(TAU * b / 24 - 1.2);
+        const drum = b > 15 && b < 19 ? Math.max(0, Math.sin(TAU * (b - 15) * 1.25)) : 0;
+        return {
+            ...barPosture(b, look, breath, { lean: 0.04 * settle }),
+            hands: {
+                R: { at: BAR_REST.R, pole: [0.7, -0.6, -0.1], fingers: [0, -0.25, 1], thumb: [-1, 0, 0] },
+                L: {
+                    at: [BAR_REST.L[0], BAR_REST.L[1] + 0.012 * drum, BAR_REST.L[2]],
+                    pole: [-0.7, -0.6, -0.1], fingers: [0, -0.25 + 0.15 * drum, 1]
+                }
+            },
+            shrug: { R: 0.015 * breath, L: -0.01 * breath }
+        };
+    }
+};
+
+// How far her bottle is tipped toward her lips (0..1) at a phase of the drink. The club's runtime tilts the bottle
+// with the same curve (VRClubAudioCrowd.barBottleTilt), so the hand and the bottle always agree.
+const barBottleTilt = phase => {
+    const ease = t => { const c = Math.min(1, Math.max(0, t)); return c * c * (3 - 2 * c); };
+    return phase < 0.58 ? ease((phase - 0.30) / 0.10) : 1 - ease((phase - 0.58) / 0.08);
+};
+
+// Her drink, 8 beats: she rolls her right hand round the bottle (0-0.2), lifts it to her lips while her head tips back
+// (0.2-0.4), sips and swallows (0.4-0.58), lowers it to the chest (0.58-0.72) and sets it back on the bar (0.72-0.94),
+// where her hand opens and comes to rest beside it again. The fingers wrap round the bottle's axis, which tips back
+// with it; the thumb stays on the near side.
+const SEATED_BAR_DRINK_POSE = {
+    name: 'Seated_Bar_Drink_Loop',
+    beats: 8,
+    pose: b => {
+        const phase = b / 8;
+        const ease = t => { const c = Math.min(1, Math.max(0, t)); return c * c * (3 - 2 * c); };
+        const up = phase < 0.2 ? 0 : phase < 0.4 ? ease((phase - 0.2) / 0.2) : phase < 0.58 ? 1
+            : phase < 0.72 ? 1 - 0.55 * ease((phase - 0.58) / 0.14) : 0.45 * (1 - ease((phase - 0.72) / 0.22));
+        const grip = phase < 0.06 ? 0 : phase < 0.2 ? ease((phase - 0.06) / 0.14) : phase < 0.9 ? 1 : 1 - ease((phase - 0.9) / 0.08);
+        const swallow = phase > 0.46 && phase < 0.56 ? Math.sin(Math.PI * (phase - 0.46) / 0.1) : 0;
+        const lips = [-0.09, 0.13, 0.17];
+        const phi = 1.15 * barBottleTilt(phase);
+        // Rotate a body-frame vector about the lateral axis so the curl plane stays square to the tipped bottle.
+        const tip = ([x, y, z]) => [x, y * Math.cos(phi) + z * Math.sin(phi), -y * Math.sin(phi) + z * Math.cos(phi)];
+        const open = [0, -0.25, 1];
+        const wrap = [[-0.35, 0, 1], [-1, 0, 0.1], [-0.5, -0.1, -0.9]].map(tip);
+        return {
+            ...barPosture(b, 0, 0, { lean: -0.10 * up, nod: -0.25 * up + 0.07 * swallow }),
+            hands: {
+                R: {
+                    at: BAR_REST.R.map((value, i) => value + (lips[i] - value) * up),
+                    pole: [0.55, -0.85, 0.1],
+                    fingers: lerp3(open, tip([-0.1, 0.05, 1]), grip),
+                    thumb: lerp3([-1, 0, 0], [0, Math.cos(phi), -Math.sin(phi)], grip),
+                    grip: wrap.map(joint => lerp3(open, joint, grip))
+                },
+                L: { at: BAR_REST.L, pole: [-0.7, -0.6, -0.1], fingers: [0, -0.25, 1] }
+            },
+            shrug: { R: 0.05 * up, L: 0 }
         };
     }
 };
@@ -908,6 +1163,12 @@ async function build(person) {
     const results = all.filter(clip => wanted.includes(clip.name)).map(clip => retarget(src, tgt, clip, !!person.mirror));
     if (person.drink) results.push(synthesize(tgt, DRINK_POSE, !!person.mirror));
     if (person.smoke) results.push(synthesize(tgt, SMOKE_POSE, !!person.mirror));
+    if (person.id !== 'bouncer') results.push(synthesize(tgt, SEATED_IDLE_POSE, !!person.mirror));
+    if (person.id !== 'bouncer') results.push(synthesize(tgt, SEATED_LOW_POSE, !!person.mirror));
+    if (person.seated) {
+        results.push(synthesize(tgt, SEATED_BAR_IDLE_POSE, !!person.mirror));
+        results.push(synthesize(tgt, SEATED_BAR_DRINK_POSE, !!person.mirror));
+    }
     // The dancers on the floor also get the procedural grooves (the guests and the bouncer stand about; they do not).
     // A groove drives exactly the bones the retargeted Dance_Loop drives, so a dancer can switch between any of them
     // without a joint keeping the last clip's pose (the stock Idle drives others, which is why the still pose is ours).
@@ -937,32 +1198,162 @@ async function build(person) {
 }
 
 async function refreshStaticClips() {
-    const specs = [
-        { id: 'f7', name: 'club-crowd-f7.glb', poses: [RAILING_POSE] },
-        { id: 'm6', name: 'club-crowd-m6.glb', poses: [DRINK_POSE, SMOKE_POSE, MINGLER_RAILING_POSE] }
-    ].filter(spec => !only || only.split(',').includes(spec.id));
+    const extras = new Map([
+        ['f6', [SEATED_BAR_IDLE_POSE, SEATED_BAR_DRINK_POSE]],
+        ['f7', [RAILING_POSE]],
+        ['m6', [DRINK_POSE, SMOKE_POSE, MINGLER_RAILING_POSE]]
+    ]);
+    // The grooves that can be re-authored on the shipped skeletons without the asset packs. The rest of the repertoire
+    // (Dance_Loop and the older grooves) is untouched; a dancer's mirror flag is honoured so neighbours are not in step.
+    const refreshedGrooves = GROOVES.filter(groove => REFRESHED_GROOVES.includes(groove.name));
+    const specs = CAST.filter(person => person.id !== 'bouncer').map(person => ({
+        id: person.id,
+        name: `club-crowd-${person.id}.glb`,
+        poses: [
+            { pose: SEATED_IDLE_POSE, mirror: false },
+            { pose: SEATED_LOW_POSE, mirror: false },
+            ...(extras.get(person.id) || []).map(pose => ({ pose, mirror: false })),
+            ...(person.guest ? [] : refreshedGrooves.map(pose => ({ pose, mirror: !!person.mirror })))
+        ]
+    })).filter(spec => !only || only.split(',').includes(spec.id));
     const names = [];
     for (const spec of specs) {
         const path = join(outDir, spec.name);
         const document = await io.read(path);
-        const poseNames = new Set(spec.poses.map(pose => pose.name));
+        const poseNames = new Set(spec.poses.map(item => item.pose.name));
         for (const animation of document.getRoot().listAnimations()) if (poseNames.has(animation.getName())) animation.dispose();
         const tgt = readSkeleton(document);
-        addAnimations(document, tgt, spec.poses.map(pose => synthesize(tgt, pose, false)));
+        addAnimations(document, tgt, spec.poses.map(item => synthesize(tgt, item.pose, item.mirror)));
         await document.transform(prune());
         await io.write(path, document);
-        console.log(`${spec.name}: refreshed ${spec.poses.map(pose => pose.name).join(', ')}`);
+        console.log(`${spec.name}: refreshed ${spec.poses.map(item => item.pose.name).join(', ')}`);
         names.push(spec.name);
     }
     return names;
 }
 
+const VARIANTS = [
+    // Dancers on the floor (replace the three slots that used to repeat m1, m9 and f4).
+    { id: 'vm1', from: 'm1', skin: 'umber', hair: '#7a3a1d', clothes: ['#8c2a2a', '#23262e'] },
+    { id: 'vf1', from: 'f4', skin: 'olive', hair: '#4a2f1a', clothes: ['#1f5f4a'] },
+    { id: 'vm2', from: 'm9', skin: 'pale', hair: '#b5532a', clothes: ['#1f7a78', '#222a44'] },
+    // The queue outside (replace the five who used to repeat dancers inside).
+    { id: 'vf2', from: 'f1', skin: 'golden', hair: '#e6dcc0', clothes: ['#d8a23a', '#1d1d22'] },
+    { id: 'vm3', from: 'm3', skin: 'espresso', hair: '#15110f', clothes: ['#9c722e', '#2a3342'] },
+    { id: 'vf3', from: 'f3', skin: 'pale', hair: '#d8458f', clothes: ['#4a1c5a'] },
+    { id: 'vm4', from: 'm7', skin: 'tan', hair: '#2a1b10', clothes: ['#59354f', '#1c3a5c'] },
+    { id: 'vm7', from: 'm5', skin: 'brown', hair: '#2fb36a', clothes: ['#167b82', '#5a1c1c', '#23262e'] },
+    // Guest-clip people (talk, fold arms, phone): the second side guests and the people who chat at the door.
+    { id: 'vf5', from: 'f8', skin: 'light', hair: '#7a3a1d', clothes: ['#c24a5a', '#26303f'] },
+    { id: 'vf6', from: 'f7', skin: 'tan', hair: '#2a1b10', clothes: ['#a83e62', '#2f3a6a'] },
+    { id: 'vf7', from: 'f8', skin: 'deep', hair: '#15110f', clothes: ['#3aa88c', '#1d1d22'] },
+    { id: 'vm5', from: 'm4', skin: 'medium', hair: '#4a2f1a', clothes: ['#2d4f7a', '#222226'] },
+    { id: 'vm6', from: 'm8', skin: 'umber', hair: '#7a3a1d', clothes: ['#5c3d3a', '#d8663a'], minClothingVertices: 100 }
+];
+const VARIANT_SKIN = { pale: '#f3dccb', olive: '#c9a07a', golden: '#d2a26b', umber: '#7d4e34' };
+
+/**
+ * Recolour a shipped person into somebody else. The packs are not needed: a person is already one vertex-coloured mesh
+ * whose colours fall into a few flat clusters (skin, hair, a top and trousers, shoes), told apart here by where on the
+ * body they sit. The body, the skeleton and every clip are copied as they are, so a variant plays exactly like its base.
+ */
+async function buildVariant(variant, preserveIdentity = false) {
+    const base = CAST.find(person => person.id === variant.from);
+    const document = await io.read(join(outDir, `club-crowd-${base.id}.glb`));
+    const primitives = [];
+    for (const node of document.getRoot().listNodes()) {
+        const mesh = node.getMesh();
+        if (mesh) primitives.push(...mesh.listPrimitives());
+    }
+    let minY = Infinity, maxY = -Infinity;
+    for (const primitive of primitives) {
+        const position = primitive.getAttribute('POSITION');
+        const v = [0, 0, 0];
+        for (let i = 0; i < position.getCount(); i++) {
+            position.getElement(i, v);
+            minY = Math.min(minY, v[1]);
+            maxY = Math.max(maxY, v[1]);
+        }
+    }
+    const key = c => c.map(x => x.toFixed(4)).join(',');
+    const clusters = new Map();
+    for (const primitive of primitives) {
+        const position = primitive.getAttribute('POSITION'), color = primitive.getAttribute('COLOR_0');
+        const p = [0, 0, 0], c = [0, 0, 0];
+        for (let i = 0; i < position.getCount(); i++) {
+            position.getElement(i, p);
+            color.getElement(i, c);
+            const k = key(c);
+            const y = (p[1] - minY) / (maxY - minY);
+            const g = clusters.get(k) || { rgb: [...c], n: 0, ySum: 0, yMin: 9, yMax: -9 };
+            g.n++; g.ySum += y; g.yMin = Math.min(g.yMin, y); g.yMax = Math.max(g.yMax, y);
+            clusters.set(k, g);
+        }
+    }
+    const near = (a, b, eps) => a.every((x, i) => Math.abs(x - b[i]) < eps);
+    const skin = hexToLinear(SKIN[base.skin]);
+    const darker = skin.map(v => v * 0.82);
+    const newSkin = hexToLinear(VARIANT_SKIN[variant.skin] || SKIN[variant.skin] || variant.skin);
+    const newHair = hexToLinear(variant.hair);
+    const EYES = hexToLinear('#31251c');
+    const mapping = new Map();
+    const clothing = [];
+    for (const [k, g] of clusters) {
+        const mean = g.ySum / g.n;
+        if (near(g.rgb, skin, 0.004)) {
+            if (!preserveIdentity) mapping.set(k, newSkin);
+        } else if (near(g.rgb, darker, 0.01)) {
+            if (!preserveIdentity) mapping.set(k, newSkin.map(v => v * 0.82));
+        }
+        else if (near(g.rgb, EYES, 0.002)) continue;
+        else if (g.yMax >= 0.95 && g.n >= 250) {
+            if (!preserveIdentity) mapping.set(k, newHair);
+        } else if (g.yMin >= 0.78 && mean >= 0.83 && g.n >= 40) {
+            if (!preserveIdentity) mapping.set(k, newHair.map(v => v * 0.7));
+        } else if (g.n >= (variant.minClothingVertices || 60) && mean >= 0.12) clothing.push([k, g, mean]);
+    }
+    clothing.sort((a, b) => b[2] - a[2]);
+    clothing.forEach(([k], index) => { if (variant.clothes[index]) mapping.set(k, hexToLinear(variant.clothes[index])); });
+    for (const primitive of primitives) {
+        const color = primitive.getAttribute('COLOR_0');
+        const array = new Float32Array(color.getCount() * 3);
+        const c = [0, 0, 0];
+        for (let i = 0; i < color.getCount(); i++) {
+            color.getElement(i, c);
+            array.set(mapping.get(key(c)) || c, i * 3);
+        }
+        color.setArray(array);
+    }
+    const name = `club-crowd-${variant.id}.glb`;
+    await io.write(join(outDir, name), document);
+    console.log(`${name}: ${variant.from} recoloured, skin ${variant.skin}, hair ${variant.hair}, ${clothing.length} garment clusters (${clothing.map(([, g, m]) => `${g.n}@${m.toFixed(2)}`).join(' ')})`);
+    return name;
+}
+
 const built = [];
-if (refreshStatic) {
+if (refreshWardrobe) {
+    const wanted = only ? only.split(',') : ['bouncer', ...VARIANTS.map(variant => variant.id)];
+    for (const id of wanted) {
+        if (id === 'bouncer') {
+            const person = CAST.find(person => person.id === id);
+            built.push(await buildVariant({ id, from: id, skin: person.skin, hair: BLACK_HAIR,
+                clothes: [person.colors.White, person.colors.Suit] }, true));
+        } else {
+            const variant = VARIANTS.find(variant => variant.id === id);
+            if (!variant) throw new Error(`No pack-free wardrobe recipe for ${id}`);
+            built.push(await buildVariant(variant));
+        }
+    }
+} else if (variantsOnly) {
+    const wanted = only ? only.split(',') : null;
+    for (const variant of VARIANTS) if (!wanted || wanted.includes(variant.id)) built.push(await buildVariant(variant));
+} else if (refreshStatic) {
     built.push(...await refreshStaticClips());
+    if (!only) for (const variant of VARIANTS) built.push(await buildVariant(variant));
 } else {
     const wanted = only ? only.split(',') : null;
     for (const person of CAST) if (!wanted || wanted.includes(person.id)) built.push(await build(person));
+    if (!wanted) for (const variant of VARIANTS) built.push(await buildVariant(variant));
 }
 if (process.argv.includes('--optimize')) {
     execFileSync(process.execPath, [join(ROOT, 'scripts/optimize-avatars.mjs'), ...built], { cwd: ROOT, stdio: 'inherit' });

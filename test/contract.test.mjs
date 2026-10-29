@@ -27,6 +27,20 @@ const scriptSrcs = [...html.matchAll(/<script[^>]*\ssrc="([^"]+)"/g)]
 /** Path portion of a script src, minus the ?v= cache-busting token. */
 const srcPath = (src) => src.split('?')[0];
 
+test('Quest and SideQuest exclude ADE pitch features and preserve distribution targets', () => {
+    assert.doesNotMatch(html, /liveEventConcept|event-concept-|concept-assets\/ade/);
+    for (const relative of [
+        'js/liveEventConcept.js', 'concept-assets/ade', 'design/ade-brandpack',
+        'scripts/ade-site.mjs', 'scripts/build-ade-brandpack.mjs'
+    ]) {
+        assert.equal(existsSync(join(ROOT, relative)), false, `${relative} is pitch-only`);
+    }
+    const { scripts } = JSON.parse(readFileSync(join(ROOT, 'package.json'), 'utf8'));
+    assert.ok(Object.keys(scripts).every(name => !name.includes('ade')));
+    assert.match(scripts['deploy:cloudflare'], /--project-name nocturne-vr --branch Quest$/);
+    assert.match(scripts['deploy:sidequest'], /--project-name nocturne-sidequest --branch SideQuest$/);
+});
+
 // Paths are normalised to POSIX separators throughout. A `join('js','club') + '\\'`
 // filter previously matched on Windows and matched NOTHING on the Linux CI runner,
 // which made the dispose()-listener guarantee simultaneously a no-op locally and a
@@ -93,6 +107,13 @@ test('the development deployment cannot be indexed by search engines', () => {
         'the production build must publish robots.txt');
 });
 
+test('the production builder minifies the CSS asset', () => {
+    const build = readFileSync(join(ROOT, 'scripts', 'build.mjs'), 'utf8');
+    assert.match(build, /loader:\s*'css'/, 'build must pass CSS through the minifier');
+    assert.match(build, /minify:\s*true/, 'build must minify CSS');
+    assert.match(build, /digest\(css\)/, 'the immutable CSS name must hash minified bytes');
+});
+
 test('script load order honours the dependency contract', () => {
     const order = scriptSrcs.map(srcPath);
     const idx = (f) => order.indexOf(f);
@@ -118,7 +139,7 @@ test('script load order honours the dependency contract', () => {
 
     // The main app constructs the factories, the loaders and the VJ director.
     const main = idx('js/club_hyperrealistic.js');
-    for (const dep of ['js/textureLoader.js', 'js/modelLoader.js', 'js/materialFactory.js', 'js/lightFactory.js', 'js/vjDirector.js', 'js/showDirector.js', 'js/ledPatterns.js', 'js/barProps.js', 'js/nocturneLogo.js', 'js/venueDressing.js', 'js/mezzanine.js', 'js/cityDistrict.js', 'js/vjDesk.js', 'js/avatarRig.js', 'js/djPerformer.js', 'js/crowdDance.js', 'js/networkClient.js', 'js/avatarManager.js', 'js/multiplayer.js']) {
+    for (const dep of ['js/textureLoader.js', 'js/modelLoader.js', 'js/materialFactory.js', 'js/lightFactory.js', 'js/vjDirector.js', 'js/showDirector.js', 'js/ledPatterns.js', 'js/barProps.js', 'js/nocturneLogo.js', 'js/restroomArt.js', 'js/venueDressing.js', 'js/mezzanine.js', 'js/cityDistrict.js', 'js/vjDesk.js', 'js/avatarRig.js', 'js/djPerformer.js', 'js/crowdDance.js', 'js/networkClient.js', 'js/avatarManager.js', 'js/multiplayer.js']) {
         assert.ok(idx(dep) > -1 && idx(dep) < main, `${dep} must load before club_hyperrealistic.js`);
     }
     // ShowDirector reads the beat grid VJDirector publishes.
@@ -141,6 +162,7 @@ test('every class used across files is exported onto window', () => {
         'js/ledPatterns.js': ['LEDPatterns'],
         'js/barProps.js': ['BarProps'],
         'js/nocturneLogo.js': ['NocturneLogo'],
+        'js/restroomArt.js': ['RestroomArt'],
         'js/venueDressing.js': ['VenueDressing'],
         'js/mezzanine.js': ['Mezzanine'],
         'js/cityDistrict.js': ['CityDistrict', 'CityLayout'],
@@ -172,7 +194,7 @@ test('every element id looked up in JS exists in index.html', () => {
     // Each one must be produced by an `id = '...'` / `id="..."` assignment in JS,
     // which the loop below verifies - so a typo is still caught.
     const runtimeIds = new Set([
-        'vrclubToasts', 'fpsCounter', 'swUpdatePrompt'
+        'vrclubToasts', 'vrclubStatus', 'fpsCounter', 'swUpdatePrompt'
     ]);
     const allJsSource = jsFiles.map(f => readFileSync(join(ROOT, f), 'utf8')).join('\n');
 
@@ -280,7 +302,7 @@ test('no model code reads a texture file that does not exist or is not shipped',
     const source = readFileSync(join(ROOT, 'js/modelLoader.js'), 'utf8');
     const bases = new Set([...source.matchAll(/textureBasePath: '([^']+)'/g)].map(m => m[1]));
     assert.ok(bases.size > 0, 'speaker texture paths must be discoverable');
-    for (const file of source.matchAll(/textureBasePath \+ '([^']+)'/g).map(m => m[1])) {
+    for (const file of [...source.matchAll(/textureBasePath \+ '([^']+)'/g)].map(m => m[1])) {
         for (const base of bases) {
             assert.ok(existsSync(join(ROOT, base, file)), `modelLoader reads ${base}${file}, which is missing`);
         }
@@ -414,6 +436,17 @@ test('the service worker precaches the versioned URLs the page actually requests
     // Binary assets are owned by IndexedDBAssetCache; caching them in the SW too
     // doubles ~100 MB of storage and exhausts the origin quota on a Quest.
     assert.match(sw, /IDB_OWNED/, 'sw.js must exclude IndexedDB-owned binary assets');
+    const appShell = sw.match(/const APP_SHELL_SOURCES = \[([\s\S]*?)\n\];/)?.[1] || '';
+    assert.doesNotMatch(appShell, /js\/vendor\/babylon/,
+        'installation must not precache the 9.5 MB Babylon vendor payload');
+    assert.match(sw, /VENDOR_SCRIPTS/);
+    assert.match(sw, /warmVendorCache\(\)/,
+        'first activation must warm vendors missed before the worker controlled the page');
+    assert.match(sw, /handleVendor\(event, request\)/);
+    assert.match(sw, /event\.waitUntil\(/,
+        'runtime vendor writes must not block script delivery');
+    assert.match(sw, /keys\.length > VENDOR_SCRIPTS\.size/,
+        'the runtime vendor cache must have an explicit entry bound');
     assert.ok(!/skipWaiting\(\)\s*\)/.test(sw.split('addEventListener(\'install\'')[1]?.split('addEventListener(\'message\'')[0] ?? ''),
         'install must not call skipWaiting() unconditionally');
 });
@@ -429,6 +462,15 @@ test('the production build bundles exactly the scripts index.html loads', () => 
         'build.mjs must assert that no first-party script tag survives into dist/index.html');
     assert.match(build, /const VERSION = '\[\^'\]\+';/,
         'build.mjs must rewrite the service worker VERSION for the dist build');
+    assert.match(build, /process\.env\.VRCLUB_SOURCEMAP === '1'/,
+        'source maps may only be emitted through an explicit local opt-in');
+    assert.match(build, /production dist must not contain source maps/,
+        'the build must assert that default deploy output contains no source maps');
+    const productionPrecache = build.match(/const distPrecache = \[([\s\S]*?)\n\];/)?.[1] || '';
+    assert.doesNotMatch(productionPrecache, /js\/vendor\/babylon/,
+        'production install must leave large vendor scripts to bounded runtime caching');
+    assert.match(build, /source-only file was copied to dist/,
+        'the production build must assert documented source-only files stay out of dist');
 });
 
 test('no blocking native dialogs are used for user feedback', () => {

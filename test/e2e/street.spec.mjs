@@ -1,11 +1,11 @@
 import { test, expect } from '@playwright/test';
-import { enterClub, expectHealthyRuntime, useQuestHarness } from './support.mjs';
+import { enterClub, enterVR, expectHealthyRuntime, useQuestHarness } from './support.mjs';
 import { renderFrames } from './xr-measure.mjs';
 
 useQuestHarness({ music: true });
 
-/** 60 s of mono white noise: broadband, so any low-pass shows up as a change in where its energy sits. */
-function noiseWav(seconds = 60, sampleRate = 22050) {
+/** 240 s of mono white noise (it must outlast a slow software-rendered start): broadband, so any low-pass shows up as a change in where its energy sits. */
+function noiseWav(seconds = 240, sampleRate = 22050) {
     const samples = seconds * sampleRate;
     const buffer = Buffer.alloc(44 + samples * 2);
     buffer.write('RIFF', 0); buffer.writeUInt32LE(36 + samples * 2, 4); buffer.write('WAVE', 8);
@@ -272,11 +272,7 @@ test('in VR the entrance stair is walked up to the street and back down into the
     test.setTimeout(1_500_000);
     await enterClub(page);
     await waitForStreet(page);
-    const vrButton = page.locator('#vrButton');
-    await expect(vrButton).toBeEnabled({ timeout: 60_000 });
-    await vrButton.click();
-    await page.waitForFunction(() => window.vrClub?.isInVRMode === true);
-    await page.waitForFunction(() => window.vrClub?._xrControllers?.length === 2);
+    await enterVR(page);
     await page.evaluate(() => window.vrClub.setVRComfortMode(false));
     const S = await page.evaluate(() => window.VenueLayout.vestibule.streetLevel);
 

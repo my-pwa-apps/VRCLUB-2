@@ -21,6 +21,25 @@ class VRClubAnimationCore extends VRClubEffects {
         this.updateEyeAdaptation(ctx);
         this.updateNetworkPresence(ctx);
         if (typeof this.updateVJDesk === 'function') this.updateVJDesk(ctx);
+        if (typeof this.updateRestroomMirror === 'function') this.updateRestroomMirror(ctx);
+    }
+
+    /**
+     * Keep peak cues from multiplying every transparent effect to full cost in XR. Geometry and fixture state stay
+     * identical; only fog-particle output is reduced because the scene fog already provides the beam medium.
+     */
+    _effectLoadScale() {
+        if (!this.isInVRMode) return 1;
+        let active = 0;
+        if (this.lightsActive) active++;
+        if (this.lasersActive) active++;
+        if (this.laserSheetActive) active++;
+        if (this.mirrorBallActive) active++;
+        if (this.ledWallActive) active++;
+        if (this.strobesActive && !this.photosensitiveSafeMode) active++;
+        const load = Math.min(1, Math.max(0, (active - 2) / 3));
+        const floor = Math.min(1, Math.max(0.4, this.tierSettings?.vrPeakEffectFloor || 0.7));
+        return 1 - load * (1 - floor);
     }
 
     /**
@@ -43,8 +62,18 @@ class VRClubAnimationCore extends VRClubEffects {
         if (!cam) return;
         const rotY = cam.rotationQuaternion ? cam.rotationQuaternion.toEulerAngles().y : (cam.rotation ? cam.rotation.y : 0);
         const position = cam.globalPosition || cam.position;
-        const state = this._networkPose || (this._networkPose = { x: 0, y: 0, z: 0, rotY: 0, hands: null });
-        state.x = position.x; state.y = position.y; state.z = position.z; state.rotY = rotY;
+        const state = this._networkPose || (this._networkPose = {
+            x: 0, y: 0, z: 0, rotY: 0, hands: null, seated: false, floorY: 0, eh: 1.7
+        });
+        const seat = this._activeSeat;
+        state.eh = Math.round(this._bodyEyeHeight() * 100) / 100;
+        state.x = seat ? seat.x : position.x;
+        state.y = position.y;
+        state.z = seat ? seat.z : position.z;
+        state.rotY = seat ? seat.facing : rotY;
+        state.seated = !!seat;
+        state.floorY = seat ? seat.floorY : (this._walkLevel || 0);
+        state.seatH = seat ? Math.round((seat.seatY - seat.floorY) * 100) / 100 : 0;
         state.hands = null;
         if (this.isInVRMode) {
             const hands = this._networkHands || (this._networkHands = { left: null, right: null });
@@ -64,7 +93,8 @@ class VRClubAnimationCore extends VRClubEffects {
         if (net.capacity > 8) {
             const previous = this._lastNetworkPose;
             let changed = !previous || Math.hypot(state.x - previous.x, state.y - previous.y, state.z - previous.z) > 0.01 ||
-                Math.abs(state.rotY - previous.rotY) > 0.01;
+                Math.abs(state.rotY - previous.rotY) > 0.01 || state.seated !== previous.seated ||
+                state.seatH !== previous.seatH || state.floorY !== previous.floorY || state.eh !== previous.eh;
             if (!changed) {
                 for (let i = 0; i < 2; i++) {
                     const side = i === 0 ? 'left' : 'right';
@@ -81,6 +111,7 @@ class VRClubAnimationCore extends VRClubEffects {
                 left: {}, right: {}
             });
             saved.x = state.x; saved.y = state.y; saved.z = state.z; saved.rotY = state.rotY;
+            saved.seated = state.seated; saved.seatH = state.seatH; saved.floorY = state.floorY; saved.eh = state.eh;
             for (let i = 0; i < 2; i++) {
                 const side = i === 0 ? 'left' : 'right';
                 const hand = state.hands?.[side];
@@ -148,7 +179,10 @@ class VRClubAnimationCore extends VRClubEffects {
         const master = this.masterIntensity != null ? this.masterIntensity : 1;
         let brightness = 0.12;
         if (this.lightsActive) brightness += 0.32 * master;
-        if (this.ledWallActive) brightness += 0.28 * master;
+        if (this.ledWallActive) brightness += 0.28 * master * Math.min(1, Math.max(0, this.ledWallLevel ?? 1));
+        if (this.lasersActive) brightness += 0.10 * master;
+        if (this.laserSheetActive) brightness += 0.12 * master;
+        if (this.mirrorBallActive) brightness += 0.08 * master;
         if (this.strobesActive && !this.photosensitiveSafeMode) brightness += 0.12 * master;
         brightness += (ctx.beat || 0) * 0.10;
 
@@ -157,8 +191,9 @@ class VRClubAnimationCore extends VRClubEffects {
         const open = this.isInVRMode ? 1.0 : 1.22;
         const target = base * Math.max(0.78, Math.min(open, 1.22 - brightness * 0.42));
         // Fast constrict, slow dilate - the real asymmetry of the pupil reflex.
-        const rate = target < this._adaptedExposure ? 0.10 : 0.012;
-        this._adaptedExposure += (target - this._adaptedExposure) * Math.min(1, rate * ctx.dtScale);
+        const rate60 = target < this._adaptedExposure ? 0.10 : 0.012;
+        const rate = 1 - Math.pow(1 - rate60, ctx.dtScale);
+        this._adaptedExposure += (target - this._adaptedExposure) * rate;
         // A strobe burst owns exposure for its flash frame; overwriting it here
         // (this runs after updateStrobes) silently cancelled the designed spike.
         if (this._preStrobeExposure !== undefined) return;
@@ -280,9 +315,6 @@ class VRClubAnimationCore extends VRClubEffects {
         const kickDepth = (this.showDirector && this.showDirector.isDriving()) ? this.kickDepth : 0.3;
         this.kickPulse = (this.beatEnvelope || 0) * kickDepth * (this.photosensitiveSafeMode ? 0.5 : 1);
 
-        // Bass-driven controller rumble for VR users (no-op outside XR / when disabled)
-        this._updateBassHaptics(audioData);
-
         // The street outside: show it only near the entrance and ease the guest's "outdoors" amount (fog keys off it).
         if (this.updateCityDistrict) this.updateCityDistrict(dt);
 
@@ -308,16 +340,21 @@ class VRClubAnimationCore extends VRClubEffects {
         if (this.atmosphereTestDisabled) {
             this.scene.fogEnabled = false;
             if (!this._atmosphereTestCleared) {
-                const particles = [this.haze, this.dustMotes];
+                if (this.haze) {
+                    this.haze.stop();
+                    this.haze.reset();
+                }
+                if (this.dustMotes) {
+                    this.dustMotes.stop();
+                    this.dustMotes.reset();
+                }
                 for (const machine of this.fogMachines || []) {
-                    particles.push(machine.emitter);
                     machine.isBursting = false;
                     machine.burstTimer = 0;
-                }
-                for (const system of particles) {
-                    if (!system) continue;
-                    system.stop();
-                    system.reset();
+                    if (machine.emitter) {
+                        machine.emitter.stop();
+                        machine.emitter.reset();
+                    }
                 }
                 this._atmosphereTestCleared = true;
             }
@@ -326,6 +363,10 @@ class VRClubAnimationCore extends VRClubEffects {
 
         const { time, dt } = ctx;
         this._tintClubAir(dt);
+        const tierScale = this.isInVRMode ? (this.tierSettings?.vrFogOutputScale || 1) : 1;
+        const outputScale = tierScale * VRClubAnimationCore.prototype._effectLoadScale.call(this);
+        const burstRate = 150 * outputScale;
+        const continuousRate = 80 * outputScale;
 
         // === FOG MACHINE SYSTEM CONTROL ===
         if (this.fogMachines && this.fogMachines.length > 0) {
@@ -350,7 +391,7 @@ class VRClubAnimationCore extends VRClubEffects {
                             // Start a burst
                             machine.isBursting = true;
                             machine.burstTimer = 2.5; // 2.5 second burst
-                            emitter.emitRate = 150 * this.fogIntensity;
+                            emitter.emitRate = burstRate * this.fogIntensity;
                             
                             // Update LED to red (active) — cached, no allocation
                             ledMat.emissiveColor = this.cachedColors.fogActive;
@@ -363,7 +404,10 @@ class VRClubAnimationCore extends VRClubEffects {
                             
                             // Fade out burst over last 0.5 seconds
                             if (machine.burstTimer < 0.5) {
-                                emitter.emitRate = 150 * this.fogIntensity * (machine.burstTimer / 0.5);
+                                emitter.emitRate = burstRate * this.fogIntensity * (machine.burstTimer / 0.5);
+                            } else {
+                                // A cue may add or remove several transparent effects during this burst.
+                                emitter.emitRate = burstRate * this.fogIntensity;
                             }
                             
                             if (machine.burstTimer <= 0) {
@@ -375,7 +419,7 @@ class VRClubAnimationCore extends VRClubEffects {
                         
                     } else if (this.fogBurstMode === 'continuous') {
                         // Continuous low output
-                        emitter.emitRate = 80 * this.fogIntensity;
+                        emitter.emitRate = continuousRate * this.fogIntensity;
                         ledMat.emissiveColor = this.cachedColors.fogContinuous; // Orange (continuous)
                         machine.isBursting = false;
                         
@@ -407,17 +451,27 @@ class VRClubAnimationCore extends VRClubEffects {
      * Residual club air. Beams are scatter, so EXP2 fog stays on even when the
      * machines are idle. RGB is nudged toward the current look in place; the
      * asserted haze alphas are left alone.
+     *
+     * The SMOKE control is an eased `_smokeLevel` (0 clear air .. 1 full haze, about 1.6 s to fill or clear): it scales the
+     * fog density, the haze particles' alpha, the lasers' and the sheet's scatter and the beams' visibility. Smoke off
+     * used to trim the fog to 45% and keep the ambient hazer and the beam scatter running, so nothing seemed to change.
      */
     _tintClubAir(dt) {
         const scene = this.scene;
         if (!scene) return;
         scene.fogEnabled = true;
+        const step60 = dt > 0 ? dt : 1 / 60;
+        const goal = this.smokeActive === false ? 0 : 1;
+        if (!Number.isFinite(this._smokeLevel)) this._smokeLevel = goal;
+        this._smokeLevel += (goal - this._smokeLevel) * (1 - Math.exp(-step60 / 1.6));
+        if (Math.abs(goal - this._smokeLevel) < 0.002) this._smokeLevel = goal;
+        const smoke = this._smokeLevel;
         const settings = this.isInVRMode ? this.vrSettings?.vr : this.vrSettings?.desktop;
         const designed = settings && settings.fogDensity;
         // Outdoors the air is thin: the club's haze is a room effect, and the street needs to see down the block.
         const outdoors = this._exterior || 0;
         if (typeof designed === 'number') {
-            const target = (this.smokeActive === false ? designed * 0.45 : designed) * (1 - 0.62 * outdoors);
+            const target = designed * (0.1 + 0.9 * smoke) * (1 - 0.62 * outdoors);
             const current = scene.fogDensity;
             if (!(current > 0)) {
                 scene.fogDensity = target;
@@ -450,12 +504,13 @@ class VRClubAnimationCore extends VRClubEffects {
             }
         }
         // The live particles read the gradient stops, not color1/color2, so push the
-        // tint and the peak alpha through them, scaled by each stop's fade weight.
+        // tint and the peak alpha through them, scaled by each stop's fade weight and by how much smoke there is.
         const stops = this._hazeGradients;
         const fade = this._hazeFade;
         if (stops && fade && haze.color2) {
+            const amount = 0.04 + 0.96 * smoke;
             for (let k = 0; k < stops.length && k < fade.length; k++) {
-                const f = fade[k];
+                const f = fade[k] * amount;
                 const stop = stops[k];
                 stop.color1.set(haze.color1.r, haze.color1.g, haze.color1.b, haze.color1.a * f);
                 if (stop.color2) stop.color2.set(haze.color2.r, haze.color2.g, haze.color2.b, haze.color2.a * f);
@@ -573,11 +628,12 @@ class VRClubAnimationCore extends VRClubEffects {
         }
 
         if (!isDust) {
-            // The beam mesh reads how much medium actually sits in its cone.
+            // The beam mesh reads how much medium actually sits in its cone, and how much smoke there is to scatter it.
             const ref = Math.max(6, particles.length * 0.02);
+            const smoke = 0.15 + 0.85 * (Number.isFinite(this._smokeLevel) ? this._smokeLevel : (this.smokeActive === false ? 0 : 1));
             for (let k = 0; k < nBeams; k++) {
                 const spot = beams[k].spot;
-                const target = Math.min(1, beams[k].acc / ref);
+                const target = Math.min(1, beams[k].acc / ref) * smoke;
                 const cur = spot._mediumDensity == null ? target : spot._mediumDensity;
                 spot._mediumDensity = cur + (target - cur) * 0.06;
             }
@@ -671,9 +727,9 @@ class VRClubAnimationCore extends VRClubEffects {
             
             // Scanned sheets read through the haze: thin air shows a faint veil, a full haze a solid plane.
             // The projector's output is steady; the music only nudges it (a real fan is not a strobe).
-            const haze = this.smokeActive === false
-                ? 0.25
-                : Math.min(1, Math.max(0.25, (this.fogIntensity == null ? 1 : this.fogIntensity) / 1.5));
+            const smokeNow = Number.isFinite(this._smokeLevel) ? this._smokeLevel : (this.smokeActive === false ? 0 : 1);
+            const haze = Math.min(1, Math.max(0.25, (this.fogIntensity == null ? 1 : this.fogIntensity) / 1.5)) *
+                (0.2 + 0.8 * smokeNow);
             const pulse = 0.75 + (audioData.average || 0) * 0.25 + (this.kickPulse || 0) * 0.35;
             const level = Math.min(1, 0.75 * pulse * (0.35 + 0.65 * haze)) * master;
             sheetMat.alpha = level;
@@ -747,7 +803,20 @@ class VRClubAnimationCore extends VRClubEffects {
         if (typeof this._updateLocalPlayerBody === 'function') this._updateLocalPlayerBody(ctx.dt);
         if (typeof this._updateDJ === 'function') this._updateDJ(ctx.dt, audioData);
         if (typeof this._updateBouncer === 'function') this._updateBouncer(ctx.dt);
+        if (typeof this._updateStreetPeopleActivity === 'function') this._updateStreetPeopleActivity();
         if (typeof this._updateMingler === 'function') this._updateMingler(ctx.dt);
+    }
+
+    /** Refresh preallocated mirror-fixture colour buffers after the source colour changes. */
+    _refreshMirrorBallColorCache() {
+        const source = this.mirrorBallSpotlightColor;
+        const cache = this.mirrorBallCachedColors;
+        if (!source || !cache || this.mirrorBallCachedColorSource === source) return;
+        source.scaleToRef(0.2, cache.housingGlow);
+        source.scaleToRef(8, cache.lensBright);
+        source.scaleToRef(16, cache.sourceVeryBright);
+        cache.flareMedium.set(3 + source.r * 10, 3 + source.g * 10, 3 + source.b * 10);
+        this.mirrorBallCachedColorSource = source;
     }
 
     /** Mirror ball: rotation, fixture glow, outgoing rays and reflection spots. */
@@ -784,20 +853,7 @@ class VRClubAnimationCore extends VRClubEffects {
                 }
             }
             if (this.mirrorBallHousings) {
-                // PERFORMANCE: Cache scaled colors for mirror ball housings (avoid creating Color3 objects every frame)
-                if (!this.mirrorBallCachedColors || this.mirrorBallCachedColorSource !== this.mirrorBallSpotlightColor) {
-                    this.mirrorBallCachedColors = {
-                        housingGlow: this.mirrorBallSpotlightColor.scale(0.2),
-                        lensBright: this.mirrorBallSpotlightColor.scale(8.0),
-                        sourceVeryBright: this.mirrorBallSpotlightColor.scale(16.0),
-                        flareMedium: new BABYLON.Color3(
-                            3 + this.mirrorBallSpotlightColor.r * 10,
-                            3 + this.mirrorBallSpotlightColor.g * 10,
-                            3 + this.mirrorBallSpotlightColor.b * 10
-                        )
-                    };
-                    this.mirrorBallCachedColorSource = this.mirrorBallSpotlightColor;
-                }
+                this._refreshMirrorBallColorCache();
                 
                 this.mirrorBallHousings.forEach(housing => {
                     // Make all fixture components glow with current color (professional moving head)
@@ -827,30 +883,20 @@ class VRClubAnimationCore extends VRClubEffects {
                     // Update spotlight diffuse colors (the actual lights pointing at the ball)
                     if (this.mirrorBallSpotlights) {
                         this.mirrorBallSpotlights.forEach(light => {
-                            if (light) light.diffuse = this.mirrorBallSpotlightColor.clone();
+                            if (light) light.diffuse.copyFrom(this.mirrorBallSpotlightColor);
                         });
                     }
                     
                     // Update beam colors (visual beams from fixtures to ball)
                     if (this.mirrorBallBeams) {
                         this.mirrorBallBeams.forEach(beam => {
-                            beam.material.emissiveColor = this.mirrorBallSpotlightColor.clone();
+                            beam.material.emissiveColor.copyFrom(this.mirrorBallSpotlightColor);
                         });
                     }
                     
                     // Update housing colors immediately
                     if (this.mirrorBallHousings) {
-                        // Update cached colors
-                        this.mirrorBallCachedColors = {
-                            housingGlow: this.mirrorBallSpotlightColor.scale(0.2),
-                            lensBright: this.mirrorBallSpotlightColor.scale(8.0),
-                            sourceVeryBright: this.mirrorBallSpotlightColor.scale(16.0),
-                            flareMedium: new BABYLON.Color3(
-                                3 + this.mirrorBallSpotlightColor.r * 10,
-                                3 + this.mirrorBallSpotlightColor.g * 10,
-                                3 + this.mirrorBallSpotlightColor.b * 10
-                            )
-                        };
+                        this._refreshMirrorBallColorCache();
                         
                         this.mirrorBallHousings.forEach(housing => {
                             housing.material.emissiveColor = this.mirrorBallCachedColors.housingGlow;
@@ -864,8 +910,18 @@ class VRClubAnimationCore extends VRClubEffects {
             
             if (this.mirrorReflectionBatch) {
                 this.mirrorReflectionBatch.spots.setEnabled(true);
-                this.mirrorReflectionBatch.rays.setEnabled(true);
-                this._updateMirrorReflectionBatch();
+                this.mirrorReflectionBatch.rays.setEnabled(this.mirrorBallRaysActive !== false);
+                const hz = this.isInVRMode ? (this.tierSettings?.vrMirrorUpdateHz || 0) : 0;
+                const black = (this.masterIntensity ?? 1) <= 0.001;
+                const blackChanged = this._mirrorCadenceBlack !== black;
+                this._mirrorCadenceBlack = black;
+                this._mirrorReflectionClock = (this._mirrorReflectionClock || 0) + (ctx.dt || ctx.dtScale / 60 || 1 / 60);
+                if (blackChanged || !this._mirrorReflectionReady || hz <= 0 || this._mirrorReflectionClock >= 1 / hz) {
+                    if (hz > 0) this._mirrorReflectionClock %= 1 / hz;
+                    else this._mirrorReflectionClock = 0;
+                    this._updateMirrorReflectionBatch();
+                    this._mirrorReflectionReady = true;
+                }
             }
         } else {
             // Mirror ball inactive - disable all mirror ball elements
@@ -881,6 +937,9 @@ class VRClubAnimationCore extends VRClubEffects {
                 this.mirrorReflectionBatch.spots.setEnabled(false);
                 this.mirrorReflectionBatch.rays.setEnabled(false);
             }
+            this._mirrorReflectionReady = false;
+            this._mirrorReflectionClock = 0;
+            this._mirrorCadenceBlack = false;
             if (this.mirrorBallHousings) {
                 // PERFORMANCE: Use cached black color instead of creating new Color3 objects
                 this.mirrorBallHousings.forEach(housing => {

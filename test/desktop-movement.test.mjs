@@ -97,9 +97,40 @@ test('desktop feet follow the entrance stair, balcony and DJ riser rather than f
     assert.equal(club.camera.position.y, 4.7);
     club.camera.position.set(0, 1.7, -18);
     club._walkLevel = 0;
-    club._updateWalkSurface();
+    // Stepping onto the 0.5 m riser from the floor is a quick climb, never a jump of the viewpoint, from any side.
+    let previous = 0, frames = 0;
+    while (club._walkLevel < 0.5 && frames < 60) {
+        club._updateWalkSurface();
+        assert.ok(club._walkLevel - previous <= 3 * 0.017 + 1e-9, `the step up jumped ${club._walkLevel - previous}`);
+        previous = club._walkLevel; frames++;
+    }
+    assert.ok(frames > 4 && frames < 20, `the step up took ${frames} frames`);
     assert.equal(club._walkLevel, 0.5);
     assert.equal(club.camera.position.y, 2.2);
+    // And down off the edge, eased the same way, until it is the floor again.
+    club.camera.position.set(0, 2.2, -15.9);
+    frames = 0;
+    while (club._walkLevel > 0 && frames < 60) {
+        club._updateWalkSurface();
+        assert.ok(previous - club._walkLevel <= 3 * 0.017 + 1e-9, `the step down dropped ${previous - club._walkLevel}`);
+        previous = club._walkLevel; frames++;
+    }
+    assert.equal(club._walkLevel, 0);
+    assert.equal(club.camera.position.y, 1.7);
+    // From every side of the stage's footprint: front, both flanks and the back corners.
+    for (const [x, z] of [[0, -16.05], [-2.95, -17], [2.95, -17], [-2.9, -19.9], [2.9, -19.9], [0, -16.01]]) {
+        club.camera.position.set(x, 1.7, z);
+        club._walkLevel = 0;
+        for (let i = 0; i < 20; i++) club._updateWalkSurface();
+        assert.equal(club._walkLevel, 0.5, `(${x}, ${z}) is on the stage`);
+    }
+    // Just outside the footprint it is the floor.
+    for (const [x, z] of [[0, -15.9], [-3.1, -17], [3.1, -17]]) {
+        club.camera.position.set(x, 1.7, z);
+        club._walkLevel = 0;
+        for (let i = 0; i < 20; i++) club._updateWalkSurface();
+        assert.equal(club._walkLevel, 0, `(${x}, ${z}) is off the stage`);
+    }
 });
 
 test('real desktop collisions climb and descend solid stair treads while the surface follower grounds the eye', () => {

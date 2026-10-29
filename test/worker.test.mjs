@@ -4,6 +4,7 @@
 
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { DevAttendees } from '../worker/src/devAttendees.js';
 
 const relay = await import('../worker/src/relay.js');
 const {
@@ -32,6 +33,152 @@ function join(room, name = 'Guest') {
     return { ws, session };
 }
 
+function devRoom(t) {
+    const room = new ClubRoom({}, { ROOM_CAPACITY: '32', MEDIA_TRANSPORT: 'sfu', DEV_ROOM_ENABLED: '1',
+        SFU_APP_ID: 'test-app', SFU_APP_SECRET: 'test-secret' });
+    room._roomName = 'private-000032';
+    room.world = { v: 1, seed: 456, startedAt: Date.now() };
+    room._simulation = new DevAttendees(456);
+    t.after(() => {
+        for (const [ws, session] of [...room.sessions]) if (!session.simulated) room._onClose(ws, session);
+    });
+    return room;
+}
+
+test('DEV room fills to 32, yields bot slots to real owners and never assigns bots host or SFU membership', t => {
+    const room = devRoom(t), a = join(room, 'Owner');
+    assert.equal(room.sessions.size, 32);
+    assert.equal(room.media.members.size, 1);
+    assert.equal(a.ws.sent.filter(frame => frame.type === 'join' && frame.simulated).length, 31);
+    const bot = [...room.sessions.values()].find(session => session.simulated);
+    assert.equal(bot.name, 'Amina');
+    const names = [...room.sessions.values()].filter(session => session.simulated).map(session => session.name);
+    assert.equal(new Set(names).size, 31);
+    a.ws.message({ type: 'host-transfer', target: bot.id });
+    assert.equal(room.hostId, a.session.id);
+    const b = join(room, 'Second owner');
+    assert.equal(room.sessions.size, 32);
+    assert.equal(room.media.members.size, 2);
+    assert.equal(b.ws.last('welcome').peers.filter(peer => peer.simulated).length, 30);
+    room._onClose(a.ws, a.session);
+    assert.equal(room.hostId, b.session.id);
+    assert.equal(room.sessions.size, 32);
+    assert.equal(room.media.members.size, 1);
+    assert.equal([...room.sessions.values()].filter(session => session.simulated).length, 31);
+    room._onClose(b.ws, b.session);
+    assert.equal(room.sessions.size, 0);
+    assert.equal(room._simulation, null);
+    assert.equal(room._poseTimer, null);
+    assert.equal(room._sweeper, null);
+    assert.equal(room.world, null);
+});
+
+test('DEV state fanout moves bots, preserves dance state for late join and honors block, unblock and moderation', t => {
+    const room = devRoom(t);
+    const ws = new FakeSocket(), owner = room._acceptSession(ws, 'Owner', null, 'any', true);
+    const bots = [...room.sessions.values()].filter(session => session.simulated);
+    const before = bots.map(bot => ({ ...bot.lastState }));
+    const start = room._simulation.now;
+    const first = room._simulation.guests.get(bots[0].simulatedIndex);
+    first.departAt = first.chooseAt = start;
+    for (let i = 1; i <= 400; i++) room._flushPoses(start + i * 50);
+    assert.ok(bots.some((bot, index) => Math.hypot(bot.lastState.x - before[index].x, bot.lastState.z - before[index].z) > 1));
+    assert.ok(ws.last('states').states.every(item => typeof item.state.dancing === 'boolean'));
+    assert.ok(bots.some(bot => bot.lastState.dancing));
+    assert.ok(ws.sent.some(frame => frame.type === 'gesture'));
+    assert.ok(ws.sent.some(frame => frame.type === 'emoji' && ALLOWED_EMOJI.includes(frame.emoji)));
+    const target = bots[0];
+    ws.message({ type: 'block', pid: target.pid });
+    ws.sent.length = 0;
+    room._flushPoses(start + 21000);
+    assert.ok(!ws.sent.some(frame => frame.type === 'states' && frame.states.some(item => item.id === target.id)));
+    ws.message({ type: 'unblock', pid: target.pid });
+    assert.equal(ws.last('join').simulated, true);
+    assert.equal(typeof ws.last('state').state.dancing, 'boolean');
+    ws.message({ type: 'kick', target: target.id });
+    const removed = target.simulatedIndex;
+    room._fillSimulation();
+    assert.equal(room.sessions.size, 31, 'kicking a bot is not evaded by an immediate replacement');
+    assert.ok(![...room.sessions.values()].some(session => session.simulatedIndex === removed));
+    const late = join(room, 'Late owner');
+    assert.ok(late.ws.last('welcome').peers.filter(peer => peer.simulated).every(peer => typeof peer.state.dancing === 'boolean'));
+    assert.equal(room.hostId, owner.id);
+});
+
+test('DEV social reactions follow ordinary block rules without adding media members', t => {
+    const room = devRoom(t), { ws, session: owner } = join(room, 'Owner');
+    const dancer = [...room.sessions.values()].find(session => session.simulated && session.lastState.dancing);
+    assert.ok(dancer);
+    const bot = room._simulation.guests.get(dancer.simulatedIndex);
+    const now = room._simulation.now;
+    bot.gestureAt = now;
+    ws.sent.length = 0;
+    room._tickSimulation(now + 50);
+    assert.ok(ws.sent.some(frame => frame.type === 'emoji' && frame.id === dancer.id));
+    assert.ok(ws.sent.some(frame => frame.type === 'gesture' && frame.id === dancer.id));
+    owner.blocked.add(dancer.pid);
+    bot.gestureAt = now + 100;
+    ws.sent.length = 0;
+    room._tickSimulation(now + 100);
+    assert.ok(!ws.sent.some(frame => frame.id === dancer.id), 'blocked reactions stay invisible');
+    assert.ok(!ws.sent.some(frame => frame.type === 'chat'));
+    assert.equal(room.media.members.size, 1);
+});
+
+test('DEV scripted conversation balloons are block-aware and cannot create synthetic voice publishers', t => {
+    const room = devRoom(t), { ws, session: owner } = join(room, 'Owner');
+    const start = room._simulation.now;
+    for (let now = start + 50; now <= start + 30000; now += 50) room._tickSimulation(now);
+    const chats = ws.sent.filter(frame => frame.type === 'chat');
+    assert.ok(chats.length >= 4 && chats.length <= 6);
+    for (const frame of chats) {
+        const session = [...room.sessions.values()].find(session => session.id === frame.id);
+        assert.ok(session.simulated);
+        assert.equal(sanitizeChat(frame.text), frame.text);
+    }
+    for (const session of room.sessions.values()) if (session.simulated) owner.blocked.add(session.pid);
+    ws.sent.length = 0;
+    for (let now = start + 30050; now <= start + 40000; now += 50) room._tickSimulation(now);
+    assert.ok(!ws.sent.some(frame => frame.type === 'chat'));
+    assert.equal(room.media.members.size, 1);
+    const stripped = sanitizeState({ x: 0, y: 1.7, z: 0, rotY: 0, seated: true, seat: 'toilet-0', talking: true, dancing: true });
+    assert.ok(!('seat' in stripped) && !('talking' in stripped) && !('dancing' in stripped));
+});
+
+test('DEV seat requests validate known furniture, are rate-limited and let a real owner vacate a simulated toilet', t => {
+    const room = devRoom(t), { ws } = join(room, 'Owner');
+    const occupant = [...room._simulation.guests.values()].find(bot => bot.state.seat?.startsWith('toilet-'));
+    assert.ok(occupant);
+    const seat = occupant.destination.id, door = Number(seat.at(-1));
+    room.doors[door] = true;
+    ws.message({ type: 'dev-seat', seat: 'bar-1' });
+    assert.equal(occupant.state.seated, true);
+    ws.message({ type: 'dev-seat', seat });
+    assert.equal(occupant.state.seated, false);
+    assert.equal(room.doors[door], false);
+    assert.deepEqual(ws.last('door'), { type: 'door', door, shut: false });
+    ws.message({ type: 'dev-seat', seat: 'bar-0' });
+    assert.ok(!room._simulation.seatHolds.has('bar-0'), 'a third immediate request exceeds the two-request burst');
+});
+
+test('DEV owner heartbeat loss clears synthetic guests even when the owner never sent a first ping', t => {
+    const room = devRoom(t), owner = join(room);
+    room._sweep(owner.session.lastSeen + IDLE_CLOSE_MS + 1);
+    assert.equal(owner.ws.closed.code, CLOSE_IDLE);
+    assert.equal(room.sessions.size, 0);
+    assert.equal(room._poseTimer, null);
+    assert.equal(room._sweeper, null);
+});
+
+test('DEV admission cannot use a bare direct Durable Object request', async t => {
+    const room = devRoom(t);
+    const response = await room.fetch(new Request('https://relay.example/?room=private-000032&sfu=1', {
+        headers: { Upgrade: 'websocket' }
+    }));
+    assert.equal(response.status, 403);
+    assert.equal(room.sessions.size, 0);
+});
+
 test('room world time is shared with late joiners and survives handover, but resets when empty', () => {
     const room = new ClubRoom({});
     const a = join(room), b = join(room);
@@ -55,6 +202,7 @@ test('room world time is shared with late joiners and survives handover, but res
 
 test('selected chat is delivered only to distinct selected visible guests, with sender fixed by the relay', () => {
     const room = new ClubRoom({});
+    room._roomName = 'private-123456';
     const a = join(room, 'A'), b = join(room, 'B'), c = join(room, 'C'), d = join(room, 'D');
     const e = join(room, 'E');
     assert.equal(a.ws.last('welcome').targetedChat, true);
@@ -73,18 +221,49 @@ test('selected chat is delivered only to distinct selected visible guests, with 
     assert.equal(c.ws.last('chat').text, 'public', 'a departed target never becomes a broadcast');
 });
 
+test('public rooms reject selected-recipient chat while room-visible chat still works', () => {
+    const room = new ClubRoom({});
+    room._roomName = 'lobby';
+    const a = join(room, 'A'), b = join(room, 'B');
+    a.ws.message({ type: 'chat', text: 'hidden', targets: [b.session.id] });
+    assert.equal(b.ws.last('chat'), undefined);
+    a.ws.message({ type: 'chat', text: 'visible' });
+    assert.equal(b.ws.last('chat').text, 'visible');
+});
+
 test('empty and malformed chat target lists never broadcast', () => {
     for (const targets of [[], null, 'everyone', [42], [{}], Array(9).fill('id'), ['x'.repeat(65)]]) {
         const room = new ClubRoom({});
+        room._roomName = 'private-123456';
         const a = join(room), b = join(room);
         a.ws.message({ type: 'chat', text: 'must not leak', targets });
         assert.equal(b.ws.last('chat'), undefined);
     }
     const room = new ClubRoom({});
+    room._roomName = 'private-123456';
     const a = join(room), b = join(room);
     a.session.blocked.add(b.session.pid);
     a.ws.message({ type: 'chat', text: 'blocked', targets: [b.session.id] });
     assert.equal(b.ws.last('chat'), undefined);
+});
+
+test('reports are validated, private to the host, and never broadcast to the room', () => {
+    const room = new ClubRoom({});
+    const host = join(room, 'Host'), reporter = join(room, 'Reporter'), target = join(room, 'Target');
+    reporter.ws.message({ type: 'report', target: target.session.id, reason: 'harassment' });
+    assert.deepEqual(host.ws.last('moderation-report'), {
+        type: 'moderation-report',
+        reporter: { id: reporter.session.id, name: 'Reporter', pid: reporter.session.pid },
+        target: { id: target.session.id, name: 'Target', pid: target.session.pid },
+        reason: 'harassment'
+    });
+    assert.equal(reporter.ws.last('moderation-report'), undefined);
+    assert.equal(target.ws.last('moderation-report'), undefined);
+
+    const before = host.ws.sent.filter(message => message.type === 'moderation-report').length;
+    reporter.ws.message({ type: 'report', target: target.session.id, reason: 'not-a-reason' });
+    reporter.ws.message({ type: 'report', target: 'missing', reason: 'grooming' });
+    assert.equal(host.ws.sent.filter(message => message.type === 'moderation-report').length, before);
 });
 
 test('relay welcomes, announces joins, and hands host to the next guest on leave', () => {
@@ -205,6 +384,44 @@ test('tracked hands are bounded eye-relative poses with normalised orientation a
     assert.equal(b.ws.sent.length, count, 'blocks hide controller poses too');
     a.ws.message({ type: 'state', state: { x: 4, y: 4.7, z: -10, rotY: 0.7 } });
     assert.equal(c.ws.last('state').state.hands, undefined, 'desktop/exit clears tracking');
+});
+
+test('intentional seated state is bounded and old position frames remain standing', () => {
+    const seated = sanitizeState({ x: 2, y: 1.1, z: -4, rotY: 0.2, seated: true, floorY: 3 });
+    assert.deepEqual({ ...seated, rotY: 0.2 }, { x: 2, y: 1.1, z: -4, rotY: 0.2, seated: true, floorY: 3 });
+    assert.ok(Math.abs(seated.rotY - 0.2) < 1e-12);
+    assert.equal(sanitizeState({ x: 0, y: 1.7, z: 0, seated: false }).seated, undefined);
+    assert.equal(sanitizeState({ x: 0, y: 1.7, z: 0, seated: 'true' }).seated, undefined);
+});
+
+test('a guest\'s standing eye height is relayed only when it is a plausible human height', () => {
+    assert.equal(sanitizeState({ x: 0, y: 1.8, z: 0, eh: 1.834 }).eh, 1.83);
+    assert.equal(sanitizeState({ x: 0, y: 1.8, z: 0 }).eh, undefined, 'older clients send none');
+    for (const bad of [0.5, 3, NaN, Infinity, '1.8x', {}, null]) {
+        assert.equal(sanitizeState({ x: 0, y: 1.8, z: 0, eh: bad }).eh, undefined, `eh ${String(bad)}`);
+    }
+    const room = new ClubRoom({});
+    const a = join(room), b = join(room);
+    a.ws.message({ type: 'state', state: { x: 1, y: 1.9, z: 2, rotY: 0, eh: 1.9, extra: 'drop' } });
+    assert.equal(b.ws.last('state').state.eh, 1.9);
+    assert.equal(b.ws.last('state').state.extra, undefined);
+    assert.equal(join(room).ws.last('welcome').peers.find(p => p.id === a.session.id).state.eh, 1.9, 'late joiners get it too');
+});
+
+test('a seated guest\'s seat height is relayed only when it is a plausible seat', () => {
+    assert.equal(sanitizeState({ x: 0, y: 1.1, z: 0, seated: true, floorY: 0, seatH: 0.404 }).seatH, 0.4);
+    assert.equal(sanitizeState({ x: 0, y: 1.1, z: 0, seated: true, floorY: 0 }).seatH, undefined, 'older clients send none');
+    for (const bad of [0, 5, NaN, Infinity, 'high', {}]) assert.equal(sanitizeState({ x: 0, y: 1.1, z: 0, seated: true, floorY: 0, seatH: bad }).seatH, undefined, `seatH ${String(bad)}`);
+    assert.equal(sanitizeState({ x: 0, y: 1.7, z: 0, seatH: 0.4 }).seatH, undefined, 'a standing guest has no seat');
+});
+
+test('a standing guest\'s floor is relayed too, so a crouching headset is not sunk below it', () => {
+    assert.equal(sanitizeState({ x: 0, y: 1.1, z: 0, seated: false, floorY: 2.8 }).floorY, 2.8);
+    assert.equal(sanitizeState({ x: 0, y: 1.1, z: 0, seated: false, floorY: 2.8 }).seated, undefined);
+    assert.equal(sanitizeState({ x: 0, y: 1.7, z: 0 }).floorY, undefined, 'older clients send none');
+    for (const bad of [NaN, Infinity, 'up', {}]) {
+        assert.equal(sanitizeState({ x: 0, y: 1.7, z: 0, floorY: bad }).floorY, undefined, `floorY ${String(bad)}`);
+    }
 });
 
 test('rtc-signal is relayed only to a different, existing peer', () => {
@@ -412,6 +629,208 @@ test('the stream route refuses anything but one Miss Melera mp3 and one simple r
     await withFetch(async () => new Response('gone', { status: 404 }), async () => {
         assert.equal((await call(`${podcast.PODCAST_STREAM_PREFIX}2407530030-missmelera-x.mp3`)).status, 502);
     });
+});
+
+test('SoundCloud track URLs are reduced to two permalinks; pages, tabs, playlists and other hosts are refused', () => {
+    assert.deepEqual({ ...podcast.parseSoundCloudTrackUrl('https://soundcloud.com/Some-DJ/Summer_Mix?si=x#t=1') },
+        { user: 'some-dj', slug: 'summer_mix', href: 'https://soundcloud.com/some-dj/summer_mix' });
+    assert.equal(podcast.parseSoundCloudTrackUrl('https://m.soundcloud.com/a/b').href, 'https://soundcloud.com/a/b');
+    for (const bad of ['http://soundcloud.com/a/b', 'https://soundcloud.com/a', 'https://soundcloud.com/a/b/c', 'https://soundcloud.com/a/sets/b',
+        'https://soundcloud.com/a/sets', 'https://soundcloud.com/discover/b', 'https://soundcloud.com.evil.example/a/b',
+        'https://evil.example/soundcloud.com/a/b', 'https://u:p@soundcloud.com/a/b', 'https://soundcloud.com/a%2F..%2Fb/c', 'not a url', '', null]) {
+        assert.equal(podcast.parseSoundCloudTrackUrl(bad), null, String(bad));
+    }
+    assert.equal(podcast.trackIdFromOembed({ html: '<iframe src="https://w.soundcloud.com/player/?url=https%3A%2F%2Fapi.soundcloud.com%2Ftracks%2F2407530030&x=1">' }), '2407530030');
+    assert.equal(podcast.trackIdFromOembed({ html: '<iframe src="...api.soundcloud.com%2Fplaylists%2F55">' }), null);
+    assert.equal(podcast.trackIdFromOembed(null), null);
+    for (const ok of ['2407530030-missmelera-miss-melera-colourizon-168.mp3', '293-forss-flickermood.mp3']) {
+        assert.equal(podcast.isSoundCloudStreamName(ok), true, ok);
+    }
+    for (const bad of ['', '..%2Fx.mp3', '293-../x.mp3', '293-a-b.wav', 'x-a-b.mp3', '293-A.mp3', `1-${'a'.repeat(300)}.mp3`, null]) {
+        assert.equal(podcast.isSoundCloudStreamName(bad), false, String(bad).slice(0, 40));
+    }
+});
+
+test('the SoundCloud resolver offers a stream only when SoundCloud serves that track to podcast players', async () => {
+    const oembed = id => new Response(JSON.stringify({
+        title: 'Summer\u0007 Mix\n by Some DJ',
+        html: `<iframe src="https://w.soundcloud.com/player/?url=https%3A%2F%2Fapi.soundcloud.com%2Ftracks%2F${id}"></iframe>`
+    }));
+    const requested = [];
+    const resolve = (page, status) => withFetch(async (url, init = {}) => {
+        requested.push({ url: String(url), range: init.headers && init.headers.Range });
+        if (String(url).startsWith(podcast.SOUNDCLOUD_OEMBED)) return oembed(42);
+        return new Response(null, { status });
+    }, () => call(`${podcast.SOUNDCLOUD_RESOLVE_PATH}?url=${encodeURIComponent(page)}`));
+
+    const ok = await resolve('https://soundcloud.com/some-dj/summer-mix', 206);
+    assert.equal(ok.status, 200);
+    assert.equal(ok.headers.get('Access-Control-Allow-Origin'), ORIGIN);
+    assert.deepEqual(await ok.json(), { name: '42-some-dj-summer-mix.mp3', title: 'Summer Mix by Some DJ', path: '/soundcloud/stream/42-some-dj-summer-mix.mp3' });
+    assert.ok(requested.some(r => r.url === `${podcast.SOUNDCLOUD_STREAM_BASE}42-some-dj-summer-mix.mp3` && r.range === 'bytes=0-0'));
+    assert.ok(requested.every(r => r.url.startsWith(podcast.SOUNDCLOUD_OEMBED) || r.url.startsWith(podcast.SOUNDCLOUD_STREAM_BASE)),
+        'only SoundCloud\'s oEmbed and podcast-stream endpoints are ever reached');
+
+    const unpublished = await resolve('https://soundcloud.com/some-dj/summer-mix', 404);
+    assert.equal(unpublished.status, 404);
+    assert.deepEqual(await unpublished.json(), { error: 'not-published' });
+
+    requested.length = 0;
+    for (const page of ['https://soundcloud.com/some-dj/sets/summer', 'https://evil.example/a/b', 'http://soundcloud.com/a/b', '']) {
+        assert.equal((await resolve(page, 200)).status, 400, page);
+    }
+    assert.equal(requested.length, 0, 'a refused URL never reaches SoundCloud');
+    assert.equal((await call(podcast.SOUNDCLOUD_RESOLVE_PATH)).status, 400);
+    assert.equal((await call(`${podcast.SOUNDCLOUD_RESOLVE_PATH}?url=x`, { origin: 'https://evil.example' })).status, 403);
+
+    const noTrack = await withFetch(async () => new Response(JSON.stringify({ html: '<iframe src="x%2Fplaylists%2F9">' })),
+        () => call(`${podcast.SOUNDCLOUD_RESOLVE_PATH}?url=${encodeURIComponent('https://soundcloud.com/a/b')}`));
+    assert.equal(noTrack.status, 404);
+    const down = await withFetch(async () => { throw new Error('offline'); },
+        () => call(`${podcast.SOUNDCLOUD_RESOLVE_PATH}?url=${encodeURIComponent('https://soundcloud.com/a/b')}`));
+    assert.equal(down.status, 502);
+});
+
+test('an on.soundcloud.com share link is expanded once, from a fixed host, and only a track page is accepted', async () => {
+    assert.equal(podcast.parseSoundCloudShortUrl('https://on.soundcloud.com/NnMSCRNn9Rf5sN25hr'), 'NnMSCRNn9Rf5sN25hr');
+    assert.equal(podcast.parseSoundCloudShortUrl('https://on.soundcloud.com/NnMSCRNn9Rf5sN25hr?si=x'), 'NnMSCRNn9Rf5sN25hr');
+    for (const bad of ['http://on.soundcloud.com/abcd', 'https://on.soundcloud.com/', 'https://on.soundcloud.com/a/b', 'https://on.soundcloud.com/ab',
+        'https://on.soundcloud.com/a-b_c', 'https://on.soundcloud.com.evil.example/abcd', 'https://evil.example/on.soundcloud.com/abcd',
+        'https://soundcloud.com/abcd', 'https://user:pw@on.soundcloud.com/abcd', 'not a url', '', null]) {
+        assert.equal(podcast.parseSoundCloudShortUrl(bad), null, String(bad));
+    }
+
+    const oembed = new Response(JSON.stringify({
+        title: 'Colourizon 168', html: '<iframe src="https://w.soundcloud.com/player/?url=https%3A%2F%2Fapi.soundcloud.com%2Ftracks%2F77"></iframe>'
+    }));
+    const requested = [];
+    const resolve = (shortUrl, redirect) => withFetch(async (url, init = {}) => {
+        requested.push({ url: String(url), redirect: init.redirect });
+        if (String(url).startsWith('https://on.soundcloud.com/')) return redirect();
+        if (String(url).startsWith(podcast.SOUNDCLOUD_OEMBED)) return oembed.clone();
+        return new Response(null, { status: 206 });
+    }, () => call(`${podcast.SOUNDCLOUD_RESOLVE_PATH}?url=${encodeURIComponent(shortUrl)}`));
+    const share = 'https://on.soundcloud.com/NnMSCRNn9Rf5sN25hr';
+    const toTrack = () => new Response(null, { status: 302, headers: { Location: 'https://soundcloud.com/missmelera/miss-melera-colourizon-168?utm_source=mobi&si=abc' } });
+
+    const ok = await resolve(share, toTrack);
+    assert.equal(ok.status, 200);
+    assert.deepEqual(await ok.json(), { name: '77-missmelera-miss-melera-colourizon-168.mp3', title: 'Colourizon 168', path: '/soundcloud/stream/77-missmelera-miss-melera-colourizon-168.mp3' });
+    assert.equal(requested[0].url, share, 'the share link is fetched first');
+    assert.equal(requested[0].redirect, 'manual', 'its redirect is never followed automatically');
+    assert.ok(requested.every(r => r.url.startsWith('https://on.soundcloud.com/') || r.url.startsWith(podcast.SOUNDCLOUD_OEMBED) || r.url.startsWith(podcast.SOUNDCLOUD_STREAM_BASE)),
+        'only the share host, oEmbed and the podcast stream are ever reached');
+
+    // Where it leads must itself be a plain track page: playlists, profiles and other hosts are refused.
+    for (const location of ['https://soundcloud.com/some-dj/sets/summer', 'https://soundcloud.com/some-dj', 'https://evil.example/a/b',
+        'http://soundcloud.com/a/b', 'https://soundcloud.com.evil.example/a/b', 'javascript:alert(1)']) {
+        const refused = await resolve(share, () => new Response(null, { status: 302, headers: { Location: location } }));
+        assert.equal(refused.status, 400, location);
+    }
+    assert.equal((await resolve(share, () => new Response(null, { status: 302 }))).status, 400, 'no Location header');
+    assert.equal((await resolve(share, () => new Response('not a redirect', { status: 200 }))).status, 400, 'an answer that is not a redirect');
+    assert.equal((await resolve(share, () => { throw new Error('offline'); })).status, 502);
+    assert.equal((await resolve('https://on.soundcloud.com/NnMSCRNn9Rf5sN25hr/extra', toTrack)).status, 400, 'a malformed share link never reaches SoundCloud');
+});
+
+test('the SoundCloud stream route proxies only validated podcast-stream names from one fixed host', async () => {
+    const calls = [];
+    await withFetch(async (url, init) => {
+        calls.push({ url: String(url), range: init.headers.Range, redirect: init.redirect });
+        return new Response(new Uint8Array([9, 8, 7]), { status: 206, headers: { 'Content-Range': 'bytes 0-2/9', 'Content-Length': '3' } });
+    }, async () => {
+        const part = await call(`${podcast.SOUNDCLOUD_STREAM_PREFIX}42-some-dj-summer-mix.mp3`, { headers: { Range: 'bytes=0-2' } });
+        assert.equal(part.status, 206);
+        assert.equal(part.headers.get('Content-Range'), 'bytes 0-2/9');
+        assert.equal(part.headers.get('Access-Control-Allow-Origin'), ORIGIN);
+        for (const path of ['', '..%2Fx.mp3', '42-a.wav', 'https%3A%2F%2Fevil.example%2F42-a.mp3', '%E0%A4%A']) {
+            assert.equal((await call(`${podcast.SOUNDCLOUD_STREAM_PREFIX}${path}`)).status, 404, path);
+        }
+        assert.equal((await call(`${podcast.SOUNDCLOUD_STREAM_PREFIX}42-a-b.mp3`, { headers: { Range: 'bytes=0-1,4-5' } })).status, 416);
+        assert.equal((await call(`${podcast.SOUNDCLOUD_STREAM_PREFIX}42-a-b.mp3`, { method: 'POST' })).status, 405);
+        assert.equal((await call(`${podcast.SOUNDCLOUD_STREAM_PREFIX}42-a-b.mp3`, { origin: 'https://evil.example' })).status, 403);
+    });
+    assert.deepEqual(calls.map(c => c.url), [`${podcast.SOUNDCLOUD_STREAM_BASE}42-some-dj-summer-mix.mp3`]);
+    assert.equal(calls[0].redirect, 'follow');
+});
+
+test('podcast metadata uses the Cache API while audio remains a fresh streamed request', async () => {
+    podcast.resetPodcastStateForTests();
+    const originalCaches = globalThis.caches;
+    const entries = new Map();
+    globalThis.caches = {
+        default: {
+            async match(key) {
+                const response = entries.get(typeof key === 'string' ? key : key.url);
+                return response ? response.clone() : undefined;
+            },
+            async put(key, response) {
+                entries.set(typeof key === 'string' ? key : key.url, response.clone());
+            }
+        }
+    };
+    let feedFetches = 0;
+    try {
+        await withFetch(async (_url, init) => {
+            feedFetches++;
+            assert.ok(init.signal instanceof AbortSignal, 'metadata upstream lacks an abort signal');
+            return new Response(feedXml);
+        }, async () => {
+            assert.equal((await call(podcast.PODCAST_FEED_PATH)).status, 200);
+            assert.equal((await call(podcast.PODCAST_FEED_PATH)).status, 200);
+        });
+        assert.equal(feedFetches, 1, 'successful feed metadata was not reused from Cache API');
+
+        let resolverFetches = 0;
+        await withFetch(async (url, init) => {
+            resolverFetches++;
+            assert.ok(init.signal instanceof AbortSignal, 'resolver upstream lacks an abort signal');
+            if (String(url).startsWith(podcast.SOUNDCLOUD_OEMBED)) {
+                return new Response(JSON.stringify({
+                    title: 'Cached Mix',
+                    html: 'https%3A%2F%2Fapi.soundcloud.com%2Ftracks%2F42'
+                }));
+            }
+            return new Response(null, { status: 206 });
+        }, async () => {
+            const path = `${podcast.SOUNDCLOUD_RESOLVE_PATH}?url=${encodeURIComponent('https://soundcloud.com/some-dj/cached-mix')}`;
+            assert.equal((await call(path)).status, 200);
+            assert.equal((await call(path)).status, 200);
+        });
+        assert.equal(resolverFetches, 2, 'a cached resolver result should avoid both oEmbed and probe upstreams');
+
+        let streams = 0;
+        await withFetch(async (_url, init) => {
+            streams++;
+            assert.ok(init.signal instanceof AbortSignal, 'stream header request lacks an abort signal');
+            return new Response(new Uint8Array([1, 2, 3]), { status: 200 });
+        }, async () => {
+            const name = '2407530030-missmelera-miss-melera-colourizon-168.mp3';
+            assert.deepEqual([...new Uint8Array(await (await call(`${podcast.PODCAST_STREAM_PREFIX}${name}`)).arrayBuffer())], [1, 2, 3]);
+            assert.deepEqual([...new Uint8Array(await (await call(`${podcast.PODCAST_STREAM_PREFIX}${name}`)).arrayBuffer())], [1, 2, 3]);
+        });
+        assert.equal(streams, 2, 'audio must be streamed from a fresh signed upstream on every request');
+    } finally {
+        if (originalCaches === undefined) delete globalThis.caches;
+        else globalThis.caches = originalCaches;
+        podcast.resetPodcastStateForTests();
+    }
+});
+
+test('podcast HTTP throttling is bounded and explicitly best effort per isolate', async () => {
+    podcast.resetPodcastStateForTests();
+    await withFetch(async () => new Response('missing', { status: 404 }), async () => {
+        const page = encodeURIComponent('https://soundcloud.com/some-dj/mix');
+        for (let i = 0; i < podcast.HTTP_LIMIT_CAPACITY / 4; i++) {
+            assert.equal((await call(`${podcast.SOUNDCLOUD_RESOLVE_PATH}?url=${page}`,
+                { headers: { 'CF-Connecting-IP': '203.0.113.9' } })).status, 404);
+        }
+        const limited = await call(`${podcast.SOUNDCLOUD_RESOLVE_PATH}?url=${page}`,
+            { headers: { 'CF-Connecting-IP': '203.0.113.9' } });
+        assert.equal(limited.status, 429);
+        assert.equal(limited.headers.get('Retry-After'), '1');
+    });
+    podcast.resetPodcastStateForTests();
 });
 
 test('the socket relay is unchanged: paths outside /podcast still need the room route', async () => {
@@ -708,6 +1127,29 @@ test('only the host can drive the lights, guests receive the frame, and a late j
     assert.equal(late.ws.sent[0].show.cue, 2);
 });
 
+test('room character style uses the existing host-only shared map in every mode, survives handover and reaches late joiners', () => {
+    const room = new ClubRoom({});
+    const host = join(room), guest = join(room);
+    let late;
+    try {
+        for (const mode of ['show', 'manual', 'off']) {
+            host.ws.message({ type: 'show', m: mode, fx: { characterStyle: 'diverse' } });
+            assert.equal(guest.ws.last('show').fx.characterStyle, 'diverse');
+            assert.equal(room.showState.fx.characterStyle, 'diverse');
+        }
+        guest.ws.message({ type: 'show', m: 'show', fx: { characterStyle: 'quaternius' } });
+        assert.equal(room.showState.fx.characterStyle, 'diverse', 'a guest cannot change room appearance');
+        host.ws.emit('close');
+        assert.equal(room.hostId, guest.session.id);
+        late = join(room);
+        assert.equal(late.ws.sent[0].show.fx.characterStyle, 'diverse', 'promotion must retain the room choice');
+    } finally {
+        guest.ws.emit('close');
+        if (late) late.ws.emit('close');
+        clearInterval(room._sweeper);
+    }
+});
+
 test('the light-show frame is shaped, clamped and bounded; hostile fields never get through', () => {
     assert.equal(sanitizeShow(null), null);
     assert.equal(sanitizeShow([]), null);
@@ -731,6 +1173,69 @@ test('the light-show frame is shaped, clamped and bounded; hostile fields never 
     const many = {};
     for (let i = 0; i < 300; i++) many[`k${i}`] = i;
     assert.equal(Object.keys(sanitizeShow({ m: 'off', fx: many }).fx).length, relay.MAX_SHOW_FIXTURES);
+});
+
+test('room DJ presence and audio effects are host-owned, bounded, block-aware and retained for late joins', () => {
+    const room = new ClubRoom({});
+    const host = join(room), guest = join(room), blocked = join(room);
+    blocked.session.blocked.add(host.session.pid);
+    const frame = {
+        type: 'show', m: 'show', dj: false,
+        audioFx: { lowpass: 0.7, highpass: -1, echo: 2, flanger: 0.1, reverb: 0.2,
+            phaser: 0.3, sweep: 0.4, gater: 0.5, channel: 0.6, arbitrary: 1 }
+    };
+    guest.ws.message(frame);
+    assert.equal(room.showState, null);
+    host.ws.message(frame);
+    const expected = { lowpass: 0.7, highpass: 0, echo: 1, flanger: 0.1, reverb: 0.2,
+        phaser: 0.3, sweep: 0.4, gater: 0.5, channel: 0.6 };
+    assert.equal(guest.ws.last('show').dj, false);
+    assert.deepEqual(guest.ws.last('show').audioFx, expected);
+    assert.equal(blocked.ws.last('show'), undefined);
+    const late = join(room);
+    assert.equal(late.ws.last('welcome').show.dj, false);
+    assert.deepEqual(late.ws.last('welcome').show.audioFx, expected);
+    assert.deepEqual(sanitizeShow({ m: 'off', dj: 'false', audioFx: [] }), { m: 'off' });
+    assert.deepEqual(sanitizeShow({ m: 'off', audioFx: { lowpass: '1', echo: NaN, channel: Infinity, reverb: {} } }),
+        { m: 'off', audioFx: {} });
+    host.ws.emit('close');
+    assert.equal(room.hostId, guest.session.id);
+    assert.equal(room.showState.dj, false);
+    assert.deepEqual(room.showState.audioFx, expected);
+    guest.ws.emit('close');
+    blocked.ws.emit('close');
+    late.ws.emit('close');
+    assert.equal(room.showState, null);
+});
+
+test('stall doors are shared room state: any guest may push one, late joiners see it, hostile input is dropped, an empty room resets', () => {
+    const room = new ClubRoom({});
+    const a = join(room), b = join(room);
+    assert.deepEqual(a.ws.last('welcome').doors, [false, false], 'a fresh room has every door ajar');
+    b.ws.message({ type: 'door', door: 1, shut: true });
+    assert.deepEqual(a.ws.last('door'), { type: 'door', id: b.session.id, door: 1, shut: true }, 'a guest, not only the host, can push a door');
+    assert.equal(b.ws.last('door'), undefined, 'the sender is not echoed');
+    const late = join(room);
+    assert.deepEqual(late.ws.last('welcome').doors, [false, true], 'a late joiner is handed the doors as they are');
+    // Only a real index and a real boolean count.
+    for (const bad of [{ door: 2, shut: true }, { door: -1, shut: true }, { door: 0.5, shut: true }, { door: '0', shut: true }, { door: null, shut: true }, { shut: true }]) {
+        const before = a.ws.sent.length;
+        b.ws.message({ type: 'door', ...bad });
+        assert.equal(a.ws.sent.length, before, `ignored: ${JSON.stringify(bad)}`);
+    }
+    b.session.buckets.door = new TokenBucket(relay.RATE_LIMITS.door);
+    b.ws.message({ type: 'door', door: 1, shut: 'yes' });
+    assert.equal(room.doors[1], false, 'anything but true means ajar');
+    b.ws.message({ type: 'door', door: 0, shut: true });
+    assert.deepEqual(room.doors, [true, false]);
+    // A blocked guest's door is not relayed to the guest who blocked them.
+    a.session.blocked.add(b.session.pid);
+    const seen = a.ws.sent.length;
+    b.ws.message({ type: 'door', door: 0, shut: false });
+    assert.equal(a.ws.sent.length, seen);
+    assert.ok(relay.RATE_LIMITS.door && relay.RATE_LIMITS.door.rate <= 2, 'doors are rate limited like every other frame');
+    for (const guest of [late, b, a]) room._onClose(guest.ws, guest.session);
+    assert.deepEqual(room.doors, [false, false], 'an empty room starts over');
 });
 
 test('the lights and the music are forgotten once the room is empty, and survive a host handover', () => {
@@ -770,6 +1275,41 @@ test('a guest can ask for women or men only: on joining, and when rerolling, and
         assert.equal(woman.avatarPool, 'men');
         w.emit('close'); m.emit('close');
     }
+});
+
+test('exact character choices are authoritative, may repeat, reach late joiners and respect blocks and rate limits', () => {
+    const room = new ClubRoom({});
+    const first = joinAs(room, 'Observer', 901);
+    const socket = new FakeSocket();
+    const selected = room._acceptSession(socket, 'Chooser', pidOf(902), 'men', false, null, 'f8');
+    assert.equal(selected.avatar, 'f8', 'an exact choice overrides the random pool');
+    assert.equal(socket.sent.find(msg => msg.type === 'welcome').avatarSelection, true);
+    const duplicate = room._acceptSession(new FakeSocket(), 'Same choice', pidOf(903), 'any', false, null, 'f8');
+    assert.equal(duplicate.avatar, 'f8', 'explicit choices are never silently substituted');
+    socket.message({ type: 'avatar', avatar: 'm9' });
+    assert.equal(selected.avatar, 'm9');
+    assert.equal(socket.sent.at(-1).avatar, 'm9', 'self acknowledgement');
+    assert.equal(first.ws.sent.at(-1).avatar, 'm9', 'the visible room sees the same choice');
+    const late = joinAs(room, 'Late', 904);
+    assert.equal(late.ws.sent.find(msg => msg.type === 'welcome').peers.find(p => p.id === selected.id).avatar, 'm9');
+    first.session.blocked.add(selected.pid);
+    const seen = first.ws.sent.length;
+    socket.message({ type: 'avatar', avatar: 'f2' });
+    assert.equal(selected.avatar, 'f2');
+    assert.equal(first.ws.sent.length, seen, 'blocks still hide appearance changes');
+    socket.message({ type: 'avatar', avatar: 'm4' });
+    assert.equal(selected.avatar, 'f2', 'rate-limited requests cannot change appearance');
+    assert.deepEqual(socket.sent.at(-1), { type: 'avatar-error', reason: 'rate-limit' });
+    const invalid = joinAs(room, 'Invalid', 905);
+    const original = invalid.session.avatar;
+    invalid.ws.message({ type: 'avatar', avatar: '__proto__' });
+    invalid.ws.message({ type: 'avatar', avatar: null });
+    assert.equal(invalid.session.avatar, original, 'malformed exact choices never fall back to a random look');
+    assert.deepEqual(invalid.ws.sent.at(-1), { type: 'avatar-error', reason: 'unknown-character' });
+    socket.emit('close');
+    const back = room._acceptSession(new FakeSocket(), 'Reconnected', pidOf(902), 'any', false, null, 'f2');
+    assert.equal(back.avatar, 'f2', 'a reconnect honors the saved ID');
+    for (const ws of [...room.sessions.keys()]) ws.emit('close');
 });
 
 test('a pool that is full gives a free person from the other pool rather than a double', () => {

@@ -1,0 +1,104 @@
+{
+  "experiment": "NOCTURNE ADE opt-in MPFB adult-avatar cast",
+  "date": "2026-10-20",
+  "repositoryModified": true,
+  "castCount": 34,
+  "authoredIdentities": { "women": 15, "men": 15, "nonbinaryAdults": 4 },
+  "roles": {
+    "scope": "Opt-in ADE production cast; preserve existing counts, behaviours and network IDs",
+    "simultaneouslyPlaced": 33,
+    "dancers": 14,
+    "indoorGuests": 8,
+    "bartender": "sana",
+    "mingler": "malik",
+    "balconyGuest": "mei",
+    "seatedBarGuest": "amara",
+    "queue": 8,
+    "bouncer": "idris",
+    "selectableDJs": { "male": "jin", "female": "zara" },
+    "assignments": "js/characterCatalog.js",
+    "duplicatePeopleVisible": false
+  },
+  "headphones": {
+    "title": "Headphones",
+    "author": "nisu",
+    "source": "https://opengameart.org/content/headphones",
+    "license": "CC0-1.0",
+    "reusedFrom": "Existing production club-dj-female.glb derivative, documented in repository ASSETS.md",
+    "changes": "Fit each experimental DJ's measured head bounds; skin to Head joint"
+  },
+  "djStyling": {
+    "scope": "Broad wardrobe, hair and build cues only; Jin and Zara remain fictional adults, not artist likenesses or endorsements.",
+    "maleReference": "https://cms.piknicelectronik.com/uploads/NEWS/OFF-PIKNIC25_OUTILS-COMM_SITE-WEB_VISUELS-ARTISTES_08-23_HERNAN-CATTANEO.png",
+    "femaleReference": "https://wearesoundspace.com/wp-content/uploads/2016/01/MISS-MELERA-HEADER.jpg",
+    "male": "Mature lean build, clean-shaven face, ear-length dark hair, plain charcoal crew-neck tee and jeans.",
+    "female": "Slender adult build, long side-parted blonde hair, plain charcoal tee and jeans.",
+    "rights": "Reference photographs and printed clothing graphics are not copied, embedded or distributed. All generated geometry and textures remain derived from verified CC0 assets."
+  },
+  "generator": {
+    "name": "MPFB",
+    "version": "2.0.18 source",
+    "repository": "https://github.com/makehumancommunity/mpfb2",
+    "commit": "3af0cd5a2ffba072e93a34e5f6f494fdc4813ddf",
+    "codeLicense": "GPL-3.0-or-later",
+    "coreAssetLicense": "CC0-1.0",
+    "localCopy": "tooling/extensions/mpfb"
+  },
+  "blender": {
+    "version": "5.2.1 LTS",
+    "existingInstallation": true,
+    "profile": "tooling/blender-user",
+    "regularUserPreferencesSaved": false
+  },
+  "assetPack": {
+    "page": "https://static.makehumancommunity.org/assets/assetpacks/makehuman_system_assets.html",
+    "download": "https://files2.makehumancommunity.org/asset_packs/makehuman_system_assets/makehuman_system_assets_cc0.zip",
+    "sha256": "b542127a8e25547c7c29c19f2d1d2adb9a664c80396ecd694095dbc8028a0107",
+    "license": "CC0-1.0",
+    "licenseExplanation": "https://static.makehumancommunity.org/about/license.html",
+    "perAssetManifest": "tooling/assets/packs/makehuman_system_assets.json",
+    "checkedEachSelectedAsset": true
+  },
+  "dressPack": {
+    "page": "https://static.makehumancommunity.org/assets/assetpacks/dress01.html",
+    "download": "https://files2.makehumancommunity.org/asset_packs/dress01/dress01_cc0.zip",
+    "sha256": "f49ba54a3c93acd3c3307cc5a96cfc65daf8abfed9212a7e580791d821c9e93a",
+    "license": "CC0-1.0",
+    "perAssetManifest": "tooling/assets/packs/dress01.json",
+    "checkedEachSelectedAsset": true,
+    "selectedAssets": [
+      { "id": "toigo_camisole_dress_with_full_skirt", "author": "MargaretToigo", "source": "http://www.makehumancommunity.org/node/1730" },
+      { "id": "toigo_halter_dress_knee_length", "author": "MargaretToigo", "source": "http://www.makehumancommunity.org/node/1853" },
+      { "id": "toigo_shift_dress", "author": "MargaretToigo", "source": "http://www.makehumancommunity.org/node/1724" },
+      { "id": "toigo_dress_with_tiered_skirt", "author": "MargaretToigo", "source": "http://www.makehumancommunity.org/node/1640" },
+      { "id": "toigo_halter_dress_with_fluted_skirt", "author": "MargaretToigo", "source": "http://www.makehumancommunity.org/node/1855" },
+      { "id": "toigo_keyhole_neck_dress", "author": "MargaretToigo", "source": "http://www.makehumancommunity.org/node/1613" },
+      { "id": "toigo_strapless_ruffle_top_dress", "author": "MargaretToigo", "source": "http://www.makehumancommunity.org/node/1705" }
+    ]
+  },
+  "transformations": [
+    "Adult-only body/face morphs, individually fitted system clothing, shoes and hair",
+    "Game-engine rig and skin weights",
+    "Remove helpers and garment-covered body faces",
+    "One 1024px opaque atlas plus one 512px hair atlas",
+    "Geometry decimation to fewer than 10000 triangles per dressed character",
+    "Individually varied adult body/face recipes, age/build/height, hair and garment meshes; silver/copper hair and selected garment recolours without tinting skin or shoes",
+    "Relaxed arms and original two-channel breathing test animation",
+    "WebP texture encoding and alpha-tested hair",
+    "Constant animation channels folded into default node transforms in the original breathing-only base models",
+    "Separate dance GLBs retarget all eleven live CC0 crowd clips from the repository's club-crowd-f1.glb",
+    "Scale-aware inverse-bind/world-space transfer, rigid limb IK, palm-centre and anatomical hand orientation",
+    "Thirty samples per second with exact loop endpoints and continuous quaternion signs",
+    "Correct inward-knee transfer by using each anatomical body's own sagittal knee planes while preserving ankle goals and rigid limb lengths",
+    "Separate role exports reuse club-crowd-m6/f6/f7 social, walk, seated, phone, drink, smoking and railing clips with finger curls",
+    "Bridge modular metacarpal naming with non-skin helper nodes; retain all 53 weighted joints",
+    "Fit contact goals to source runtime normalization, target hand anatomy and target head position",
+    "Production anatomy-derived cup grip, alpha-tested hair and measured-eye self-body placement",
+    "Player locomotion, gestures, both seating clips and tracked-arm compatibility on the seventeen existing network identities",
+    "Additional Mara and Jonas adult recipes preserve the ADE branch's fourteen floor dancers"
+  ],
+  "notIncluded": [
+    "Network identity-pool or capacity changes",
+    "Physical Quest performance or comfort measurement"
+  ]
+}

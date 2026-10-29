@@ -1,5 +1,91 @@
 'use strict';
+
+/** Log-frequency blend. `amount` 0 returns `open`; 1 returns `closed`. No allocation. */
+function _logMix(open, closed, amount) {
+    const t = amount > 0 ? (amount < 1 ? amount : 1) : 0;
+    if (t === 0 || !(open > 0) || !(closed > 0)) return open;
+    return Math.exp(Math.log(open) + (Math.log(closed) - Math.log(open)) * t);
+}
+
+const _paZoneScratch = { cover: 0, onDeck: 0, shelf: 0 };
+
+/**
+ * Height acoustics for one ear. Missing layouts (unit stubs, an old page) leave every term at 0,
+ * which is exactly the old x/z listener. The scratch object is reused every frame.
+ */
+function _paListenerZones(x, y, z) {
+    _paZoneScratch.cover = 0;
+    _paZoneScratch.onDeck = 0;
+    _paZoneScratch.shelf = 0;
+    const mezz = typeof window !== 'undefined' ? window.MezzanineLayout : null;
+    if (mezz && mezz.paZones) mezz.paZones(x, y, z, _paZoneScratch);
+    const bar = typeof window !== 'undefined' && window.VenueLayout && window.VenueLayout.bar;
+    if (bar && bar.listenerShelf) _paZoneScratch.shelf = bar.listenerShelf(x, y, z);
+    const restroom = typeof window !== 'undefined' && window.VenueLayout && window.VenueLayout.restroom;
+    if (restroom && restroom.enclosure) {
+        _paZoneScratch.cover = Math.max(_paZoneScratch.cover, restroom.enclosure(x, z));
+    }
+    return _paZoneScratch;
+}
+
 class VRClubAudioCrowd extends VRClubUI {
+    static _vector3Interpolation(start, end, gradient) {
+        BABYLON.Vector3.LerpToRef(start, end, gradient, this._vrclubInterpolationValue);
+        return this._vrclubInterpolationValue;
+    }
+
+    static _quaternionInterpolation(start, end, gradient) {
+        BABYLON.Quaternion.SlerpToRef(start, end, gradient, this._vrclubInterpolationValue);
+        return this._vrclubInterpolationValue;
+    }
+
+    /**
+     * Pose every finger and thumb joint at the clip's first key and stop animating it: the joints keep that pose, and the
+     * group evaluates a third of the channels. Returns how many channels were removed. Must run before the group starts.
+     */
+    static _freezeFingerChannels(group, prefix = '') {
+        if (!group || !group.targetedAnimations) return 0;
+        const finger = /^(Index|Middle|Ring|Pinky|Thumb)\d\.[LR]$/;
+        const drop = [];
+        for (const targeted of group.targetedAnimations) {
+            const target = targeted.target, animation = targeted.animation;
+            if (!target || !animation || !finger.test(String(target.name).slice(prefix.length))) continue;
+            const key = animation.getKeys && animation.getKeys()[0];
+            const property = animation.targetProperty;
+            if (key && key.value && property && target[property] && typeof target[property].copyFrom === 'function') {
+                target[property].copyFrom(key.value);
+            }
+            drop.push(animation);
+        }
+        for (const animation of drop) group.removeTargetedAnimation(animation);
+        return drop.length;
+    }
+
+    /**
+     * Babylon's linear Vector3/Quaternion interpolators return a new object for every
+     * animated joint, every frame. Give this crowd clone's Animation objects a private
+     * reusable result instead; RuntimeAnimation immediately copies the value into its own
+     * stable target, so no result escapes an evaluation.
+     */
+    static _reuseAnimationInterpolation(group) {
+        if (!group || !group.targetedAnimations || !BABYLON.Animation) return 0;
+        let count = 0;
+        for (let i = 0; i < group.targetedAnimations.length; i++) {
+            const animation = group.targetedAnimations[i].animation;
+            if (!animation || animation._vrclubInterpolationValue) continue;
+            if (animation.dataType === BABYLON.Animation.ANIMATIONTYPE_VECTOR3) {
+                animation._vrclubInterpolationValue = new BABYLON.Vector3();
+                animation.vector3InterpolateFunction = VRClubAudioCrowd._vector3Interpolation;
+                count++;
+            } else if (animation.dataType === BABYLON.Animation.ANIMATIONTYPE_QUATERNION) {
+                animation._vrclubInterpolationValue = new BABYLON.Quaternion();
+                animation.quaternionInterpolateFunction = VRClubAudioCrowd._quaternionInterpolation;
+                count++;
+            }
+        }
+        return count;
+    }
+
     _ensureAudioContext() {
         if (!this.audioContext) {
             this.audioContext = new (window.AudioContext || window.webkitAudioContext)();
@@ -75,6 +161,36 @@ class VRClubAudioCrowd extends VRClubUI {
                 AudioUtils.setPannerPosition(this.pannerRight, CLUB_POSITIONS.paSpeakers.right.x, CLUB_POSITIONS.paSpeakers.right.y, CLUB_POSITIONS.paSpeakers.right.z);
                 AudioUtils.setPannerOrientation(this.pannerRight, -0.2, -0.5, 1.0);
 
+                // 2b. Nearfield DJ Booth Studio Monitors (Yamaha HS8 pair behind the mixer, aimed at the DJ)
+                // The main PA arrays sit at z = -16 aimed out at the dance floor (+z), so a DJ at z = -19.2 is behind
+                // their cones. Nearfield monitors at (-0.62, 1.62, -18.22) and (+0.62, 1.62, -18.22) aimed at the
+                // booth operator (-z, inward) provide tight, crisp direct sound on the riser and roll off outside it.
+                const monLayout = (typeof window !== 'undefined' && window.VenueLayout && window.VenueLayout.monitors) || {
+                    tableY: 1.42, height: 0.3,
+                    left: { x: -0.72, z: -18.22, yaw: Math.PI - 0.6 },
+                    right: { x: 0.72, z: -18.22, yaw: Math.PI + 0.6 }
+                };
+                const monAcousticY = monLayout.tableY + monLayout.height * 0.55;
+                const makeMonitorPanner = side => {
+                    const p = this.audioContext.createPanner();
+                    p.panningModel = 'HRTF';
+                    p.distanceModel = 'inverse';
+                    p.refDistance = 0.85;
+                    p.maxDistance = 8;
+                    p.rolloffFactor = 2.2;
+                    p.coneInnerAngle = 75;
+                    p.coneOuterAngle = 150;
+                    p.coneOuterGain = 0.18;
+                    AudioUtils.setPannerPosition(p, side.x, monAcousticY, side.z);
+                    // The model faces (sin yaw, 0, cos yaw): the woofer baffle points back at the DJ behind the decks.
+                    AudioUtils.setPannerOrientation(p, Math.sin(side.yaw), 0.08, Math.cos(side.yaw));
+                    return p;
+                };
+                this.monitorPannerLeft = makeMonitorPanner(monLayout.left);
+                this.monitorPannerRight = makeMonitorPanner(monLayout.right);
+                this.monitorGain = this.audioContext.createGain();
+                this.monitorGain.gain.value = 0.0;
+
                 // 3. Omni-directional Sub-bass Channel (club subs hit physical low end)
                 this.subFilter = this.audioContext.createBiquadFilter();
                 this.subFilter.type = 'lowpass';
@@ -134,6 +250,7 @@ class VRClubAudioCrowd extends VRClubUI {
                 // the full track and the lights do not calm down while you chat.
                 this.voiceDuckGain = this.audioContext.createGain();
                 this.voiceDuckGain.gain.value = this._voiceDucked ? VRClubAudioCrowd.VOICE_DUCK_LEVEL : 1;
+                this._createDJEffects();
 
                 // Reverb return folds back into the mastering bus.
                 this.roomConvolver.connect(this.reverbReturn);
@@ -209,6 +326,243 @@ class VRClubAudioCrowd extends VRClubUI {
         }
 
         return ir;
+    }
+
+    static DJ_EFFECT_DEFAULTS = Object.freeze({
+        lowpass: 0, highpass: 0, echo: 0, flanger: 0, reverb: 0,
+        phaser: 0, sweep: 0, gater: 0,
+        channel: 1
+    });
+
+    _djEffectsState() {
+        return this._djEffects || (this._djEffects = { ...VRClubAudioCrowd.DJ_EFFECT_DEFAULTS });
+    }
+
+    djEffectsSnapshot() {
+        return { ...this._djEffectsState() };
+    }
+
+    _applySharedDJEffects(effects) {
+        if (!effects || typeof effects !== 'object' || Array.isArray(effects)) return;
+        const state = this._djEffectsState();
+        let changed = false;
+        for (const name of Object.keys(VRClubAudioCrowd.DJ_EFFECT_DEFAULTS)) {
+            const value = effects[name];
+            if (typeof value !== 'number' || !Number.isFinite(value)) continue;
+            const next = Math.min(1, Math.max(0, value));
+            if (state[name] === next) continue;
+            state[name] = next;
+            changed = true;
+        }
+        if (changed) this._writeDJEffects();
+    }
+
+    _createDJEffects() {
+        const ctx = this.audioContext;
+        try {
+            const input = ctx.createGain();
+            const lowpass = ctx.createBiquadFilter();
+            lowpass.type = 'lowpass';
+            lowpass.Q.value = 0.7;
+            const highpass = ctx.createBiquadFilter();
+            highpass.type = 'highpass';
+            highpass.Q.value = 0.7;
+            // The gater sits in series after the filters: it chops the signal every other send listens to.
+            const gate = ctx.createGain();
+            const mix = ctx.createGain();
+            const echoDelay = ctx.createDelay(1);
+            echoDelay.delayTime.value = 0.375;
+            const echoFeedback = ctx.createGain();
+            const echoWet = ctx.createGain();
+            const flangerDelay = ctx.createDelay(0.02);
+            flangerDelay.delayTime.value = 0.003;
+            const flangerWet = ctx.createGain();
+            const flangerLfo = ctx.createOscillator();
+            flangerLfo.type = 'sine';
+            flangerLfo.frequency.value = 0.25;
+            const flangerDepth = ctx.createGain();
+            flangerDepth.gain.value = 0.002;
+            const channel = ctx.createGain();
+            const output = ctx.createGain();
+            const reverb = ctx.createGain();
+
+            input.connect(lowpass);
+            lowpass.connect(highpass);
+            highpass.connect(gate);
+            gate.connect(mix);
+            gate.connect(echoDelay);
+            echoDelay.connect(echoWet);
+            echoWet.connect(mix);
+            echoDelay.connect(echoFeedback);
+            echoFeedback.connect(echoDelay);
+            gate.connect(flangerDelay);
+            flangerDelay.connect(flangerWet);
+            flangerWet.connect(mix);
+            flangerLfo.connect(flangerDepth);
+            flangerDepth.connect(flangerDelay.delayTime);
+            mix.connect(channel);
+            channel.connect(output);
+            if (this.roomConvolver) {
+                output.connect(reverb);
+                reverb.connect(this.roomConvolver);
+            }
+            flangerLfo.start();
+
+            this.djFxInput = input;
+            this.djFxOutput = output;
+            this.djFxLowpass = lowpass;
+            this.djFxHighpass = highpass;
+            this.djFxEchoFeedback = echoFeedback;
+            this.djFxEchoWet = echoWet;
+            this.djFxFlangerWet = flangerWet;
+            this.djFxFlangerLfo = flangerLfo;
+            this.djFxChannel = channel;
+            this.djFxReverb = reverb;
+            this.djFxExtra = this._createDJExtraEffects(ctx, gate, mix);
+            this.djFxGate = gate;
+            this._writeDJEffects(0);
+        } catch (error) {
+            this.djFxInput = null;
+            this.djFxOutput = null;
+            log.warn('🎚️ DJ effects unavailable:', error);
+        }
+    }
+
+    /**
+     * Phaser, noise sweep and gater. The phaser and the sweep are parallel wet sends into the mix (the gater is the
+     * series gain stage), so an amount of 0 is silent and costs nothing audible. A failure here leaves the original
+     * five effects working.
+     */
+    _createDJExtraEffects(ctx, gate, mix) {
+        const sources = [];
+        try {
+            const lfo = (type, hz) => {
+                const osc = ctx.createOscillator();
+                osc.type = type;
+                osc.frequency.value = hz;
+                sources.push(osc);
+                return osc;
+            };
+            const send = (...chain) => {
+                gate.connect(chain[0]);
+                for (let i = 0; i < chain.length - 1; i++) chain[i].connect(chain[i + 1]);
+                chain[chain.length - 1].connect(mix);
+            };
+
+            // Gater: a square LFO (smoothed so the edges do not click) moves the gate between 1 and 1 - depth.
+            const gaterLfo = lfo('square', 4);
+            const gaterEdge = ctx.createBiquadFilter();
+            gaterEdge.type = 'lowpass';
+            gaterEdge.frequency.value = 220;
+            const gaterDepth = ctx.createGain();
+            gaterDepth.gain.value = 0;
+            gaterLfo.connect(gaterEdge);
+            gaterEdge.connect(gaterDepth);
+            gaterDepth.connect(gate.gain);
+
+            // Phaser: four all-pass stages swept together by a slow LFO, mixed with the dry signal for the notches.
+            const phaserLfo = lfo('sine', 0.35);
+            const phaserDepth = ctx.createGain();
+            phaserDepth.gain.value = 1500;
+            phaserLfo.connect(phaserDepth);
+            const stages = [350, 700, 1400, 2800].map(hz => {
+                const stage = ctx.createBiquadFilter();
+                stage.type = 'allpass';
+                stage.frequency.value = hz;
+                stage.Q.value = 0.7;
+                phaserDepth.connect(stage.detune);
+                return stage;
+            });
+            const phaserWet = ctx.createGain();
+            send(...stages, phaserWet);
+
+            // Noise sweep: looped white noise through a band that rises with the knob, louder as it climbs.
+            const noiseLength = Math.max(1, Math.floor(ctx.sampleRate * 2));
+            const noiseBuffer = ctx.createBuffer(1, noiseLength, ctx.sampleRate);
+            const noiseData = noiseBuffer.getChannelData(0);
+            for (let i = 0; i < noiseData.length; i++) noiseData[i] = Math.random() * 2 - 1;
+            const noise = ctx.createBufferSource();
+            noise.buffer = noiseBuffer;
+            noise.loop = true;
+            sources.push(noise);
+            const sweepFilter = ctx.createBiquadFilter();
+            sweepFilter.type = 'bandpass';
+            sweepFilter.Q.value = 1.4;
+            const sweepWet = ctx.createGain();
+            noise.connect(sweepFilter);
+            sweepFilter.connect(sweepWet);
+            sweepWet.connect(mix);
+
+            sources.forEach(source => source.start());
+            return { sources, gaterLfo, gaterDepth, phaserWet, sweepFilter, sweepWet, gaterHz: 0 };
+        } catch (error) {
+            sources.forEach(source => { try { source.stop(); } catch (_) { /* never started */ } });
+            log.warn('🎚️ Extra DJ effects unavailable:', error);
+            return null;
+        }
+    }
+
+    /** The gater chops in eighth notes of the track's tempo (one square cycle per eighth: a sixteenth on, a sixteenth off). */
+    _syncGaterRate(timeConstant = 0.05) {
+        const extra = this.djFxExtra;
+        if (!extra) return;
+        const hz = Math.min(12, Math.max(1, (Number(this.vjBPM) || 124) / 60 * 2));
+        if (Math.abs(hz - extra.gaterHz) < 0.05) return;
+        extra.gaterHz = hz;
+        this._setDJAudioParam(extra.gaterLfo.frequency, hz, timeConstant);
+    }
+
+    _setDJAudioParam(param, value, timeConstant) {
+        if (!param || !this.audioContext) return;
+        const now = this.audioContext.currentTime;
+        if (param.cancelScheduledValues) param.cancelScheduledValues(now);
+        if (timeConstant > 0 && param.setTargetAtTime) param.setTargetAtTime(value, now, timeConstant);
+        else if (param.setValueAtTime) param.setValueAtTime(value, now);
+        else param.value = value;
+    }
+
+    _writeDJEffects(timeConstant = 0.025) {
+        // A file broadcast already contains the host's effects. Keep its knob readout, not a second wet pass.
+        const state = this._networkMusic ? VRClubAudioCrowd.DJ_EFFECT_DEFAULTS : this._djEffectsState();
+        const lowpassHz = 20000 * Math.pow(250 / 20000, state.lowpass);
+        const highpassHz = 20 * Math.pow(4000 / 20, state.highpass);
+        this._setDJAudioParam(this.djFxLowpass?.frequency, lowpassHz, timeConstant);
+        this._setDJAudioParam(this.djFxHighpass?.frequency, highpassHz, timeConstant);
+        this._setDJAudioParam(this.djFxEchoWet?.gain, state.echo * 0.65, timeConstant);
+        this._setDJAudioParam(this.djFxEchoFeedback?.gain, state.echo > 0 ? 0.2 + state.echo * 0.45 : 0, timeConstant);
+        this._setDJAudioParam(this.djFxFlangerWet?.gain, state.flanger * 0.7, timeConstant);
+        this._setDJAudioParam(this.djFxReverb?.gain, state.reverb * 0.7, timeConstant);
+        // An audio taper: a straight line in gain sounds like nothing happens until the fader is nearly at the end.
+        this._setDJAudioParam(this.djFxChannel?.gain, state.channel * state.channel, timeConstant);
+        this._writeDJExtraEffects(state, timeConstant);
+    }
+
+    _writeDJExtraEffects(state, timeConstant) {
+        const extra = this.djFxExtra;
+        if (!extra) return;
+        const level = name => Math.min(1, Math.max(0, Number(state[name]) || 0));
+        const gater = level('gater'), phaser = level('phaser'), sweep = level('sweep');
+        // The gate rests at 1 - depth / 2 and the LFO swings it by depth / 2 either way: between 1 - depth and 1.
+        this._setDJAudioParam(this.djFxGate?.gain, 1 - gater * 0.5, timeConstant);
+        this._setDJAudioParam(extra.gaterDepth.gain, gater * 0.5, timeConstant);
+        if (gater > 0.001) this._syncGaterRate();
+        this._setDJAudioParam(extra.phaserWet.gain, phaser * 0.9, timeConstant);
+        this._setDJAudioParam(extra.sweepFilter.frequency, 250 * Math.pow(40, sweep), timeConstant);
+        this._setDJAudioParam(extra.sweepWet.gain, sweep * sweep * 0.45, timeConstant);
+    }
+
+    setDJEffect(name, value) {
+        if (!this.guardHostControl('music')) return false;
+        const state = this._djEffectsState();
+        if (!Object.hasOwn(state, name)) throw new Error(`Unknown DJ effect: ${name}`);
+        state[name] = Math.min(1, Math.max(0, Number(value) || 0));
+        this._writeDJEffects();
+        return true;
+    }
+
+    resetDJEffects() {
+        Object.assign(this._djEffectsState(), VRClubAudioCrowd.DJ_EFFECT_DEFAULTS);
+        this._writeDJEffects(0.08);
     }
 
     /**
@@ -316,6 +670,11 @@ class VRClubAudioCrowd extends VRClubUI {
                 const busIn = this.occlusionFilter || this.audioCompressor;
                 this.pannerLeft.connect(busIn);
                 this.pannerRight.connect(busIn);
+                if (this.monitorPannerLeft && this.monitorPannerRight && this.monitorGain) {
+                    this.monitorPannerLeft.connect(this.monitorGain);
+                    this.monitorPannerRight.connect(this.monitorGain);
+                    this.monitorGain.connect(busIn);
+                }
                 if (this.occlusionFilter) {
                     // The second stage (street) sits after the first; either alone reaches the bus.
                     this.occlusionFilter.connect(this.occlusionFilter2 || this.audioCompressor);
@@ -353,9 +712,18 @@ class VRClubAudioCrowd extends VRClubUI {
         source.connect(this.audioAnalyser);
         if (this.kickFilter) source.connect(this.kickFilter);
         if (this.rhythmFilter) source.connect(this.rhythmFilter);
+        let audible = source;
+        if (this.djFxInput && this.djFxOutput) {
+            source.connect(this.djFxInput);
+            audible = this.djFxOutput;
+        }
         if (this.pannerLeft && this.pannerRight && this.airAbsorptionFilter && this.audioCompressor) {
-            source.connect(this.airAbsorptionFilter);
-            if (this.subFilter && this.subGain) source.connect(this.subFilter);
+            audible.connect(this.airAbsorptionFilter);
+            if (this.monitorPannerLeft && this.monitorPannerRight) {
+                audible.connect(this.monitorPannerLeft);
+                audible.connect(this.monitorPannerRight);
+            }
+            if (this.subFilter && this.subGain) audible.connect(this.subFilter);
         }
     }
 
@@ -376,8 +744,10 @@ class VRClubAudioCrowd extends VRClubUI {
         this._connectMusicInput(gain);
         const remote = { source, gain, element, previousKind: this._audioKind, previousTitle: this.nowPlayingLabel };
         this._networkMusic = remote;
+        this._writeDJEffects();
         this._audioKind = 'network';
         this.nowPlayingLabel = state?.title || 'Host broadcast';
+        if (typeof this.syncDJFromSet === 'function') this.syncDJFromSet({ label: this.nowPlayingLabel });
         element.play().catch(error => {
             if (this._networkMusic === remote) this.showErrorMessage(`Broadcast playback was blocked: ${error.message}. Press Listen along again.`);
         });
@@ -395,6 +765,7 @@ class VRClubAudioCrowd extends VRClubUI {
                 this._audioKind = remote.previousKind;
                 this.nowPlayingLabel = remote.previousTitle;
             }
+            this._writeDJEffects();
         }
     }
 
@@ -456,6 +827,9 @@ class VRClubAudioCrowd extends VRClubUI {
         // Real-world acoustic zone attenuation:
         // Dance floor center is at (0, 0, -12); PA speakers flown at z = -16; entrance is at z = 0.
         const distToStage = Math.sqrt(pos.x * pos.x + Math.pow(pos.z - (-14), 2));
+        // Height is a second acoustic, not a change to the floor's 2D distance (the stair sweep and the
+        // sub channel depend on that). The balcony ear is near the flown boxes; the deck soffit is not.
+        const zones = _paListenerZones(pos.x, pos.y, pos.z);
 
         // How far outdoors the listener is (0 in the club and vestibule, 1 on the street) and how far from the door.
         const city = typeof window !== 'undefined' ? window.CityLayout : null;
@@ -466,7 +840,22 @@ class VRClubAudioCrowd extends VRClubUI {
         // — follows this one curve, so walking down the stair opens the club up gradually instead of all at once.
         const venue = typeof window !== 'undefined' ? window.VenueLayout : null;
         const enclosure = venue && venue.vestibule ? venue.vestibule.enclosure(pos.z) : 1;
+
+        // Listener-local PA presence for character performance only. Beat/BPM/show analysis remains on the
+        // unattenuated analyser tap; this scalar merely lets the crowd and DJ calm as this guest leaves the room.
+        const distancePresence = Math.max(0.65, Math.min(1, 1 - Math.max(0, distToStage - 4) / 34));
+        const heightPresence = (1 + 0.18 * zones.onDeck) * (1 - 0.35 * zones.cover) * (1 - 0.08 * zones.shelf);
+        this._localPaPresence = distancePresence * enclosure * (1 - exterior) * heightPresence;
         
+        // Nearfield DJ booth studio monitors: crisp direct sound in the booth behind the main PA line,
+        // fading smoothly to zero out on the dance floor so they never compete with the flown PA arrays.
+        if (this.monitorGain && this.monitorGain.gain) {
+            const boothDist = Math.hypot(pos.x / 2.2, pos.z - (-18.9));
+            const boothProximity = Math.max(0, Math.min(1, 1 - Math.max(0, boothDist - 0.6) / 3.2));
+            const monLevel = 0.58 * boothProximity * boothProximity * (3 - 2 * boothProximity) * enclosure * (1 - exterior);
+            this.monitorGain.gain.setTargetAtTime(monLevel, now, 0.05);
+        }
+
         // Sub-bass intensity: peak punch on dance floor (0-8m from stage), rolling off gently near entrance
         if (this.subGain && this.subGain.gain) {
             let subLevel = Math.max(0.45, Math.min(1.15, 1.15 - (distToStage / 22) * 0.55));
@@ -477,7 +866,8 @@ class VRClubAudioCrowd extends VRClubUI {
 
         // Air absorption: high frequency roll-off with distance
         if (this.airAbsorptionFilter && this.airAbsorptionFilter.frequency) {
-            const cutoff = Math.max(5000, Math.min(18000, 18000 - distToStage * 650));
+            const open = Math.max(5000, Math.min(18000, 18000 - distToStage * 650));
+            const cutoff = _logMix(open * (1 + 0.12 * zones.onDeck), 3200, zones.cover);
             this.airAbsorptionFilter.frequency.setTargetAtTime(cutoff, now, 0.05);
         }
 
@@ -487,7 +877,8 @@ class VRClubAudioCrowd extends VRClubUI {
         // street neither is heard. Without that fade the stairwell got the room's full-band tail at
         // its loudest, which is most of why the club used to sound wide open from up there.
         if (this.reverbSend && this.reverbSend.gain) {
-            const wet = Math.max(0.08, Math.min(0.62, distToStage / 30)) * enclosure * (1 - exterior);
+            const wet = Math.max(0.08, Math.min(0.62, distToStage / 30)) * enclosure * (1 - exterior)
+                * (1 - 0.4 * zones.onDeck) * (1 + 0.35 * zones.cover) * (1 + 0.25 * zones.shelf);
             this.reverbSend.gain.setTargetAtTime(wet, now, 0.12);
         }
         if (this.roomDelayGain && this.roomDelayGain.gain) {
@@ -505,16 +896,19 @@ class VRClubAudioCrowd extends VRClubUI {
             const STAIR_HZ = 520;
             const OPEN_HZ = 20000;
             const corridorCutoff = Math.exp(Math.log(STAIR_HZ) + (Math.log(OPEN_HZ) - Math.log(STAIR_HZ)) * enclosure);
+            // Under the deck or in the bar alcove the top end closes toward a warm shelf. The stair
+            // walk (x = 0) has no cover, so its 10 cm sweep is unchanged.
+            const coveredCutoff = _logMix(_logMix(corridorCutoff, 780, zones.cover), 2400, zones.shelf);
             const leak = Math.max(0, 1 - doorDistance / 14);
             const streetCutoff = 90 + 90 * leak * leak;
             // Interpolate in log-frequency so the sweep is even to the ear.
             const lerpLog = (from, to) => Math.exp(Math.log(from) + (Math.log(to) - Math.log(from)) * exterior);
-            this.occlusionFilter.frequency.setTargetAtTime(lerpLog(corridorCutoff, streetCutoff), now, 0.08);
+            this.occlusionFilter.frequency.setTargetAtTime(lerpLog(coveredCutoff, streetCutoff), now, 0.08);
             if (this.occlusionFilter2 && this.occlusionFilter2.frequency) {
                 this.occlusionFilter2.frequency.setTargetAtTime(lerpLog(22050, streetCutoff), now, 0.08);
             }
             if (this.audioMasterGain && this.audioMasterGain.gain) {
-                const indoorGain = 0.72 + (1.15 - 0.72) * enclosure;
+                const indoorGain = (0.72 + (1.15 - 0.72) * enclosure) * (1 + 0.08 * zones.onDeck) * (1 - 0.12 * zones.cover);
                 // Outdoors the make-up gain keeps the thump present at the door, and the level then falls with distance
                 // from it (the sound comes up the entrance stair and out of the door): -6 dB 8 m out, -10 dB on the far
                 // pavement, -18 dB at the end of the block.
@@ -627,6 +1021,7 @@ class VRClubAudioCrowd extends VRClubUI {
         frame.treble = treble;
         frame.average = average;
         frame.hasAudio = hasAudio;
+        if (this.djFxExtra && this._djEffects && this._djEffects.gater > 0.001) this._syncGaterRate();
         this._readKickBand(frame, nowMs);
         return frame;
     }
@@ -749,60 +1144,19 @@ class VRClubAudioCrowd extends VRClubUI {
     static get KICK_MAX_STEPS() { return 16; }
 
     /**
-     * Pulse VR controllers in time with bass hits.
-     * Massive immersion gain — gives the user a physical "thump" on each kick drum,
-     * substituting for the chest-rattling sub-bass of a real club PA.
-     *
-     * Throttled so we don't spam the haptic bus (which causes the actuator to
-     * desync from audio). Honors `bassHapticsEnabled` so the user can opt out.
-     */
-    _updateBassHaptics(audioData) {
-        if (!this.bassHapticsEnabled) return;
-        if (!this._xrControllers || this._xrControllers.length === 0) return;
-        if (!audioData || !audioData.hasAudio) return;
-
-        const bass = audioData.bass || 0;
-        if (bass < 0.55) return; // Only fire on real kicks, not ambient rumble
-
-        const now = performance.now();
-        // 4 Hz cap — matches typical kick-drum cadence (~140 BPM eighths)
-        if (now - this._lastHapticPulseAt < 140) return;
-        this._lastHapticPulseAt = now;
-
-        const intensity = Math.min(1.0, (bass - 0.55) * 2.2); // 0..1
-        const duration = 60 + Math.floor(intensity * 80);     // 60..140 ms
-
-        for (let i = 0; i < this._xrControllers.length; i++) {
-            const ctrl = this._xrControllers[i];
-            try {
-                const inputSource = ctrl && ctrl.inputSource;
-                const gp = inputSource && inputSource.gamepad;
-                if (!gp) continue;
-                // Standards-compliant path (Quest browser supports this on WebXR gamepads)
-                if (gp.hapticActuators && gp.hapticActuators[0] && gp.hapticActuators[0].pulse) {
-                    gp.hapticActuators[0].pulse(intensity, duration);
-                } else if (gp.vibrationActuator && gp.vibrationActuator.playEffect) {
-                    gp.vibrationActuator.playEffect('dual-rumble', {
-                        duration: duration,
-                        strongMagnitude: intensity,
-                        weakMagnitude: intensity * 0.6
-                    });
-                }
-            } catch (_) { /* Per-controller failures must never break the audio loop */ }
-        }
-    }
-
-    /**
      * Toggle photosensitive Safe Mode. Disables strobes and bloom flashes
      * for users with photosensitive epilepsy or migraine sensitivity.
      * Persists across sessions.
      */
-    setPhotosensitiveSafeMode(enabled) {
+    setPhotosensitiveSafeMode(enabled, { persist = true } = {}) {
         this.photosensitiveSafeMode = !!enabled;
         if (this.flashGovernor && this.photosensitiveSafeMode) {
             this.flashGovernor.lastSource = null;
         }
-        try { localStorage.setItem('vrclub.safeMode', this.photosensitiveSafeMode ? '1' : '0'); } catch (_) {}
+        // `persist: false` is a temporary hold (immersive launch, until the guest has chosen): it must not become their saved choice.
+        if (persist) {
+            try { localStorage.setItem('vrclub.safeMode', this.photosensitiveSafeMode ? '1' : '0'); } catch (_) {}
+        }
         // Immediately quiet any in-flight strobe state
         if (this.photosensitiveSafeMode && this.strobes) {
             this.strobes.forEach((strobe) => {
@@ -811,6 +1165,9 @@ class VRClubAudioCrowd extends VRClubUI {
                 strobe.flashDuration = 0;
             });
             if (this.strobeFlashLight) this.strobeFlashLight.intensity = 0;
+        }
+        if (this.showDirector && typeof this.showDirector.onPhotosensitiveModeChanged === 'function') {
+            this.showDirector.onPhotosensitiveModeChanged();
         }
         log.info(`♿ Photosensitive Safe Mode: ${this.photosensitiveSafeMode ? 'ON (strobes disabled)' : 'OFF'}`);
         return this.photosensitiveSafeMode;
@@ -888,16 +1245,6 @@ class VRClubAudioCrowd extends VRClubUI {
     }
 
     /**
-     * Toggle bass-driven controller haptics. Persists across sessions.
-     */
-    setBassHapticsEnabled(enabled) {
-        this.bassHapticsEnabled = !!enabled;
-        try { localStorage.setItem('vrclub.bassHaptics', this.bassHapticsEnabled ? '1' : '0'); } catch (_) {}
-        log.info(`📳 Bass haptics: ${this.bassHapticsEnabled ? 'ON' : 'OFF'}`);
-        return this.bassHapticsEnabled;
-    }
-
-    /**
      * Normalise the materials that arrive inside an avatar GLB.
      *
      * Runs ONCE per source file, not once per dancer: every clone shares these
@@ -907,6 +1254,7 @@ class VRClubAudioCrowd extends VRClubUI {
         const aniso = this.tierSettings.anisotropy;
 
         materials.forEach(mat => {
+            const characterHair = mat._vrclubCharacterHair === true;
             // Exceeding the device light budget produces "Too many lights" and a
             // black character, so this applies to imported materials too.
             mat.maxSimultaneousLights = this.maxLights;
@@ -915,15 +1263,16 @@ class VRClubAudioCrowd extends VRClubUI {
             // ship alpha channels they do not actually use - without this the crowd
             // renders see-through in the headset.
             mat.alpha = 1.0;
-            mat.transparencyMode = BABYLON.Material.MATERIAL_OPAQUE;
+            mat.transparencyMode = characterHair ? BABYLON.Material.MATERIAL_ALPHATEST : BABYLON.Material.MATERIAL_OPAQUE;
             if (mat.needAlphaBlending) mat.needAlphaBlending = () => false;
-            if (mat.needAlphaTesting) mat.needAlphaTesting = () => false;
+            if (mat.needAlphaTesting) mat.needAlphaTesting = () => characterHair;
+            if (characterHair) { mat.useAlphaFromAlbedoTexture = true; mat.alphaCutOff = 0.45; }
 
             // Depth write is what makes the crowd OCCLUDE the additive light beams
             // in rendering group 1 instead of letting them shine straight through.
             mat.disableDepthWrite = false;
             mat.forceDepthWrite = true;
-            mat.backFaceCulling = true;
+            mat.backFaceCulling = !characterHair;
 
             if (garmentColor && (mat.name === 'MI_Peasant' || mat.name === 'MI_Ranger') && mat.albedoColor) {
                 mat.albedoColor.copyFrom(garmentColor);
@@ -935,7 +1284,7 @@ class VRClubAudioCrowd extends VRClubUI {
 
             [mat.albedoTexture, mat.diffuseTexture].forEach(tex => {
                 if (!tex) return;
-                tex.hasAlpha = false;
+                tex.hasAlpha = characterHair;
                 tex.anisotropicFilteringLevel = aniso;
             });
 
@@ -961,6 +1310,8 @@ class VRClubAudioCrowd extends VRClubUI {
      * @param {object} [options.ambient]          subtle yaw and idle-speed variation for a fixed bystander
      */
     _spawnAvatar(container, name, position, facing, height, speedRatio, options = {}) {
+        const originalHeight = height;
+        if (container.character) height = container.character.height;
         // doNotInstantiate: these are skinned meshes, so each dancer needs its own
         // skeleton and animation group to move independently. cloneMaterials stays
         // false so the whole crowd still shares one set of materials and textures.
@@ -1029,8 +1380,22 @@ class VRClubAudioCrowd extends VRClubUI {
                 else group.dispose();
             });
             const first = moves.get(options.clip || 'Dance_Loop') || moves.values().next().value;
-            moves.forEach(group => { group.enableBlending = true; group.blendingSpeed = 0.08; });
-            dance = { groups: moves, current: first, state: null };
+            moves.forEach(group => {
+                group.enableBlending = true;
+                group.blendingSpeed = 0.08;
+                VRClubAudioCrowd._reuseAnimationInterpolation(group);
+            });
+            let attentionSeed = 2166136261;
+            for (let i = 0; i < name.length; i++) {
+                attentionSeed ^= name.charCodeAt(i);
+                attentionSeed = Math.imul(attentionSeed, 16777619);
+            }
+            dance = {
+                groups: moves, current: first, state: null,
+                attentionSeed: attentionSeed >>> 0,
+                attentionYaw: 0, attentionTargetYaw: 0,
+                attentionUntil: 0, nextAttention: 0, attending: false
+            };
             groups = [first];
         } else if (options.clips && groups.length > 1) {
             // A guest who changes pose at runtime: keep the poses it can strike, drop the rest. Only the started
@@ -1055,6 +1420,12 @@ class VRClubAudioCrowd extends VRClubUI {
             groups = [chosen];
         }
 
+        // The pack's raw `Idle` animates every finger (108 channels, 40 without them). Fingers swing 15 degrees at most in that loop, so
+        // a relaxed hand at frame 0 reads the same at queue distance; the other clips this club authors never drove fingers.
+        groups.forEach(group => {
+            if (clipOf(group) === 'Idle') VRClubAudioCrowd._freezeFingerChannels(group, prefix);
+        });
+
         groups.forEach(group => {
             group.start(true);
             group.speedRatio = speedRatio;
@@ -1066,6 +1437,10 @@ class VRClubAudioCrowd extends VRClubUI {
 
         const npc = {
             name,
+            character: container.character || null,
+            characterSourceId: container.characterSourceId,
+            characterEntry: entry,
+            characterSpawn: { height: originalHeight, options, floorOffset: root.position.y - position.y },
             root,
             meshes,
             animations: groups,
@@ -1128,6 +1503,55 @@ class VRClubAudioCrowd extends VRClubUI {
         try { localStorage.setItem('vrclub.avatarStyle', next); } catch (_) { /* private browsing */ }
         if (this._localRig) { this._localRig.dispose(); this._localRig = null; }
         this._spawnLocalPlayerBody();
+        // The restroom mirror draws this body when no character is chosen: make it list the new meshes.
+        this._mirrorSignature = -1;
+        if (typeof this._refreshVRQuickMenu === 'function') this._refreshVRQuickMenu();
+        return next;
+    }
+
+    /** The people a player can be: the same 17 characters the relay hands out (`f1`-`f8`, `m1`-`m9`). */
+    static get MY_CHARACTERS() {
+        return Object.freeze(['f1', 'f2', 'f3', 'f4', 'f5', 'f6', 'f7', 'f8', 'm1', 'm2', 'm3', 'm4', 'm5', 'm6', 'm7', 'm8', 'm9']);
+    }
+
+    /** The character this player chose for themselves (saved), or null for the default body. Offline, it is the mirror's reflection. */
+    getLocalCharacter() {
+        const appearance = this.getPersonalAppearance?.();
+        if (appearance) return appearance.base;
+        try {
+            const id = localStorage.getItem('vrclub.myCharacter');
+            return VRClubAudioCrowd.MY_CHARACTERS.includes(id) ? id : null;
+        } catch (_) { return null; }
+    }
+
+    /** Save an exact character for both offline and online use; the relay confirms the shared appearance. */
+    setLocalCharacter(id) {
+        const next = VRClubAudioCrowd.MY_CHARACTERS.includes(id) ? id : null;
+        const mp = this.multiplayer;
+        if (next && mp && mp.connected && !mp.client.avatarSelectionSupported) {
+            this.showErrorMessage('The relay needs an update before you can choose an exact character in a room.');
+            return false;
+        }
+        try {
+            if (next) localStorage.setItem('vrclub.myCharacter', next);
+            else localStorage.removeItem('vrclub.myCharacter');
+            localStorage.removeItem('vrclub.personalAppearance');
+        } catch (error) {
+            log.warn('Your character could not be saved:', error);
+            this.showErrorMessage('Your character could not be saved on this device.');
+            return false;
+        }
+        this._personalAppearanceLoaded = true;
+        this._personalAppearance = null;
+        if (mp && mp.client) {
+            mp.client.preferredAvatar = next;
+            mp.client.setPreferredAppearance?.(null);
+        }
+        if (mp && mp.connected && mp.selectAvatar(next) === false) return false;
+        if (next) this.setLocalAvatarStyle(next[0] === 'm' ? 'male' : 'female');
+        this._mirrorSignature = -1;
+        if (typeof this._refreshVRQuickMenu === 'function') this._refreshVRQuickMenu();
+        if (typeof window.dispatchEvent === 'function') window.dispatchEvent(new CustomEvent('localcharacterchange'));
         return next;
     }
 
@@ -1137,11 +1561,11 @@ class VRClubAudioCrowd extends VRClubUI {
             this._djLooks = Object.freeze({
                 male: Object.freeze({
                     url: './js/models/avatars/club-dj-male.glb', height: 1.78,
-                    garment: new BABYLON.Color3(0.10, 0.10, 0.12), hair: new BABYLON.Color3(0.20, 0.12, 0.07)
+                    garment: new BABYLON.Color3(0.10, 0.10, 0.12), hair: new BABYLON.Color3(0.12, 0.09, 0.07)
                 }),
                 female: Object.freeze({
                     url: './js/models/avatars/club-dj-female.glb', height: 1.68,
-                    garment: new BABYLON.Color3(0.42, 0.42, 0.45), hair: new BABYLON.Color3(1.0, 0.88, 0.62)
+                    garment: new BABYLON.Color3(0.13, 0.13, 0.15), hair: new BABYLON.Color3(0.85, 0.72, 0.48)
                 })
             });
         }
@@ -1152,10 +1576,11 @@ class VRClubAudioCrowd extends VRClubUI {
      * Every character file the room can show, by index; the crowd and guest slots point at these through
      * `sourceIndex(id)`. Files load on demand per quality tier (see `_requiredCrowdSources`).
      *  - dancerF/dancerM: the UE-rig peasant dancers. Only the player's own body wears them now (AvatarRig).
-     *  - hipHop/house/rumba: legacy slot ids, now CC0 Modular Men/Women replacements; no Mixamo files ship.
      *  - bartender: the Quaternius female guest, in a black work outfit through a tint.
      *  - f1..f8, m1..m9: the Modular Women / Modular Men cast built by scripts/build-crowd-glbs.mjs (club-crowd-*.glb):
      *    one draw each, vertex-coloured, the club's own dance and idle clips retargeted onto them.
+     *  - vf1..vf7, vm1..vm7: recoloured copies of that cast (other skin, hair and clothes; see VARIANTS in the build script)
+     *    so that every person in the club is different. A person appears ONCE: at most one slot per source.
      *  - bouncer: the same build, a man in a black suit, at the street door (see _streetSlots).
      */
     static get AVATAR_SOURCES() {
@@ -1165,9 +1590,6 @@ class VRClubAudioCrowd extends VRClubUI {
             this._avatarSources = Object.freeze([
                 { id: 'dancerF', url: './js/models/avatars/club-dancer-female.glb', garmentColor: new BABYLON.Color3(0.45, 0.82, 1.0) },
                 { id: 'dancerM', url: './js/models/avatars/club-dancer-male.glb', garmentColor: new BABYLON.Color3(1.0, 0.42, 0.68) },
-                { id: 'hipHop', url: './js/models/avatars/club-crowd-m1.glb' },
-                { id: 'house', url: './js/models/avatars/club-crowd-m9.glb' },
-                { id: 'rumba', url: './js/models/avatars/club-crowd-f4.glb' },
                 // The bartender: the female guest file as its own container, so it can carry a black work outfit
                 // without recolouring anyone else.
                 { id: 'bartender', url: './js/models/avatars/club-guest-female.glb', garmentColor: new BABYLON.Color3(0.16, 0.16, 0.19) },
@@ -1189,7 +1611,22 @@ class VRClubAudioCrowd extends VRClubUI {
                 { id: 'm8', url: './js/models/avatars/club-crowd-m8.glb' },
                 { id: 'm9', url: './js/models/avatars/club-crowd-m9.glb' },
                 // The bouncer at the street door (black suit; carries the guest idle clips). Never a player avatar.
-                { id: 'bouncer', url: './js/models/avatars/club-crowd-bouncer.glb' }
+                { id: 'bouncer', url: './js/models/avatars/club-crowd-bouncer.glb' },
+                // Recoloured copies of the cast above (scripts/build-crowd-glbs.mjs VARIANTS): other skin, hair and clothes,
+                // so no two people in the club are alike. Never player avatars (the relay's pool is f1..m9 only).
+                { id: 'vf1', url: './js/models/avatars/club-crowd-vf1.glb' },
+                { id: 'vf2', url: './js/models/avatars/club-crowd-vf2.glb' },
+                { id: 'vf3', url: './js/models/avatars/club-crowd-vf3.glb' },
+                { id: 'vf5', url: './js/models/avatars/club-crowd-vf5.glb' },
+                { id: 'vf6', url: './js/models/avatars/club-crowd-vf6.glb' },
+                { id: 'vf7', url: './js/models/avatars/club-crowd-vf7.glb' },
+                { id: 'vm1', url: './js/models/avatars/club-crowd-vm1.glb' },
+                { id: 'vm2', url: './js/models/avatars/club-crowd-vm2.glb' },
+                { id: 'vm3', url: './js/models/avatars/club-crowd-vm3.glb' },
+                { id: 'vm4', url: './js/models/avatars/club-crowd-vm4.glb' },
+                { id: 'vm5', url: './js/models/avatars/club-crowd-vm5.glb' },
+                { id: 'vm6', url: './js/models/avatars/club-crowd-vm6.glb' },
+                { id: 'vm7', url: './js/models/avatars/club-crowd-vm7.glb' }
             ].map(source => Object.freeze(source)));
         }
         return this._avatarSources;
@@ -1198,6 +1635,10 @@ class VRClubAudioCrowd extends VRClubUI {
     /** Index of a source in AVATAR_SOURCES by id, or -1. */
     static sourceIndex(id) {
         return VRClubAudioCrowd.AVATAR_SOURCES.findIndex(source => source.id === id);
+    }
+
+    static get BARTENDER_ACTIVITIES() {
+        return this._bartenderActivities || (this._bartenderActivities = Object.freeze(['wipe', 'survey', 'arrange', 'wash']));
     }
 
     /** Local DJ preference, independent of music and the room host. */
@@ -1220,11 +1661,48 @@ class VRClubAudioCrowd extends VRClubUI {
         return true;
     }
 
+    /**
+     * When a set's metadata unambiguously identifies a male or female DJ, switch the booth DJ to match (`setDJ` only;
+     * the guest's saved `vrclub.questDJ` default is left untouched, and uncertain sets leave the current DJ alone).
+     */
+    syncDJFromSet(info) {
+        const infer = typeof window !== 'undefined' && window.LEDPatterns && typeof window.LEDPatterns.inferSetDjGender === 'function'
+            ? window.LEDPatterns.inferSetDjGender
+            : null;
+        if (!infer) return null;
+        const current = this.musicLibrary && typeof this.musicLibrary.current === 'function'
+            ? this.musicLibrary.current()
+            : null;
+        const payload = typeof info === 'object' && info !== null ? info : {
+            label: typeof info === 'string' ? info : (this.nowPlayingLabel || ''),
+            savedName: (current && current.name) || '',
+            url: this._audioStreamUrl || this._soundCloudUrl || (current && current.url) || ''
+        };
+        const gender = infer(payload);
+        if (!gender) return null;
+        Promise.resolve(this.setDJ(gender)).catch(() => {});
+        const select = typeof document !== 'undefined' && typeof document.getElementById === 'function'
+            ? document.getElementById('djStyle')
+            : null;
+        if (select) select.value = gender;
+        return gender;
+    }
+
     /** Load one avatar GLB into a container with its materials normalised. Null when it cannot be loaded. */
     async _loadAvatarSource(url, garmentColor = null, hairColor = null) {
         try {
             const container = await BABYLON.SceneLoader.LoadAssetContainerAsync("", url, this.scene);
+            // Babylon's glTF loader starts the file's first clip on the SOURCE skeleton, even in a container nothing draws, and it
+            // loops there for ever: every frame the scene evaluated ~2,200 animatables (about 17 source files) that no one could
+            // see. The instantiated characters start their own cloned groups, so the sources' can simply be stopped.
+            for (const group of container.animationGroups) group.stop();
+            const person = window.CharacterCatalog && Object.values(window.CharacterCatalog.people).find(item => item.url === url);
+            if (person) for (const material of container.materials) material._vrclubCharacterHair = material.name.endsWith('_hair');
             this._prepareAvatarMaterials(container.materials, garmentColor, hairColor);
+            container.character = person || null;
+            container.characterSourceId = person
+                ? Object.keys(window.CharacterCatalog.npcs).find(id => window.CharacterCatalog.people[window.CharacterCatalog.npcs[id]] === person)
+                : VRClubAudioCrowd.AVATAR_SOURCES.find(source => source.url === url)?.id;
             this._restoreLightBudgets();
             this._avatarContainers.push(container);
             return container;
@@ -1276,14 +1754,18 @@ class VRClubAudioCrowd extends VRClubUI {
     }
 
     async _applyDJ(id) {
-        const look = VRClubAudioCrowd.djLook(id);
+        const style = this.getCharacterStyle();
+        const look = this._characterDJLook(id, style);
         if (!look) return false;
+        this._djWanted = id;
         // Sent home: remember the local choice and fetch nothing until the DJ is asked back.
-        if (!this.isPeopleVisible('dj')) { this._djWanted = id; return false; }
-        if (this._djId === id) return true;
+        if (!this.isPeopleVisible('dj')) return false;
+        if (this._djId === id && this._djCharacterStyle === style) return true;
         this._djContainers = this._djContainers || {};
-        if (!this._djContainers[id]) this._djContainers[id] = await this._loadAvatarSource(look.url, look.garment, look.hair);
-        const container = this._djContainers[id];
+        const key = `${style}:${id}`;
+        if (!this._djContainers[key]) this._djContainers[key] = await this._loadCharacterContainer(look, style);
+        const container = this._djContainers[key];
+        if (style !== this.getCharacterStyle()) return false;
         if (!container || this._disposed) return false;
 
         // The previous DJ leaves: skeleton, clip, collider and all.
@@ -1299,6 +1781,7 @@ class VRClubAudioCrowd extends VRClubUI {
         this._djEntry = this._spawnPerformingDJ(container, look)
             || this._spawnAvatar(container, 'djPerformer', new BABYLON.Vector3(0, 0.5, -19.4), 0, look.height, 0.55, { clip: 'Idle_Loop' });
         this._djId = id;
+        this._djCharacterStyle = style;
         if (this._refreshContactShadows) this._refreshContactShadows();
         if (this._refreshShadowCasters) this._refreshShadowCasters();
         return true;
@@ -1353,6 +1836,9 @@ class VRClubAudioCrowd extends VRClubUI {
         if (npc.collider) npc.collider.position.set(desk.cx, 0.5 + 0.85, desk.near - 0.45);
         this.npcAvatars.push(npc);
         this._djRig = rig;
+        npc.rig = rig;
+        npc.character = container.character || null;
+        npc.characterSourceId = `dj-${this._djWanted || this._initialDJId()}`;
         this._djPerformer = performer;
         this._djMusic = { hasAudio: false, beatPhase: 0, bar: 0, energy: 0, drop: false, bpm: 120 };
         this._djVisitors = [];
@@ -1374,8 +1860,9 @@ class VRClubAudioCrowd extends VRClubUI {
         const barPhase = Number.isFinite(this.barPhase) ? this.barPhase : 0;
         music.beatPhase = (barPhase * 4) % 1;
         music.bar = vj ? Math.floor(vj.beatNumber / 4) : 0;
-        music.energy = audioData && typeof audioData.energy === 'number' ? audioData.energy
-            : (show && Number.isFinite(show._energy) ? Math.min(1, show._energy / 0.45) : 0.5);
+        const localPresence = Number.isFinite(this._localPaPresence) ? this._localPaPresence : 1;
+        music.energy = (audioData && typeof audioData.energy === 'number' ? audioData.energy
+            : (show && Number.isFinite(show._energy) ? Math.min(1, show._energy / 0.45) : 0.5)) * localPresence;
         // A drop: the show's release set-piece starting, or it entering IGNITION.
         let drop = false;
         if (show) {
@@ -1396,7 +1883,7 @@ class VRClubAudioCrowd extends VRClubUI {
                 music.bpm = fallback.bpm;
                 music.beatPhase = fallback.beat % 1;
                 music.bar = Math.floor(fallback.beat / 4);
-                music.energy = fallback.energy;
+                music.energy = 0.55 * localPresence;
             }
         }
         // Who might walk up to the booth: this guest, and the other people in the room.
@@ -1430,14 +1917,41 @@ class VRClubAudioCrowd extends VRClubUI {
         if (this._localRig || typeof AvatarRig === 'undefined') return;
         const container = this._avatarContainerFor(this.getLocalAvatarStyle());
         if (!container) return;
-        const cam = this._playerCamera();
-        const pos = cam ? (cam.globalPosition || cam.position) : null;
-        // Desktop guests stand at the club's fixed eye height: the camera may not have been
-        // placed yet when the crowd finishes loading, and a stale height would make the body
-        // small and float it. In VR the measured head height is the player's own.
-        const eye = this.isInVRMode && pos && Number.isFinite(pos.y) ? Math.min(2.0, Math.max(1.2, pos.y)) : 1.7;
-        const rig = new AvatarRig(this, container, { eyeHeight: eye, hideHead: true });
+        // The body is the player's own height in the headset once it is known (measured, or estimated while standing),
+        // otherwise the standard 1.7 m one; desktop is always 1.7 m because its camera is. Sitting on the club's
+        // furniture or in Seated mode never shrinks it: a seated guest keeps a standing person, and Seated mode lifts
+        // the view to it (`_xrHeadHeight`).
+        const rig = new AvatarRig(this, container, { eyeHeight: this._bodyEyeHeight(), hideHead: true });
         this._localRig = rig.ok ? rig : null;
+    }
+
+    /** Eye height of the local body, and of the person others see: the player's own in VR, 1.7 m on desktop. */
+    _bodyEyeHeight() {
+        const H = window.PlayerHeight;
+        const standard = H ? H.DEFAULT_EYE : 1.7;
+        return this.isInVRMode && this.playerEyeHeight ? this.playerEyeHeight : standard;
+    }
+
+    /**
+     * The height the local body is drawn at: `_bodyEyeHeight()` approached at 0.3 m/s, so a measured height, entering VR or
+     * leaving it grows or shrinks the person over about a second instead of jumping (the first call, and a rig that
+     * has not been fitted yet, start there).
+     */
+    _easedBodyEyeHeight(dt) {
+        const target = this._bodyEyeHeight();
+        let shown = this._bodyEyeShown;
+        if (!Number.isFinite(shown) || !(dt > 0)) shown = target;
+        else {
+            const step = 0.3 * Math.min(dt, 0.1);
+            shown = Math.abs(target - shown) <= step ? target : shown + Math.sign(target - shown) * step;
+        }
+        this._bodyEyeShown = shown;
+        return shown;
+    }
+
+    /** The eased height the local body is drawn at right now (the target until the body has run once). */
+    _shownBodyEye() {
+        return Number.isFinite(this._bodyEyeShown) ? this._bodyEyeShown : this._bodyEyeHeight();
     }
 
     /** One controller's hand pose into a reusable object, or null when untracked. */
@@ -1460,14 +1974,50 @@ class VRClubAudioCrowd extends VRClubUI {
             hand.fx = dir.x; hand.fy = dir.y; hand.fz = dir.z;
             aim.getDirectionToRef(BABYLON.Axis.Y, dir);
             hand.ux = dir.x; hand.uy = dir.y; hand.uz = dir.z;
+            // Holding a knob or the crossfader: the hand goes onto it (the palm 7 cm short of the cap, fingers along the
+            // controller's own direction, so the wrist twist still turns the hand), instead of hovering where the ray starts.
+            const held = this._vjDeskHandHold && this._vjDeskHandHold[side];
+            if (held && held.amount > 0) {
+                hand.x += (held.x - hand.fx * 0.07 - hand.x) * held.amount;
+                hand.y += (held.y - hand.fy * 0.07 - hand.y) * held.amount;
+                hand.z += (held.z - hand.fz * 0.07 - hand.z) * held.amount;
+            }
             return hand;
         }
         return null;
     }
 
+    /** Walking away from a seat stands you up (the camera leaves the seat's spot): independent of which body is drawn. */
+    _releaseSeatWhenAway() {
+        const seat = this._activeSeat;
+        if (!seat) return;
+        const cam = this._playerCamera();
+        const pos = cam && (cam.globalPosition || cam.position);
+        if (pos && Math.hypot(pos.x - seat.viewX, pos.z - seat.viewZ) > 0.75) this.standFromSeat(false);
+    }
+
     _updateLocalPlayerBody(dt) {
+        // The eased body height drives whichever body is shown (the character's scale, or the mannequin's fit).
+        const eye = this._easedBodyEyeHeight(dt);
+        // Every body needs this, so it cannot live in the mannequin's own update (a character body used to stay on the couch).
+        this._releaseSeatWhenAway();
         const rig = this._localRig;
         if (!rig || !rig.ok) return;
+        // When the player has a character (the one in the mirror), THAT is their body: the procedural mannequin stays hidden
+        // and idle, and takes over again (from where the player now stands) when there is no character to show.
+        const character = this._mirrorDouble;
+        if (character && character.shown) {
+            if (!rig._standsDown) {
+                rig._standsDown = true;
+                rig.meshes.forEach(mesh => mesh.setEnabled(false));
+            }
+            return;
+        }
+        if (rig._standsDown) {
+            rig._standsDown = false;
+            rig._placed = false;
+            rig.meshes.forEach(mesh => mesh.setEnabled(true));
+        }
         const cam = this._playerCamera();
         const pos = cam && (cam.globalPosition || cam.position);
         if (!pos) return;
@@ -1478,15 +2028,19 @@ class VRClubAudioCrowd extends VRClubUI {
         cam.getDirectionToRef(BABYLON.Axis.Z, dir);
         pose.headYaw = Math.atan2(dir.x, dir.z);
         pose.headPitch = Math.asin(Math.max(-1, Math.min(1, dir.y)));
-        pose.x = pos.x; pose.z = pos.z; pose.eyeY = pos.y;
-        pose.groundY = (pos.x > -3 && pos.x < 3 && pos.z < -16 && pos.z > -20.5) ? 0.5 : (this._walkLevel || 0);
+        const seat = this._activeSeat;
+        pose.x = seat ? seat.x : pos.x;
+        pose.z = seat ? seat.z : pos.z;
+        pose.groundY = seat ? seat.floorY : ((pos.x > -3 && pos.x < 3 && pos.z < -16 && pos.z > -20.5) ? 0.5 : (this._walkLevel || 0));
+        rig.setEyeHeight(eye);   // refits only when it differs by 4 cm or more
+        pose.eyeY = pose.groundY + (rig.standEye || 1.7);
+        pose.seated = !!seat;
+        pose.seatY = seat ? seat.seatY : 0;
+        pose.bodyYaw = seat ? seat.facing : pose.headYaw;
         if (this.isInVRMode) {
-            if (!this._rigInVR) { this._rigInVR = true; rig.setEyeHeight(Math.min(2.0, Math.max(1.0, pos.y - pose.groundY))); }
             pose.left = this._handPose('left', pos);
             pose.right = this._handPose('right', pos);
         } else {
-            if (this._rigInVR) rig.setEyeHeight(1.7);
-            this._rigInVR = false;
             pose.left = null; pose.right = null;
         }
         rig.update(dt, pose);
@@ -1508,16 +2062,16 @@ class VRClubAudioCrowd extends VRClubUI {
         const crowdSlots = [
             { x: -3.4, z: -13.4, src: at('f1'), height: 1.70, facing:  0.10 },
             { x:  3.2, z: -13.0, src: at('m2'), height: 1.80, facing: -0.12 },
-            { x:  0.4, z: -10.8, src: at('hipHop'), height: 1.74, facing:  0.04 },
+            { x:  0.4, z: -10.8, src: at('vm1'), height: 1.74, facing:  0.04 },
             { x: -6.0, z: -11.6, src: at('m1'), height: 1.86, facing:  0.28 },
             { x:  5.6, z: -11.0, src: at('f3'), height: 1.66, facing: -0.26 },
             { x: -1.4, z:  -8.6, src: at('f2'), height: 1.64, facing:  0.08 },
             { x:  2.6, z: -15.0, src: at('m3'), height: 1.78, facing: -0.06 },
             { x: -4.6, z: -15.2, src: at('f4'), height: 1.72, facing:  0.16 },
-            { x:  6.6, z:  -8.4, src: at('rumba'), height: 1.77, facing: -0.34 },
+            { x:  6.6, z:  -8.4, src: at('vf1'), height: 1.77, facing: -0.34 },
             { x: -6.8, z:  -8.0, src: at('m7'), height: 1.84, facing:  0.36 },
             { x:  1.6, z:  -7.4, src: at('f5'), height: 1.68, facing: -0.10 },
-            { x: -7.4, z: -13.8, src: at('house'), height: 1.73, facing:  0.42 },
+            { x: -7.4, z: -13.8, src: at('vm2'), height: 1.73, facing:  0.42 },
             { x:  7.2, z: -13.6, src: at('m5'), height: 1.82, facing: -0.40 },
             { x: -0.6, z:  -6.4, src: at('m9'), height: 1.76, facing:  0.02 }
         ];
@@ -1587,6 +2141,8 @@ class VRClubAudioCrowd extends VRClubUI {
         };
         const npc = {
             name: 'bartender',
+            character: container.character || null,
+            characterSourceId: 'bartender',
             root: rig.root,
             meshes: rig.meshes,
             animations: [],
@@ -1602,6 +2158,9 @@ class VRClubAudioCrowd extends VRClubUI {
         this._bartenderNpc = npc;
         this._bartenderPose = pose;
         this._bartenderWashTime = 0;
+        this._bartenderActivity = 'wash';
+        this._bartenderActivityTime = 12;
+        this._bartenderActivityIndex = 0;
         this._updateBartender(1 / 60, null);
         return npc;
     }
@@ -1611,11 +2170,27 @@ class VRClubAudioCrowd extends VRClubUI {
         const pose = this._bartenderPose;
         if (!rig || !pose || !rig.root.isEnabled()) return;
         this._bartenderWashTime += dt;
+        const t = this._bartenderWashTime;
         const bar = window.VenueLayout.bar;
         const counter = this._barGlass ? this._barGlass.counter : null;
-        const washX = bar.bartender.x - 0.42;
-        const wave = Math.sin(this._bartenderWashTime * 4.2);
-        let rightX = washX, rightY = 1.23 + wave * 0.025, rightZ = bar.bartender.z - 0.04;
+        const B = bar.bartender, top = bar.counter.top;
+        let activity = service && service.activity === 'talk' ? 'survey' : 'service';
+        if (!service) {
+            this._bartenderActivityTime -= dt;
+            if (this._bartenderActivityTime <= 0) {
+                const activities = VRClubAudioCrowd.BARTENDER_ACTIVITIES;
+                this._bartenderActivityIndex = (this._bartenderActivityIndex + 1) % activities.length;
+                this._bartenderActivity = activities[this._bartenderActivityIndex];
+                this._bartenderActivityTime = this._bartenderActivity === 'survey' ? 9 : 14;
+            }
+            activity = this._bartenderActivity || 'wash';
+        }
+        if (activity !== this._bartenderLastActivity) {
+            this._bartenderLastActivity = activity;
+            this._bartenderSettle = 1.2;
+        }
+        this._bartenderSettle = Math.max(0, (this._bartenderSettle || 0) - dt);
+
         let reach = 0;
         if (counter && service) {
             const raw = service.duration > 0 ? Math.min(1, Math.max(0, 1 - service.timer / service.duration)) : 1;
@@ -1623,27 +2198,132 @@ class VRClubAudioCrowd extends VRClubUI {
             else if (service.activity === 'served') reach = 1 - raw;
             else if (service.activity === 'clear') reach = raw < 0.5 ? raw * 2 : (1 - raw) * 2;
             reach = reach * reach * (3 - 2 * reach);
+        }
+        // She breathes and shifts her weight from foot to foot while she works; serving takes over the body.
+        const idleLife = 1 - reach;
+        pose.eyeY = 1.58 + 0.005 * Math.sin(t * 1.9);
+        pose.x = B.x - reach * 0.48;
+        pose.z = B.z + reach * 0.45 + idleLife * 0.03 * Math.sin(t * 0.37);
+
+        // What she does is described in HER frame: which way she faces, and each hand's distance ahead (f), sideways
+        // (l, positive to her right), height (y), finger pitch (p) and how far the palm turns down (in: 0 thumb up,
+        // 1 palm down). The old world-space targets put her right hand on her left side whenever she turned, which
+        // crossed her arms; in her own frame the right hand can never pass the left.
+        const patron = service && service.barPatron && service.barPatron.root ? service.barPatron.root.position : null;
+        const goal = this._bartenderGoal || (this._bartenderGoal = {});
+        const polish = t * 2.6;
+        const facePoint = (x, z) => Math.atan2(x - pose.x, z - pose.z);
+        if (activity === 'wipe') {
+            // Both palms flat on the counter, sweeping along it together; she turns to follow them.
+            const sweep = Math.sin(t * 1.15);
+            const cx = bar.counter.xBack - 0.10, cz = B.z - 0.22 + 0.26 * sweep;
+            goal.yaw = facePoint(cx, cz);
+            const reachAhead = Math.hypot(cx - pose.x, cz - pose.z);
+            goal.rf = goal.lf = reachAhead;
+            goal.rl = 0.11; goal.ll = -0.11;
+            goal.ry = top + 0.055; goal.ly = top + 0.06;
+            goal.rp = goal.lp = -0.18;
+            goal.ri = goal.li = 1;
+        } else if (activity === 'survey') {
+            // Hands resting wide on the counter while she watches the room (or the guest she is talking to).
+            goal.yaw = patron ? facePoint(patron.x, patron.z) : -Math.PI / 2 + 0.3 * Math.sin(t * 0.32);
+            goal.rf = goal.lf = 0.47;
+            goal.rl = 0.24; goal.ll = -0.24;
+            goal.ry = goal.ly = top + 0.08;
+            goal.rp = goal.lp = -0.2;
+            goal.ri = goal.li = 1;
+        } else if (activity === 'arrange') {
+            // Turned to the back bar: the right hand lifts a bottle up and down while the left steadies the shelf.
+            const lift = 0.5 + 0.5 * Math.sin(t * 1.35);
+            goal.yaw = Math.PI / 2;
+            goal.rf = goal.lf = bar.backBar.xFront - 0.06 - B.x;
+            goal.rl = 0.20; goal.ll = -0.12;
+            goal.ry = bar.backBar.shelves[0] + 0.02 + 0.42 * lift;
+            goal.ly = bar.backBar.shelves[0] + 0.03;
+            goal.rp = 0.15; goal.lp = -0.05;
+            goal.ri = 0; goal.li = 0.8;
+        } else {
+            // Polishing a glass (and the start of serving): both hands together at chest height in front of her, thumbs up and
+            // palms toward each other, the right hand turning the glass and the left circling inside it.
+            const wash = idleLife;
+            // Serving, she faces the glass's spot on the counter (her hand must reach it); the head looks at the guest.
+            const faceX = counter ? (B.x - 0.42) + (counter.x - (B.x - 0.42)) * reach : B.x - 0.42;
+            const faceZ = counter ? (B.z - 0.05) + (counter.z - (B.z - 0.05)) * reach : B.z - 0.05;
+            goal.yaw = counter && service ? facePoint(faceX, faceZ) : -Math.PI / 2 - 0.15;
+            goal.rf = 0.42;
+            goal.lf = 0.42 - 0.03 * Math.cos(polish) * wash;
+            goal.rl = 0.055;
+            goal.ll = -0.055 + 0.02 * Math.sin(polish + 1) * wash;
+            goal.ry = 1.27 + 0.012 * Math.sin(polish + 2) * wash;
+            goal.ly = 1.25 + 0.03 * Math.sin(polish) * wash;
+            goal.rp = 0.35; goal.lp = 0.45;
+            goal.ri = goal.li = 0;
+        }
+
+        // She turns at a human pace, and her hands settle into each new job instead of jumping to it.
+        if (!Number.isFinite(this._bartenderYaw)) this._bartenderYaw = goal.yaw;
+        const turn = Math.atan2(Math.sin(goal.yaw - this._bartenderYaw), Math.cos(goal.yaw - this._bartenderYaw));
+        const turnStep = Math.max(-2.4 * dt, Math.min(2.4 * dt, turn * (1 - Math.exp(-6 * dt))));
+        this._bartenderYaw += turnStep;
+        const hands = this._bartenderHands || (this._bartenderHands = { ...goal });
+        const settle = 1 - Math.exp(-dt / (this._bartenderSettle > 0 ? 0.28 : 0.07));
+        for (const key of ['rf', 'rl', 'ry', 'rp', 'ri', 'lf', 'll', 'ly', 'lp', 'li']) hands[key] += (goal[key] - hands[key]) * settle;
+        const bodyYaw = this._bartenderYaw;
+        const sinY = Math.sin(bodyYaw), cosY = Math.cos(bodyYaw);
+        let rightX = pose.x + sinY * hands.rf + cosY * hands.rl, rightY = hands.ry, rightZ = pose.z + cosY * hands.rf - sinY * hands.rl;
+        let leftX = pose.x + sinY * hands.lf + cosY * hands.ll, leftY = hands.ly, leftZ = pose.z + cosY * hands.lf - sinY * hands.ll;
+        if (counter && reach > 0) {
+            // Serving: the right hand carries the glass to the counter point; the left rests beside it, not on top of it.
+            const leftCx = counter.x - cosY * 0.2 - sinY * 0.04, leftCz = counter.z + sinY * 0.2 - cosY * 0.04;
             rightX += (counter.x - rightX) * reach;
             rightY += (counter.y - rightY) * reach;
             rightZ += (counter.z - rightZ) * reach;
+            leftX += (leftCx - leftX) * reach;
+            leftY += (counter.y - 0.02 - leftY) * reach;
+            leftZ += (leftCz - leftZ) * reach;
         }
-        pose.lean = 0.12 + reach * 0.42;
-        pose.x = bar.bartender.x - reach * 0.48;
-        pose.z = bar.bartender.z + reach * 0.45;
-        pose.right.x = rightX;
-        pose.right.y = rightY;
-        pose.right.z = rightZ;
-        let leftX = washX + 0.02, leftY = 1.20 - wave * 0.02, leftZ = bar.bartender.z + 0.08;
-        if (counter) {
-            leftX += (counter.x - leftX) * reach;
-            leftY += (counter.y - leftY) * reach;
-            leftZ += (counter.z - leftZ) * reach;
+        pose.lean = (activity === 'survey' ? 0.06 : activity === 'arrange' ? 0.02 : 0.12) + reach * 0.42;
+        const aim = (hand, x, y, z, pitch, inward, side) => {
+            hand.x = x; hand.y = y; hand.z = z;
+            const cp = Math.cos(pitch), sp = Math.sin(pitch);
+            hand.fx = sinY * cp; hand.fy = sp; hand.fz = cosY * cp;
+            // The thumb side points up for a grip and toward the middle of her body for a flat palm.
+            const ux = -cosY * side * inward * 0.95, uz = sinY * side * inward * 0.95, uy = 1 - inward * 0.7;
+            const ul = Math.hypot(ux, uy, uz) || 1;
+            hand.ux = ux / ul; hand.uy = uy / ul; hand.uz = uz / ul;
+        };
+        aim(pose.right, rightX, rightY, rightZ, hands.rp, hands.ri, 1);
+        aim(pose.left, leftX, leftY, leftZ, hands.lp, hands.li, -1);
+        const patronNpc = this._barPatron;
+        const patronState = patronNpc && patronNpc.barPatron;
+        const patronDrinking = !!patronState && ['pickup', 'drink', 'return'].includes(patronState.activity);
+        const workYaw = bodyYaw;
+        let headYaw = workYaw, headPitch = -0.28;
+        if (patron) {
+            headYaw = facePoint(patron.x, patron.z);
+            headPitch = 0.02;
+        } else if (activity === 'survey') {
+            headPitch = 0.03;
+        } else if (!service) {
+            // Heads down over the work, with a glance up every ~11 s: at the regular while she drinks, otherwise
+            // across the room.
+            const cycle = (t % 11) / 11;
+            const glance = cycle > 0.7 && cycle < 0.95 ? Math.sin(Math.PI * (cycle - 0.7) / 0.25) : 0;
+            const eased = glance * glance * (3 - 2 * glance);
+            let lookYaw = -Math.PI / 2 + 0.35 * Math.sin(t * 0.5);
+            if (patronDrinking && patronNpc.root) {
+                lookYaw = Math.atan2(patronNpc.root.position.x - pose.x, patronNpc.root.position.z - pose.z);
+            }
+            const lookOff = Math.atan2(Math.sin(lookYaw - workYaw), Math.cos(lookYaw - workYaw));
+            // Watching the regular drink holds the glance until the bottle is down.
+            const hold = patronDrinking ? 1 : eased;
+            headYaw = workYaw + lookOff * 0.8 * hold;
+            headPitch = -0.28 + 0.3 * hold;
         }
-        pose.left.x = leftX;
-        pose.left.y = leftY;
-        pose.left.z = leftZ;
-        pose.headYaw = Math.atan2(rightX - bar.bartender.x, rightZ - bar.bartender.z);
-        rig.bodyYaw = pose.headYaw;
+        pose.headYaw = headYaw;
+        pose.headPitch = headPitch;
+        pose.bodyYaw = bodyYaw;
+        rig.bodyYaw = bodyYaw;
         rig.turning = false;
         rig.update(dt, pose);
         const collider = this._bartenderNpc && this._bartenderNpc.collider;
@@ -1653,12 +2333,12 @@ class VRClubAudioCrowd extends VRClubUI {
     }
 
     /**
-     * Guests who are not on the dance floor: a pair talking by the right wall, relaxed watchers, someone nodding
-     * along to the music, and a balcony guest resting both hands on the rail. Clubs are not only dancers, and the side
+     * Guests who are not on the dance floor: relaxed watchers, a seated regular, and a balcony guest resting both
+     * hands on the rail. Clubs are not only dancers, and the side
      * walls were empty. Phone calls stay outside, away from the PA; the bouncer's folded arms suit his job rather than
      * being repeated on the side-wall guests.
      * Same hand-placed ordering rule as the crowd: the first N are already spread around the room, so a lower tier
-     * still looks populated (and its first two are the talking pair). Yaw 0 faces +z (the entrance side), PI faces
+     * still looks populated. Yaw 0 faces +z (the entrance side), PI faces
      * the DJ, +PI/2 faces +x. Every slot is well clear of the side walls, the truss legs and the DJ riser.
      */
     _guestSlots() {
@@ -1668,26 +2348,31 @@ class VRClubAudioCrowd extends VRClubUI {
         // to him and talk back, so they keep their own pose plus the talking one.
         const talks = clip => (clip === 'Idle_Talking_Loop' ? undefined : [clip, 'Idle_Talking_Loop']);
         return [
-            // The talking pair stands off the counter (x 9.7 is its front, the stools are at x 9.2).
-            { src: at('m4'), clip: 'Idle_Talking_Loop', x: 7.9, z: -9.1, yaw: 0.35, height: 1.80,
+            // He waits naturally until the mingler reaches him; a conversation animation without a visible partner
+            // reads as talking to an invisible person.
+            { src: at('m4'), clip: 'Idle_Loop', x: 7.45, z: -7.3, yaw: towardDJ(7.45, -7.3), height: 1.80,
+                clips: talks('Idle_Loop'),
                 ambient: { speedVariation: 0.035, period: 19, phase: 0.4 } },
-            { src: at('f6'), clip: 'Idle_Talking_Loop', x: 7.9, z: -8.1, yaw: Math.PI + 0.35, height: 1.66,
-                ambient: { speedVariation: 0.04, period: 23, phase: 2.1 } },
+            // A regular sits on the second bar stool. Authored seated clips keep her pelvis on the seat, both feet on
+            // the floor and her hands at the counter; runtime occasionally has her talk with the bartender or drink.
+            { src: at('f6'), clip: 'Seated_Bar_Idle_Loop', x: 9.08, z: -11.6, yaw: Math.PI / 2, height: 1.66,
+                barPatron: true, clips: ['Seated_Bar_Idle_Loop', 'Seated_Bar_Drink_Loop'] },
             // The one guest who does not stay put: he walks the room and joins the others' conversations
             // (_minglerRoute, _updateMingler), which is why he carries the walk and both idles.
             { src: at('m6'), clip: 'Idle_Loop', x: -8.2, z: -10.8, yaw: Math.PI / 2 - 0.2, height: 1.84,
-                mingles: true, clips: ['Walk', 'Idle_Loop', 'Idle_Talking_Loop', 'Drink_Loop', 'Smoke_Loop', 'Idle_Railing_Loop'] },
+                mingles: true, clips: ['Walk', 'Dance_Loop', 'Idle_Loop', 'Idle_Talking_Loop', 'Drink_Loop', 'Smoke_Loop', 'Idle_Railing_Loop'] },
             // Facing the mezzanine rail, both hands planted on it while her head slowly scans the dance floor. The
             // walking guest stops beside her at the rail and, after a look at the floor, turns to talk with her.
             { src: at('f7'), clip: 'Idle_Railing_Loop', x: -10.02, y: 3.0, z: -13.9, yaw: Math.PI / 2, height: 1.66,
                 clips: talks('Idle_Railing_Loop'), ambient: { speedVariation: 0.025, period: 27, phase: 1.2 } },
             { src: at('f8'), clip: 'Idle_Loop', x: -8.4, z: -6.5, yaw: Math.PI / 2 + 0.6, height: 1.68,
                 clips: talks('Idle_Loop'), ambient: { yawRange: 0.16, speedVariation: 0.045, period: 21, phase: 2.8 } },
-            { src: at('m8'), clip: 'Yes', x: 7.7, z: -12.6, yaw: towardDJ(7.7, -12.6), height: 1.77,
+            // `Yes` is a short gesture, not an idle; looping it made him point and nod continuously.
+            { src: at('m8'), clip: 'Idle_Loop', x: 7.7, z: -12.6, yaw: towardDJ(7.7, -12.6), height: 1.77,
                 ambient: { yawRange: 0.1, speedVariation: 0.03, period: 25, phase: 4.1 } },
-            { src: at('f6'), clip: 'Idle_Loop', x: -8.4, z: -14.4, yaw: towardDJ(-8.4, -14.4), height: 1.63,
+            { src: at('vm5'), clip: 'Idle_Loop', x: -8.4, z: -14.4, yaw: towardDJ(-8.4, -14.4), height: 1.77,
                 clips: talks('Idle_Loop'), ambient: { yawRange: 0.14, speedVariation: 0.05, period: 18, phase: 5.3 } },
-            { src: at('m4'), clip: 'Idle_Loop', x: 9.4, z: -15.8, yaw: towardDJ(9.4, -15.8) + 0.4, height: 1.70,
+            { src: at('vf5'), clip: 'Idle_Loop', x: 9.4, z: -15.8, yaw: towardDJ(9.4, -15.8) + 0.4, height: 1.68,
                 ambient: { yawRange: 0.12, speedVariation: 0.04, period: 24, phase: 0.9 } }
         ];
     }
@@ -1699,7 +2384,8 @@ class VRClubAudioCrowd extends VRClubUI {
      */
     _requiredCrowdSources(crowdSize = this.isPeopleVisible('dancers') ? this.tierSettings.crowdSize : 0,
         guestSize = this.isPeopleVisible('bystanders') ? this.tierSettings.guestSize : 0) {
-        const need = new Set([VRClubAudioCrowd.sourceIndex('dancerF'), VRClubAudioCrowd.sourceIndex('dancerM')]);
+        const need = new Set(this.getCharacterStyle() === 'diverse' ? []
+            : [VRClubAudioCrowd.sourceIndex('dancerF'), VRClubAudioCrowd.sourceIndex('dancerM')]);
         if (this.isPeopleVisible('bystanders')) need.add(VRClubAudioCrowd.sourceIndex('bartender'));
         (this._crowdSlots || []).slice(0, Math.max(0, crowdSize | 0)).forEach(slot => need.add(slot.src));
         this._guestSlots().slice(0, Math.max(0, guestSize | 0)).forEach(slot => need.add(slot.src));
@@ -1709,10 +2395,12 @@ class VRClubAudioCrowd extends VRClubUI {
     /** Fetch one source once, however many callers ask. Resolves to its container, or null when it cannot load. */
     _loadCrowdSource(index) {
         const pending = this._crowdSourcePending || (this._crowdSourcePending = {});
+        const containers = this._crowdSourceContainers;
+        const style = this.getCharacterStyle();
         if (!pending[index]) {
-            const source = VRClubAudioCrowd.AVATAR_SOURCES[index];
-            pending[index] = this._loadAvatarSource(source.url, source.garmentColor).then(container => {
-                if (this._crowdSourceContainers) this._crowdSourceContainers[index] = container;
+            const source = this._characterSource(index, style);
+            pending[index] = this._loadCharacterContainer(source, style).then(container => {
+                if (containers) containers[index] = container;
                 return container;
             });
         }
@@ -1720,11 +2408,12 @@ class VRClubAudioCrowd extends VRClubUI {
     }
 
     async _loadCrowdSources(indices) {
+        const containers = this._crowdSourceContainers;
         for (const index of indices) {
             if (this._disposed) return;
             await this._loadCrowdSource(index);
         }
-        this._availableCrowdSources = (this._crowdSourceContainers || []).filter(Boolean);
+        if (containers === this._crowdSourceContainers) this._availableCrowdSources = (containers || []).filter(Boolean);
     }
     _spawnGuestsTo(target) {
         if (!this._crowdSourceContainers) return;
@@ -1745,6 +2434,7 @@ class VRClubAudioCrowd extends VRClubUI {
             npc.slotYaw = slot.yaw;
             npc.slotClip = slot.clip;
             if (slot.mingles) this._startMingling(npc, slot);
+            if (slot.barPatron) this._startBarPatron(npc);
         });
     }
 
@@ -1900,13 +2590,21 @@ class VRClubAudioCrowd extends VRClubUI {
     /** Is this group of characters in the club? An unknown name is never hidden. */
     isPeopleVisible(category) {
         const visibility = this.peopleVisibility;
-        if (!visibility || !Object.prototype.hasOwnProperty.call(visibility, category)) return true;
-        return visibility[category] !== false;
+        const personal = !visibility || !Object.prototype.hasOwnProperty.call(visibility, category) || visibility[category] !== false;
+        return personal && (category !== 'dj' || this._roomDJVisible !== false);
+    }
+
+    setRoomDJVisible(visible) {
+        const next = typeof visible === 'boolean' ? visible : null;
+        if ((this._roomDJVisible ?? null) === next) return;
+        this._roomDJVisible = next;
+        this._applyDJVisibility();
+        this._refreshVRQuickMenu();
     }
 
     /**
-     * Send a group of characters home, or bring it back. This is a personal, local preference — not a light or a
-     * music control — so it is never gated on the host.
+     * Keep personal hide preferences. In a room the host's DJ preference also sets the room's presence;
+     * a guest may hide that DJ, but cannot bring back one the host sent home.
      * @param {string|null} category 'dancers', 'bystanders', 'dj', or 'all' for every group at once
      * @returns {boolean} whether the group is now visible
      */
@@ -1923,18 +2621,18 @@ class VRClubAudioCrowd extends VRClubUI {
             this._persistPeopleVisibility();
             this.applyPeopleVisibility();
         }
-        return on;
+        return category === 'dj' ? this.isPeopleVisible('dj') : on;
     }
 
     /** Flip a group. 'all' comes back only when every group is away, so one press empties the club. */
     togglePeopleVisible(category) {
         const names = VRClubCore.peopleCategories(category);
         if (names.length === 0) return true;
-        return this.setPeopleVisible(category, !names.some(name => this.isPeopleVisible(name)));
+        return this.setPeopleVisible(category, !names.some(name => this.peopleVisibility?.[name] !== false));
     }
 
     _persistPeopleVisibility() {
-        const hidden = VRClubCore.PEOPLE_CATEGORIES.filter(name => !this.isPeopleVisible(name));
+        const hidden = VRClubCore.PEOPLE_CATEGORIES.filter(name => this.peopleVisibility?.[name] === false);
         try {
             if (hidden.length > 0) localStorage.setItem('vrclub.hiddenPeople', hidden.join(','));
             else localStorage.removeItem('vrclub.hiddenPeople');
@@ -1950,6 +2648,8 @@ class VRClubAudioCrowd extends VRClubUI {
     /** The DJ is not a crowd slot: an AvatarRig posed by DJPerformer, replaced on local selection. */
     _applyDJVisibility() {
         const enabled = this.isPeopleVisible('dj');
+        if (typeof this._applyVJDeskPlayerVisibility === 'function') this._applyVJDeskPlayerVisibility();
+        if (enabled && !this.isFollowingHost?.() && typeof this.resetDJEffects === 'function') this.resetDJEffects();
         if (enabled && this._djWanted && this._djWanted !== this._djId) {
             this.setDJ(this._djWanted).then(applied => {
                 if (!applied) this.showErrorMessage('The selected DJ could not load. Try again later.');
@@ -1985,21 +2685,21 @@ class VRClubAudioCrowd extends VRClubUI {
         const door = -Math.PI / 2;
         const face = (x, z, tx, tz) => Math.atan2(tx - x, tz - z);
         const queue = [
-            { src: at('m8'), clip: 'Idle_Talking_Loop', x: 3.15, z: 7.1, yaw: face(3.15, 7.1, 3.9, 6.9), height: 1.78,
+            { src: at('vm6'), clip: 'Idle_Talking_Loop', x: 3.15, z: 7.1, yaw: face(3.15, 7.1, 3.9, 6.9), height: 1.78,
                 ambient: { speedVariation: 0.04, period: 19, phase: 0.3 } },
-            { src: at('f8'), clip: 'Idle_Talking_Loop', x: 3.9, z: 6.9, yaw: face(3.9, 6.9, 3.15, 7.1), height: 1.67,
+            { src: at('vf6'), clip: 'Idle_Talking_Loop', x: 3.9, z: 6.9, yaw: face(3.9, 6.9, 3.15, 7.1), height: 1.67,
                 ambient: { speedVariation: 0.035, period: 23, phase: 2.2 } },
-            { src: at('m5'), clip: 'Idle', x: 4.85, z: 7.0, yaw: door + 0.12, height: 1.82,
+            { src: at('vm7'), clip: 'Idle', x: 4.85, z: 7.0, yaw: door + 0.12, height: 1.82,
                 ambient: { yawRange: 0.18, speedVariation: 0.045, period: 21, phase: 1.1 } },
-            { src: at('f5'), clip: 'Idle', x: 5.7, z: 6.95, yaw: door - 0.18, height: 1.66,
+            { src: at('vf2'), clip: 'Idle', x: 5.7, z: 6.95, yaw: door - 0.18, height: 1.66,
                 ambient: { yawRange: 0.13, speedVariation: 0.05, period: 26, phase: 3.7 } },
-            { src: at('m9'), clip: 'Idle', x: 6.6, z: 7.05, yaw: door + 0.25, height: 1.76,
+            { src: at('vm3'), clip: 'Idle', x: 6.6, z: 7.05, yaw: door + 0.25, height: 1.76,
                 ambient: { yawRange: 0.2, speedVariation: 0.04, period: 18, phase: 5.1 } },
-            { src: at('f7'), clip: 'Idle_TalkingPhone_Loop', x: 7.45, z: 6.9, yaw: door + 0.7, height: 1.70,
+            { src: at('vf7'), clip: 'Idle_TalkingPhone_Loop', x: 7.45, z: 6.9, yaw: door + 0.7, height: 1.70,
                 ambient: { yawRange: 0.07, speedVariation: 0.035, period: 24, phase: 4.2 } },
-            { src: at('m3'), clip: 'Idle', x: 8.35, z: 7.05, yaw: door - 0.1, height: 1.80,
+            { src: at('vm4'), clip: 'Idle', x: 8.35, z: 7.05, yaw: door - 0.1, height: 1.80,
                 ambient: { yawRange: 0.15, speedVariation: 0.045, period: 22, phase: 2.6 } },
-            { src: at('f4'), clip: 'Idle', x: 9.15, z: 6.95, yaw: door + 0.3, height: 1.69,
+            { src: at('vf3'), clip: 'Idle', x: 9.15, z: 6.95, yaw: door + 0.3, height: 1.69,
                 ambient: { yawRange: 0.17, speedVariation: 0.04, period: 27, phase: 0.8 } }
         ].map(slot => ({ ...slot, y: ground }));
         return {
@@ -2041,6 +2741,7 @@ class VRClubAudioCrowd extends VRClubUI {
             if (npc && npc.name === name) {
                 npc.homeYaw = null;
                 npc.streetYaw = slot.yaw;
+                npc.street = true;
                 if (name === 'bouncer') npc.ambient = null;
                 placed.push(npc);
             }
@@ -2069,7 +2770,9 @@ class VRClubAudioCrowd extends VRClubUI {
             if (npc.root.isEnabled() !== enabled) changed = true;
             npc.root.setEnabled(enabled);
             if (npc.collider) npc.collider.setEnabled(enabled);
-            VRClubAudioCrowd._setAnimating(npc, enabled);
+            // Re-shown with the street: playing again until the per-frame check (see _updateStreetPeopleActivity) says otherwise.
+            if (!enabled) npc.animPaused = false;
+            VRClubAudioCrowd._setAnimating(npc, enabled && !npc.animPaused);
         }
         if (changed) this._refreshContactShadows();
     }
@@ -2136,14 +2839,27 @@ class VRClubAudioCrowd extends VRClubUI {
                 { x: -8.2, z: -10.8, yaw: 1.716, activity: 'watch', clip: 'Idle_Loop', dwell: { min: 25, max: 40 } },
                 { x: -7.5, z: -6.1, guest: 4 },
                 { x: -7.5, z: -5.5 },   // the lane along the front of the dance floor, the only way across the room
+                { x: -2.0, z: -5.5 },
+                { x: 5.2, z: -5.5 },
+                { x: 5.2, z: -6.3 },
+                // He periodically joins the floor rather than only watching it. This gap is hand-placed between the
+                // active crowd slots, so his body and collider remain clear of every dancer while he moves.
+                { x: 3.4, z: -9.1, yaw: Math.PI, activity: 'dance', clip: 'Dance_Loop', dwell: { min: 28, max: 48 } },
+                { x: 5.2, z: -6.3 },
                 { x: 7.9, z: -5.5 },
-                { x: 7.9, z: -7.1, guest: 1 },  // joining the pair who stand talking by the bar
+                { x: 8.45, z: -7.3, guest: 0 },  // a brief conversation with the standing guest beside the bar
+                { x: 8.3, z: -6.3 },
+                { x: 5.1, z: -6.3 },
                 { x: 5.1, z: -7.1 },
-                { x: 5.1, z: -9.9 },
-                { x: 8.5, z: -9.9 },
+                { x: 5.1, z: -9.65 },
+                // Approach the gap between the stools square-on. The old diagonal from z -9.9 crossed the stool at
+                // z -10.3, so the avatar visibly walked through its seat and legs.
+                { x: 8.35, z: -9.65 },
                 // Customer side of the counter, between stools: the bartender turns to him while he has a drink.
                 // The dwell is set by the service itself (two sips, see _advanceMinglerDrink).
                 { x: 9.55, z: -9.65, bartender: true, drink: true },
+                { x: 8.35, z: -9.65 },
+                { x: 8.35, z: -6.3 },
                 // Out through the centre of both doors and up the vestibule stair; the queue is on the +x side.
                 { x: 8.5, z: -5.5 },
                 { x: 0, z: -5.5 },
@@ -2204,7 +2920,10 @@ class VRClubAudioCrowd extends VRClubUI {
 
     _createBartenderGlass(bartender) {
         if (this._barGlass || !bartender || !this.scene || !this.materialFactory || !BABYLON.MeshBuilder) return;
-        const wrist = bartender.root.getChildTransformNodes(false).find(node => /hand_r$/.test(node.name));
+        // The glass lives in her physical RIGHT hand. Which of the skeleton's two hand bones that is depends on how the rig
+        // measured its sides (a mirrored body swaps them), so ask the rig rather than trusting the bone's name.
+        const rightSuffix = bartender.rig && bartender.rig.sideL > 0 ? 'l' : 'r';
+        const wrist = bartender.root.getChildTransformNodes(false).find(node => node.name.endsWith(`hand_${rightSuffix}`));
         if (!wrist) return;
         const cup = BABYLON.MeshBuilder.CreateCylinder('minglerDrink', {
             diameterTop: 0.075, diameterBottom: 0.055, height: 0.12, tessellation: 12
@@ -2213,6 +2932,7 @@ class VRClubAudioCrowd extends VRClubUI {
             baseColor: [0.15, 0.18, 0.2], metallic: 0.65, roughness: 0.25
         }, true);
         cup.isPickable = false;
+        cup.rotationQuaternion = new BABYLON.Quaternion();
         cup.renderingGroupId = 0;
         cup.setEnabled(false);
         const bar = window.VenueLayout && window.VenueLayout.bar;
@@ -2222,6 +2942,12 @@ class VRClubAudioCrowd extends VRClubUI {
             bartender,
             serverWrist: wrist,
             minglerWrist: null,
+            minglerHand: null,
+            handAxis: new BABYLON.Vector3(0, 1, 0),
+            _f: new BABYLON.Vector3(),
+            _n: new BABYLON.Vector3(),
+            _p: new BABYLON.Vector3(),
+            _q: new BABYLON.Quaternion(),
             counter: new BABYLON.Vector3(bar.counter.xFront + 0.29, bar.counter.top + 0.06, bar.bartender.z + 0.515),
             handPosition: new BABYLON.Vector3(),
             serverPosition: new BABYLON.Vector3(),
@@ -2235,9 +2961,140 @@ class VRClubAudioCrowd extends VRClubUI {
         const glass = this._barGlass;
         if (!npc || !glass || npc.drinkCup) return;
         glass.minglerWrist = npc.root.getChildTransformNodes(false).find(node => /Middle1\.R$/.test(node.name)) || null;
+        glass.minglerHand = npc.root.getChildTransformNodes(false).find(node => /(^|[^A-Za-z])Wrist\.R$/.test(node.name)) || null;
         npc.drinkCup = glass.mesh;
         npc.drinkCounter = glass.counter;
         npc.drinkMode = glass.mode;
+    }
+
+    _startBarPatron(npc) {
+        npc.barPatron = {
+            activity: 'idle', timer: 18, duration: 18, next: 'talk', attentionTime: 0,
+            homeYaw: npc.slotYaw, barPatron: npc
+        };
+        this._barPatron = npc;
+        this._createBarPatronBottle(npc);
+    }
+
+    _createBarPatronBottle(npc) {
+        if (!npc || npc.barBottle || !this.scene || !this.materialFactory || !BABYLON.MeshBuilder
+            || typeof npc.root.getChildTransformNodes !== 'function') return;
+        const wrist = npc.root.getChildTransformNodes(false).find(node => /Middle1\.R$/.test(node.name));
+        const bar = window.VenueLayout && window.VenueLayout.bar;
+        if (!wrist || !bar) return;
+        const bottle = BABYLON.MeshBuilder.CreateCylinder('barPatronBottle', {
+            diameterTop: 0.035, diameterBottom: 0.062, height: 0.19, tessellation: 12
+        }, this.scene);
+        bottle.material = this.materialFactory.createPBRMaterial('barPatronBottleMat', {
+            baseColor: [0.12, 0.28, 0.18], metallic: 0.05, roughness: 0.22
+        }, true);
+        bottle.isPickable = false;
+        npc.barBottle = {
+            mesh: bottle,
+            wrist,
+            // Where her right palm rests (measured on the shipped Seated_Bar clips): the bottle stands in that hand,
+            // 6 cm up the bottle from the palm and 3 cm toward her midline (her fingers wrap round it), so the grasp,
+            // the lift and the put-down meet exactly here.
+            counter: new BABYLON.Vector3(
+                bar.counter.xFront - 0.002 + 0.03 * Math.cos(npc.root.rotation.y),
+                bar.counter.top + 0.092,
+                npc.root.position.z + 0.169 - 0.03 * Math.sin(npc.root.rotation.y)),
+            hand: new BABYLON.Vector3(),
+            axis: new BABYLON.Vector3(0, 1, 0),
+            up: new BABYLON.Vector3(0, 1, 0),
+            mode: 'counter'
+        };
+        bottle.rotationQuaternion = new BABYLON.Quaternion();
+        bottle.position.copyFrom(npc.barBottle.counter);
+    }
+
+    /** How far the bottle is tipped toward her lips (0..1) at a point in the Seated_Bar_Drink_Loop (its 0..1 phase). */
+    static barBottleTilt(phase) {
+        const ease = t => { const c = Math.min(1, Math.max(0, t)); return c * c * (3 - 2 * c); };
+        if (phase < 0.58) return ease((phase - 0.30) / 0.10);
+        return 1 - ease((phase - 0.58) / 0.08);
+    }
+
+    _setBarPatronActivity(npc, activity, duration) {
+        const state = npc.barPatron;
+        state.activity = activity;
+        state.duration = state.timer = duration;
+        state.attentionTime = 0;
+        const drinking = activity === 'pickup' || activity === 'drink' || activity === 'return';
+        VRClubAudioCrowd._playClip(npc, drinking ? 'Seated_Bar_Drink_Loop' : 'Seated_Bar_Idle_Loop',
+            drinking ? 1 : npc.baseSpeed, !drinking);
+    }
+
+    /** A seated regular alternates unhurried bartender conversation with an occasional bottle drink. */
+    _updateBarPatron(dt) {
+        const npc = this._barPatron;
+        const state = npc && npc.barPatron;
+        if (!state || !npc.root || !npc.root.isEnabled()) {
+            if (npc && npc.barBottle) npc.barBottle.mesh.setEnabled(false);
+            return null;
+        }
+        const step = Math.min(0.1, Math.max(0, dt || 0));
+        state.timer -= step;
+        state.attentionTime += step;
+        if (state.timer <= 0) {
+            if (state.activity === 'idle') {
+                if (state.next === 'talk') {
+                    state.next = 'drink';
+                    this._setBarPatronActivity(npc, 'talk', 14 + Math.random() * 12);
+                } else {
+                    state.next = 'talk';
+                    this._setBarPatronActivity(npc, 'pickup', 1.1);
+                }
+            } else if (state.activity === 'talk') {
+                this._setBarPatronActivity(npc, 'idle', 32 + Math.random() * 38);
+            } else if (state.activity === 'pickup') {
+                this._setBarPatronActivity(npc, 'drink', 3.2);
+            } else if (state.activity === 'drink') {
+                this._setBarPatronActivity(npc, 'return', 1.2);
+            } else {
+                this._setBarPatronActivity(npc, 'idle', 38 + Math.random() * 42);
+            }
+        }
+
+        let phase = 0;
+        if (['pickup', 'drink', 'return'].includes(state.activity)) {
+            const range = state.activity === 'pickup' ? [0, 0.2]
+                : state.activity === 'drink' ? [0.2, 0.72] : [0.72, 0.94];
+            const p = state.duration > 0 ? Math.min(1, Math.max(0, 1 - state.timer / state.duration)) : 1;
+            phase = range[0] + (range[1] - range[0]) * p;
+        }
+        const group = npc.poses && npc.poses.groups.get('Seated_Bar_Drink_Loop');
+        if (group && ['pickup', 'drink', 'return'].includes(state.activity)) {
+            group.goToFrame(group.from + phase * (group.to - group.from));
+        }
+
+        const bottle = npc.barBottle;
+        if (bottle) {
+            bottle.mesh.setEnabled(true);
+            const inHand = state.activity === 'drink' || state.activity === 'return';
+            if (inHand) {
+                // The bottle rides in her palm and tips toward her lips for the sip: its neck leans back at her face.
+                const tilt = VRClubAudioCrowd.barBottleTilt(phase) * 1.15;
+                const yaw = npc.root.rotation.y;
+                bottle.axis.set(-Math.sin(yaw) * Math.sin(tilt), Math.cos(tilt), -Math.cos(yaw) * Math.sin(tilt));
+                bottle.wrist.computeWorldMatrix(true).getTranslationToRef(bottle.hand);
+                bottle.mesh.position.copyFrom(bottle.hand);
+                bottle.mesh.position.x += bottle.axis.x * 0.06 + 0.03 * Math.cos(yaw);
+                bottle.mesh.position.y += bottle.axis.y * 0.06;
+                bottle.mesh.position.z += bottle.axis.z * 0.06 - 0.03 * Math.sin(yaw);
+                BABYLON.Quaternion.FromUnitVectorsToRef(bottle.up, bottle.axis, bottle.mesh.rotationQuaternion);
+                bottle.mode = 'hand';
+            } else {
+                bottle.mesh.position.copyFrom(bottle.counter);
+                bottle.mesh.rotationQuaternion.set(0, 0, 0, 1);
+                bottle.mode = 'counter';
+            }
+        }
+
+        const facingBartender = state.activity === 'talk';
+        const targetYaw = facingBartender ? state.homeYaw - 0.28 : state.homeYaw;
+        VRClubAudioCrowd._easeYaw(npc.root, targetYaw, step, 1.2);
+        return state.activity === 'talk' ? state : null;
     }
 
     /**
@@ -2474,24 +3331,79 @@ class VRClubAudioCrowd extends VRClubUI {
         glass.serverWrist.computeWorldMatrix(true).getTranslationToRef(glass.serverPosition);
         glass.serverPosition.y += 0.055;
         if (mode === 'wash' || mode === 'serve') {
+            cup.rotationQuaternion.set(0, 0, 0, 1);
             cup.position.copyFrom(glass.serverPosition);
             return;
         }
-        if (glass.minglerWrist) {
-            glass.minglerWrist.computeWorldMatrix(true).getTranslationToRef(glass.handPosition);
-            glass.handPosition.y += 0.055;
-        }
-        if (mode === 'hand') {
+        if (glass.minglerWrist && glass.minglerHand) this._updateMinglerGrip(glass);
+        const held = mode === 'hand' || mode === 'return';
+        if (held) {
             cup.position.copyFrom(glass.handPosition);
+            this._tiltMinglerCup(glass);
             return;
         }
+        cup.rotationQuaternion.set(0, 0, 0, 1);
         if (mode === 'counter' || mode === 'pickup' || (mode === 'clear' && progress < 0.5)) {
             cup.position.copyFrom(glass.counter);
         } else if (mode === 'clear') {
             cup.position.copyFrom(glass.serverPosition);
-        } else if (mode === 'return') {
-            cup.position.copyFrom(glass.handPosition);
         }
+    }
+
+    // His grip, read from the hand itself: the cup sits in the palm, 4.5 cm toward its face, its axis along the thumb side.
+    // The wrist-local directions are the m6 skeleton's own (fingers along +Y, thumb side along -X, palm toward -Z).
+    _updateMinglerGrip(glass) {
+        if (this._mingler && this._mingler.character) {
+            if (!glass.characterKnuckles) {
+                const nodes = this._mingler.root.getChildTransformNodes(false);
+                glass.characterKnuckles = ['Index2.R', 'Pinky2.R'].map(name => nodes.find(node => node.name.endsWith(`_${name}`)));
+            }
+            const [index, pinky] = glass.characterKnuckles;
+            if (!index || !pinky) throw new Error('Character grip landmarks are missing.');
+            glass.minglerHand.computeWorldMatrix(true);
+            glass.minglerWrist.computeWorldMatrix(true);
+            index.computeWorldMatrix(true); pinky.computeWorldMatrix(true);
+            const wrist = glass.minglerHand.absolutePosition, middle = glass.minglerWrist.absolutePosition;
+            glass._f.copyFrom(middle).subtractInPlace(wrist).normalize();
+            glass.handAxis.copyFrom(index.absolutePosition).subtractInPlace(pinky.absolutePosition);
+            glass._n.copyFrom(glass._f).scaleInPlace(BABYLON.Vector3.Dot(glass.handAxis, glass._f));
+            glass.handAxis.subtractInPlace(glass._n).normalize();
+            BABYLON.Vector3.CrossToRef(glass.handAxis, glass._f, glass._n);
+            glass._n.normalize();
+            glass.handPosition.copyFrom(wrist).addInPlace(middle).scaleInPlace(0.5);
+            glass.handPosition.x += glass._n.x * 0.045 + glass.handAxis.x * 0.01;
+            glass.handPosition.y += glass._n.y * 0.045 + glass.handAxis.y * 0.01;
+            glass.handPosition.z += glass._n.z * 0.045 + glass.handAxis.z * 0.01;
+            return;
+        }
+        const wrist = glass.minglerHand.computeWorldMatrix(true);
+        const knuckle = glass.minglerWrist.computeWorldMatrix(true);
+        const f = glass._f, n = glass._n, t = glass.handAxis, p = glass._p;
+        BABYLON.Vector3.TransformNormalFromFloatsToRef(0, 1, 0, wrist, f);
+        BABYLON.Vector3.TransformNormalFromFloatsToRef(-0.9994, 0, -0.0341, wrist, t);
+        f.normalize();
+        t.normalize();
+        BABYLON.Vector3.CrossToRef(t, f, n);
+        n.normalize();
+        wrist.getTranslationToRef(p);
+        knuckle.getTranslationToRef(glass.handPosition);
+        glass.handPosition.addInPlace(p).scaleInPlace(0.5);
+        glass.handPosition.addInPlace(n.scaleInPlace(0.045)).addInPlace(t.scale(0.01));
+    }
+
+    // The cup follows the thumb axis, less the slight natural cant of a relaxed grip, so it stands upright on the counter
+    // and tips only for the sip.
+    _tiltMinglerCup(glass) {
+        const axis = glass.handAxis;
+        const angle = Math.acos(Math.min(1, Math.max(-1, axis.y))) - 0.28;
+        if (angle <= 0) {
+            glass.mesh.rotationQuaternion.set(0, 0, 0, 1);
+            return;
+        }
+        const about = glass._n.copyFromFloats(axis.z, 0, -axis.x);
+        if (about.lengthSquared() < 1e-8) return;
+        about.normalize();
+        BABYLON.Quaternion.RotationAxisToRef(about, angle, glass.mesh.rotationQuaternion);
     }
 
     _advanceMinglerDrink(npc, route) {
@@ -2538,10 +3450,11 @@ class VRClubAudioCrowd extends VRClubUI {
     /** Per frame: walk the round, hold the conversations, and carry the collider and the contact shadow along. */
     _updateMingler(dt) {
         const step = Math.min(0.1, Math.max(0, dt || 0));
+        const patronService = this._updateBarPatron(step);
         const npc = this._mingler;
         const state = npc && npc.mingle;
         if (!state || !npc.root) {
-            this._updateBartender(step, null);
+            this._updateBartender(step, patronService);
             this._updateMinglerDrink(null, 'wash');
             return;
         }
@@ -2551,7 +3464,7 @@ class VRClubAudioCrowd extends VRClubUI {
                 state.returning.root.rotation.y = state.returning.slotYaw || 0;
                 state.returning = null;
             }
-            this._updateBartender(step, null);
+            this._updateBartender(step, patronService);
             this._updateMinglerDrink(npc, 'wash');
             this._updateMinglerSmoke(npc, false);
             return;
@@ -2603,7 +3516,7 @@ class VRClubAudioCrowd extends VRClubUI {
             }
         }
 
-        this._updateBartender(step, state.partner && state.partner.name === 'bartender' ? state : null);
+        this._updateBartender(step, state.partner && state.partner.name === 'bartender' ? state : patronService);
         this._syncMinglerDrinkPose(npc);
         if (Number.isFinite(roomTime)) npc.root.rotation.y = state.yaw;
         else VRClubAudioCrowd._easeYaw(npc.root, state.yaw, step, 4.0);
@@ -2668,7 +3581,10 @@ class VRClubAudioCrowd extends VRClubUI {
         state.talkGuest = sample.activity === 'balcony' ? node.guest : null;
         npc.root.position.set(sample.x, this._minglerSurfaceLevel(sample.x, sample.z, sample.level), sample.z);
         const drinking = sample.clip === 'Drink_Loop';
-        const speed = sample.phase === 'walk' ? route.speed / route.walkClipSpeed : drinking ? 1 : npc.baseSpeed;
+        const dancing = sample.clip === 'Dance_Loop';
+        const speed = sample.phase === 'walk' ? route.speed / route.walkClipSpeed
+            : drinking ? 1 : dancing ? Math.max(0.65, Math.min(1.5, ((this.vjDirector && this.vjDirector.bpm) || 120) / 120))
+                : npc.baseSpeed;
         VRClubAudioCrowd._playClip(npc, sample.clip, speed, !drinking);
         const group = npc.animations[0];
         if (!drinking && group && group.targetedAnimations.length && group.to > group.from) {
@@ -2698,7 +3614,15 @@ class VRClubAudioCrowd extends VRClubUI {
             state.activity = node.activity;
             state.attentionTime = 0;
             if (Number.isFinite(node.yaw)) state.yaw = state.baseYaw = node.yaw;
-            VRClubAudioCrowd._playClip(npc, node.clip || 'Idle_Loop', npc.baseSpeed);
+            const dancing = node.activity === 'dance';
+            const speed = dancing ? Math.max(0.65, Math.min(1.5, ((this.vjDirector && this.vjDirector.bpm) || 120) / 120))
+                : npc.baseSpeed;
+            VRClubAudioCrowd._playClip(npc, node.clip || 'Idle_Loop', speed);
+            if (dancing) {
+                const group = npc.animations[0];
+                const beat = this.vjDirector && Number.isFinite(this.vjDirector.beatNumber) ? this.vjDirector.beatNumber : 0;
+                if (group && group.to > group.from) group.goToFrame(group.from + (beat % 4) / 4 * (group.to - group.from));
+            }
             return;
         }
         if (node.guest == null && !node.bartender) {
@@ -2780,6 +3704,37 @@ class VRClubAudioCrowd extends VRClubUI {
         shadows.mesh.thinInstanceBufferUpdated('matrix');
     }
 
+    /**
+     * Should a street character keep animating? Only a character clearly BEHIND the viewer is held: more than 130 degrees
+     * off the gaze and farther than 4 m. It resumes at 115 degrees, long before a headset's ~55 degree half field of view
+     * (a quick 300 degree/s turn takes about 0.2 s to cover the gap), and from the exact frame it stopped, so nothing is
+     * ever seen frozen or seen to start moving. Pure; `wasPaused` gives it hysteresis.
+     */
+    static needsAnimation(wasPaused, cx, cy, cz, fx, fy, fz, px, py, pz) {
+        const dx = px - cx, dy = py - cy, dz = pz - cz;
+        const distance = Math.hypot(dx, dy, dz);
+        if (distance < (wasPaused ? 3.5 : 4)) return true;
+        const cos = (dx * fx + dy * fy + dz * fz) / distance;
+        return wasPaused ? cos > -0.4226 : cos > -0.6428;
+    }
+
+    /** Hold the street people who are behind the viewer; see needsAnimation. */
+    _updateStreetPeopleActivity() {
+        const cam = this._playerCamera();
+        const eye = cam && (cam.globalPosition || cam.position);
+        if (!eye || !this.npcAvatars) return;
+        const dir = this._streetGaze || (this._streetGaze = new BABYLON.Vector3());
+        cam.getDirectionToRef(BABYLON.Axis.Z, dir);
+        for (const npc of this.npcAvatars) {
+            if (!npc.street || !npc.root || !npc.root.isEnabled()) continue;
+            const p = npc.root.position;
+            const needs = VRClubAudioCrowd.needsAnimation(!!npc.animPaused, eye.x, eye.y, eye.z, dir.x, dir.y, dir.z, p.x, p.y + 0.9, p.z);
+            if (needs === !npc.animPaused) continue;
+            npc.animPaused = !needs;
+            VRClubAudioCrowd._setAnimating(npc, needs);
+        }
+    }
+
     /** The bouncer scans the pavement until somebody comes close, then turns toward them (never more than ~75 degrees). */
     _updateBouncer(dt) {
         const npc = this._bouncer;
@@ -2857,13 +3812,19 @@ class VRClubAudioCrowd extends VRClubUI {
     /** The music as the choreographer sees it, in one reused object. */
     _crowdMusic(audioData) {
         const m = this._crowdMusicState || (this._crowdMusicState = { beatPresent: false, rhythm: false, beat: 0, bpm: 120, energy: 0.5, build: false, drop: false });
+        m.time = performance.now() / 1000;
         if (this._audioKind === 'soundcloud') {
             this._crowdAudioUntil = 0;
             m.beatPresent = false;
             m.rhythm = false;
             m.build = false;
             m.drop = false;
-            return this._unanalysedDanceMusic() || m;
+            const fallback = this._unanalysedDanceMusic();
+            if (fallback) {
+                fallback.energy = 0.55 * (Number.isFinite(this._localPaPresence) ? this._localPaPresence : 1);
+                return fallback;
+            }
+            return m;
         }
         const vj = this.vjDirector, show = this.showDirector;
         m.bpm = (vj && vj.bpm) || 120;
@@ -2888,8 +3849,9 @@ class VRClubAudioCrowd extends VRClubUI {
         m.beatPresent = hasAudio && recent && (m.beatPresent || (vj.onsetStreak || 0) >= 2);
         // No kick, but hats, a snare or a synth still keep time: the crowd keeps dancing on the grid (CrowdDance).
         m.rhythm = !m.beatPresent && hasAudio && !!vj && vj.rhythmPresent === true;
-        m.energy = audioData && typeof audioData.energy === 'number' ? audioData.energy
-            : (show && Number.isFinite(show._energy) ? Math.min(1, show._energy / 0.45) : 0.5);
+        const localPresence = Number.isFinite(this._localPaPresence) ? this._localPaPresence : 1;
+        m.energy = (audioData && typeof audioData.energy === 'number' ? audioData.energy
+            : (show && Number.isFinite(show._energy) ? Math.min(1, show._energy / 0.45) : 0.5)) * localPresence;
         // A build (the countdown, or the ascent movement) and the frame a drop lands (the release, or ignition starting).
         m.build = false;
         m.drop = false;
@@ -2924,15 +3886,25 @@ class VRClubAudioCrowd extends VRClubUI {
         const music = this._crowdMusic(audioData);
         this._crowdBeatPresent = music.beatPresent;
         const decision = this._crowdDecision || (this._crowdDecision = {});
+        // Starting a clip builds an animatable for every bone, so only a couple of dancers may change move in one frame; the
+        // rest wait a frame or two (their choreographer state already holds the new move, and the next frame's phase check
+        // finds the old clip out of step and makes the change). Without it a drop or a bar line started a dozen at once.
+        let starts = VRClubAudioCrowd.CROWD_STARTS_PER_FRAME;
         for (const npc of this.npcAvatars) {
             const dance = npc.dance;
             if (!dance || !npc.root.isEnabled()) continue;
             if (!dance.state) dance.state = choreographer.createDancer([...dance.groups.keys()]);
             choreographer.step(dance.state, music, VRClubAudioCrowd._loopFraction(dance.current), decision);
             let group = dance.current;
-            if (decision.switched || decision.snap) {
-                const next = dance.groups.get(decision.move);
-                if (next && next !== group) {
+            const next = dance.groups.get(decision.move);
+            // A dancer whose clip is not the move the choreographer holds is waiting for its turn to start it.
+            const changing = !!next && next !== group;
+            if (changing && starts <= 0) continue;
+            if (decision.switched || decision.snap || changing) {
+                let frac = decision.frac;
+                if (changing) {
+                    starts--;
+                    if (!decision.switched && !decision.snap) frac = Number.isFinite(decision.target) ? decision.target : Math.random();
                     // Start the new move first: it blends from the pose the old one leaves (enableBlending), then the
                     // old one stops where it is.
                     next.start(true, decision.speed, next.from, next.to);
@@ -2940,10 +3912,71 @@ class VRClubAudioCrowd extends VRClubUI {
                     dance.current = group = next;
                     npc.animations = [next];
                 }
-                group.goToFrame(group.from + decision.frac * (group.to - group.from));
+                group.goToFrame(group.from + frac * (group.to - group.from));
             }
             group.speedRatio = decision.speed;
         }
+    }
+
+    /** How many dancers may start a new clip in one frame (see _updateCrowdDance). */
+    static get CROWD_STARTS_PER_FRAME() { return 2; }
+
+    static _attentionRandom(dance) {
+        dance.attentionSeed = (Math.imul(dance.attentionSeed, 1664525) + 1013904223) >>> 0;
+        return dance.attentionSeed / 4294967296;
+    }
+
+    /** Reconsider one dancer's gaze at 7.5 Hz; authored clips continue to own every joint. */
+    _sampleCrowdAttention(npc, time, camPos) {
+        const dance = npc.dance;
+        dance.nextAttention = time + 0.14;
+        if (time >= dance.attentionUntil) {
+            const active = VRClubAudioCrowd._attentionRandom(dance) < 0.58;
+            dance.attending = active;
+            dance.attentionUntil = time + (active
+                ? 1.2 + VRClubAudioCrowd._attentionRandom(dance) * 2.0
+                : 0.8 + VRClubAudioCrowd._attentionRandom(dance) * 1.4);
+        }
+        if (!dance.attending) {
+            dance.attentionTargetYaw = 0;
+            return;
+        }
+
+        const here = npc.root.position;
+        let bestX = 0, bestZ = 0, best = 36;
+        if (camPos) {
+            const dx = camPos.x - here.x, dz = camPos.z - here.z;
+            const d2 = dx * dx + dz * dz, score = d2 * 0.55;
+            if (d2 >= 0.36 && d2 <= 36 && score < best) {
+                best = score; bestX = camPos.x; bestZ = camPos.z;
+            }
+        }
+        const dj = this._djPerformer;
+        if (dj && dj.home) {
+            const dx = dj.home.x - here.x, dz = dj.home.z - here.z;
+            const d2 = dx * dx + dz * dz, score = d2 * 0.72;
+            if (d2 >= 0.36 && d2 <= 36 && score < best) {
+                best = score; bestX = dj.home.x; bestZ = dj.home.z;
+            }
+        }
+        for (let i = 0; i < this.npcAvatars.length; i++) {
+            const other = this.npcAvatars[i];
+            if (other === npc || !other.root || !other.root.isEnabled()) continue;
+            const x = other.root.position.x, z = other.root.position.z;
+            const dx = x - here.x, dz = z - here.z;
+            const d2 = dx * dx + dz * dz;
+            if (d2 >= 0.36 && d2 <= 36 && d2 < best) {
+                best = d2; bestX = x; bestZ = z;
+            }
+        }
+        if (best >= 36) {
+            dance.attentionTargetYaw = 0;
+            return;
+        }
+        const toward = Math.atan2(bestX - here.x, bestZ - here.z);
+        const delta = Math.atan2(Math.sin(toward - npc.homeYaw), Math.cos(toward - npc.homeYaw));
+        // At a 15 cm foot radius this moves a planted foot by at most 1.5 cm.
+        dance.attentionTargetYaw = Math.max(-0.1, Math.min(0.1, delta));
     }
 
     /**
@@ -2959,8 +3992,9 @@ class VRClubAudioCrowd extends VRClubUI {
         if (!audioData) audioData = this.getAudioData();
         // The three Mixamo dancers have one authored clip each. Keep its intended pace when the kick drops out;
         // slowing it to 45% reads as broken slow motion rather than the deliberate free grooves used by CrowdDance.
-        const beatBoost = (audioData.hasAudio && audioData.bass > 0.3)
-            ? 1.0 + (audioData.bass - 0.3) * 0.3
+        const localBass = audioData.bass * (Number.isFinite(this._localPaPresence) ? this._localPaPresence : 1);
+        const beatBoost = (audioData.hasAudio && localBass > 0.3)
+            ? 1.0 + (localBass - 0.3) * 0.3
             : 1.0;
 
         const tempoChanged = Math.abs(beatBoost - this._npcBeatBoost) >= 0.01;
@@ -2978,6 +4012,11 @@ class VRClubAudioCrowd extends VRClubUI {
             const npc = this.npcAvatars[i];
             if (!npc.animations || !npc.root || !npc.root.isEnabled()) continue;
             this._updateAmbientNPC(npc, time, dt);
+            if (npc.dance) {
+                if (time >= npc.dance.nextAttention) this._sampleCrowdAttention(npc, time, camPos);
+                const k = 1 - Math.exp(-4 * Math.max(0, Math.min(0.1, dt)));
+                npc.dance.attentionYaw += (npc.dance.attentionTargetYaw - npc.dance.attentionYaw) * k;
+            }
 
             // A dancer with a repertoire takes its tempo from the choreographer, on the beat.
             if (tempoChanged && npc.reactsToBeat !== false && !npc.dance) {
@@ -3000,10 +4039,38 @@ class VRClubAudioCrowd extends VRClubUI {
                         npc.avoidYaw *= 0.75;
                         if (Math.abs(npc.avoidYaw) < 0.01) npc.avoidYaw = 0;
                     }
-                    npc.root.rotation.y = npc.homeYaw + (npc.avoidYaw || 0);
                 }
             }
+            if (npc.homeYaw != null) {
+                npc.root.rotation.y = npc.homeYaw + (npc.avoidYaw || 0)
+                    + (npc.dance ? npc.dance.attentionYaw : 0);
+            }
         }
+    }
+
+    /**
+     * Automatic quality (opt-in): every few seconds ask the pure `AdaptiveQuality` whether the last window of frames has
+     * kept missing the budget, and if so lower the tier by one for this session. Entering or leaving VR, a hidden tab and
+     * a tier change all start a fresh, quiet window, because the frames before them say nothing about the new mode.
+     */
+    _updateAutoQuality(now) {
+        const FrameStats = window.FrameStats;
+        if (!FrameStats || !this._frameStats) return;
+        const controller = this._autoQuality || (this._autoQuality = new FrameStats.AdaptiveQuality());
+        if (document.hidden || this._xrTransitioning || this._aqVR !== this.isInVRMode) {
+            this._aqVR = this.isInVRMode;
+            controller.pause(now);
+            this._frameStats.reset();
+            return;
+        }
+        if (now < controller.nextEval) return;
+        const decision = controller.evaluate(this._frameStats.summary(this.frameBudgetMs()), now, this.graphicsTier);
+        if (!decision) return;
+        this.recordDiagnostic('quality', `Auto quality: ${this.graphicsTier} -> ${decision.tier} (${decision.reason})`);
+        this.setGraphicsTier(decision.tier, { persist: false });
+        this.showErrorMessage(`Auto quality lowered the graphics to ${decision.tier.toUpperCase()}: frames were missing the target`);
+        this._frameStats.reset();
+        controller.pause(now, controller.holdSeconds);
     }
 
     setupPerformanceMonitor() {
@@ -3030,6 +4097,8 @@ class VRClubAudioCrowd extends VRClubUI {
         this.frames = 0;
         this.fps = 0;
         this.drawCallsPerFrame = 0;
+        // Frame-time distribution (js/frameStats.js): the once-a-second FPS above hides hitches and judder.
+        this._frameStats = window.FrameStats ? new window.FrameStats.Recorder() : null;
         this._lastDrawCallCount = this.engine && this.engine._drawCalls
             ? this.engine._drawCalls.current
             : 0;
@@ -3064,6 +4133,8 @@ class VRClubAudioCrowd extends VRClubUI {
                     const pos = this.camera.position;
                     text += `\nX: ${pos.x.toFixed(1)} Y: ${pos.y.toFixed(1)} Z: ${pos.z.toFixed(1)}`;
                     text += `\nDraws: ${this.drawCallsPerFrame}`;
+                    const stats = this._frameStats && this._frameStats.summary(this.frameBudgetMs());
+                    if (stats && stats.frames) text += `\nframe p95 ${stats.p95} ms  p99 ${stats.p99} ms  missed ${Math.round(stats.missedShare * 100)}%`;
                     text += `\nMeshes: ${this.scene.getActiveMeshes().length}/${this.scene.meshes.length}`;
                     text += `\nMaterials: ${this.scene.materials.length}`;
                 }

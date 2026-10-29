@@ -26,3 +26,18 @@
 
 /index.html
   Cache-Control: no-cache
+
+# The web app manifest keeps a stable name, so it revalidates; the spec's media type is manifest+json.
+/manifest.json
+  Content-Type: application/manifest+json
+  Cache-Control: no-cache
+/icons/*
+  Cache-Control: no-cache
+/screenshots/*
+  Cache-Control: no-cache
+# The phone page that pairs a headset: plain, unhashed files.
+/link/*
+  Cache-Control: no-cache
+# The club's own default set: a stable name that is regenerated in place, so it revalidates (a 304 costs nothing).
+/audio/*
+  Cache-Control: no-cache

@@ -101,6 +101,7 @@ const projectGlobals = {
     AvatarRig: 'readonly',
     DJPerformer: 'readonly',
     CrowdDance: 'readonly',
+    ImmersiveLaunch: 'readonly',
     log: 'readonly',
     module: 'readonly'
 };
@@ -191,8 +192,10 @@ export default [
                 Buffer: 'readonly',
                 fetch: 'readonly',
                 AbortController: 'readonly',
+                AbortSignal: 'readonly',
                 Request: 'readonly',
                 Response: 'readonly',
+                performance: 'readonly',
                 setImmediate: 'readonly',
                 queueMicrotask: 'readonly',
                 URL: 'readonly',
@@ -238,6 +241,7 @@ export default [
                 btoa: 'readonly',
                 atob: 'readonly',
                 crypto: 'readonly',
+                caches: 'readonly',
                 setInterval: 'readonly',
                 clearInterval: 'readonly',
                 console: 'readonly'

@@ -97,7 +97,7 @@ export async function handleRoomDirectory(request, env, origin) {
             const response = await stub.fetch(new Request('https://room.internal/directory-status'));
             if (!response.ok) throw new Error('Room status is unavailable');
             const status = await response.json();
-            return roomStatus(room, status.people, status.locked);
+            return roomStatus(room, status.people, status.locked, status.capacity ?? roomCapacity(env));
         }));
         return json({ rooms });
     } catch (error) {

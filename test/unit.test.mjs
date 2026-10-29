@@ -61,13 +61,276 @@ function loadClassic(relativePath, globals = {}) {
         Number,
         String,
         performance: { now: () => 0 },
+        localStorage: { getItem: () => null, setItem() {} },
+        log: { info() {}, warn() {}, error() {} },
         ...globals
     });
+
     window.window = window;
     window.location = { href: 'https://vrclub.example/', protocol: 'https:' };
     vm.runInContext(readFileSync(join(ROOT, relativePath), 'utf8'), context, { filename: relativePath });
+    if (relativePath === 'js/club/11-audio-crowd.js') {
+        for (const file of ['js/characterCatalog.js', 'js/characterStyles.js']) {
+            vm.runInContext(readFileSync(join(ROOT, file), 'utf8'), context, { filename: file });
+        }
+        Object.assign(window.VRClubAudioCrowd.prototype, window.CharacterStyles);
+    }
     return { window, context };
 }
+
+test('DEV activities follow actual surfaces, clear fixed people and use the real furniture', async () => {
+    const { DevAttendees, DEV_DESTINATIONS, DANCE_SPOTS } = await import('../worker/src/devAttendees.js');
+    const venue = loadClassic('js/venueDressing.js').window.VenueLayout;
+    const mezz = loadClassic('js/mezzanine.js').window.MezzanineLayout;
+    const { window } = loadClassic('js/club/11-audio-crowd.js', {
+        BABYLON: makeBabylonStub(), VRClubUI: class {}, log: { info() {}, warn() {}, error() {} }
+    });
+    const Crowd = window.VRClubAudioCrowd;
+    const floor = Object.assign(Object.create(Crowd.prototype), {
+        tierSettings: { crowdSize: 14, guestSize: 8 }, npcAvatars: [], _loadCrowdSources: async () => {},
+        _applyDJ: async () => true, _initialDJId: () => 'male', _spawnCrowdTo() {}, _spawnLocalPlayerBody() {},
+        _applyCrowdSize() {}, _refreshShadowCasters() {}, _spawnAvatar() {}
+    });
+    await floor.createDancingNPCs();
+    const fixedPeople = [...floor._crowdSlots, ...floor._guestSlots().filter(slot => !slot.mingles && !slot.y)];
+    for (const spot of DANCE_SPOTS) for (const npc of floor._crowdSlots) {
+        assert.ok(Math.hypot(spot.x - npc.x, spot.z - npc.z) >= 0.8, 'dance destination overlaps a floor dancer');
+    }
+    for (const seat of DEV_DESTINATIONS.filter(place => place.id.startsWith('bar-'))) {
+        assert.equal(seat.x, venue.bar.stoolX);
+        assert.ok(venue.bar.stoolZ.includes(seat.z) && seat.z !== -11.6);
+        assert.equal(seat.seatH, 0.76);
+    }
+    for (const [i, z] of venue.restroom.toiletZ.entries()) {
+        const seat = DEV_DESTINATIONS.find(place => place.id === `toilet-${i}`);
+        assert.equal(seat.x, venue.restroom.toiletSeatX);
+        assert.equal(seat.z, z);
+        assert.equal(seat.seatH, venue.restroom.toiletSeatY);
+    }
+    for (const [i, offset] of venue.lounge.seats.entries()) {
+        const seat = DEV_DESTINATIONS.find(place => place.id === `lounge-${i}`);
+        assert.equal(seat.x, venue.lounge.x + offset);
+        assert.equal(seat.z, venue.lounge.seatZ);
+        assert.equal(seat.seatH, venue.lounge.seatY);
+    }
+    for (const [i, stool] of mezz.stools.entries()) {
+        const seat = DEV_DESTINATIONS.find(place => place.id === `balcony-${i}`);
+        assert.equal(seat.x, stool.x);
+        assert.equal(seat.z, stool.z);
+        assert.equal(seat.floorY, mezz.deck.top);
+    }
+    const seen = new Set();
+    for (let index = 0; index < 31; index++) {
+        const simulation = new DevAttendees(123, 0), bot = simulation.add(index);
+        let previous = bot.state;
+        for (let step = 1; step <= 7000; step++) {
+            simulation.step(step * 100);
+            const state = bot.state;
+            const actual = venue.vestibule.walkLevel(state.x, state.z) ??
+                mezz.walkLevel(state.x, state.z, state.floorY);
+            assert.ok(Math.abs(state.floorY - actual) < 0.1, `bot ${index} left its surface at ${state.x}, ${state.z}: ${state.floorY} vs ${actual}`);
+            assert.ok(Math.hypot(state.x - previous.x, state.z - previous.z) <= 0.14, 'a normal walk must not jump after a turn or loop');
+            if (state.floorY < 0.1) for (const npc of fixedPeople) {
+                assert.ok(Math.hypot(state.x - npc.x, state.z - npc.z) >= 0.6,
+                    `bot ${index} at ${state.x},${state.z} walked into fixed person ${npc.x},${npc.z}`);
+            }
+            assert.ok(Object.entries(state).every(([key, value]) => key === 'seat'
+                ? DEV_DESTINATIONS.some(place => place.id === value) : typeof value === 'boolean' || Number.isFinite(value)));
+            if (state.dancing) seen.add('dance');
+            if (state.seated) seen.add('seat');
+            if (state.floorY === 3) seen.add('balcony');
+            if (state.z > 6.6) seen.add('street');
+            previous = state;
+        }
+    }
+    assert.deepEqual([...seen].sort(), ['balcony', 'dance', 'seat', 'street']);
+});
+
+test('DEV activity decisions are frame-rate independent and never walk into a real guest', async () => {
+    const { DevAttendees } = await import('../worker/src/devAttendees.js');
+    const a = new DevAttendees(456, 0), b = new DevAttendees(456, 0);
+    const first = a.add(2), second = b.add(2);
+    for (let i = 1; i <= 2000; i++) a.step(i * 50);
+    for (let i = 1; i <= 1000; i++) b.step(i * 100);
+    assert.ok(Math.hypot(first.state.x - second.state.x, first.state.z - second.state.z) < 1e-6);
+    const waiting = new DevAttendees(456, 0), guest = waiting.add(2);
+    guest.departAt = guest.chooseAt = 0;
+    waiting.step(50);
+    assert.ok(guest.path);
+    const old = { ...guest.state };
+    const next = guest.path[guest.waypoint];
+    const dx = next.x - guest.position.x, dz = next.z - guest.position.z, length = Math.hypot(dx, dz);
+    const obstruction = { x: old.x + dx / length * 0.1, z: old.z + dz / length * 0.1, floorY: old.floorY };
+    waiting.step(100, [obstruction]);
+    assert.deepEqual(guest.state, old);
+    const arrival = new DevAttendees(456, 0).add(2, [old]);
+    assert.ok(Math.hypot(arrival.state.x - old.x, arrival.state.floorY - old.floorY, arrival.state.z - old.z) >= 1.25,
+        'a replacement attendee must not spawn inside a real guest');
+});
+
+test('DEV furniture yields safely to real guests, including reservations made while somebody is approaching', async () => {
+    const { DevAttendees } = await import('../worker/src/devAttendees.js');
+    const simulation = new DevAttendees(456, 0);
+    for (let index = 0; index < 31; index++) simulation.add(index);
+    const occupant = [...simulation.guests.values()].find(bot => bot.state.seat?.startsWith('toilet-'));
+    assert.ok(occupant);
+    const seat = { ...occupant.position, seated: true };
+    assert.equal(simulation.yieldSeat('missing-seat'), false);
+    assert.equal(simulation.yieldSeat(occupant.destination.id), true);
+    assert.equal(occupant.state.seated, false, 'the toilet door opens before the guest walks out');
+    const start = { ...occupant.position };
+    simulation.step(250, [seat]);
+    assert.deepEqual(occupant.position, start, 'wait for the physical door to open');
+    for (let now = 500; now <= 15000; now += 250) simulation.step(now, [seat]);
+    assert.ok(Math.hypot(occupant.position.x - seat.x, occupant.position.z - seat.z) > 0.85);
+    assert.ok(![...simulation.guests.values()].some(bot => bot.state.seated &&
+        Math.hypot(bot.state.x - seat.x, bot.state.z - seat.z) < 1));
+
+    const approaching = new DevAttendees(789, 0), walker = approaching.add(0);
+    walker.departAt = walker.chooseAt = 0;
+    approaching.step(50);
+    assert.ok(walker.path);
+    const destination = { ...walker.destination, seated: true };
+    const origin = walker.origin.id, previous = { ...walker.position };
+    approaching.step(100, [destination]);
+    assert.equal(walker.destination.id, origin, 'a newly occupied destination cancels the approach');
+    assert.ok(walker.returning || !walker.path);
+    assert.ok(Math.hypot(walker.position.x - previous.x, walker.position.z - previous.z) < 0.1, 'backtracking never teleports');
+});
+
+test('DEV attendees mingle for an hour without walking queues, overlaps, jumps or mandatory circuits', async () => {
+    const { DevAttendees } = await import('../worker/src/devAttendees.js');
+    for (const [seed, stepMs] of [[123, 100], [456, 50], [789, 250], [0, 100], [0xffffffff, 100]]) {
+        const simulation = new DevAttendees(seed, 0);
+        const guests = Array.from({ length: 31 }, (_, index) => {
+            const bot = simulation.add(index);
+            return { bot, travelled: bot.travelled, previous: bot.state, waitMs: 0 };
+        });
+        let minimumGap = Infinity, maximumStep = 0, movingSamples = 0, longestWait = 0;
+        const activities = new Set(), furniture = new Set();
+        for (let now = stepMs; now <= 3_600_000; now += stepMs) {
+            simulation.step(now);
+            assert.ok([...simulation.guests.values()].filter(bot => bot.path).length <= 3,
+                'the simultaneous walking limit applies on every update, not just on average');
+            for (const guest of guests) {
+                const state = guest.bot.state;
+                maximumStep = Math.max(maximumStep, Math.hypot(state.x - guest.previous.x, state.z - guest.previous.z));
+                guest.previous = state;
+                activities.add(guest.bot.destination.activity);
+                if (state.seated) furniture.add(state.seat.split('-')[0]);
+                if (guest.bot.path) movingSamples++;
+                if (guest.bot.path && guest.bot.travelled === guest.travelled) {
+                    guest.waitMs += stepMs;
+                    longestWait = Math.max(longestWait, guest.waitMs);
+                } else guest.waitMs = 0;
+                guest.travelled = guest.bot.travelled;
+            }
+            for (let i = 0; i < guests.length; i++) for (let j = i + 1; j < guests.length; j++) {
+                const a = guests[i].bot.state, b = guests[j].bot.state;
+                minimumGap = Math.min(minimumGap, Math.hypot(a.x - b.x, a.floorY - b.floorY, a.z - b.z));
+            }
+        }
+        assert.ok(minimumGap >= 0.6 - 1e-7, `seed ${seed} overlapped bodies: ${minimumGap}`);
+        assert.ok(maximumStep <= 1.15 * stepMs / 1000 + 1e-7, `seed ${seed} jumped: ${maximumStep}`);
+        assert.ok(movingSamples / (3_600_000 / stepMs) <= 3, 'most guests should be doing an activity, not circulating');
+        assert.ok(longestWait <= 1200, `seed ${seed} leaves a walking guest queued for ${longestWait} ms`);
+        for (const guest of guests) {
+            assert.ok(guest.bot.completed >= 3, `seed ${seed}, bot ${guest.bot.index} never changed activities`);
+            assert.ok(guest.bot.visits.size >= 2, 'guests choose different kinds of activity');
+        }
+        assert.deepEqual([...activities].sort(), ['air', 'dance', 'seat', 'talk', 'toilet', 'watch']);
+        assert.deepEqual([...furniture].sort(), ['balcony', 'bar', 'lounge', 'toilet']);
+        for (const guest of guests) simulation.remove(guest.bot.index);
+        assert.equal(simulation.resources.size, 0, 'departing attendees must release every corridor and dance spot');
+    }
+});
+
+test('DEV guests have distinct names and exchange scripted conversation turns only with present partners', async () => {
+    const { DevAttendees, ATTENDEE_NAMES } = await import('../worker/src/devAttendees.js');
+    const { ALLOWED_EMOJI, ALLOWED_GESTURES, sanitizeName } = await import('../worker/src/relay.js');
+    assert.equal(ATTENDEE_NAMES.length, 31);
+    assert.equal(new Set(ATTENDEE_NAMES).size, 31);
+    for (const name of ATTENDEE_NAMES) assert.equal(sanitizeName(name), name);
+    const simulation = new DevAttendees(456, 0);
+    for (let index = 0; index < 31; index++) {
+        const bot = simulation.add(index);
+        assert.equal(bot.name, ATTENDEE_NAMES[index]);
+    }
+    let conversations = 0, djReactions = 0, chats = 0, groupOfThree = false;
+    const speakers = new Map();
+    const firstConversation = [];
+    const lastEvent = new Map();
+    for (let now = 100; now <= 600000; now += 100) {
+        simulation.step(now);
+        for (const bot of simulation.guests.values()) {
+            if (bot.state.talking && [...simulation.guests.values()].filter(other =>
+                !other.path && other.destination.group === bot.destination.group).length >= 3) groupOfThree = true;
+            if (bot.chat) {
+                chats++;
+                if (firstConversation.length < 3) firstConversation.push({ group: bot.destination.group, speaker: bot.index });
+                assert.ok(!bot.path && bot.partnerIndex !== null && !bot.state.dancing);
+                assert.ok(bot.chat.length <= 200);
+                if (!speakers.has(bot.destination.group)) speakers.set(bot.destination.group, new Set());
+                speakers.get(bot.destination.group).add(bot.index);
+            }
+            if (!bot.gesture && !bot.emoji) continue;
+            if (bot.gesture) assert.ok(ALLOWED_GESTURES.includes(bot.gesture));
+            if (bot.emoji) assert.ok(ALLOWED_EMOJI.includes(bot.emoji));
+            assert.ok(now - (lastEvent.get(bot.index) ?? -Infinity) >= 23000, 'social events must not spam');
+            lastEvent.set(bot.index, now);
+            assert.equal(!!bot.path, false, 'never wave instead of walking along a corridor');
+            if (bot.state.dancing) {
+                djReactions++;
+                assert.ok(Math.abs(bot.state.rotY - Math.atan2(-bot.state.x, -18 - bot.state.z)) < 1e-7);
+            } else {
+                conversations++;
+                const partner = simulation.guests.get(bot.partnerIndex);
+                assert.ok(partner, 'a social gesture must have a nearby conversation partner');
+                assert.ok(Math.hypot(partner.state.x - bot.state.x, partner.state.z - bot.state.z) < 3);
+            }
+        }
+    }
+    assert.ok(conversations > 10, 'guests should visibly greet and acknowledge one another');
+    assert.ok(djReactions > 10, 'dancers should occasionally cheer the resident DJ');
+    assert.ok(chats > 20 && chats <= 120, 'conversation balloons are occasional, not a flood');
+    assert.ok(groupOfThree, 'three guests can mingle together');
+    assert.ok([...speakers.values()].some(group => group.size >= 2), 'partners take turns rather than one guest monologuing');
+    assert.equal(new Set(firstConversation.map(line => line.group)).size, 1, 'finish a short exchange before cutting to another group');
+    assert.notEqual(firstConversation[0].speaker, firstConversation[1].speaker);
+});
+
+test('automatic countdowns require a sustained four-bar energy rise; manual DROP remains available', () => {
+        const { window } = loadClassic('js/showDirector.js');
+        const makeAtAscentEnd = (energyBars) => {
+            const director = new window.ShowDirector({
+                vjManualMode: false,
+                photosensitiveSafeMode: false,
+                vjDirector: { paletteMode: 'analogous' }
+            });
+            director._movementName = 'ascent';
+            director._movement = director.movements.ascent;
+            director._cueIndex = director._movement.cues.length - 1;
+            director._barsSinceMovement = 100;
+            for (const energy of energyBars) {
+                director._energy = energy;
+                director._recordBarEnergy();
+            }
+            director._energy = 0.4;
+            return director;
+        };
+
+        const rising = makeAtAscentEnd([0.20, 0.24, 0.29, 0.34, 0.39]);
+        rising._advanceCue();
+        assert.equal(rising._setPiece, rising.setPieces.countdown,
+            'a sustained energy build should earn the automatic countdown');
+
+        const flat = makeAtAscentEnd([0.38, 0.38, 0.39, 0.38, 0.39]);
+        flat._advanceCue();
+        assert.equal(flat._setPiece, null, 'a high but flat energy level should not trigger a countdown');
+        assert.equal(flat._movementName, 'ignition', 'the energy-selected movement should still begin');
+        flat.triggerShowDrop();
+        assert.equal(flat._setPiece, flat.setPieces.countdown, 'the VJ must retain the manual countdown macro');
+});
 
 // ---------------------------------------------------------------------------
 // Security boundary
@@ -148,70 +411,7 @@ test('keyboard shortcuts leave focused buttons to native Space activation but st
     assert.equal(audio.pauseCalls, 0, 'a default-prevented Space should not pause audio');
 });
 
-test('floating desktop panels are mutually exclusive and restore focus on close', () => {
-    const source = readFileSync(join(ROOT, 'js/ui-init.js'), 'utf8');
-    const start = source.indexOf('let openFloatingPanel = null;');
-    const end = source.indexOf('/**\n * Wire the VJ and audio panels', start);
-    const documentListeners = {};
-    const makeEl = (classes = []) => {
-        const classNames = new Set(classes);
-        return {
-            attributes: {},
-            listeners: {},
-            focused: false,
-            classList: {
-                add(...names) { names.forEach(name => classNames.add(name)); },
-                remove(...names) { names.forEach(name => classNames.delete(name)); },
-                contains(name) { return classNames.has(name); },
-                toggle(name) {
-                    if (classNames.has(name)) { classNames.delete(name); return false; }
-                    classNames.add(name);
-                    return true;
-                }
-            },
-            addEventListener(type, handler) { this.listeners[type] = handler; },
-            removeEventListener(type) { delete this.listeners[type]; },
-            setAttribute(name, value) { this.attributes[name] = String(value); },
-            focus() { this.focused = true; },
-            querySelector() { return null; }
-        };
-    };
-    const context = vm.createContext({
-        uiTeardowns: [],
-        document: {
-            addEventListener(type, handler) { (documentListeners[type] ||= []).push(handler); },
-            removeEventListener() {}
-        }
-    });
-    vm.runInContext(source.slice(start, end), context);
-
-    const first = { toggle: makeEl(), panel: makeEl(['hidden']), title: makeEl() };
-    const second = { toggle: makeEl(), panel: makeEl(['hidden']), title: makeEl() };
-    context.first = first;
-    context.second = second;
-    vm.runInContext(`
-        firstController = bindFloatingPanel({ ...first, name: 'first' });
-        secondController = bindFloatingPanel({ ...second, name: 'second' });
-        firstController.open();
-        secondController.open();
-    `, context);
-
-    assert.equal(first.panel.classList.contains('hidden'), true, 'opening a panel should close the previous panel');
-    assert.equal(first.toggle.attributes['aria-expanded'], 'false');
-    assert.equal(second.panel.classList.contains('hidden'), false);
-    assert.equal(second.toggle.attributes['aria-expanded'], 'true');
-    assert.equal(second.title.focused, true, 'opening a panel should focus its heading');
-
-    let prevented = false;
-    for (const handler of documentListeners.keydown) {
-        handler({ key: 'Escape', preventDefault() { prevented = true; } });
-    }
-    assert.equal(prevented, true);
-    assert.equal(second.panel.classList.contains('hidden'), true);
-    assert.equal(second.toggle.focused, true, 'Escape should return focus to the panel trigger');
-});
-
-test('the audio menu exposes a separate ambience slider and labels both ranges by scope', () => {
+test('the audio menu exposes labelled levels and a clipboard paste action', async () => {
     const source = readFileSync(join(ROOT, 'js/ui-init.js'), 'utf8');
     const start = source.indexOf('function initAudioMenu()');
     const end = source.indexOf('// =============================================================================\n// MULTIPLAYER', start);
@@ -236,13 +436,14 @@ test('the audio menu exposes a separate ambience slider and labels both ranges b
         focus() {},
         querySelector() { return null; },
         setCustomValidity() {},
+        setSelectionRange(start, end) { this.selection = [start, end]; },
         reportValidity() { return true; },
         replaceChildren() {},
         add() {}
     });
     const elements = Object.fromEntries([
         'audioToggle', 'audioMenu', 'audioMinimize', 'audioClose', 'streamUrl',
-        'playStreamBtn', 'playStreamBtnLabel', 'audioFileInput', 'audioFileName',
+        'pasteStreamBtn', 'playStreamBtn', 'playStreamBtnLabel', 'saveStreamBtn', 'audioLinkNote', 'audioFileInput', 'audioFileName',
         'audioStatus', 'audioMenuTitle', 'audioNowPlaying', 'audioVolume',
         'audioVolumeValue', 'crowdAmbience', 'crowdAmbienceValue', 'savedSets',
         'setName', 'playSavedSetBtn', 'removeSavedSetBtn', 'djStyle'
@@ -261,8 +462,28 @@ test('the audio menu exposes a separate ambience slider and labels both ranges b
             addEventListener() {},
             removeEventListener() {}
         },
-        window: { addEventListener() {}, removeEventListener() {} },
-        navigator: { onLine: true },
+        window: {
+            addEventListener() {},
+            removeEventListener() {},
+            MusicLibrary: {
+                normalizeSoundCloudUrl(value) {
+                    const raw = String(value || '').trim();
+                    try {
+                        const parsed = new URL(raw);
+                        if (!/^(?:www\.|m\.)?soundcloud\.com$/i.test(parsed.hostname)) return raw;
+                        const parts = parsed.pathname.split('/').filter(Boolean);
+                        if (parts.length !== 2) return raw;
+                        return `https://soundcloud.com/${parts[0]}/${parts[1]}`;
+                    } catch (_) {
+                        return raw;
+                    }
+                }
+            }
+        },
+        navigator: {
+            onLine: true,
+            clipboard: { readText: async () => '  https://soundcloud.com/missmelera/colourizon-168  ' }
+        },
         uiTeardowns: [],
         entryNowPlaying: '',
         uiLog: { info() {}, warn() {} },
@@ -271,8 +492,10 @@ test('the audio menu exposes a separate ambience slider and labels both ranges b
         AudioUtils: { isResidentEpisodeUrl: () => false, formatClock: String },
         Podcasts: { get: () => ({ id: 'resident', artist: 'Hernan Cattaneo' }) },
         // The podcast player and its choice buttons are exercised by their own tests (podcasts.js).
-        ensureMusicLibrary: () => ({ current: () => null, items: [], selected: 0 }),
-        bindFloatingPanel: () => ({ open() {}, close() {} }),
+        ensureMusicLibrary: () => ({
+            current: () => null, items: [], selected: 0,
+            linkAction: () => ({ play: { label: 'Play now', disabled: false }, save: { label: 'Save to my sets', disabled: true }, note: '' })
+        }),
         refreshPodcastChoices() {},
         setInterval() { return 1; },
         clearInterval() {},
@@ -285,6 +508,7 @@ test('the audio menu exposes a separate ambience slider and labels both ranges b
             scene: null,
             _initialDJId: () => 'male',
             _isSafeAudioUrl() { return true; },
+            isFollowingHost() { return false; },
             getPlaybackInfo() { return { seekable: false, position: 0, duration: 0, playing: false }; },
             setAudioVolume(value) { calls.push(['music', value]); },
             getCrowdAmbienceLevel() { calls.push(['getAmbience']); return 0.25; },
@@ -307,6 +531,23 @@ test('the audio menu exposes a separate ambience slider and labels both ranges b
     assert.deepEqual(calls.slice(-2), [['music', 0.4], ['ambience', 0.1]]);
     assert.equal(elements.audioVolumeValue.textContent, '40%');
     assert.equal(elements.crowdAmbienceValue.textContent, '10%');
+
+    await elements.pasteStreamBtn.listeners.click();
+    assert.equal(elements.streamUrl.value, 'https://soundcloud.com/missmelera/colourizon-168');
+    assert.deepEqual(elements.streamUrl.selection, [elements.streamUrl.value.length, elements.streamUrl.value.length]);
+    assert.match(elements.audioStatus.textContent, /URL pasted/);
+
+    context.navigator.clipboard.readText = async () => ' https://m.soundcloud.com/missmelera/colourizon-168?si=x&utm_source=demo&in=someone/sets/demo#t=45 ';
+    await elements.pasteStreamBtn.listeners.click();
+    assert.equal(elements.streamUrl.value, 'https://soundcloud.com/missmelera/colourizon-168');
+
+    context.navigator.clipboard.readText = async () => { throw new Error('denied'); };
+    await elements.pasteStreamBtn.listeners.click();
+    assert.match(elements.audioStatus.textContent, /Clipboard access was blocked/);
+
+    delete context.navigator.clipboard.readText;
+    await elements.pasteStreamBtn.listeners.click();
+    assert.match(elements.audioStatus.textContent, /Press and hold/);
 });
 
 test('multiplayer stops initial failures and bounds cancellable reconnects', () => {
@@ -585,6 +826,405 @@ function loadAvatarManager() {
     return { manager, AvatarManager: window.AvatarManager, created, observers, advance: ms => { now += ms; } };
 }
 
+test('a remote guest\'s own eye height sizes their person, and the root stays on their floor', () => {
+    const { manager, AvatarManager } = loadAvatarManager();
+    manager.updatePeerState('p', 'Pat', { x: 0, y: 1.92, z: 0, rotY: 0, eh: 1.92 });
+    const peer = manager.remotes.get('p');
+    assert.equal(peer.eyeHeight, 1.92);
+    assert.ok(Math.abs(peer.root.position.y) < 1e-9, 'a tall guest stands on the floor, not below it');
+
+    // A short guest: the root follows the eye minus THEIR eye height (the person's own scale eases toward it).
+    manager.updatePeerState('p', null, { x: 0, y: 2.65 - 0.3, z: -18, rotY: 0, eh: 1.4 });
+    assert.ok(Math.abs(peer.target.y - 0.95) < 1e-9);
+    manager.update(10);
+    assert.equal(peer.eyeHeight, 1.4);
+
+    // Older clients and relays send no eh; anything out of range is ignored. Both mean the standard 1.7 m.
+    for (const eh of [undefined, 0.5, 9, NaN, '1.8']) {
+        manager.updatePeerState('p', null, { x: 0, y: 1.7, z: 0, rotY: 0, eh });
+        manager.update(10);
+        assert.equal(peer.eyeHeight, AvatarManager.EYE_HEIGHT, `eh ${eh} must fall back to the standard height`);
+    }
+
+    // The person is rescaled in place, with the feet kept on the floor and tiny changes ignored.
+    let scale = 1, invalidated = 0, feet = 0.5;
+    peer.person = {
+        node: { scaling: { scaleInPlace(k) { scale *= k; } }, position: { get y() { return feet; }, set y(v) { feet = v; } } },
+        groups: {}, current: null,
+        arms: { invalidateLimbs() { invalidated++; } }
+    };
+    manager.updatePeerState('p', null, { x: 0, y: 1.71, z: 0, rotY: 0, eh: 1.71 });
+    manager.update(1);
+    assert.equal(invalidated, 0, 'a 1 cm change must not refit a skeleton');
+    assert.equal(scale, 1);
+    manager.updatePeerState('p', null, { x: 0, y: 1.87, z: 0, rotY: 0, eh: 1.87 });
+    manager.update(0.1);
+    assert.ok(peer.eyeHeight > 1.7 && peer.eyeHeight < 1.87, 'a taller guest grows over time, not in one frame');
+    assert.ok(Math.abs(peer.eyeHeight - (1.7 + AvatarManager.EYE_EASE_SPEED * 0.1)) < 1e-9, 'at the easing speed');
+    for (let i = 0; i < 40; i++) manager.update(0.05);
+    assert.equal(peer.eyeHeight, 1.87);
+    assert.ok(Math.abs(scale - 1.87 / 1.7) < 1e-9, 'the scale arrives exactly');
+    assert.ok(Math.abs(feet - 0.5 * 1.87 / 1.7) < 1e-9, 'the feet stay proportional to the scale');
+    const arrived = invalidated;
+    manager.update(1);
+    assert.equal(invalidated, arrived, 'nothing is refitted once it has arrived');
+});
+
+test('a remote guest who crouches or sits in a headset stays upright on their floor instead of sinking', () => {
+    const { manager, AvatarManager } = loadAvatarManager();
+    const stand = { x: 0, z: 0, rotY: 0, eh: 1.7, floorY: 0 };
+    manager.updatePeerState('p', 'Pat', { ...stand, y: 1.7 });
+    const peer = manager.remotes.get('p');
+    assert.ok(Math.abs(peer.target.y) < 1e-9);
+    manager.updatePeerState('p', null, { ...stand, y: 1.1 });
+    assert.equal(peer.target.y, 0, 'a crouch (eye 60 cm low) keeps the feet on the floor');
+    manager.updatePeerState('p', null, { ...stand, y: 0.3 });
+    assert.ok(Math.abs(peer.target.y + 1.4) < 1e-9, 'a floor more than 0.9 m above the estimate is ignored');
+    // On the balcony the floor is 3 m up; a crouch there stays on it.
+    manager.updatePeerState('p', null, { ...stand, y: 3.0 + 1.2, floorY: 3.0 });
+    assert.equal(peer.target.y, 3.0);
+    manager.updatePeerState('p', null, { ...stand, y: 4.7, floorY: 3.0 });
+    assert.ok(Math.abs(peer.target.y - 3.0) < 1e-9, 'standing is unchanged');
+    // A stale floor from the balcony must not float a guest who is on the ground.
+    manager.updatePeerState('p', null, { ...stand, y: 1.7, floorY: 3.0 });
+    assert.ok(Math.abs(peer.target.y) < 1e-9, 'a stale floor 3 m up is ignored');
+    // An older client sends no floor: the old estimate applies.
+    manager.updatePeerState('p', null, { x: 0, y: 1.1, z: 0, rotY: 0, eh: 1.7 });
+    assert.ok(Math.abs(peer.target.y + 0.6) < 1e-9);
+    assert.equal(AvatarManager.FLOOR_CLAMP, 0.9);
+});
+
+
+test('player height: the estimator finds the standing eye height and ignores crouching, sitting and a jump', () => {
+    const { window } = loadClassic('js/playerHeight.js');
+    const H = window.PlayerHeight;
+    const est = new H.HeightEstimator();
+    assert.equal(est.estimate(), null, 'nothing is claimed without samples');
+    let t = 0;
+    const feed = (height, seconds) => { for (const end = t + seconds; t < end; t += 0.05) est.add(height, t); };
+    feed(1.78, 4);
+    assert.ok(Math.abs(est.estimate() - 1.78) < 1e-9);
+    // 30% of the time crouched or sitting, a short jump: the standing height still wins.
+    feed(1.2, 10); feed(1.78, 20); feed(1.0 + 0.0, 0); feed(1.95, 0.4); feed(1.78, 15); feed(0.9, 8);
+    assert.ok(Math.abs(est.estimate() - 1.78) < 0.03, `estimate ${est.estimate()}`);
+    // Garbage is dropped, and the result is always in range.
+    est.reset();
+    for (const bad of [NaN, Infinity, -1, 0.2, 5, '1.7']) est.add(bad, t += 1);
+    assert.equal(est.samples.length, 0);
+    assert.equal(H.clampEye(3), H.MAX_EYE);
+    assert.equal(H.clampEye(0.2), H.MIN_EYE);
+    // The window forgets: after the player is replaced by a shorter one the estimate follows within the window.
+    est.reset(); t = 1000;
+    feed(1.9, 30); feed(1.55, 100);
+    assert.ok(Math.abs(est.estimate() - 1.55) < 0.03);
+    assert.equal(H.median([1.5, NaN, 1.7, 1.6]), 1.6);
+    assert.equal(H.median([]), null);
+});
+
+test('player height: the seated lift raises a sitter to standing height, eases, and falls away when they stand', () => {
+    const { window } = loadClassic('js/playerHeight.js');
+    const H = window.PlayerHeight;
+    assert.ok(Math.abs(H.seatedLift(1.15, 1.7) - 0.55) < 1e-9);
+    assert.equal(H.seatedLift(1.9, 1.7), 0, 'somebody already tall enough is left alone');
+    assert.equal(H.seatedLift(0.1, 1.7), 1, 'never more than a metre');
+    assert.equal(H.seatedLift(NaN, 1.7), 0);
+
+    const lift = new H.SeatedLift();
+    const dt = 1 / 72;
+    let maxStep = 0, last = 0;
+    for (let i = 0; i < 72 * 6; i++) {
+        const value = lift.update(1.15, dt, true, 1.7);
+        maxStep = Math.max(maxStep, Math.abs(value - last)); last = value;
+    }
+    assert.ok(Math.abs(last - 0.55) < 1e-6, `settled at ${last}`);
+    assert.ok(maxStep <= 0.5 * dt + 1e-9, 'the view never lurches faster than 0.5 m/s');
+
+    // Sitting still with a little head movement keeps the view steady.
+    let min = Infinity, max = -Infinity;
+    for (let i = 0; i < 72 * 10; i++) {
+        const value = lift.update(1.15 + 0.02 * Math.sin(i / 9), dt, true, 1.7);
+        min = Math.min(min, value); max = Math.max(max, value);
+    }
+    assert.ok(max - min < 0.03, `lift wandered ${max - min} m`);
+
+    // Standing up: the lift falls to zero by itself; switching the mode off does the same; furniture snaps it to zero.
+    for (let i = 0; i < 72 * 8; i++) lift.update(1.7, dt, true, 1.7);
+    assert.equal(lift.lift, 0);
+    for (let i = 0; i < 72 * 4; i++) lift.update(1.15, dt, true, 1.7);
+    assert.ok(lift.lift > 0.4);
+    for (let i = 0; i < 72 * 4; i++) lift.update(1.15, dt, false, 1.7);
+    assert.equal(lift.lift, 0);
+    for (let i = 0; i < 72 * 4; i++) lift.update(1.15, dt, true, 1.7);
+    assert.equal(lift.update(1.15, dt, true, 1.7, true), 0, 'a seat in the room has its own pose');
+});
+
+test('player height: Seated mode lifts the tracked head height every consumer reads, and only then', () => {
+    const PlayerHeight = loadClassic('js/playerHeight.js').window.PlayerHeight;
+    let now = 0;
+    const { window } = loadClassic('js/mezzanine.js', { log: { warn() {} }, performance: { now: () => now * 1000 } });
+    window.PlayerHeight = PlayerHeight;
+    const club = Object.assign(Object.create(window.Mezzanine), {
+        vrSeatedMode: false, playerEyeHeight: null, _activeSeat: null,
+        _bodyEyeHeight() { return this.playerEyeHeight || 1.7; },
+        _refreshVRQuickMenu() {}, showErrorMessage() {}
+    });
+    const frame = height => { now += 1 / 72; club._xrEyeHeight = height; club._trackPlayerHeight(height); };
+
+    for (let i = 0; i < 72 * 5; i++) frame(1.15);
+    assert.ok(Math.abs(club._xrHeadHeight() - 1.15) < 1e-9, 'standing mode never lifts');
+
+    club.vrSeatedMode = true;
+    for (let i = 0; i < 72 * 5; i++) frame(1.15);
+    assert.ok(Math.abs(club._xrHeadHeight() - 1.7) < 1e-6, 'a seated player\'s view is at the standing eye height');
+    club.playerEyeHeight = 1.84;
+    for (let i = 0; i < 72 * 5; i++) frame(1.15);
+    assert.ok(Math.abs(club._xrHeadHeight() - 1.84) < 1e-6, 'the target is the player\'s own height when it is known');
+
+    // Sitting on the club's furniture snaps it off (the seat has its own pose).
+    club._activeSeat = { id: 'bar-0' };
+    frame(1.15);
+    assert.equal(club._xrHeadHeight(), 1.15);
+
+    // The estimator is fed only in standing mode and without a seat; a sitter's low height is never adopted.
+    club._activeSeat = null; club.vrSeatedMode = false; club.playerEyeHeight = null;
+    club._seatLift.reset();
+    for (let i = 0; i < 72 * 30; i++) frame(1.15);
+    assert.equal(club.playerEyeHeight, null, 'under 1.35 m is taken for sitting');
+    for (let i = 0; i < 72 * 30; i++) frame(1.74);
+    assert.ok(Math.abs(club.playerEyeHeight - 1.74) < 0.03, `adopted ${club.playerEyeHeight}`);
+    club.vrSeatedMode = true;
+    club.playerEyeHeight = 1.74;
+    for (let i = 0; i < 72 * 120; i++) frame(1.1);
+    assert.equal(club.playerEyeHeight, 1.74, 'Seated mode never re-learns the height from a sitter');
+});
+
+test('player height: MEASURE HEIGHT keeps the median of the last second and rejects nonsense', () => {
+    const { window } = loadClassic('js/playerHeight.js');
+    let now = 0;
+    const { window: w2 } = loadClassic('js/mezzanine.js', { log: { warn() {} }, performance: { now: () => now * 1000 } });
+    w2.PlayerHeight = window.PlayerHeight;
+    const messages = [];
+    const club = Object.assign(Object.create(w2.Mezzanine), {
+        isInVRMode: true, vrSeatedMode: true, playerEyeHeight: null, _activeSeat: null, _xrEyeHeight: 1.5,
+        _bodyEyeHeight() { return this.playerEyeHeight || 1.7; },
+        _refreshVRQuickMenu() {}, showErrorMessage: text => messages.push(text)
+    });
+    assert.equal(club.startHeightMeasure(), true);
+    // Stooping at the start, standing tall for the final second: only the last second counts.
+    for (let i = 0; i < 72 * 3 + 2; i++) {
+        now += 1 / 72;
+        const height = now < 2 ? 1.3 : 1.81;
+        club._xrEyeHeight = height;
+        club._trackPlayerHeight(height);
+    }
+    assert.equal(club.playerEyeHeight, 1.81);
+    assert.match(messages.at(-1), /1\.81 m/);
+    club.isInVRMode = false;
+    assert.equal(club.startHeightMeasure(), false, 'height is measured in the headset');
+});
+
+test('frame statistics: percentiles, budget shares, stalls and a bounded window', () => {
+    const { window } = loadClassic('js/frameStats.js');
+    const { Recorder } = window.FrameStats;
+    const recorder = new Recorder(100);
+    const empty = recorder.summary(13.89);
+    assert.equal(empty.frames, 0);
+    assert.equal(empty.budgetMs, 13.89);
+    let now = 1000;
+    recorder.add(now, 1, 1);   // the first call only sets the origin
+    for (let i = 0; i < 90; i++) { now += 13.89; recorder.add(now, 2, 3); }
+    for (let i = 0; i < 9; i++) { now += 20; recorder.add(now, 2, 3); }     // judder: over 1.25x the budget
+    now += 40; recorder.add(now, 4, 6);                                        // a missed frame: over 2.2x
+    const summary = recorder.summary(13.89);
+    assert.equal(summary.frames, 100);
+    assert.equal(summary.p50, 13.89);
+    assert.equal(summary.p95, 20);
+    assert.equal(summary.p99, 20);
+    assert.equal(summary.maxFrameMs, 40);
+    assert.equal(summary.overBudgetShare, 0.1);
+    assert.equal(summary.missedShare, 0.01);
+    assert.ok(Math.abs(summary.updateMeanMs - 2.02) < 1e-6 && Math.abs(summary.submitMeanMs - 3.03) < 1e-6);
+
+    // A hidden tab or an XR transition is a stall, not a 5 s frame that wrecks the mean.
+    now += 5000; recorder.add(now, 1, 1);
+    assert.equal(recorder.summary(13.89).stalls, 1);
+    assert.equal(recorder.summary(13.89).maxFrameMs, 40);
+
+    // The window is bounded and keeps the newest frames; garbage input is ignored.
+    for (let i = 0; i < 500; i++) { now += 10; recorder.add(now, 0, 0); }
+    recorder.add(NaN, 1, 1); recorder.add(now, 1, 1);
+    const later = recorder.summary(13.89);
+    assert.equal(later.frames, 100);
+    assert.equal(later.maxFrameMs, 10);
+    recorder.reset();
+    assert.equal(recorder.summary(13.89).frames, 0);
+});
+
+test('automatic quality steps down only after sustained misses, holds, never climbs, and ignores thin windows', () => {
+    const { window } = loadClassic('js/frameStats.js');
+    const { AdaptiveQuality } = window.FrameStats;
+    const bad = { frames: 300, budgetMs: 13.89, overBudgetShare: 0.4, p95: 30 };
+    const good = { frames: 300, budgetMs: 13.89, overBudgetShare: 0.01, p95: 14 };
+    const aq = new AdaptiveQuality();
+    aq.reset(0);
+    // 5 s windows: two bad ones are not enough, a good one resets the streak, three in a row act.
+    assert.equal(aq.evaluate(bad, 5, 'ultra'), null);
+    assert.equal(aq.evaluate(bad, 10, 'ultra'), null);
+    assert.equal(aq.evaluate(good, 15, 'ultra'), null);
+    assert.equal(aq.evaluate(bad, 20, 'ultra'), null);
+    assert.equal(aq.evaluate(bad, 25, 'ultra'), null);
+    const down = aq.evaluate(bad, 30, 'ultra');
+    assert.equal(down.tier, 'high');
+    assert.match(down.reason, /40% of frames over the 13\.89 ms budget/);
+    // Held for 45 s after a change, whatever the frames say, and it can reach balanced but never go below it.
+    for (let t = 35; t < 75; t += 5) assert.equal(aq.evaluate(bad, t, 'high'), null, `held at ${t}`);
+    let step = null;
+    for (let t = 75; t <= 100 && !step; t += 5) step = aq.evaluate(bad, t, 'high');
+    assert.equal(step && step.tier, 'balanced');
+    for (let t = 105; t < 400; t += 5) assert.equal(aq.evaluate(bad, t, 'balanced'), null, 'balanced is the floor');
+    // Never climbs, however healthy the frames are.
+    for (let t = 405; t < 2000; t += 5) assert.equal(aq.evaluate(good, t, 'balanced'), null);
+    // A window with too few frames (a hidden tab, a stall) is not evidence; pause() makes a mode change quiet for 20 s.
+    const thin = new AdaptiveQuality();
+    thin.reset(0);
+    for (let t = 5; t <= 60; t += 5) assert.equal(thin.evaluate({ ...bad, frames: 10 }, t, 'ultra'), null);
+    const entering = new AdaptiveQuality();
+    entering.reset(0);
+    entering.pause(100, 20);
+    for (let t = 105; t < 120; t += 5) assert.equal(entering.evaluate(bad, t, 'ultra'), null);
+    // A p95 more than 1.5x the budget counts even when few frames individually crossed 1.25x.
+    const slowTail = new AdaptiveQuality({ streak: 1 });
+    slowTail.reset(0);
+    assert.equal(slowTail.evaluate({ frames: 300, budgetMs: 13.89, overBudgetShare: 0.1, p95: 25 }, 5, 'high').tier, 'balanced');
+});
+
+test('Quest 1, Quest 2 and Quest Pro start on Balanced; Quest 3, Quest 3S and saved choices are preserved', () => {
+    const store = new Map();
+    const run = userAgent => {
+        const { window } = loadClassic('js/club/01-core.js', {
+            BABYLON: {}, log: { info() {}, warn() {}, error() {} },
+            navigator: { userAgent },
+            localStorage: { getItem: key => (store.has(key) ? store.get(key) : null) }
+        });
+        return window.VRClubCore.prototype.detectGraphicsTier.call({ engine: {} });
+    };
+    const ua = model => `Mozilla/5.0 (X11; Linux x86_64${model}) AppleWebKit/537.36 (KHTML, like Gecko) OculusBrowser/33.0.0.1.1 SamsungBrowser/4.0 Chrome/126.0.0.0 VR Safari/537.36`;
+    assert.equal(run(ua('; Quest 2')), 'balanced');
+    assert.equal(run(ua('; Quest Pro')), 'balanced');
+    assert.equal(run(ua('; Quest')), 'balanced', 'a Quest 1 says only "Quest"');
+    assert.equal(run(ua('; Quest 3')), 'ultra');
+    assert.equal(run(ua('; Quest 3S')), 'ultra', 'Quest 3S keeps the Ultra default that its owner reports works well');
+    assert.equal(run(ua('')), 'ultra', 'a headset that names no model keeps the old default');
+    assert.equal(run('Mozilla/5.0 (Linux; Android 12; Quest 2) AppleWebKit/537.36 Chrome/126 Mobile VR Safari/537.36'), 'balanced');
+    store.set('vrclub.graphicsTier', 'ultra');
+    assert.equal(run(ua('; Quest 2')), 'ultra', 'a saved choice always wins');
+    assert.equal(run(ua('; Quest 3S')), 'ultra', 'a saved choice also wins on Quest 3S');
+    store.clear();
+    const core = loadClassic('js/club/01-core.js', { BABYLON: {}, log: { info() {}, warn() {}, error() {} } }).window.VRClubCore;
+    const legacy = core.isLegacyQuest;
+    assert.equal(legacy('Mozilla/5.0 (Windows NT 10.0) Chrome/126 Safari/537.36'), false);
+    assert.equal(legacy(undefined), false);
+    assert.equal(legacy('...; Quest 3) ...'), false);
+    assert.equal(core.isQuestBrowser('OculusBrowser/33'), true);
+
+    const getScale = core.prototype.getDesktopRenderScale;
+    assert.equal(getScale.call({ isQuestBrowser: true, tierSettings: { renderScale: 0.8 } }), 1.0);
+    assert.equal(getScale.call({ isQuestBrowser: false, tierSettings: { renderScale: 0.8 } }), 0.8);
+});
+
+test('Quest browsers skip desktop-only SSAO, SSR, and motion blur construction', () => {
+    let constructors = 0;
+    const { window } = loadClassic('js/club/03-rendering.js', {
+        BABYLON: {
+            SSAO2RenderingPipeline: class { constructor() { constructors++; } },
+            SSRRenderingPipeline: class { constructor() { constructors++; } },
+            MotionBlurPostProcess: class { constructor() { constructors++; } }
+        },
+        VRClubLifecycle: class {},
+        log: { info() {}, warn() {}, error() {} }
+    });
+    const club = Object.assign(Object.create(window.VRClubRendering.prototype), {
+        isQuestBrowser: true,
+        vrSettings: { desktop: {} },
+        renderPipeline: {},
+        ssaoPipeline: null,
+        ssrPipeline: null,
+        motionBlur: null,
+        tierSettings: { ssr: true, motionBlur: true },
+        scene: {},
+        camera: {}
+    });
+    club.addPostProcessing();
+    assert.equal(constructors, 0);
+    assert.equal(club.ssaoPipeline, null);
+    assert.equal(club.ssrPipeline, null);
+    assert.equal(club.motionBlur, null);
+});
+
+test('automatic quality is opt-in, session-only and wired into the render loop and both menus', () => {
+    const { window } = loadClassic('js/club/01-core.js', { BABYLON: {}, log: { info() {}, warn() {}, error() {} } });
+    const store = new Map();
+    const storage = { getItem: key => (store.has(key) ? store.get(key) : null) };
+    assert.equal(window.VRClubCore.resolveAutoQuality(storage), false, 'off for new visitors');
+    store.set('vrclub.autoQuality', '1');
+    assert.equal(window.VRClubCore.resolveAutoQuality(storage), true);
+    store.set('vrclub.autoQuality', 'true');
+    assert.equal(window.VRClubCore.resolveAutoQuality(storage), false, 'only a stored 1 enables it');
+
+    // An automatic drop must not overwrite the player's own saved tier.
+    const saved = [];
+    const club = Object.create(window.VRClubCore.prototype);
+    Object.assign(club, {
+        qualityTiers: { ultra: {}, high: {}, balanced: {} }, graphicsTier: 'ultra',
+        ssrPipeline: null, motionBlur: null, isInVRMode: false, scene: { materials: [] },
+        _applyTierToPipeline() {}, _createScreenSpaceReflections() {}, _createMotionBlur() {}, _suppressUnlitSpecular() {},
+        _applyAnisotropicFiltering() {}, _applyShadowQuality() {}, _rebuildFloorReflectionProbe() {}, _applyCrowdSize() {},
+        applyDesktopSettings() {}, showErrorMessage() {}
+    });
+    const realSet = globalThis.localStorage;
+    globalThis.localStorage = { setItem: (k, v) => saved.push([k, v]) };
+    try {
+        window.VRClubCore.prototype.setGraphicsTier.call(club, 'high', { persist: false });
+        assert.equal(club.graphicsTier, 'high');
+        assert.deepEqual(saved, [], 'session-only');
+    } finally { globalThis.localStorage = realSet; }
+
+    const read = file => readFileSync(join(ROOT, file), 'utf8');
+    assert.match(read('js/club/02-lifecycle.js'), /if \(this\.autoQuality\) this\._updateAutoQuality\(t0 \/ 1000\)/);
+    assert.match(read('js/club/10-ui.js'), /label: 'AUTO QUALITY', control: 'autoQuality'/);
+    assert.match(read('js/club/10-ui.js'), /'vrSeatedMode', 'autoQuality'/, 'personal: never host-gated');
+    assert.match(read('index.html'), /id="vjAutoQualityBtn"/);
+});
+
+test('the render loop times updates and submission, and the report exposes them without inventing GPU time', () => {
+    const source = readFileSync(join(ROOT, 'js/club/02-lifecycle.js'), 'utf8');
+    assert.match(source, /this\._frameStats\.add\(t0, t1 - t0, t2 - t1\)/);
+    const { window } = loadClassic('js/club/01-core.js', { BABYLON: {}, log: { info() {}, warn() {}, error() {} } });
+    const proto = window.VRClubCore.prototype;
+    const club = Object.create(proto);
+    const FrameStats = loadClassic('js/frameStats.js').window.FrameStats;
+    club._frameStats = new FrameStats.Recorder();
+    club.isInVRMode = true;
+    club.vrHelper = { baseExperience: { sessionManager: { session: { frameRate: 90 } } } };
+    assert.ok(Math.abs(club.frameBudgetMs() - 11.11) < 0.01, 'the budget follows the headset refresh rate');
+    club.vrHelper = null;
+    assert.ok(Math.abs(club.frameBudgetMs() - 13.89) < 0.01, 'a headset that does not say gets 72 Hz');
+    club.isInVRMode = false;
+    assert.ok(Math.abs(club.frameBudgetMs() - 16.67) < 0.01);
+    club.scene = {
+        lights: [{ isEnabled: () => true }, { isEnabled: () => false }], getActiveMeshes: () => ({ length: 5 }),
+        getActiveIndices: () => 3000, getActiveBones: () => 62, customRenderTargets: [1, 2], particleSystems: [1]
+    };
+    club.engine = { getFps: () => 71.6 };
+    club.graphicsTier = 'balanced';
+    const report = club.getPerformanceReport();
+    assert.equal(report.activeTriangles, 1000);
+    assert.equal(report.enabledLights, 1);
+    assert.equal(report.renderTargets, 2);
+    assert.equal(report.time.frames, 0);
+    assert.equal('gpuMs' in report || 'gpu' in report, false, 'GPU time is not measurable from the page and is not reported');
+});
+
 test('remote avatars stand on the floor under the sender eye and snap on their first sample', () => {
     const { manager, AvatarManager } = loadAvatarManager();
     manager.updatePeerState('p', 'Pat', { x: 3, y: 1.7, z: -12, rotY: 0.5 });
@@ -600,6 +1240,12 @@ test('remote avatars stand on the floor under the sender eye and snap on their f
     assert.ok(Math.abs(peer.root.position.y - 0.95) < 1e-6);
     manager.updatePeerState('p', null, { x: NaN, y: Infinity, z: 0, rotY: 0 });
     assert.ok(Number.isFinite(peer.target.x) && Number.isFinite(peer.target.y));
+
+    manager.updatePeerState('p', null, { x: -11.3, y: 4.1, z: -17.55, rotY: 0, seated: true, floorY: 3 });
+    for (let i = 0; i < 600; i++) manager.update(1 / 72);
+    assert.ok(Math.abs(peer.root.position.y - 3) < 1e-6, 'a seated balcony guest must stay on the deck');
+    assert.equal(peer.seated, true);
+    assert.equal(peer.body.position.y, 0.62, 'the capsule fallback must visibly sit too');
 });
 
 test('remote avatar turns follow the shortest arc', () => {
@@ -620,6 +1266,7 @@ test('remote avatar turns follow the shortest arc', () => {
 test('network presence sends both eye-relative controllers only in VR and retains desktop cadence', () => {
     const { window } = loadClassic('js/club/07-animation-core.js', { VRClubEffects: class {} });
     const club = Object.create(window.VRClubAnimationCore.prototype);
+    club._bodyEyeHeight = () => 1.7;
     const samples = [];
     club.networkManager = { connected: true, sendState: state => samples.push(JSON.parse(JSON.stringify(state))) };
     club.camera = { position: { x: 1, y: 1.7, z: 2 }, rotation: { y: 0.2 } };
@@ -635,6 +1282,7 @@ test('network presence sends both eye-relative controllers only in VR and retain
     assert.ok(Math.abs(samples[0].hands.right.y + 0.4) < 1e-8);
     assert.equal(samples[0].hands.left.fz, 1);
     assert.equal(samples[0].y, 4.7);
+    assert.equal(samples[0].seated, false);
     club.updateNetworkPresence({ time: 1.02, dt: 1 / 60 });
     assert.equal(samples.length, 1);
     club._handPose = side => side === 'left' ? left : null;
@@ -644,7 +1292,12 @@ test('network presence sends both eye-relative controllers only in VR and retain
     club.updateNetworkPresence({ time: 1.12, dt: 1 / 60 });
     assert.equal(samples.length, 2, 'desktop cadence is slower');
     club.updateNetworkPresence({ time: 1.17, dt: 1 / 60 });
-    assert.deepEqual(samples[2], { x: 1, y: 1.7, z: 2, rotY: 0.2, hands: null });
+    assert.deepEqual(samples[2], { x: 1, y: 1.7, z: 2, rotY: 0.2, hands: null, seated: false, floorY: 0, seatH: 0, eh: 1.7 });
+
+    club._activeSeat = { x: -11.3, z: -17.55, facing: 0, floorY: 3 };
+    club.updateNetworkPresence({ time: 1.28, dt: 1 / 60 });
+    assert.deepEqual({ x: samples[3].x, z: samples[3].z, rotY: samples[3].rotY, seated: samples[3].seated, floorY: samples[3].floorY },
+        { x: -11.3, z: -17.55, rotY: 0, seated: true, floorY: 3 });
 });
 
 test('remote hands interpolate, expire, override gesture clips only while tracked, and unregister on disposal', () => {
@@ -1590,9 +2243,16 @@ function createAudioHarness(options = {}) {
             for (const k of ['positionX', 'positionY', 'positionZ', 'orientationX', 'orientationY', 'orientationZ']) n[k] = new Param();
             return n;
         }
-        createBiquadFilter() { return Object.assign(new Node('biquad'), { frequency: new Param(350), Q: new Param(1) }); }
+        createBiquadFilter() { return Object.assign(new Node('biquad'), { frequency: new Param(350), Q: new Param(1), detune: new Param(0) }); }
+        createWaveShaper() { return Object.assign(new Node('waveShaper'), { curve: null, oversample: 'none' }); }
         createGain() { return Object.assign(new Node('gain'), { gain: new Param(1) }); }
         createDelay() { return Object.assign(new Node('delay'), { delayTime: new Param() }); }
+        createOscillator() {
+            const n = Object.assign(new Node('oscillator'), { frequency: new Param() });
+            n.start = () => started.add(n);
+            n.stop = () => started.delete(n);
+            return n;
+        }
         createConvolver() { return new Node('convolver'); }
         createDynamicsCompressor() {
             const n = new Node('compressor');
@@ -1684,6 +2344,10 @@ test('the Web Audio graph spatialises the PA, keeps the analyser pre-spatial and
     // The analyser is fed straight from the source, never after spatial attenuation,
     // or walking away from the PA would dim the light show.
     assert.ok(connected(club.audioSource, club.audioAnalyser));
+    assert.ok(connected(club.audioSource, club.djFxInput));
+    assert.ok(!downstream(club.djFxInput).has(club.audioAnalyser), 'DJ effects must not alter the light-show analyser');
+    assert.ok(downstream(club.djFxOutput).has(club.pannerLeft));
+    assert.ok(downstream(club.djFxOutput).has(club.subGain));
     assert.ok(!downstream(club.pannerLeft).has(club.audioAnalyser));
     assert.equal(club.audioAnalyser.fftSize, 256);
 
@@ -1698,6 +2362,85 @@ test('the Web Audio graph spatialises the PA, keeps the analyser pre-spatial and
     assert.ok(!downstream(club.voiceDuckGain).has(club.audioAnalyser));
     assert.ok(connected(club.audioMasterGain, ctx.destination));
     assert.ok(downstream(club.audioSource).has(club.roomConvolver));
+    assert.ok(started.has(club.djFxFlangerLfo));
+
+    club._djEffects.lowpass = 1;
+    club._djEffects.highpass = 1;
+    club._djEffects.echo = 1;
+    club._djEffects.flanger = 1;
+    club._djEffects.reverb = 1;
+    club._djEffects.channel = 0;
+    club._writeDJEffects();
+    assert.equal(club.djFxLowpass.frequency.value, 250);
+    assert.equal(club.djFxHighpass.frequency.value, 4000);
+    assert.equal(club.djFxChannel.gain.value, 0);
+    club._djEffects.channel = 0.5;
+    club._writeDJEffects(0);
+    assert.equal(club.djFxChannel.gain.value, 0.25, 'the crossfader has an audio taper: half-way is -12 dB, not -6');
+
+    // The second bank: every effect is a wet send into the mix (the gater is the series stage), silent until turned up,
+    // and all of it sits after the analyser tap like the rest.
+    const extra = club.djFxExtra;
+    club.guardHostControl = () => true;
+    assert.ok(extra, 'the phaser, sweep and gater exist');
+    assert.equal(extra.distortionWet, undefined, 'distortion and the bit crusher are gone');
+    for (const wet of [extra.phaserWet, extra.sweepWet]) {
+        assert.equal(wet.gain.value, 0 * wet.gain.value, 'a wet send starts silent');
+        assert.ok(downstream(wet).has(club.djFxOutput), 'a wet send reaches the effects output');
+    }
+    assert.ok(connected(club.djFxHighpass, club.djFxGate) && downstream(club.djFxGate).has(extra.phaserWet), 'the sends listen after the gater');
+    assert.ok(started.has(extra.gaterLfo));
+    assert.ok(!downstream(club.djFxInput).has(club.audioAnalyser));
+    club.resetDJEffects();
+    for (const name of ['phaser', 'sweep', 'gater']) {
+        assert.equal(club._djEffects[name], 0);
+    }
+    assert.equal(extra.phaserWet.gain.value, 0);
+    assert.equal(club.djFxGate.gain.value, 1, 'with the gater off the gate is wide open');
+    assert.equal(extra.gaterDepth.gain.value, 0);
+    club.setDJEffect('gater', 1);
+    assert.equal(club.djFxGate.gain.value, 0.5);
+    assert.equal(extra.gaterDepth.gain.value, 0.5, 'a full gater swings the gate between silence and open');
+    club.vjBPM = 120;
+    club._syncGaterRate();
+    assert.equal(extra.gaterLfo.frequency.value, 4, 'the gater chops in eighth notes of the track tempo: 120 BPM is 4 Hz');
+    club.setDJEffect('sweep', 1);
+    assert.equal(extra.sweepFilter.frequency.value, 10000);
+    assert.ok(extra.sweepWet.gain.value > 0.4);
+    club.setDJEffect('phaser', 1);
+    assert.ok(extra.phaserWet.gain.value > 0.8);
+    const hostEffects = club.djEffectsSnapshot();
+    club._networkMusic = {};
+    club._writeDJEffects(0);
+    assert.equal(club.djFxLowpass.frequency.value, 20000);
+    assert.equal(club.djFxHighpass.frequency.value, 20);
+    assert.equal(club.djFxEchoWet.gain.value, 0);
+    assert.equal(club.djFxFlangerWet.gain.value, 0);
+    assert.equal(club.djFxReverb.gain.value, 0);
+    assert.equal(club.djFxChannel.gain.value, 1);
+    assert.equal(extra.phaserWet.gain.value, 0);
+    assert.equal(extra.sweepWet.gain.value, 0, 'a processed broadcast must not add a second noise sweep');
+    assert.equal(extra.gaterDepth.gain.value, 0);
+    assert.equal(club.djFxGate.gain.value, 1);
+    assert.deepEqual(club.djEffectsSnapshot(), hostEffects, 'readouts retain the host controls without applying them twice');
+    club._applySharedDJEffects({ lowpass: 0.75, echo: 0.5, channel: 0.2, sweep: 0.6 });
+    assert.equal(club._djEffects.channel, 0.2);
+    assert.equal(club.djFxChannel.gain.value, 1, 'further remote snapshots cannot attenuate an already processed broadcast twice');
+    club._networkMusic = null;
+    club._writeDJEffects(0);
+    assert.equal(club.djFxChannel.gain.value, 0.2 * 0.2, 'switching back to a URL reapplies the controls once');
+    assert.equal(club.djFxEchoWet.gain.value, 0.5 * 0.65);
+    club._applySharedDJEffects({ lowpass: 9, highpass: -5, echo: '1', channel: NaN, arbitrary: 1 });
+    assert.equal(club._djEffects.lowpass, 1);
+    assert.equal(club._djEffects.highpass, 0);
+    assert.equal(club._djEffects.echo, 0.5);
+    assert.equal(club._djEffects.channel, 0.2);
+    assert.equal(Object.hasOwn(club._djEffects, 'arbitrary'), false);
+    club.resetDJEffects();
+    assert.equal(JSON.stringify(club._djEffects), JSON.stringify({
+        lowpass: 0, highpass: 0, echo: 0, flanger: 0, reverb: 0, phaser: 0, sweep: 0, gater: 0, channel: 1
+    }));
+    assert.equal(club.djFxChannel.gain.value, 1);
 
     // The crowd bed runs, spatialised, into the same bus.
     assert.ok(started.has(club.crowdAmbienceSource));
@@ -1900,18 +2643,22 @@ test('disposing the club releases VR access, stops every audio source and closes
     club._onVRButtonClick = () => {};
     club._connectAudioSourceOnce();
     const ctx = club.audioContext;
-    assert.equal(started.size, 1);
+    assert.ok(started.size >= 5, 'the crowd ambience, flanger, gater, phaser and noise sweep should be running');
 
+    const clearedTimers = [];
     const { window } = loadClassic('js/club/02-lifecycle.js', {
         VRClubCore: class {}, log: { info() {}, warn() {} }, URL: { revokeObjectURL() {} },
-        document: { removeEventListener() {} }
+        document: { removeEventListener() {} }, clearTimeout: timer => clearedTimers.push(timer)
     });
     const xrStates = [];
+    club._cancelDevSeatWait = () => {};
+    club._wardrobeCleanupTimer = 42;
     window.VRPayment = { onXRStateChange: active => xrStates.push(active) };
     window.VRClubLifecycle.prototype.dispose.call(club);
     window.VRClubLifecycle.prototype.dispose.call(club);
     assert.deepEqual(xrStates, [false], 'teardown must stop lease renewal exactly once');
-    assert.equal(started.size, 0, 'the crowd ambience source is still running after dispose');
+    assert.deepEqual(clearedTimers, [42], 'teardown must cancel wardrobe cleanup exactly once');
+    assert.equal(started.size, 0, 'an audio source or DJ-effect oscillator is still running after dispose');
     assert.equal(ctx.state, 'closed');
     assert.equal(club.audioContext, null);
     assert.equal(club.audioSource, null);
@@ -2198,6 +2945,8 @@ test('the LED wall is lit for most of the show, and only the deliberate solos go
             `${name}: the wall is lit for only ${(100 * movementOn / movementTotal).toFixed(0)}% of the movement`);
     }
     assert.ok(on / total >= 0.6, `the wall is lit for only ${(100 * on / total).toFixed(0)}% of the show (was 24%)`);
+    assert.equal(movements.pulse.cues.find(cue => cue.look === 'theWave').bars, 38,
+        'the Underground Sequence must have its full 38-bar solo');
 });
 
 test('the LED wall is one mesh whose texels take each panel colour by row and column', () => {
@@ -2302,6 +3051,31 @@ test('the Show Director resolves ledLevel per look and never leaks the dimmed le
     director._applyLook(director.looks.theClimb);
     assert.equal(club.ledWallLevel, 1, 'a look that omits ledLevel must be full strength, not inherit the last dim');
     assert.equal('ledLevel' in club, false, 'the look key must not be written onto the club');
+});
+
+test('the automatic show deliberately composes mirror-ball rays and spots-only looks', () => {
+    const { window } = loadClassic('js/showDirector.js');
+    const club = {
+        vjManualMode: false,
+        photosensitiveSafeMode: false,
+        mirrorBallRaysActive: false,
+        vjDirector: { paletteMode: 'analogous', setLedHarmony() {}, unlockHue() {} }
+    };
+    const director = new window.ShowDirector(club);
+    const mirrorLooks = Object.entries(director.looks).filter(([, look]) => look.mirrorBallActive);
+    assert.ok(mirrorLooks.length > 0);
+    for (const [name, look] of mirrorLooks) {
+        assert.equal(typeof look.mirrorBallRaysActive, 'boolean', `${name} does not choose a mirror-ray mode`);
+    }
+    assert.ok(mirrorLooks.some(([, look]) => look.mirrorBallRaysActive), 'no automatic look uses the full mirror rays');
+    assert.ok(mirrorLooks.some(([, look]) => !look.mirrorBallRaysActive), 'no automatic look keeps only reflected spots');
+
+    director._applyLook(director.looks.deepBlue);
+    assert.equal(club.mirrorBallRaysActive, true, 'a manual spots-only choice leaked into the full-ray look');
+    director._applyLook(director.looks.eclipse);
+    assert.equal(club.mirrorBallRaysActive, false);
+    director._applyLook(director.looks.firstLight);
+    assert.equal(club.mirrorBallRaysActive, true, 'a non-mirror look did not clear specialist ray state');
 });
 
 test('photosensitive safe mode force-clears strobes in every look', () => {
@@ -2804,6 +3578,30 @@ function readGlbJson(relativePath) {
     return JSON.parse(buffer.subarray(20, 20 + length).toString('utf8'));
 }
 
+function readGlbVertexColorBytes(relativePath) {
+    const buffer = readFileSync(join(ROOT, relativePath));
+    const jsonLength = buffer.readUInt32LE(12);
+    const json = JSON.parse(buffer.subarray(20, 20 + jsonLength).toString('utf8'));
+    const binaryChunk = 20 + jsonLength;
+    const binary = buffer.subarray(binaryChunk + 8, binaryChunk + 8 + buffer.readUInt32LE(binaryChunk));
+    const colors = [];
+    for (const primitive of json.meshes.flatMap(mesh => mesh.primitives)) {
+        const accessorIndex = primitive.attributes.COLOR_0;
+        if (accessorIndex === undefined) continue;
+        const accessor = json.accessors[accessorIndex];
+        const view = json.bufferViews[accessor.bufferView];
+        assert.equal(accessor.componentType, 5121);
+        assert.equal(accessor.type, 'VEC3');
+        const stride = view.byteStride || 3;
+        const start = (view.byteOffset || 0) + (accessor.byteOffset || 0);
+        for (let index = 0; index < accessor.count; index++) {
+            const offset = start + index * stride;
+            colors.push(binary[offset], binary[offset + 1], binary[offset + 2]);
+        }
+    }
+    return colors;
+}
+
 test('every guest slot asks for a clip its character file carries, inside the room and apart from the others', () => {
     const BABYLON = makeBabylonStub();
     const { window } = loadClassic('js/club/11-audio-crowd.js', { BABYLON, VRClubUI: class {} });
@@ -2825,13 +3623,31 @@ test('every guest slot asks for a clip its character file carries, inside the ro
             assert.ok(clipsOf(file).has(clip), `slot ${index} keeps "${clip}", which ${file} does not carry`);
         }
         if (slot.clips) assert.ok(slot.clips.includes(slot.clip), `slot ${index} does not keep the clip it starts in`);
-        if (!slot.mingles) {
+        if (!slot.mingles && !slot.barPatron) {
             assert.ok(slot.ambient && slot.ambient.period >= 8,
                 `fixed guest ${index} has no slow ambient timing`);
         }
     });
     assert.equal(slots[3].clip, 'Idle_Railing_Loop', 'the balcony guest must put her hands on the railing');
     assert.equal(slots[3].ambient.yawRange || 0, 0, 'ambient attention must not turn the balcony guest away from the rail');
+    assert.equal(slots[0].clip, 'Idle_Loop', 'a fixed guest must not talk before a visible partner arrives');
+    assert.ok(slots[0].clips.includes('Idle_Talking_Loop'), 'the first guest cannot answer the mingler');
+    const hoodie = Crowd.sourceIndex('m4');
+    assert.equal(slots.filter(slot => slot.src === hoodie).length, 1, 'the rust-hoodie guest must not appear twice');
+    const hoodieYaw = Math.atan2(-slots[0].x, -18 - slots[0].z);
+    assert.ok(Math.abs(Math.atan2(Math.sin(slots[0].yaw - hoodieYaw), Math.cos(slots[0].yaw - hoodieYaw))) < 1e-9,
+        'the rust-hoodie guest must face the dance floor from his base position');
+    assert.equal(slots[5].clip, 'Idle_Loop', 'a one-shot Yes gesture must not be used as a permanent idle');
+    const slotsBySource = new Map();
+    slots.forEach(slot => {
+        const peers = slotsBySource.get(slot.src) || [];
+        for (const peer of peers) {
+            assert.ok(Math.hypot(slot.x - peer.x, slot.z - peer.z) >= 12,
+                'a repeated upper-tier guest look must be placed on the opposite side of the club');
+        }
+        peers.push(slot);
+        slotsBySource.set(slot.src, peers);
+    });
     for (let a = 0; a < slots.length; a++) {
         for (let b = a + 1; b < slots.length; b++) {
             const apart = Math.hypot(slots[a].x - slots[b].x, slots[a].z - slots[b].z);
@@ -2844,6 +3660,137 @@ test('every guest slot asks for a clip its character file carries, inside the ro
     assert.equal(sizes.length, 3, 'every graphics tier must set guestSize');
     assert.ok(sizes.every(size => size <= slots.length) && sizes[0] >= sizes[1] && sizes[1] >= sizes[2],
         'guestSize must not exceed the slots and must fall with the tier');
+});
+
+test('the bartender rotates through distinct work activities and rests her hands while talking', () => {
+    const BABYLON = makeBabylonStub();
+    const { window } = loadClassic('js/club/11-audio-crowd.js', { BABYLON, VRClubUI: class {} });
+    const Crowd = window.VRClubAudioCrowd;
+    window.VenueLayout = {
+        bar: {
+            counter: { xFront: 9.7, xBack: 10.5, top: 1.1 },
+            backBar: { xFront: 11.55, shelves: [1.42, 1.86, 2.3] },
+            bartender: { x: 10.85, z: -9.9 }
+        }
+    };
+    const snapshots = [];
+    const pose = {
+        x: 10.85, z: -9.9, lean: 0.12, headYaw: -Math.PI / 2,
+        left: { x: 0, y: 0, z: 0 }, right: { x: 0, y: 0, z: 0 }
+    };
+    const club = Object.assign(Object.create(Crowd.prototype), {
+        _bartenderRig: {
+            root: { isEnabled: () => true },
+            update() {
+                snapshots.push({
+                    activity: club._bartenderActivity,
+                    left: { ...pose.left },
+                    right: { ...pose.right },
+                    headYaw: pose.headYaw
+                });
+            }
+        },
+        _bartenderPose: pose,
+        _bartenderWashTime: 0,
+        _bartenderActivity: 'wash',
+        _bartenderActivityTime: 0,
+        _bartenderActivityIndex: 0,
+        _barGlass: null
+    });
+    const sequence = [];
+    for (let i = 0; i < 4; i++) {
+        club._bartenderActivityTime = 0;
+        club._updateBartender(1 / 60, null);
+        sequence.push(club._bartenderActivity);
+    }
+    assert.deepEqual(sequence, ['survey', 'arrange', 'wash', 'wipe']);
+    assert.notDeepEqual(snapshots[0].right, snapshots[1].right, 'surveying and arranging use the same hand pose');
+    const timer = club._bartenderActivityTime;
+    club._updateBartender(1 / 60, {
+        activity: 'talk', timer: 5, duration: 10,
+        barPatron: { root: { position: { x: 9.2, z: -11.6 } } }
+    });
+    assert.equal(club._bartenderActivityTime, timer, 'a conversation consumed the background activity timer');
+    assert.ok(Math.abs(pose.left.y - window.VenueLayout.bar.counter.top) < 0.12
+        && Math.abs(pose.right.y - window.VenueLayout.bar.counter.top) < 0.12,
+    'the bartender does not rest her hands near the counter while talking');
+
+    // Working, she looks down at her hands; when the regular lifts her bottle she looks up and across at her.
+    club._barPatron = { root: { position: { x: 9.08, z: -11.6 } }, barPatron: { activity: 'idle' } };
+    club._bartenderActivity = 'wash';
+    club._bartenderActivityTime = 99;
+    club._bartenderWashTime = 0;
+    club._updateBartender(1 / 60, null);
+    assert.ok(pose.headPitch < -0.2, 'she is not looking down at her work');
+    assert.ok(Math.abs(pose.headYaw - pose.bodyYaw) < 0.05, 'her head leaves her work with nothing to look at');
+    club._barPatron.barPatron.activity = 'drink';
+    club._updateBartender(1 / 60, null);
+    assert.ok(pose.headPitch > -0.1, 'she keeps staring at her hands while the regular drinks');
+    assert.ok(Math.abs(pose.headYaw - pose.bodyYaw) > 0.3, 'she does not turn her head toward the regular');
+    assert.ok(Math.abs(pose.eyeY - 1.58) <= 0.006, 'her breathing moves her eyes out of range');
+});
+
+test('the bartender\u2019s right hand never crosses her left, in any job, while talking or while serving', () => {
+    const BABYLON = makeBabylonStub();
+    const { window } = loadClassic('js/club/11-audio-crowd.js', { BABYLON, VRClubUI: class {} });
+    const Crowd = window.VRClubAudioCrowd;
+    window.VenueLayout = {
+        bar: {
+            counter: { xFront: 9.7, xBack: 10.5, top: 1.1 },
+            backBar: { xFront: 11.55, shelves: [1.42, 1.86, 2.3] },
+            bartender: { x: 10.85, z: -9.9 }
+        }
+    };
+    const hand = () => ({ x: 0, y: 0, z: 0, fx: 0, fy: 0, fz: 0, ux: 0, uy: 0, uz: 0 });
+    const pose = { x: 10.85, z: -9.9, lean: 0.12, headYaw: 0, left: hand(), right: hand() };
+    const frames = [];
+    const club = Object.assign(Object.create(Crowd.prototype), {
+        _bartenderRig: { root: { isEnabled: () => true }, update() { frames.push({ left: { ...pose.left }, right: { ...pose.right }, yaw: pose.bodyYaw, x: pose.x, z: pose.z }); } },
+        _bartenderPose: pose, _bartenderWashTime: 0, _bartenderActivity: 'wash', _bartenderActivityTime: 1e6, _bartenderActivityIndex: 0,
+        _barGlass: { counter: { x: 9.85, y: 1.16, z: -10.9 } }
+    });
+    // Positive means to her right, measured in her own frame.
+    const lateral = (h, f) => (h.x - f.x) * Math.cos(f.yaw) - (h.z - f.z) * Math.sin(f.yaw);
+    const checkRun = (label, step) => {
+        frames.length = 0;
+        for (let i = 0; i < 900; i++) step(i);
+        for (const f of frames.slice(30)) {
+            const gap = lateral(f.right, f) - lateral(f.left, f);
+            assert.ok(gap > 0.02, `${label}: her right hand is on her left side of her left hand (${gap.toFixed(3)} m)`);
+        }
+    };
+    for (const activity of Crowd.BARTENDER_ACTIVITIES) {
+        club._bartenderActivity = activity;
+        checkRun(activity, () => club._updateBartender(1 / 60, null));
+    }
+    const patron = { root: { position: { x: 9.08, z: -11.6 } } };
+    checkRun('talking', () => club._updateBartender(1 / 60, { activity: 'talk', timer: 5, duration: 10, barPatron: patron }));
+    for (const stage of ['serve', 'served', 'clear']) {
+        let timer = 3;
+        checkRun(`serving (${stage})`, () => {
+            timer = timer <= 0 ? 3 : timer - 1 / 60;
+            club._updateBartender(1 / 60, { activity: stage, timer, duration: 3, barPatron: patron });
+        });
+    }
+    // Whatever she is doing, the palms are turned the right way: flat for the counter, never edge-on to it.
+    club._bartenderActivity = 'survey';
+    checkRun('survey', () => club._updateBartender(1 / 60, null));
+    const palm = frames.at(-1);
+    assert.ok(pose.right.uy < 0.5 && pose.left.uy < 0.5, 'her hands rest on the counter with the palms down');
+    assert.ok(palm.right.y > 0);
+});
+
+test('the bar regular tips her bottle only while it is at her lips', () => {
+    const BABYLON = makeBabylonStub();
+    const { window } = loadClassic('js/club/11-audio-crowd.js', { BABYLON, VRClubUI: class {} });
+    const tilt = window.VRClubAudioCrowd.barBottleTilt;
+    assert.equal(tilt(0), 0, 'the bottle is upright on the bar');
+    assert.equal(tilt(0.25), 0, 'it is lifted upright first');
+    assert.equal(tilt(0.45), 1, 'it is fully tipped for the sip');
+    assert.equal(tilt(0.72), 0, 'it is upright again before it is lowered');
+    assert.equal(tilt(0.94), 0, 'it is set down upright');
+    let previous = 0;
+    for (let p = 0.3; p <= 0.4; p += 0.01) { assert.ok(tilt(p) >= previous - 1e-9, 'the tip eases in monotonically'); previous = tilt(p); }
 });
 
 /** The mingling guest, the people on his round, and a club stub that can be stepped a frame at a time. */
@@ -2899,6 +3846,8 @@ function minglerHarness(guestTarget = 8) {
     const minglerIndex = slots.findIndex(slot => slot.mingles);
     const mingler = npcs[minglerIndex];
     club._startMingling(mingler, slots[minglerIndex]);
+    const patronIndex = slots.findIndex(slot => slot.barPatron);
+    if (patronIndex >= 0 && npcs[patronIndex]) club._startBarPatron(npcs[patronIndex]);
     const playing = npc => (npc.poses ? npc.poses.current.name : npc.animations[0].name);
     return { Crowd, club, slots, npcs, mingler, minglerIndex, playing };
 }
@@ -2914,6 +3863,7 @@ test('exactly one side guest walks the room, and his round never crosses anybody
         'the walking guest must keep a walk and a talking pose');
     assert.ok(mingling[0].clips.includes('Drink_Loop'), 'the walking guest must keep his bar pose');
     assert.ok(mingling[0].clips.includes('Smoke_Loop'), 'the walking guest must keep his outdoor smoking pose');
+    assert.ok(mingling[0].clips.includes('Dance_Loop'), 'the walking guest cannot join the dance floor');
 
     const route = Crowd.prototype._minglerRoute.call({});
     assert.ok(route.nodes.length >= 4, 'a round of fewer than four points is not walking the room');
@@ -2935,7 +3885,7 @@ test('exactly one side guest walks the room, and his round never crosses anybody
     assert.ok(barStop.x < barLayout.counter.xFront - 0.1 && Math.abs(barStop.z - barLayout.bartender.z) < 0.4,
         'the drink stop is not on the customer side opposite the bartender');
     assert.deepEqual(Array.from(route.nodes.filter(node => node.activity), node => node.activity),
-        ['watch', 'smoke', 'balcony'], 'the route must include the three intentional solo stops');
+        ['watch', 'dance', 'smoke', 'balcony'], 'the route must include the natural solo stops and a dance-floor visit');
     // `home` is his own spot, where he stands on his own and where he starts.
     const home = route.nodes[route.home];
     assert.equal(home.guest, undefined);
@@ -2966,6 +3916,13 @@ test('exactly one side guest walks the room, and his round never crosses anybody
             assert.ok(node.bartender
                 || !(node.x > bar.stoolX - 0.7 && node.z > bar.backBar.z0 - 0.5 && node.z < bar.backBar.z1 + 0.5),
                 `round point ${i} walks through the bar`);
+            if (i > 0) {
+                for (const z of bar.stoolZ) {
+                    const gap = clearance(route.nodes[i - 1], node, { x: bar.stoolX, z });
+                    assert.ok(node.bartender || gap >= 0.58,
+                        `the leg to round point ${i} cuts through the stool at ${bar.stoolX}, ${z} (${gap.toFixed(2)} m)`);
+                }
+            }
             // Under the deck is open floor (its top is at y 3); the stair itself is the only thing in his way.
             const followsMezzStair = node.x >= mezz.stairs.x0 - 0.1 && node.x <= mezz.stairs.x1 + 0.1
                 && node.z <= mezz.stairs.zBottom && node.z >= mezz.stairs.zTop;
@@ -3044,7 +4001,7 @@ test('the mingling guest walks his round, talks with the people he stops at, and
         // He spends more of his time with people than on the way to them.
         assert.ok(walkingFrames < 0.4 * frames, `he walks ${(100 * walkingFrames / frames).toFixed(0)}% of the time`);
         assert.ok(drank && partners.has('bartender'), 'he never got a drink from the bartender');
-        assert.deepEqual([...soloActivities], ['watch', 'smoke', 'balcony'],
+        assert.deepEqual([...soloActivities], ['watch', 'dance', 'smoke', 'balcony'],
             'he did not complete every intentional solo destination');
         assert.deepEqual([...drinkStages], ['order', 'serve', 'served', 'pickup', 'drink', 'return', 'returned', 'clear'],
             'the bartender service, pickup, drink, return and clearing sequence did not run in order');
@@ -3062,6 +4019,28 @@ test('the mingling guest walks his round, talks with the people he stops at, and
         assert.ok(route.nodes.length > 0);
     } finally {
         Math.random = random;
+    }
+});
+
+test('a seated bar regular naturally alternates bartender conversation and drinking from the counter bottle', () => {
+    const { club, slots, npcs, playing } = minglerHarness(8);
+    const index = slots.findIndex(slot => slot.barPatron);
+    assert.ok(index >= 0, 'there is no seated bar patron');
+    const patron = npcs[index];
+    assert.equal(slots[index].x, 9.08);
+    assert.equal(slots[index].z, -11.6, 'the patron is not aligned with a real stool');
+    assert.ok(slots[index].clips.includes('Seated_Bar_Idle_Loop')
+        && slots[index].clips.includes('Seated_Bar_Drink_Loop'), 'the patron lacks authored seated poses');
+    const activities = new Set();
+    for (let frame = 0; frame < 60 * 240; frame++) {
+        club._updateMingler(1 / 60);
+        activities.add(patron.barPatron.activity);
+        assert.ok(/^Seated_Bar_/.test(playing(patron)), `the patron stood up during ${patron.barPatron.activity}`);
+        assert.ok(Math.abs(patron.root.position.x - slots[index].x) < 1e-9
+            && Math.abs(patron.root.position.z - slots[index].z) < 1e-9, 'the seated patron slid off the stool');
+    }
+    for (const activity of ['idle', 'talk', 'pickup', 'drink', 'return']) {
+        assert.ok(activities.has(activity), `the bar regular never reached ${activity}`);
     }
 });
 
@@ -3162,7 +4141,7 @@ test('a higher quality tier fetches only the missing characters, then places the
     const requested = [];
     const club = Object.assign(Object.create(Crowd.prototype), {
         tierSettings: { crowdSize: 2, guestSize: 0 }, npcAvatars: [], _disposed: false,
-        _crowdSlots: [{ x: 0, z: 0, src: 6, height: 1.7, facing: 0 }, { x: 1, z: 1, src: 7, height: 1.7, facing: 0 }, { x: 2, z: 2, src: 8, height: 1.7, facing: 0 }],
+        _crowdSlots: [{ x: 0, z: 0, src: Crowd.sourceIndex('f1'), height: 1.7, facing: 0 }, { x: 1, z: 1, src: Crowd.sourceIndex('f2'), height: 1.7, facing: 0 }, { x: 2, z: 2, src: Crowd.sourceIndex('f3'), height: 1.7, facing: 0 }],
         _loadAvatarSource(url) { requested.push(url.split('/').pop()); return Promise.resolve({ url }); },
         _refreshContactShadows() {}
     });
@@ -3175,7 +4154,7 @@ test('a higher quality tier fetches only the missing characters, then places the
     club._spawnAvatar = function (source, name) { spawned.push([name, source.url.split('/').pop()]); this.npcAvatars.push({ name, root: { setEnabled() {} }, animations: [] }); };
     club._spawnGuestsTo = () => {};
 
-    await club._loadCrowdSources([6, 7, 6]);
+    await club._loadCrowdSources([Crowd.sourceIndex('f1'), Crowd.sourceIndex('f2'), Crowd.sourceIndex('f1')]);
     assert.deepEqual(requested, ['club-crowd-f1.glb', 'club-crowd-f2.glb'], 'a source was fetched twice');
     club._spawnCrowdTo(3);
     assert.deepEqual(spawned.map(item => item[0]), ['dancer0', 'dancer1'], 'a dancer whose file is not loaded yet must wait, not be replaced');
@@ -3192,10 +4171,10 @@ test('a higher quality tier fetches only the missing characters, then places the
 test('the crowd character files: one skin, one draw, vertex-coloured, only the clips they are used for, and all different', async () => {
     const dir = join(ROOT, 'js/models/avatars');
     const files = readdirSync(dir).filter(file => /^club-crowd-.*\.glb$/.test(file));
-    assert.equal(files.length, 18, 'the cast is 8 women, 9 men and the bouncer');
+    assert.equal(files.length, 18 + 13, 'the cast is 8 women, 9 men, the bouncer and 13 recoloured variants');
     const { createHash } = await import('node:crypto');
     const hashes = new Set();
-    const guests = new Set(['f6', 'f7', 'f8', 'm4', 'm6', 'm8', 'bouncer']);
+    const guests = new Set(['f6', 'f7', 'f8', 'm4', 'm6', 'm8', 'bouncer', 'vf5', 'vf6', 'vf7', 'vm5', 'vm6']);
     for (const file of files) {
         const id = file.replace(/^club-crowd-|\.glb$/g, '');
         const json = readGlbJson(`js/models/avatars/${file}`);
@@ -3208,21 +4187,44 @@ test('the crowd character files: one skin, one draw, vertex-coloured, only the c
         const clips = json.animations.map(animation => animation.name).sort();
         const natives = ['Idle', 'Run', 'Walk', 'Wave'];   // the packs' own clips, kept for the guests who walk the room
         // The dancers on the floor also carry the procedural grooves the choreographer switches between (js/crowdDance.js).
-        const grooves = ['Groove_Bounce', 'Groove_SideTap', 'Groove_Clap', 'Groove_Pump', 'Groove_Twist', 'Groove_HandsUp', 'Groove_Sway', 'Groove_Still'];
+        const grooves = ['Groove_Bounce', 'Groove_SideTap', 'Groove_Clap', 'Groove_ClapUp', 'Groove_Pump', 'Groove_Twist', 'Groove_HandsUp', 'Groove_Sway',
+            'Groove_ArmsWide', 'Groove_ArmsUp', 'Groove_Still'];
         const expected = (guests.has(id)
             ? ['Dance_Loop', 'Idle_FoldArms_Loop', 'Idle_Loop', 'Idle_TalkingPhone_Loop', 'Idle_Talking_Loop', 'Yes']
-            : ['Dance_Loop', 'Yes', ...grooves]).concat(natives).sort();
-        if (id === 'f7') expected.push('Idle_Railing_Loop');
+            : ['Dance_Loop', 'Yes', ...grooves]).concat(natives, id === 'bouncer' ? [] : ['Seated_Loop', 'Seated_Low_Loop']).sort();
+        if (id === 'f7' || id === 'vf6') expected.push('Idle_Railing_Loop');
+        if (id === 'f6') expected.push('Seated_Bar_Idle_Loop', 'Seated_Bar_Drink_Loop');
         if (id === 'm6') expected.push('Drink_Loop', 'Smoke_Loop', 'Idle_Railing_Loop');
         expected.sort();
         assert.deepEqual(clips, expected, `${file} carries the wrong clips`);
         const bytes = readFileSync(join(dir, file));
-        assert.ok(bytes.length < 1.1 * 1048576, `${file} is too heavy (${bytes.length})`);
+        // 1.2 MB: the overhead clap and the two free no-beat moves added ~33 KB to every dancer.
+        assert.ok(bytes.length < 1.2 * 1048576, `${file} is too heavy (${bytes.length})`);
         hashes.add(createHash('sha1').update(bytes).digest('hex'));
     }
     assert.equal(hashes.size, files.length, 'two crowd files are identical');
     const assets = readFileSync(join(ROOT, 'ASSETS.md'), 'utf8');
     assert.ok(/Modular Women/.test(assets) && /Modular Men/.test(assets), 'ASSETS.md must credit both Modular packs');
+});
+
+test('the local body grows or shrinks toward a new height at 0.3 m/s instead of jumping', () => {
+    const { window } = loadClassic('js/club/11-audio-crowd.js', { BABYLON: makeBabylonStub(), VRClubUI: class {} });
+    const proto = window.VRClubAudioCrowd.prototype;
+    const club = { _bodyEyeHeight: () => club.target };
+    club.target = 1.7;
+    assert.equal(proto._easedBodyEyeHeight.call(club, 0.016), 1.7, 'the first call starts at the target');
+    assert.equal(proto._shownBodyEye.call({ _bodyEyeHeight: () => 1.9 }), 1.9, 'before the body has run, the target is shown');
+    club.target = 1.9;
+    const first = proto._easedBodyEyeHeight.call(club, 0.1);
+    assert.ok(Math.abs(first - 1.73) < 1e-9, `0.3 m/s for 0.1 s: ${first}`);
+    assert.equal(proto._shownBodyEye.call(club), first);
+    let t = 0;
+    while (club._bodyEyeShown < 1.9 && t < 3) { proto._easedBodyEyeHeight.call(club, 1 / 60); t += 1 / 60; }
+    assert.equal(club._bodyEyeShown, 1.9, 'it arrives exactly');
+    assert.ok(t > 0.5 && t < 0.8, `a 0.17 m change takes about 0.6 s, not one frame: ${t}`);
+    club.target = 1.6;
+    const down = proto._easedBodyEyeHeight.call(club, 5);
+    assert.ok(Math.abs(down - (1.9 - 0.03)) < 1e-9, 'a long frame is clamped to 0.1 s, so a hitch cannot jump it');
 });
 
 test('a multi-clip character plays only its own clip, and does not react to the beat when it is a guest', () => {
@@ -3368,7 +4370,8 @@ test('underground sequence tells all six scenes on bar lines and never flickers'
     assert.ok(worstRate <= 3, `a panel crossed half brightness ${worstRate}x in one second (flash limit is 3)`);
     assert.ok(maxMeanStep < 0.06, `whole-wall brightness jumped ${maxMeanStep.toFixed(3)} in one frame`);
 
-    // The film restarts on DESCENT, so a look that gets the wall always sees its opening.
+    // Start a fresh instance to probe each storyboard scene from DESCENT.
+    club._ug = null;
     club.vjDirector.beatNumber = 400; club.barPhase = 0;
     club.patternUndergroundSequence(colour, 900, audio);
     assert.equal(club._ug.b0, 400, 'a new appearance must begin at the current bar line');
@@ -3387,10 +4390,11 @@ test('underground sequence tells all six scenes on bar lines and never flickers'
     }
     assert.equal(seen.size, 6, 'each scene must look different');
 
-    // A slow frame (or a headset hitch) must not restart the film; a wall that was
-    // handed to another pattern for a while must.
+    // A slow frame and a long interval under another wall pattern both preserve the
+    // film's bar origin, while clearing stale phosphor after the interruption.
     let frame = 1000;
     club.scene = { getFrameId: () => frame };
+    club._ug = null;
     club.vjDirector.beatNumber = 800; club.barPhase = 0;
     club.patternUndergroundSequence(colour, 2000, audio);
     const b0 = club._ug.b0;
@@ -3398,8 +4402,8 @@ test('underground sequence tells all six scenes on bar lines and never flickers'
     club.patternUndergroundSequence(colour, 2003.5, audio);          // 3.5 s later, next frame
     assert.equal(club._ug.b0, b0, 'a slow frame restarted the sequence');
     club.vjDirector.beatNumber = 840; frame += 40;
-    club.patternUndergroundSequence(colour, 2010, audio);            // 40 frames skipped
-    assert.equal(club._ug.b0, 840, 'a skipped stretch must restart the sequence at a bar line');
+    club.patternUndergroundSequence(colour, 2010, audio);            // wall pattern was away
+    assert.equal(club._ug.b0, b0, 'a wall interruption restarted the film instead of preserving its progress');
 });
 
 test('the breathing wall paints the show colour, so a harmony can reach it', () => {
@@ -3427,6 +4431,45 @@ test('the breathing wall paints the show colour, so a harmony can reach it', () 
     assert.ok(red.g < red.r * 0.4 && red.b < red.r * 0.4, 'a red wall must be red');
     // It must write through the panel's own buffer, never mutate a shared emissive colour.
     assert.ok(panels.every(p => p.material.emissiveColor === p.colorBuffer), 'breathing wrote into a shared colour');
+});
+
+test('match-all holds the single-colour LED show and hands it the matched colour', () => {
+    const BABYLON = makeBabylonStub();
+    const Finish = loadClassic('js/club/09-animation-finish.js', {
+        BABYLON, VRClubAnimationFixtures: class {}, log: { warn() {} }
+    }).window.VRClubAnimationFinish;
+    const matched = new BABYLON.Color3(0.1, 0.8, 0.3);
+    let received = null;
+    const patterns = Array.from({ length: 6 }, () => () => {});
+    patterns[5] = color => { received = color; };
+    const club = {
+        _ledPatternPlaylist: patterns,
+        ledPattern: 5,
+        ledPatternSwitchTime: 0,
+        ledLastColorChange: 0,
+        ledColorIndex: 0,
+        ledMonochrome: false,
+        colorLockActive: true,
+        ledShowColor: matched,
+        cachedColors: {
+            ledMonoWhite: new BABYLON.Color3(1, 1, 1),
+            ledMonoCool: new BABYLON.Color3(0.8, 0.9, 1),
+            ledMonoWarm: new BABYLON.Color3(1, 0.9, 0.8),
+            red: new BABYLON.Color3(1, 0, 0),
+            green: new BABYLON.Color3(0, 1, 0),
+            blue: new BABYLON.Color3(0, 0, 1),
+            magenta: new BABYLON.Color3(1, 0, 1),
+            yellow: new BABYLON.Color3(1, 1, 0),
+            cyan: new BABYLON.Color3(0, 1, 1)
+        },
+        showDirector: { isDriving: () => false },
+        vjDirector: null,
+        ledPanels: [],
+        _applyLedLevel() {}
+    };
+    Finish.prototype.updateLEDWall.call(club, 60, { hasAudio: false, bass: 0, treble: 0 });
+    assert.equal(club.ledPattern, 5, 'the private timer must not leave the matched breathing look');
+    assert.equal(received, matched, 'the wall must receive the same colour as the lighting rig');
 });
 
 test('warehouse shapes flash on the beat but never faster than the photosensitivity limit', () => {
@@ -3655,6 +4698,72 @@ test('every LED wall pattern runs without throwing', () => {
     assert.equal(bad.length, 0, 'a pattern wrote a non-finite colour');
 });
 
+test('set-DJ name extraction returns only high-confidence names, keeps "DJ" only when part of the name, and drives the booth DJ\'s look', () => {
+    const BABYLON = makeBabylonStub();
+    const { window } = loadClassic('js/ledPatterns.js', { BABYLON });
+    const { extractSetDjName, inferSetDjGender } = window.LEDPatterns;
+
+    // High-confidence DJ names, without prepending "DJ" unless it is genuinely part of the name.
+    assert.equal(extractSetDjName({ label: 'Resident by Hernan Cattaneo' }), 'HERNAN CATTANEO');
+    assert.equal(extractSetDjName({ label: 'Hernan Cattaneo : Resident 682' }), 'HERNAN CATTANEO');
+    assert.equal(extractSetDjName({ label: 'Miss Melera - Colourizon 168' }), 'MISS MELERA');
+    assert.equal(extractSetDjName({ label: 'Colourizon 168 by Miss Melera' }), 'MISS MELERA');
+    assert.equal(extractSetDjName({ label: 'DJ Koze - Pampa Vol. 1' }), 'DJ KOZE');
+    assert.equal(extractSetDjName({ label: 'DJ Tennis - Life and Death Mix' }), 'DJ TENNIS');
+    assert.equal(extractSetDjName({ label: 'Charlotte de Witte - KNTXT Podcast 042' }), 'CHARLOTTE DE WITTE');
+    assert.equal(extractSetDjName({ label: 'Ben Böhmer live at Cercle' }), 'BEN BOHMER');
+    assert.equal(extractSetDjName({ label: 'Sasha & John Digweed - Northern Exposure' }), 'SASHA & JOHN DIGWEED');
+    assert.equal(extractSetDjName({ label: 'Episode 804', url: 'https://podcast.hernancattaneo.com/feed.xml' }), 'HERNAN CATTANEO');
+
+    // High-confidence DJ gender inference switches the booth DJ to male or female only when sure.
+    assert.equal(inferSetDjGender({ label: 'Miss Melera - Colourizon 168' }), 'female');
+    assert.equal(inferSetDjGender({ label: 'Charlotte de Witte - KNTXT Podcast 042' }), 'female');
+    assert.equal(inferSetDjGender({ label: 'Amelie Lens - Exhale Session' }), 'female');
+    assert.equal(inferSetDjGender({ label: 'Nora En Pure - Purified Radio' }), 'female');
+    assert.equal(inferSetDjGender({ label: 'Resident by Hernan Cattaneo' }), 'male');
+    assert.equal(inferSetDjGender({ label: 'Ben Böhmer live at Cercle' }), 'male');
+    assert.equal(inferSetDjGender({ label: 'DJ Koze - Pampa Vol. 1' }), 'male');
+    assert.equal(inferSetDjGender({ label: 'Carl Cox - Global Radio' }), 'male');
+    assert.equal(inferSetDjGender({ label: 'Sasha - Last Night On Earth' }), 'male');
+    assert.equal(inferSetDjGender({ label: 'SoundCloud set' }), null);
+    assert.equal(inferSetDjGender({ label: 'track01.mp3' }), null);
+    assert.equal(inferSetDjGender({ label: 'Alex & Taylor - Club Mix' }), null);
+
+    // syncDJFromSet switches the active DJ when sure and leaves the current DJ alone when uncertain.
+    const { window: crowdWindow } = loadClassic('js/club/11-audio-crowd.js', { BABYLON, VRClubUI: class {} });
+    crowdWindow.LEDPatterns = window.LEDPatterns;
+    const djSwitchingClub = Object.create(crowdWindow.VRClubAudioCrowd.prototype);
+    const switchedTo = [];
+    djSwitchingClub.setDJ = id => { switchedTo.push(id); return Promise.resolve(true); };
+    assert.equal(djSwitchingClub.syncDJFromSet({ label: 'Miss Melera - Colourizon 168' }), 'female');
+    assert.equal(djSwitchingClub.syncDJFromSet({ label: 'Hernan Cattaneo : Resident 682' }), 'male');
+    assert.equal(djSwitchingClub.syncDJFromSet({ label: 'Unknown Track 01.mp3' }), null);
+    assert.deepEqual(switchedTo, ['female', 'male']);
+
+    // Ambiguous, generic or non-DJ strings must return null rather than guessing.
+    for (const uncertain of [
+        { label: 'SoundCloud set' },
+        { label: 'Host broadcast' },
+        { label: 'https://example.com/stream.mp3' },
+        { label: 'track01.mp3' },
+        { label: '01 - Intro.mp3' },
+        { label: 'Deep House Mix 2026.mp3' },
+        { label: 'Saturday Night Set - Live Recording' },
+        { label: 'DJ - Mix 01.mp3' },
+        { label: 'The DJ - Club Session' },
+        { label: '' }
+    ]) {
+        assert.equal(extractSetDjName(uncertain), null, `should not guess a DJ name from ${JSON.stringify(uncertain)}`);
+    }
+
+    // The LED wall no longer shows the logo or the DJ's name: no marquee pattern, and no look points at pattern 20.
+    assert.equal(window.LEDPatterns.patternNocturneMarquee, undefined, 'the marquee pattern is gone');
+    const finishSource = readFileSync(join(ROOT, 'js/club/09-animation-finish.js'), 'utf8');
+    assert.ok(!/patternNocturneMarquee/.test(finishSource), 'the playlist no longer lists the marquee');
+    const directorSource = readFileSync(join(ROOT, 'js/showDirector.js'), 'utf8');
+    assert.ok(!/ledPattern:\s*2\d\b/.test(directorSource), 'no look may point at a pattern past the 20 in the playlist');
+});
+
 test('per-frame exposure never dirties every material, and a strobe spike survives eye adaptation', () => {
     const BABYLON = makeBabylonStub();
     const { window } = loadClassic('js/club/07-animation-core.js', {
@@ -3693,6 +4802,12 @@ test('per-frame exposure never dirties every material, and a strobe spike surviv
     assert.equal(notifications, 0, 'eye adaptation notified image-processing observers per frame');
     assert.ok(config.exposure < 1.2, 'a bright rig did not stop the iris down');
     assert.equal(config.exposure, club._adaptedExposure, 'adapted exposure never reached the post-process');
+    const beforeEffects = config.exposure;
+    club.lasersActive = true;
+    club.laserSheetActive = true;
+    club.mirrorBallActive = true;
+    for (let i = 0; i < 60; i++) proto.updateEyeAdaptation.call(club, { dtScale: 1, beat: 0 });
+    assert.ok(config.exposure < beforeEffects, 'laser, sheet and mirror output did not contribute to headset adaptation');
 
     // A value of exactly 1 toggles the EXPOSURE shader define, so it must notify.
     proto._writeExposure.call(club, 1);
@@ -3705,6 +4820,85 @@ test('per-frame exposure never dirties every material, and a strobe spike surviv
     proto._writeExposure.call(club, 2.1);
     proto.updateEyeAdaptation.call(club, { dtScale: 1, beat: 0 });
     assert.equal(config.exposure, 2.1, 'eye adaptation overwrote the strobe exposure spike');
+});
+
+test('Quest effect cadence and fog output follow the graphics tier without changing fixture state', () => {
+    const coreWindow = loadClassic('js/club/07-animation-core.js', { VRClubEffects: class {} }).window;
+    const core = coreWindow.VRClubAnimationCore.prototype;
+
+    const loadClub = {
+        isInVRMode: true,
+        tierSettings: { vrPeakEffectFloor: 0.58 },
+        lightsActive: true, lasersActive: true, laserSheetActive: true,
+        mirrorBallActive: true, ledWallActive: true, strobesActive: true,
+        photosensitiveSafeMode: false
+    };
+    assert.equal(core._effectLoadScale.call({ ...loadClub, lasersActive: false, laserSheetActive: false,
+        mirrorBallActive: false, strobesActive: false }), 1, 'two effects fit without peak scaling');
+    assert.ok(Math.abs(core._effectLoadScale.call(loadClub) - 0.58) < 1e-9, 'a full peak cue reaches the tier floor');
+
+    const machine = {
+        emitter: { emitRate: 0 },
+        ledMat: {},
+        isBursting: false,
+        burstTimer: 0
+    };
+    const fogClub = {
+        ...loadClub,
+        tierSettings: { vrPeakEffectFloor: 0.58, vrFogOutputScale: 0.55 },
+        atmosphereTestDisabled: false,
+        smokeActive: true,
+        fogBurstMode: 'auto',
+        fogBurstInterval: 1,
+        fogIntensity: 1,
+        lastFogBurst: 0,
+        fogMachines: [machine],
+        cachedColors: { fogActive: {}, fogReady: {}, fogContinuous: {}, fogStandby: {}, fogOff: {} },
+        _tintClubAir() {}
+    };
+    core.updateFogMachines.call(fogClub, { time: 10, dt: 1 / 90 });
+    assert.ok(Math.abs(machine.emitter.emitRate - 150 * 0.55 * 0.58) < 1e-9,
+        'Quest fog bursts ignore tier and simultaneous-effect load');
+
+    const fixtures = loadClassic('js/club/08-animation-fixtures.js', {
+        VRClubAnimationCore: class {}
+    }).window.VRClubAnimationFixtures.prototype;
+    let wallFrames = 0, uploads = 0;
+    const ledClub = {
+        isInVRMode: true,
+        tierSettings: { vrLedUpdateHz: 45 },
+        ledWallActive: true,
+        useModularSystems: false,
+        updateLEDWall() { wallFrames++; },
+        _flushLedWall() { uploads++; }
+    };
+    for (let i = 0; i < 90; i++) fixtures.updateLEDWallPass.call(ledClub, {
+        time: i / 90, dt: 1 / 90, dtScale: 2 / 3, audio: {}
+    });
+    assert.ok(wallFrames >= 45 && wallFrames <= 46, `balanced LED wall updated ${wallFrames} times at 90 Hz`);
+    assert.equal(uploads, wallFrames, 'a skipped LED frame still uploaded the texture');
+    const beforeLedBlackout = wallFrames;
+    ledClub.masterIntensity = 0;
+    fixtures.updateLEDWallPass.call(ledClub, { time: 1.001, dt: 0.001, dtScale: 0.25, audio: {} });
+    assert.equal(wallFrames, beforeLedBlackout + 1, 'LED cadence delayed a hard blackout');
+
+    let reflections = 0;
+    const enabled = { setEnabled() {} };
+    const mirrorClub = {
+        isInVRMode: true,
+        tierSettings: { vrMirrorUpdateHz: 45 },
+        mirrorBallActive: true,
+        mirrorReflectionBatch: { spots: enabled, rays: enabled },
+        _updateMirrorReflectionBatch() { reflections++; }
+    };
+    for (let i = 0; i < 90; i++) core.updateMirrorBall.call(mirrorClub, {
+        time: i / 90, dt: 1 / 90, dtScale: 2 / 3
+    });
+    assert.ok(reflections >= 45 && reflections <= 46, `balanced mirror reflections updated ${reflections} times at 90 Hz`);
+    const beforeMirrorBlackout = reflections;
+    mirrorClub.masterIntensity = 0;
+    core.updateMirrorBall.call(mirrorClub, { time: 1.001, dt: 0.001, dtScale: 0.25 });
+    assert.equal(reflections, beforeMirrorBlackout + 1, 'mirror cadence delayed a hard blackout');
 });
 
 test('safe mode keeps the dance-floor strip from strobing in the legacy strobe phase', () => {
@@ -4047,8 +5241,19 @@ test('headset MSAA follows the config, never exceeds the GPU, and can be overrid
     // The headset pipeline must use it: the XR layer's own antialias never reaches the offscreen target.
     const core = readFileSync(join(ROOT, 'js/club/01-core.js'), 'utf8');
     assert.match(core, /renderPipeline\.samples = VRClubCore\.resolveVRMsaaSamples\(/);
+    assert.match(core, /preserveDrawingBuffer:\s*false/,
+        'the production engine must not retain an unread back buffer');
+    assert.match(core, /framebufferScaleFactor:\s*1\.0/,
+        'the XR layer must stay at native scale instead of multiplying stereo post-process fill');
+    assert.match(core, /ultra:\s*\{[\s\S]*?vrMsaaSamples:\s*2/);
+    assert.match(core, /high:\s*\{[\s\S]*?vrMsaaSamples:\s*2/);
+    assert.match(core, /balanced:\s*\{[\s\S]*?vrMsaaSamples:\s*1/);
     assert.ok(!/renderPipeline\.samples = 1;/.test(core.slice(core.indexOf('applyVRSettings('), core.indexOf('applyDesktopSettings()'))),
         'the headset pipeline is back to no MSAA');
+
+    const lifecycle = readFileSync(join(ROOT, 'js/club/02-lifecycle.js'), 'utf8');
+    assert.ok(!/preferMultiviewOnInit/.test(lifecycle),
+        'Babylon WebXR Layers multiview renders a black frame with the headset post-process pipeline');
 });
 
 test('switching strobes on by hand resets a leftover show speed, but never a guest-chosen one', () => {
@@ -4075,7 +5280,7 @@ test('switching strobes on by hand resets a leftover show speed, but never a gue
     assert.doesNotThrow(() => apply.call({ strobesActive: true, strobeSpeed: 2 }, 'strobesActive'));
 });
 
-test('strobe chase randomizes corners and cadence without immediate repeats', () => {
+test('strobe chase improvises corners without repeats on a legible regular cadence', () => {
     const BABYLON = makeBabylonStub();
     const randomValues = [
         0.1, 0.99, 0.1,
@@ -4131,7 +5336,7 @@ test('strobe chase randomizes corners and cadence without immediate repeats', ()
 
     assert.equal(order[0], 3, 'the first burst must be able to select the last fixture');
     assert.ok(order.every((corner, index) => index === 0 || corner !== order[index - 1]));
-    assert.deepEqual(intervals.map(value => Number(value.toFixed(3))), [0.455, 0.975, 0.585, 0.845]);
+    assert.deepEqual(intervals.map(value => Number(value.toFixed(3))), [0.65, 0.65, 0.65, 0.65]);
 });
 
 test('strobes fire on the beat grid when the show drives, and on their own timer otherwise', () => {
@@ -4304,6 +5509,40 @@ test('strobes are a real part of the show, locked to the grid, and the countdown
     }
     director.setPieces.countdown.onBar(director, 3);
     assert.equal(club.strobesActive, false);
+
+    director._cue = { look: 'whiteChase', bars: 2 };
+    director._applyLook(director.looks.whiteChase);
+    assert.equal(club.ledWallActive, true, 'a strobe-only solo should become a slow aurora in Safe Mode');
+    assert.equal(club.ledPattern, 16);
+    assert.equal(club.ledWallSpeed, 0.35);
+    assert.equal(club.ledWallLevel, 0.45);
+    assert.equal(club.strobesActive, false);
+
+    club.photosensitiveSafeMode = false;
+    director.onPhotosensitiveModeChanged();
+    assert.equal(club.ledWallActive, false, 'leaving Safe Mode should restore the authored solo');
+    assert.equal(club.strobesActive, true, 'leaving Safe Mode should restore the authored strobe');
+
+    director._beginSetPiece('countdown', 'ignition');
+    director._setPieceBar = 2;
+    club.photosensitiveSafeMode = true;
+    director.onPhotosensitiveModeChanged();
+    assert.equal(club.strobesActive, false, 'Safe Mode must immediately silence an active countdown');
+    assert.equal(club.ledWallSpeed, 2.2, 'recomposing the countdown must retain its current bar');
+    club.photosensitiveSafeMode = false;
+    director.onPhotosensitiveModeChanged();
+    assert.equal(club.strobesActive, true);
+    assert.equal(club.strobeSync, 'roll', 'leaving Safe Mode must restore the current countdown rung');
+
+    for (const ownership of ['manual', 'disabled']) {
+        club.vjManualMode = ownership === 'manual';
+        director.enabled = ownership !== 'disabled';
+        club.ledPattern = 7;
+        club.strobesActive = false;
+        director.onPhotosensitiveModeChanged();
+        assert.equal(club.ledPattern, 7, `${ownership}: Safe Mode must not hand the rig to the show`);
+        assert.equal(club.strobesActive, false, `${ownership}: the inactive countdown must not resume`);
+    }
 });
 
 test('VR comfort swaps mutually exclusive movement and teleportation features without changing show ownership', () => {
@@ -4353,12 +5592,14 @@ test('VR comfort swaps mutually exclusive movement and teleportation features wi
     const sceneMeshes = new Map(['frontWall', 'backWall', 'leftWall', 'rightWall', 'djPlatform', 'djPlatformTop',
         'vestibuleWalls', 'vestibuleFrame', 'barJoinery', 'mezzRails']
         .map(name => [name, { name, checkCollisions: true, isEnabled: () => true }]));
+    const ledWallCollider = { name: 'ledWallCollider', checkCollisions: false, isEnabled: () => true };
     const club = {
         vjManualMode: false,
         movementFeature: null,
         floorMesh: { name: 'floor' },
         _mezzDeck: { name: 'mezzDeck' },
         scene: { meshes: [...sceneMeshes.values()] },
+        _ledWallCollider: ledWallCollider,
         vrHelper: {
             input: { name: 'input' },
             pointerSelection: { name: 'pointer' },
@@ -4402,6 +5643,11 @@ test('VR comfort swaps mutually exclusive movement and teleportation features wi
     options.customRegistrationConfigurations.find(r => r.forceHandedness === 'right')
         .axisChangedHandler({ x: 0.5, y: 0 }, axes, options);
     assert.equal(axes.rotateX, 0.5);
+    club._vrSocialWheel = { open: true };
+    options.customRegistrationConfigurations.find(r => r.forceHandedness === 'right')
+        .axisChangedHandler({ x: -0.8, y: 0 }, axes, options);
+    assert.equal(axes.rotateX, 0, 'the social wheel consumes right-stick rotation at the input handler');
+    club._vrSocialWheel = null;
     assert.equal(club.vrHelper.baseExperience.camera.applyGravity, false, 'the walking-surface follow owns VR height, not camera gravity');
     assert.equal(saved.get('vrclub.vrComfort'), '0');
 
@@ -4415,9 +5661,9 @@ test('VR comfort swaps mutually exclusive movement and teleportation features wi
     club.setVRComfortMode(true);
     assert.deepEqual(
         club.vrHelper.teleportation.options.pickBlockerMeshes.map(mesh => mesh.name).sort(),
-        [...sceneMeshes.keys()].sort()
+        [...sceneMeshes.keys(), 'ledWallCollider'].sort()
     );
-    assert.equal(originalTeleport.options.pickBlockerMeshes.length, sceneMeshes.size);
+    assert.equal(originalTeleport.options.pickBlockerMeshes.length, sceneMeshes.size + 1);
     // The balcony deck (with its stair treads) is a teleport floor alongside the club floor, registered once.
     assert.deepEqual([...club.vrHelper.teleportation.options.floorMeshes].map(mesh => mesh.name), ['floor', 'mezzDeck']);
     assert.deepEqual([...originalTeleport.options.floorMeshes].map(mesh => mesh.name).sort(), ['floor', 'mezzDeck']);
@@ -4428,6 +5674,94 @@ test('VR comfort swaps mutually exclusive movement and teleportation features wi
     club.setVRComfortMode(false);
     assert.equal(club.movementFeature, null);
     assert.equal(club.vrHelper.teleportation.teleportationEnabled, false);
+});
+
+test('social wheel maps stick directions, paginates, and restores turning only after centering', async () => {
+    const { window } = loadClassic('js/club/10-ui.js', { VRClubAnimationFinish: class {} });
+    const club = Object.create(window.VRClubUI.prototype);
+    const movement = { rotationEnabled: false };
+    const teleport = { rotationEnabled: false };
+    club._vrSocialWheel = {
+        page: 'home', offset: 0, selected: -1, open: true, x: 0, y: 0,
+        mesh: { setEnabled(on) { this.enabled = on; } },
+        armed: true, busy: false,
+        turning: [{ feature: movement, enabled: true }, { feature: teleport, enabled: false }]
+    };
+    club._drawVRSocialWheel = () => {};
+    club._moveVRSocialWheel(0, -1);
+    assert.equal(club._socialWheelItems()[club._vrSocialWheel.selected].label, 'CHAT');
+    club._moveVRSocialWheel(1, 0);
+    assert.equal(club._socialWheelItems()[club._vrSocialWheel.selected].label, 'REACTIONS');
+    club._moveVRSocialWheel(0, 1);
+    assert.equal(club._socialWheelItems()[club._vrSocialWheel.selected].label, 'MICROPHONE');
+    club._closeVRSocialWheel();
+    assert.equal(movement.rotationEnabled, false, 'closing on a deflected stick must not turn the guest');
+    club._moveVRSocialWheel(0, 0);
+    assert.equal(movement.rotationEnabled, true);
+    assert.equal(teleport.rotationEnabled, false, 'restore the actual previous setting');
+    club._vrSocialWheel.open = true;
+    club._vrSocialWheel.armed = false;
+    club._moveVRSocialWheel(1, 0);
+    assert.equal(club._vrSocialWheel.selected, -1, 'a held stick cannot select twice');
+    club._moveVRSocialWheel(0, 0);
+    club._moveVRSocialWheel(1, 0);
+    assert.equal(club._socialWheelItems()[club._vrSocialWheel.selected].label, 'REACTIONS');
+    club._closeVRSocialWheel(true);
+    assert.equal(movement.rotationEnabled, true, 'forced lifecycle cleanup restores turning without waiting for center');
+    club._vrQuickMenuPageDefinitions = () => Array.from({ length: 12 }, (_, n) => ({ label: `Item ${n}` }));
+    club._vrSocialWheel.page = 'gestures';
+    club._vrSocialWheel.offset = 1;
+    assert.equal(club._socialWheelItems()[0].label, 'Item 5');
+    assert.ok(club._socialWheelItems().some(item => item.more));
+    assert.equal(club._socialWheelItems().length, 8);
+    club._vrSocialWheel.page = 'chatAudience';
+    club._vrSocialWheel.offset = 0;
+    assert.equal(club._socialWheelItems().at(-2).target, 'chat', 'recipient selection returns to the chat phrases');
+});
+
+test('VR entry starts on the opposite pavement facing the club, preserves tracked height and discards old motion', () => {
+    const B = require('../js/vendor/babylon.js');
+    const layout = loadClassic('js/cityDistrict.js').window.CityLayout;
+    const { window } = loadClassic('js/club/02-lifecycle.js', { VRClubCore: class {}, BABYLON: B });
+    window.CityLayout = layout;
+    assert.ok(layout.vrEntry.z > layout.roadTo + 0.5);
+    assert.ok(layout.vrEntry.z < layout.farFront - 0.5);
+    assert.ok(layout.vrEntry.z - layout.doorZ > 15, 'the entrance needs a wide establishing view');
+    for (const available of [true, false]) {
+        const initialPose = new B.Observable();
+        const notices = [];
+        const club = Object.assign(Object.create(window.VRClubLifecycle.prototype), {
+            _streetDoor: { open: available }, _xrHeadHeight() {},
+            _activeSeat: { id: 'old-seat' }, standFromSeat() { this._activeSeat = null; },
+            jumpState: { active: true }, _vrFallSpeed: 9,
+            showErrorMessage: text => notices.push(text)
+        });
+        club._setupXRSession({ baseExperience: {
+            onInitialXRPoseSetObservable: initialPose, onStateChangedObservable: new B.Observable()
+        } });
+        for (const height of [1.6, 1.1, 0]) {
+            const camera = {
+                position: new B.Vector3(8, 99, -19), rotationQuaternion: B.Quaternion.Identity(),
+                cameraDirection: new B.Vector3(1, 2, 3), cameraRotation: new B.Vector2(1, 2),
+                _deferredUpdated: true
+            };
+            initialPose.notifyObservers(camera);
+            assert.deepEqual(camera.position.asArray(), available ? [layout.vrEntry.x, layout.groundY, layout.vrEntry.z] : [0, 0, -12]);
+            camera.position.y += height; // Babylon's first-frame height compensation.
+            assert.equal(camera.position.y, height + (available ? layout.groundY : 0));
+            const forward = new B.Vector3();
+            B.Vector3.Forward().rotateByQuaternionToRef(camera.rotationQuaternion, forward);
+            assert.ok(Math.abs(forward.x) < 1e-9 && forward.z < -0.99, 'face the club, not the copied desktop heading');
+            assert.deepEqual(camera.cameraDirection.asArray(), [0, 0, 0]);
+            assert.deepEqual(camera.cameraRotation.asArray(), [0, 0]);
+            assert.equal(camera._deferredUpdated, false, 'a previous session must not overwrite the arrival');
+            assert.equal(club._walkLevel, available ? layout.groundY : 0);
+            assert.equal(club._vrFallSpeed, 0);
+            assert.equal(club.jumpState.active, false);
+            assert.equal(club._activeSeat, null);
+        }
+        assert.equal(notices.length, available ? 0 : 3, 'an unavailable street must give an explicit indoor fallback notice');
+    }
 });
 
 test('Enter VR waits for background model loading, with a ceiling', async () => {
@@ -4519,7 +5853,23 @@ test('a dropped live stream reconnects with bounded backoff; files and bad URLs 
     timeouts.shift().fn();
     listeners.error();
     assert.equal(timeouts.length, 0, 'retries are not bounded');
+    await new Promise(resolve => setImmediate(resolve));
     assert.match(toasts.at(-1), /could not be reconnected/);
+
+    // With the club's own set to fall back on, an exhausted stream hands over to it instead of leaving silence.
+    const handovers = [];
+    club.musicLibrary = { fallBackToDefault: () => { handovers.push('club set'); return Promise.resolve(true); } };
+    toasts.length = 0;
+    listeners.playing();
+    for (let attempt = 0; attempt < club.constructor.STREAM_RETRY_DELAYS_MS.length; attempt++) {
+        listeners.error();
+        timeouts.shift().fn();
+    }
+    listeners.error();
+    await new Promise(resolve => setImmediate(resolve));
+    assert.deepEqual(handovers, ['club set'], 'the club\u2019s own set took over');
+    assert.ok(!toasts.some(message => /could not be reconnected/.test(message)), 'no dead-end message when something is playing');
+    club.musicLibrary = null;
 
     // A successful reconnect resets the budget; user pauses never trigger recovery.
     listeners.playing();
@@ -4661,20 +6011,25 @@ test('VR jump arc is identical at 72 and 120 Hz and lands at the player\'s own e
     assert.equal(at72.gravity, false, 'landing must not re-enable camera gravity (it fights the walking-surface follow)');
 });
 
-test('disabled haptics also suppress VR menu feedback pulses', () => {
+test('haptics are desk-only: no option, no preference, no bass or menu vibration, one light tick API on the VJ desk', () => {
     const { window } = loadClassic('js/club/10-ui.js', { VRClubAnimationFinish: class {} });
-    let pulses = 0;
-    const club = {
-        bassHapticsEnabled: false,
-        _xrControllers: [{ inputSource: { gamepad: {
-            hapticActuators: [{ pulse() { pulses++; } }]
-        } } }]
-    };
-    window.VRClubUI.prototype.pulseHaptic.call(club);
-    assert.equal(pulses, 0);
-    club.bassHapticsEnabled = true;
-    window.VRClubUI.prototype.pulseHaptic.call(club);
-    assert.equal(pulses, 1);
+    assert.equal(window.VRClubUI.prototype.pulseHaptic, undefined, 'menu feedback pulses were removed with the option');
+    const html = readFileSync(join(ROOT, 'index.html'), 'utf8');
+    assert.doesNotMatch(html, /vjBassHapticsBtn|>\s*HAPTICS\s*</i, 'the VJ panel has no Haptics button');
+    for (const file of ['js/club/01-core.js', 'js/club/07-animation-core.js', 'js/club/10-ui.js', 'js/club/11-audio-crowd.js', 'js/ui-init.js', 'js/vjDesk.js']) {
+        assert.doesNotMatch(readFileSync(join(ROOT, file), 'utf8'), /bassHaptics|pulseHaptic|hapticActuators|vibrationActuator|vrclub\.bassHaptics/, file);
+    }
+    // The only controller vibration in the club is the desk's own tick, through the motion controller's pulse().
+    for (const file of ['js/club/01-core.js', 'js/club/02-lifecycle.js', 'js/club/07-animation-core.js', 'js/club/10-ui.js', 'js/club/11-audio-crowd.js', 'js/ui-init.js']) {
+        assert.doesNotMatch(readFileSync(join(ROOT, file), 'utf8'), /\.pulse\(/, `${file} must not vibrate a controller`);
+    }
+    assert.match(readFileSync(join(ROOT, 'js/vjDesk.js'), 'utf8'), /motion\.pulse\(/);
+    const club = Object.create(window.VRClubUI.prototype);
+    club.multiplayer = null;
+    club._multiplayer = () => null;
+    const comfort = club._vrQuickMenuPageDefinitions('comfort').filter(Boolean).map(item => item.label);
+    assert.ok(!comfort.includes('HAPTICS'), 'the VR COMFORT page has no HAPTICS button');
+    assert.ok(comfort.includes('SAFE MODE') && comfort.includes('LOCOMOTION'));
 });
 
 test('clear-air test suppresses fog and particles despite smoke cues in both modes', () => {
@@ -4711,7 +6066,450 @@ test('clear-air test suppresses fog and particles despite smoke cues in both mod
     }
 });
 
-test('the local body is posed from the camera, the DJ riser and the controllers', () => {
+test('MY LOOK: the player\'s man/woman choice is saved, rebuilds the body and refreshes the restroom mirror', () => {
+    const store = new Map();
+    const localStorage = { getItem: k => (store.has(k) ? store.get(k) : null), setItem: (k, v) => store.set(k, String(v)) };
+    const BABYLON = { Axis: { Z: 'Z', Y: 'Y' }, Vector3: class {} };
+    const { window } = loadClassic('js/club/11-audio-crowd.js', { VRClubUI: class {}, BABYLON, localStorage });
+    const proto = window.VRClubAudioCrowd.prototype;
+    const spawned = [];
+    let refreshed = 0, disposed = 0;
+    const club = {
+        _localRig: { dispose() { disposed++; } }, _mirrorSignature: 7,
+        _spawnLocalPlayerBody() { spawned.push(proto.getLocalAvatarStyle.call(club)); },
+        _refreshVRQuickMenu() { refreshed++; },
+        getLocalAvatarStyle: proto.getLocalAvatarStyle
+    };
+    assert.equal(proto.getLocalAvatarStyle.call(club), 'female', 'new visitors start as a woman, as before');
+    assert.equal(proto.setLocalAvatarStyle.call(club, 'male'), 'male');
+    assert.equal(store.get('vrclub.avatarStyle'), 'male', 'saved for this player');
+    assert.equal(proto.getLocalAvatarStyle.call(club), 'male');
+    assert.deepEqual(spawned, ['male']);
+    assert.equal(disposed, 1);
+    assert.equal(club._mirrorSignature, -1, 'the mirror re-lists the new body');
+    assert.equal(refreshed, 1);
+    assert.equal(proto.setLocalAvatarStyle.call(club, 'anything else'), 'female');
+});
+
+test('street people are held only when clearly behind the viewer, never inside any realistic field of view, and resume early', () => {
+    const BABYLON = { Axis: { Z: 'Z', Y: 'Y' }, Vector3: class {}, Color3: class { constructor(r, g, b) { Object.assign(this, { r, g, b }); } } };
+    const { window } = loadClassic('js/club/11-audio-crowd.js', { VRClubUI: class {}, BABYLON, log: { info() {}, warn() {}, error() {} } });
+    const needs = window.VRClubAudioCrowd.needsAnimation;
+    // The viewer looks along +z from the origin; a character 10 m away at `deg` off the gaze, level with the eyes.
+    const at = (wasPaused, deg, distance = 10) => {
+        const a = deg * Math.PI / 180;
+        return needs(wasPaused, 0, 0, 0, 0, 0, 1, Math.sin(a) * distance, 0, Math.cos(a) * distance);
+    };
+    // Nothing within 100 degrees of the gaze (a 200 degree field of view) is ever held, from either state.
+    for (let deg = 0; deg <= 100; deg++) {
+        assert.equal(at(false, deg), true, `playing at ${deg} deg`);
+        assert.equal(at(true, deg), true, `paused one resumes at ${deg} deg`);
+    }
+    // Held only behind: past 130 degrees. A held one resumes by 115, with hysteresis in between.
+    assert.equal(at(false, 129), true);
+    assert.equal(at(false, 131), false);
+    assert.equal(at(true, 131), false);
+    assert.equal(at(true, 120), false, 'still held between 115 and 130');
+    assert.equal(at(true, 114), true, 'resumed 114 degrees out, 60 degrees before the edge of a headset view');
+    assert.equal(at(false, 120), true, 'one that is playing is not held at 120');
+    // Close characters always animate (an arm's reach, a quick turn), with their own hysteresis.
+    assert.equal(at(false, 180, 3.9), true);
+    assert.equal(at(false, 180, 4.5), false);
+    assert.equal(at(true, 180, 3.0), true);
+    assert.equal(at(true, 180, 3.8), false);
+    // Looking up or down does not hide the people in front: pitch is part of the angle.
+    assert.equal(needs(false, 0, 1.7, 0, 0, 0.7, 0.7, 0, 1.7, 10), true, 'level people stay while looking 45 degrees up');
+});
+
+test('the finger joints of the raw Idle clip are posed once and dropped from the animation, nothing else', () => {
+    const { window } = loadClassic('js/club/11-audio-crowd.js', {
+        VRClubUI: class {}, log: { info() {}, warn() {}, error() {} },
+        BABYLON: { Axis: { Z: 'Z', Y: 'Y' }, Vector3: class {}, Color3: class { constructor(r, g, b) { Object.assign(this, { r, g, b }); } } }
+    });
+    const quat = (x, y, z, w) => ({ x, y, z, w, copyFrom(o) { Object.assign(this, { x: o.x, y: o.y, z: o.z, w: o.w }); } });
+    const make = (name, property, key) => ({
+        target: { name: `queue2_${name}`, [property]: quat(0, 0, 0, 1) },
+        animation: { targetProperty: property, getKeys: () => [{ frame: 0, value: key }, { frame: 30, value: quat(1, 1, 1, 1) }] }
+    });
+    const key = quat(0.1, 0.2, 0.3, 0.9);
+    const animations = [
+        make('Body', 'rotationQuaternion', quat(0, 0, 0, 1)), make('Wrist.L', 'rotationQuaternion', quat(0, 0, 0, 1)),
+        make('Index2.L', 'rotationQuaternion', key), make('Thumb1.R', 'rotationQuaternion', key),
+        make('Pinky4.R', 'rotationQuaternion', key), make('Foot.L', 'rotationQuaternion', quat(0, 0, 0, 1))
+    ];
+    const removed = [];
+    const group = { targetedAnimations: animations.slice(), removeTargetedAnimation(a) { removed.push(a); } };
+    assert.equal(window.VRClubAudioCrowd._freezeFingerChannels(group, 'queue2_'), 3);
+    assert.deepEqual(removed.map(a => animations.find(t => t.animation === a).target.name), ['queue2_Index2.L', 'queue2_Thumb1.R', 'queue2_Pinky4.R']);
+    for (const t of animations.slice(2, 5)) assert.equal(t.target.rotationQuaternion.w, 0.9, 'posed at the first key');
+    assert.equal(animations[0].target.rotationQuaternion.w, 1, 'a body joint is left to the clip');
+    assert.equal(window.VRClubAudioCrowd._freezeFingerChannels(null), 0);
+});
+
+test('a guest out on the street is neither drawn nor animated here while the street is hidden, and returns mid-clip', () => {
+    const { window } = loadClassic('js/avatarManager.js', {
+        BABYLON: {}, performance: { now: () => 0 }, AudioUtils: loadClassic('js/audioUtils.js').window.AudioUtils
+    });
+    window.CityLayout = loadClassic('js/cityDistrict.js', { BABYLON: {} }).window.CityLayout;
+    const proto = window.AvatarManager.prototype;
+    let refreshed = 0;
+    const manager = { club: { _cityVisible: false, _refreshContactShadows() { refreshed++; } }, _applyHidden: proto._applyHidden };
+    const log = [];
+    let playing = true;
+    const group = { get isPlaying() { return playing; }, pause() { playing = false; log.push('pause'); }, restart() { playing = true; log.push('restart'); } };
+    const peer = {
+        hidden: false, culled: false, root: { position: { x: 4, z: 9 }, enabled: true, setEnabled(v) { this.enabled = v; } },
+        person: { current: 'Idle', groups: { Idle: group } }
+    };
+    proto._updateCulling.call(manager, peer);
+    assert.equal(peer.culled, true);
+    assert.equal(peer.root.enabled, false, 'not drawn');
+    assert.equal(playing, false, 'not animated');
+    assert.equal(refreshed, 1);
+    // A clip that starts while they are away is held too.
+    playing = true; proto._updateCulling.call(manager, peer);
+    assert.equal(playing, false);
+    // The street comes back: they return, resumed in place.
+    manager.club._cityVisible = true;
+    proto._updateCulling.call(manager, peer);
+    assert.deepEqual([peer.culled, peer.root.enabled, playing], [false, true, true]);
+    assert.equal(log.at(-1), 'restart');
+    // In the club, or on the stair, or in the doorway, nobody is ever held; and with no street at all nothing is.
+    manager.club._cityVisible = false;
+    for (const [x, z] of [[0, -12], [-8, -3], [1, 3], [0, 5.5]]) {
+        peer.root.position.x = x; peer.root.position.z = z;
+        proto._updateCulling.call(manager, peer);
+        assert.equal(peer.culled, false, `${x},${z} is inside`);
+    }
+    delete manager.club._cityVisible;
+    peer.root.position.x = 4; peer.root.position.z = 9;
+    proto._updateCulling.call(manager, peer);
+    assert.equal(peer.culled, false, 'a club with no street culls nobody');
+    // A guest hidden by the personal-space bubble stays hidden after returning from the street.
+    manager.club._cityVisible = false; peer.hidden = true;
+    proto._updateCulling.call(manager, peer);
+    manager.club._cityVisible = true;
+    proto._updateCulling.call(manager, peer);
+    assert.equal(peer.root.enabled, false);
+});
+
+test('remote pose work pauses only clearly behind the view, retaining the same body and clip, with mirror and close-range exceptions', () => {
+    const BABYLON = require('../js/vendor/babylon.js');
+    const { window } = loadClassic('js/avatarManager.js', { BABYLON });
+    window.VRClubAudioCrowd = loadClassic('js/club/11-audio-crowd.js', {
+        BABYLON, VRClubUI: class {}, log: { info() {}, warn() {}, error() {} }
+    }).window.VRClubAudioCrowd;
+    const direction = new BABYLON.Vector3(0, -0.15, 1).normalize();
+    const camera = { position: new BABYLON.Vector3(0, 4.7, 0), getDirectionToRef(_axis, out) { out.copyFrom(direction); } };
+    const manager = Object.assign(Object.create(window.AvatarManager.prototype), {
+        club: {}, scene: { activeCamera: camera }
+    });
+    let playing = true;
+    const group = { get isPlaying() { return playing; }, pause() { playing = false; }, restart() { playing = true; } };
+    const person = { current: 'Dance_Loop', groups: { Dance_Loop: group } };
+    const peer = {
+        hidden: false, culled: false, animPaused: false, person,
+        root: { position: new BABYLON.Vector3(0, 0, 25), enabled: true, setEnabled(value) { this.enabled = value; } }
+    };
+    manager._updateCulling(peer);
+    assert.equal(playing, true, 'distant dancer viewed from balcony must keep dancing');
+    direction.z = -1;
+    manager._updateCulling(peer);
+    assert.equal(playing, false, 'a clearly unseen pose can be held');
+    assert.equal(peer.root.enabled, true, 'position, collision and membership remain enabled');
+    assert.equal(peer.person, person);
+    assert.equal(person.current, 'Dance_Loop');
+    direction.set(Math.sin(110 * Math.PI / 180), 0, Math.cos(110 * Math.PI / 180));
+    manager._updateCulling(peer);
+    assert.equal(playing, true, 'resume well before entering the headset field of view');
+    direction.set(0, 0, -1);
+    manager._updateCulling(peer);
+    assert.equal(playing, false);
+    manager.club.restroomMirrorTexture = { refreshRate: 1 };
+    manager._updateCulling(peer);
+    assert.equal(playing, true, 'a guest behind the viewer may be visible in the mirror');
+    manager.club.restroomMirrorTexture.refreshRate = 0;
+    peer.root.position.set(0, 3, 2);
+    manager._updateCulling(peer);
+    assert.equal(playing, true, 'nearby guests never visibly unfreeze');
+    peer.hidden = true;
+    manager._applyHidden(peer);
+    assert.equal(peer.root.enabled, false, 'personal-space safety still wins');
+    assert.equal(playing, false);
+});
+
+test('the road paint is biased toward the camera so it cannot depth-fight the asphalt it lies on', () => {
+    const BABYLON = {
+        PBRMaterial: { PBRMATERIAL_ALPHATEST: 1, PBRMATERIAL_OPAQUE: 0 }, Material: { AllDirtyFlag: 0xff },
+        Vector3: class {}
+    };
+    const { window } = loadClassic('js/cityDistrict.js', { BABYLON });
+    const make = name => ({ name, markAsDirty() {} });
+    const decals = make('decals'), asphalt = make('asphalt'), windows = make('windows');
+    window.CityDistrict._styleCityMaterials.call({ maxLights: 3 }, [decals, asphalt, windows]);
+    assert.equal(decals.transparencyMode, 1, 'the paint is alpha-tested, not blended');
+    assert.ok(decals.zOffset < 0 && decals.zOffsetUnits < 0, 'the baked paint lies exactly on the road: it needs a depth bias');
+    assert.equal(asphalt.zOffset, undefined, 'the road itself is not biased');
+    assert.equal(windows.zOffset, undefined);
+    assert.equal(windows.emissiveIntensity, 1.7);
+});
+
+test('toasts: failures are red assertive alerts, notices are calm polite statuses, and the wording decides', () => {
+    const { window } = loadClassic('js/club/10-ui.js', {
+        VRClubAnimationFinish: class {}, BABYLON: {}, log: { info() {}, warn() {}, error() {} }
+    });
+    const kind = window.VRClubUI.toastKind;
+    // Real messages from the app: notices.
+    for (const text of ['Standing up', 'Your character: woman', 'Joining "party"…', 'Left the room', 'Graphics quality: HIGH',
+        'Auto quality on: graphics step down if frames are missed', 'Only the host (Ann) controls the music. Leave the room to take over.',
+        'Sent: Hello', 'Blocked Ann: you will not see or hear each other', 'Nothing to seek in: a live stream has no position.',
+        'You can no longer see the host, so your music and lights are your own again.', 'No music yet: use ADD LINKS in the Music menu to save your own set.',
+        'Seated mode on: you sit, your avatar stands', 'NOCTURNE auto show resumed', 'Photosensitive Safe Mode blocks strobes.']) {
+        assert.equal(kind(text), 'info', text);
+    }
+    // Failures.
+    for (const text of ['Could not copy. Share the room code instead: 123456', 'The stream stopped and could not be reconnected. Choose another station.',
+        'Audio loaded, but playback was blocked. Press Play again.', 'This audio file cannot be played. Try an MP3, AAC, OGG or WAV file.',
+        'Invalid audio URL. Use http://, https:// or blob: only.', 'VR unavailable. Connect your headset via Link/Air Link.',
+        'Graphics context lost. Reloading the club…', 'The music player is not ready yet.', 'Social action failed: x',
+        'This relay needs an update before it can deliver selected-recipient chat. Nothing was sent.', 'Stream interrupted — reconnecting (attempt 1 of 3)…']) {
+        assert.equal(kind(text), 'error', text);
+    }
+    assert.equal(kind(undefined), 'info');
+
+    const made = [];
+    const documentStub = {
+        createElement: () => { const el = { style: {}, attrs: {}, children: [], setAttribute(k, v) { this.attrs[k] = v; }, appendChild(c) { this.children.push(c); c.parent = this; }, remove() { this.removed = true; } }; made.push(el); return el; },
+        body: { appendChild() {} }
+    };
+    const timers = [];
+    const { window: w2 } = loadClassic('js/club/10-ui.js', {
+        VRClubAnimationFinish: class {}, BABYLON: {}, log: { info() {}, warn() {}, error() {} }, document: documentStub,
+        setTimeout: (fn, ms) => { timers.push(ms); }
+    });
+    const club = Object.create(w2.VRClubUI.prototype);
+    club.showErrorMessage('Standing up');
+    club.showErrorMessage('Could not copy');
+    club.showErrorMessage('Forced red', 'error');
+    club.showErrorMessage('Could not do it, but only a hint', 'info');
+    assert.equal(club._statusHost.attrs.role, 'status');
+    assert.equal(club._statusHost.attrs['aria-live'], 'polite');
+    assert.equal(club._toastHost.attrs.role, 'alert');
+    assert.equal(club._toastHost.attrs['aria-live'], 'assertive');
+    assert.deepEqual(club._statusHost.children.map(c => c.textContent), ['Standing up', 'Could not do it, but only a hint']);
+    assert.deepEqual(club._toastHost.children.map(c => c.textContent), ['Could not copy', 'Forced red']);
+    assert.ok(club._toastHost.children[0].style.cssText.includes('rgba(200,0,0'), 'errors stay red');
+    assert.ok(!club._statusHost.children[0].style.cssText.includes('rgba(200,0,0'), 'notices are not red');
+    assert.deepEqual(timers, [3000, 4000, 4000, 3000]);
+});
+
+test('MY CHARACTER: the player picks one of the 17 people offline, it is saved, and the mirror shows it', () => {
+    const store = new Map();
+    const localStorage = {
+        getItem: k => (store.has(k) ? store.get(k) : null), setItem: (k, v) => store.set(k, String(v)), removeItem: k => store.delete(k)
+    };
+    const BABYLON = { Axis: { Z: 'Z', Y: 'Y' }, Vector3: class {}, Color3: class { constructor(r, g, b) { Object.assign(this, { r, g, b }); } } };
+    const { window } = loadClassic('js/club/11-audio-crowd.js', { VRClubUI: class {}, BABYLON, localStorage });
+    const Crowd = window.VRClubAudioCrowd, proto = Crowd.prototype;
+    for (const id of Crowd.MY_CHARACTERS) assert.ok(Crowd.sourceIndex(id) >= 0, `${id} is a real source`);
+    assert.equal(Crowd.MY_CHARACTERS.length, 17);
+    const styles = [];
+    const club = {
+        _mirrorSignature: 3, refreshed: 0,
+        getLocalAvatarStyle: proto.getLocalAvatarStyle, getLocalCharacter: proto.getLocalCharacter,
+        setLocalCharacter: proto.setLocalCharacter, setLocalAvatarStyle(style) { styles.push(style); store.set('vrclub.avatarStyle', style); },
+        _refreshVRQuickMenu() { this.refreshed++; }
+    };
+    assert.equal(club.getLocalCharacter(), null, 'nothing chosen: the default body');
+    assert.equal(club.setLocalCharacter('f1'), 'f1');
+    assert.equal(store.get('vrclub.myCharacter'), 'f1', 'saved');
+    assert.equal(club._mirrorSignature, -1, 'the mirror re-lists');
+    assert.equal(club.setLocalCharacter('m9'), 'm9');
+    assert.equal(styles.at(-1), 'male', 'the first-person body follows the gender');
+    assert.equal(club.setLocalCharacter('nobody'), null, 'unknown ids are refused');
+    assert.equal(store.has('vrclub.myCharacter'), false);
+    assert.equal(club.setLocalCharacter(null), null, 'the default is a choice too');
+    store.set('vrclub.myCharacter', 'zz');
+    assert.equal(club.getLocalCharacter(), null, 'a corrupt saved value is ignored');
+
+    // The mirror: the relay's assignment in a room, the player's own choice offline.
+    const venue = loadClassic('js/venueDressing.js', { BABYLON: {}, log: { info() {}, warn() {}, error() {} } }).window.VenueDressing;
+    const mirror = { multiplayer: null, getLocalCharacter: () => 'm3', _mirrorAvatarId: venue._mirrorAvatarId };
+    assert.equal(mirror._mirrorAvatarId(), 'm3');
+    mirror.multiplayer = { connected: true, selfAvatar: 'f2' };
+    assert.equal(mirror._mirrorAvatarId(), 'f2');
+    mirror.multiplayer = { connected: true, selfAvatar: null };
+    assert.equal(mirror._mirrorAvatarId(), null);
+
+    const html = readFileSync(join(ROOT, 'index.html'), 'utf8');
+    assert.match(html, /<select[^>]*id="myCharacter"/);
+});
+
+test('MY CHARACTER: a saved online choice asks the relay, and storage and old-relay failures are visible', () => {
+    const store = new Map(), errors = [], requests = [];
+    let storageFails = false;
+    const localStorage = {
+        getItem: key => store.get(key) || null,
+        setItem(key, value) { if (storageFails) throw new Error('quota'); store.set(key, value); },
+        removeItem(key) { if (storageFails) throw new Error('quota'); store.delete(key); }
+    };
+    const { window } = loadClassic('js/club/11-audio-crowd.js', {
+        VRClubUI: class {}, BABYLON: {}, localStorage, log: { warn() {} }
+    });
+    const club = Object.create(window.VRClubAudioCrowd.prototype);
+    club.setLocalAvatarStyle = () => {};
+    club.showErrorMessage = text => errors.push(text);
+    club.multiplayer = { connected: true, selfAvatar: 'f1', client: { avatarSelectionSupported: true },
+        selectAvatar: id => requests.push(id) };
+    assert.equal(club.setLocalCharacter('m9'), 'm9');
+    assert.deepEqual(requests, ['m9']);
+    assert.equal(club.multiplayer.selfAvatar, 'f1', 'the acknowledged body remains authoritative');
+    assert.equal(club.multiplayer.client.preferredAvatar, 'm9');
+    storageFails = true;
+    assert.equal(club.setLocalCharacter('f2'), false);
+    assert.equal(club.getLocalCharacter(), 'm9');
+    assert.equal(requests.length, 1);
+    assert.match(errors.at(-1), /could not be saved/);
+    storageFails = false;
+    club.multiplayer.client.avatarSelectionSupported = false;
+    assert.equal(club.setLocalCharacter('f2'), false);
+    assert.equal(club.getLocalCharacter(), 'm9');
+    assert.match(errors.at(-1), /relay needs an update/i);
+    assert.equal(club.setLocalCharacter(null), null);
+    assert.deepEqual(requests, ['m9', null]);
+    assert.equal(club.getLocalCharacter(), null);
+});
+
+test('a drag belongs to the pointer that started it: the other hand cannot steer or end it', () => {
+    const { window } = loadClassic('js/club/10-ui.js', { VRClubAnimationFinish: class {}, BABYLON: {}, log: { info() {}, warn() {}, error() {} } });
+    const club = Object.create(window.VRClubUI.prototype);
+    const calls = [];
+    const seekMesh = {};
+    club.scene = {};
+    club._vrSeek = { mesh: seekMesh, drag: null };
+    club._vrQuickMenuButtons = [];
+    club._vjDeskDrag = null;
+    club._beginVRSeek = () => { club._vrSeek.drag = { fraction: 0.2 }; calls.push('begin'); };
+    club._moveVRSeek = () => calls.push('move');
+    club._endVRSeek = () => { if (!club._vrSeek.drag) return; club._vrSeek.drag = null; calls.push('end'); };
+    club.releaseVJDesk = () => calls.push('release');
+    club.dragVJDesk = () => {};
+    club.setupVJControlInteraction();
+    const press = { hit: true, pickedMesh: seekMesh };
+
+    club.scene.onPointerDown({ pointerId: 7 }, press);
+    club.scene.onPointerMove({ pointerId: 9 }, press);
+    club.scene.onPointerUp({ pointerId: 9 });
+    assert.equal(calls.join(), 'begin', 'the idle hand neither moves the drag nor ends it');
+    club.scene.onPointerMove({ pointerId: 7 }, press);
+    club.scene.onPointerUp({ pointerId: 7 });
+    assert.equal(calls.join(), 'begin,move,end,release', 'the hand that started it steers it and ends it');
+
+    // A mouse (no pointer id) and a drag that never started behave as before.
+    calls.length = 0;
+    club.scene.onPointerDown({}, press);
+    club.scene.onPointerUp({});
+    assert.equal(calls.join(), 'begin,end,release');
+    calls.length = 0;
+    club.scene.onPointerUp({ pointerId: 3 });
+    assert.equal(calls.join(), 'release', 'with no drag, any release goes through');
+});
+
+test('the VR menu: COMFORT holds how you move, ME holds who you are, and the character picker pages nine at a time', () => {
+    const BABYLON = { Axis: { Z: 'Z', Y: 'Y' }, Vector3: class {}, Color3: class { constructor(r, g, b) { Object.assign(this, { r, g, b }); } } };
+    const store = new Map();
+    const localStorage = { getItem: k => (store.has(k) ? store.get(k) : null), setItem: (k, v) => store.set(k, String(v)), removeItem: k => store.delete(k) };
+    const crowd = loadClassic('js/club/11-audio-crowd.js', { VRClubUI: class {}, BABYLON, localStorage });
+    const multi = loadClassic('js/multiplayer.js').window.ClubMultiplayer;
+    const { window } = loadClassic('js/club/10-ui.js', { VRClubAnimationFinish: class {}, BABYLON, log: { info() {}, warn() {}, error() {} } });
+    window.VRClubAudioCrowd = crowd.window.VRClubAudioCrowd;
+    window.ClubMultiplayer = multi;
+    const UI = window.VRClubUI.prototype, Crowd = crowd.window.VRClubAudioCrowd.prototype;
+    const club = {
+        _multiplayer: () => null, lightHold: { mode: 'resume' }, _immersive: null, _vrCharacterPage: 0,
+        getLocalCharacter: Crowd.getLocalCharacter, getLocalAvatarStyle: Crowd.getLocalAvatarStyle,
+        _vrCharacterPageDefinitions: UI._vrCharacterPageDefinitions, isFollowingHost: () => false
+    };
+    const labels = page => UI._vrQuickMenuPageDefinitions.call(club, page).map(b => (b ? b.label : null));
+
+    const same = (a, b, message) => assert.equal(JSON.stringify(a), JSON.stringify(b), message);
+    const comfort = labels('comfort');
+    same(comfort, ['LOCOMOTION', 'SAFE MODE', 'QUALITY', 'AUTO QUALITY', 'ME', 'CREDITS / LICENCES', '\u2190 BACK', 'CLOSE']);
+    same(labels('me'), ['MY CHARACTER', 'EDIT MY CHARACTER', 'MEASURE HEIGHT', 'SEATED MODE', '\u2190 BACK', 'CLOSE']);
+    for (const page of ['comfort', 'me', 'character']) assert.ok(labels(page).length <= 12, `${page} fits the twelve slots`);
+
+    // Page one: the default and the eight women; page two: the nine men. Each names the kind of person and what they wear.
+    const first = UI._vrCharacterPageDefinitions.call(club, { back: { label: 'BACK', action: 'back' }, close: { label: 'CLOSE', action: 'close' } });
+    assert.equal(first.length, 12);
+    same(first.slice(0, 9).map(b => b.character), [null, 'f1', 'f2', 'f3', 'f4', 'f5', 'f6', 'f7', 'f8']);
+    assert.equal(first[0].label, 'DEFAULT');
+    assert.equal(first[1].label, 'WOMAN');
+    assert.equal(first[1].detail, 'BLACK HAIR, WHITE TOP');
+    assert.equal(first[3].label, 'PUNK');
+    assert.equal(first[10].action, 'characterPage');
+    assert.equal(first[10].label, 'MEN \u2192');
+    club._vrCharacterPage = 1;
+    const second = UI._vrCharacterPageDefinitions.call(club, { back: { label: 'BACK', action: 'back' }, close: { label: 'CLOSE', action: 'close' } });
+    same(second.slice(0, 9).map(b => b.character), ['m1', 'm2', 'm3', 'm4', 'm5', 'm6', 'm7', 'm8', 'm9']);
+    assert.equal(second[10].label, '\u2190 WOMEN');
+    // Every one of the seventeen is reachable exactly once.
+    same([...first, ...second].filter(b => b && b.action === 'pickCharacter' && b.character).map(b => b.character).sort(),
+        Array.from(crowd.window.VRClubAudioCrowd.MY_CHARACTERS).sort());
+
+    // The current one is lit; the default is lit while nothing is chosen.
+    const active = UI._isVRQuickMenuButtonActive;
+    assert.equal(active.call(club, { action: 'pickCharacter', character: null }), true);
+    store.set('vrclub.myCharacter', 'm3');
+    assert.equal(active.call(club, { action: 'pickCharacter', character: null }), false);
+    assert.equal(active.call(club, { action: 'pickCharacter', character: 'm3' }), true);
+    assert.equal(active.call(club, { action: 'pickCharacter', character: 'm4' }), false);
+});
+
+test('a loaded avatar source never keeps animating: the loader\'s auto-started clips are stopped', async () => {
+    const stopped = [];
+    const group = name => ({ name, stop() { stopped.push(name); } });
+    const BABYLON = {
+        Axis: { Z: 'Z', Y: 'Y' }, Vector3: class {},
+        Color3: class { constructor(r, g, b) { Object.assign(this, { r, g, b }); } },
+        SceneLoader: { LoadAssetContainerAsync: async () => ({ materials: [], animationGroups: [group('Idle_Loop'), group('Dance_Loop')] }) }
+    };
+    const { window } = loadClassic('js/club/11-audio-crowd.js', { VRClubUI: class {}, BABYLON, log: { info() {}, warn() {}, error() {} } });
+    const club = {
+        scene: {}, _avatarContainers: [], _prepareAvatarMaterials() {}, _restoreLightBudgets() {},
+        _loadAvatarSource: window.VRClubAudioCrowd.prototype._loadAvatarSource
+    };
+    const container = await club._loadAvatarSource('./js/models/avatars/club-crowd-f1.glb');
+    assert.ok(container);
+    assert.deepEqual(Array.from(stopped), ['Idle_Loop', 'Dance_Loop'],
+        'Babylon starts the first clip of every file on its source skeleton; ~2,200 invisible animatables ran every frame');
+    assert.equal(club._avatarContainers.length, 1);
+});
+
+test('walking away from a seat stands you up whichever body is drawn, even when there is no mannequin at all', () => {
+    const { window } = loadClassic('js/club/11-audio-crowd.js', { VRClubUI: class {}, BABYLON: { Axis: {}, Vector3: class {} } });
+    const proto = window.VRClubAudioCrowd.prototype;
+    const seat = { id: 'lounge-0', viewX: 6.68, viewZ: -1.29, x: 6.68, z: -0.89, floorY: 0, seatY: 0.4, facing: Math.PI };
+    const camera = { position: { x: 6.68, y: 1.2, z: -1.29 } };
+    const stood = [];
+    const club = {
+        _activeSeat: seat, camera, _playerCamera: () => camera,
+        _easedBodyEyeHeight: () => 1.7, _localRig: null,
+        standFromSeat(notify) { stood.push(notify); this._activeSeat = null; },
+        _releaseSeatWhenAway: proto._releaseSeatWhenAway
+    };
+    // No mannequin (`_localRig` null): the early return used to skip the release, and the character stayed on the couch.
+    proto._updateLocalPlayerBody.call(club, 1 / 60);
+    assert.deepEqual(stood, [], 'still at the seat: stay seated');
+    camera.position.x = 6.68 + 0.5;
+    proto._updateLocalPlayerBody.call(club, 1 / 60);
+    assert.deepEqual(stood, [], 'a short step is not leaving');
+    camera.position.x = 6.68 + 1.0;
+    proto._updateLocalPlayerBody.call(club, 1 / 60);
+    assert.equal(stood.length, 1, 'walking away stands you up');
+    assert.equal(club._activeSeat, null);
+});
+
+test('the local body stays full standing height until a room seat is intentionally selected', () => {
     const BABYLON = {
         Axis: { Z: 'Z', Y: 'Y' },
         Vector3: class { constructor(x = 0, y = 0, z = 0) { this.x = x; this.y = y; this.z = z; } }
@@ -4728,22 +6526,25 @@ test('the local body is posed from the camera, the DJ riser and the controllers'
     const calls = [];
     const club = {
         isInVRMode: false, camera, _xrControllers: [],
-        _localRig: { ok: true, setEyeHeight(h) { calls.push(['eye', h]); }, update(dt, pose) { calls.push(['update', dt, { ...pose }]); } },
-        _playerCamera: proto._playerCamera, _handPose: proto._handPose
+        _localRig: { ok: true, standEye: 1.7, setEyeHeight(h) { calls.push(['eye', h]); }, update(dt, pose) { calls.push(['update', dt, { ...pose }]); } },
+        _playerCamera: proto._playerCamera, _handPose: proto._handPose, _bodyEyeHeight: proto._bodyEyeHeight,
+        _easedBodyEyeHeight: proto._easedBodyEyeHeight, _shownBodyEye: proto._shownBodyEye, _releaseSeatWhenAway: proto._releaseSeatWhenAway,
+        standFromSeat: () => { club._activeSeat = null; }
     };
     proto._updateLocalPlayerBody.call(club, 1 / 60);
     let pose = calls.at(-1)[2];
     assert.ok(Math.abs(pose.headYaw - yaw) < 1e-9, 'yaw must come from the camera forward vector');
     assert.ok(Math.abs(pose.headPitch - up) < 1e-9, 'a camera looking up must give a positive head pitch');
     assert.equal(pose.groundY, 0);
+    assert.equal(pose.eyeY, 1.7);
+    assert.equal(pose.seated, false);
     assert.equal(pose.left, null, 'desktop has no hands');
 
     camera.position = { x: 0, y: 2.2, z: -18 };
     proto._updateLocalPlayerBody.call(club, 1 / 60);
     assert.equal(calls.at(-1)[2].groundY, 0.5, 'on the DJ riser the feet stand 0.5 m higher');
 
-    // VR: eye height is refitted once on entry, hands come from the controllers, and an
-    // untracked controller (at the origin) is ignored rather than reached for.
+    // VR: a physically seated headset does not rescale or crouch the visible body.
     const tracked = (handedness, x, y, z) => ({
         inputSource: { handedness },
         grip: { getAbsolutePosition: () => ({ x, y, z }) },
@@ -4751,31 +6552,144 @@ test('the local body is posed from the camera, the DJ riser and the controllers'
     });
     club.isInVRMode = true;
     club.vrHelper = { baseExperience: { camera } };
-    camera.globalPosition = { x: 0, y: 1.6, z: -12 };
-    club._xrControllers = [tracked('left', -0.3, 1.2, -11.7), tracked('right', 0, 0, 0)];
+    camera.globalPosition = { x: 0, y: 1.05, z: -12 };
+    club._xrControllers = [tracked('left', -0.3, 0.8, -11.7), tracked('right', 0, 0, 0)];
     proto._updateLocalPlayerBody.call(club, 1 / 60);
     proto._updateLocalPlayerBody.call(club, 1 / 60);
-    assert.equal(calls.filter(c => c[0] === 'eye').length, 1, 'the body is refitted once per VR session');
+    assert.ok(calls.filter(c => c[0] === 'eye').every(c => c[1] === 1.7), 'with no measured height the body stays the standard 1.7 m, whatever the headset reads');
     pose = calls.at(-1)[2];
+    assert.equal(pose.eyeY, 1.7);
+    assert.equal(pose.seated, false);
     assert.equal(pose.left.x, -0.3);
     assert.equal(pose.left.fz, 1);
     assert.equal(pose.right, null, 'an untracked controller must not drag the arm to the origin');
 
-    // Back on desktop the fixed standing calibration must be restored, even on the DJ riser.
+    // A measured height sizes the body in the headset only: desktop's camera is 1.7 m, so its body is too.
+    club.playerEyeHeight = 1.86;
+    calls.length = 0;
+    proto._updateLocalPlayerBody.call(club, 1 / 60);
+    assert.equal(calls[0][0], 'eye');
+    assert.ok(Math.abs(calls[0][1] - 1.705) < 1e-9, 'the body starts toward the measured height (0.3 m/s), it does not jump');
+    for (let i = 0; i < 120; i++) { calls.length = 0; proto._updateLocalPlayerBody.call(club, 1 / 60); }
+    assert.equal(calls[0][1], 1.86);
     club.isInVRMode = false;
-    delete camera.globalPosition;
-    camera.position = { x: 0, y: 2.2, z: -18 };
-    proto._updateLocalPlayerBody.call(club, 1 / 60);
-    assert.deepEqual(calls.filter(c => c[0] === 'eye').map(c => c[1]), [1.6, 1.7]);
-    pose = calls.at(-1)[2];
-    assert.equal(pose.groundY, 0.5, 'desktop booth placement still needs the riser offset');
-
-    // Re-entering VR keeps the measured seated/standing height again.
+    calls.length = 0;
+    for (let i = 0; i < 120; i++) { calls.length = 0; proto._updateLocalPlayerBody.call(club, 1 / 60); }
+    assert.equal(calls[0][1], 1.7);
     club.isInVRMode = true;
-    camera.globalPosition = { x: 0, y: 1.5, z: -18 };
+    club.playerEyeHeight = null;
+
+    const seat = { id: 'balcony-0', x: -11.3, z: -17.55, viewX: -11.3, viewZ: -18,
+        floorY: 3, seatY: 3.76, facing: 0 };
+    club._activeSeat = seat;
+    camera.globalPosition = { x: seat.viewX, y: 4.05, z: seat.viewZ };
     proto._updateLocalPlayerBody.call(club, 1 / 60);
-    assert.deepEqual(calls.filter(c => c[0] === 'eye').map(c => c[1]), [1.6, 1.7, 1.0]);
+    pose = calls.at(-1)[2];
+    assert.equal(pose.seated, true);
+    assert.equal(pose.x, seat.x);
+    assert.equal(pose.z, seat.z);
+    assert.equal(pose.groundY, 3);
+    assert.equal(pose.seatY, 3.76);
+    assert.equal(pose.eyeY, 4.7, 'the rig retains full standing calibration while applying a separate seat pose');
 });
+
+test('DEV seat selection waits for authoritative and rendered clearance, and cleans up pending requests', () => {
+    let now = 0;
+    const { window } = loadClassic('js/club/10-ui.js', {
+        VRClubAnimationFinish: class {}, performance: { now: () => now }
+    });
+    const club = Object.create(window.VRClubUI.prototype), observers = new Set(), notes = [], requests = [];
+    const seat = { id: 'bar-0', label: 'a bar stool', x: 9.2, z: -12.9, floorY: 0 };
+    const remote = { simulated: true, state: { seat: seat.id, seated: true } };
+    const rendered = { root: { position: { x: seat.x, z: seat.z } } };
+    club.scene = { onBeforeRenderObservable: {
+        add(callback) { observers.add(callback); return callback; }, remove(callback) { observers.delete(callback); }
+    } };
+    club.networkManager = { connected: true, room: 'private-000032', peers: new Map([['bot', remote]]),
+        requestDevSeat(id) { requests.push(id); return true; } };
+    club.avatarManager = { remotes: new Map([['bot', rendered]]) };
+    club._playerCamera = () => null;
+    club.showErrorMessage = message => notes.push(message);
+    const tick = () => { for (const observer of [...observers]) observer(); };
+    assert.equal(club.sitAtSeat(seat), false);
+    assert.equal(club._activeSeat, undefined);
+    assert.deepEqual(requests, [seat.id]);
+    tick();
+    assert.equal(requests.length, 1, 'do not repeatedly request an already pending seat');
+    remote.state = { seated: false };
+    tick();
+    assert.equal(club._activeSeat, undefined, 'standing up does not yet clear the physical body');
+    rendered.root.position.x += 1;
+    tick();
+    assert.equal(club._activeSeat, seat);
+    assert.equal(observers.size, 0);
+    club.standFromSeat(false);
+    remote.state = { seated: true, seat: seat.id };
+    club.sitAtSeat(seat);
+    now = 16000;
+    tick();
+    assert.equal(observers.size, 0);
+    assert.equal(club._activeSeat, null);
+    assert.ok(notes.at(-1).includes('try another seat'));
+    club.sitAtSeat(seat);
+    club.networkManager.connected = false;
+    tick();
+    assert.equal(observers.size, 0);
+    remote.simulated = false;
+    club.networkManager.connected = true;
+    assert.equal(club._simulatedSeatOccupant(seat.id), null, 'real guests are never automatically evicted');
+});
+
+test('DEV seat transport is restricted to the reserved room and known unoccupied furniture', () => {
+    const { window } = loadClassic('js/networkClient.js');
+    const messages = [], client = { connected: true, room: 'private-000032', _send: frame => messages.push(frame) };
+    const send = window.NetworkClient.prototype.requestDevSeat;
+    assert.equal(send.call(client, 'bar-1'), false);
+    assert.equal(send.call(client, 'toilet-0'), true);
+    assert.equal(messages[0].type, 'dev-seat');
+    client.room = 'lobby';
+    assert.equal(send.call(client, 'toilet-0'), false);
+    client.room = 'private-000032';
+    client.connected = false;
+    assert.equal(send.call(client, 'lounge-0'), false);
+    assert.equal(messages.length, 1);
+});
+
+test('seat picks choose the nearest cushion and preserve tracked VR height', () => {
+    const BABYLON = { Vector3: class {
+        constructor() { this.x = 0; this.y = 0; this.z = 0; }
+        set(x, y, z) { Object.assign(this, { x, y, z }); }
+    } };
+    const { window } = loadClassic('js/club/10-ui.js', { VRClubAnimationFinish: class {}, BABYLON });
+    const proto = window.VRClubUI.prototype;
+    const seats = [
+        { id: 'lounge-0', label: 'the lounge couch', x: 6.68, z: -0.89, viewX: 6.68, viewZ: -1.29, floorY: 0, seatY: 0.4, facing: Math.PI },
+        { id: 'lounge-1', label: 'the lounge couch', x: 7.52, z: -0.89, viewX: 7.52, viewZ: -1.29, floorY: 0, seatY: 0.4, facing: Math.PI }
+    ];
+    const camera = { position: { x: 0, y: 1.05, z: 0, copyFrom() {} }, _deferOnly: false };
+    const notes = [];
+    const club = {
+        isInVRMode: true,
+        _playerCamera: () => camera,
+        _xrHeadHeight: () => 1.05,
+        showErrorMessage: message => notes.push(message),
+        _seatFromPick: proto._seatFromPick,
+        _simulatedSeatOccupant: proto._simulatedSeatOccupant,
+        _cancelDevSeatWait: proto._cancelDevSeatWait,
+        sitAtSeat: proto.sitAtSeat,
+        standFromSeat: proto.standFromSeat
+    };
+    const mesh = { metadata: { vrclubSeats: seats } };
+    const picked = proto._seatFromPick.call(club, { pickedMesh: mesh, pickedPoint: { x: 7.4, z: -0.8 } });
+    assert.equal(picked.id, 'lounge-1');
+    assert.equal(proto.sitAtSeat.call(club, picked), true);
+    assert.equal(camera.position.y, 1.05, 'sitting must not replace the tracked headset height');
+    assert.equal(club._activeSeat.id, 'lounge-1');
+    assert.match(notes.at(-1), /Move or select it again to stand/);
+    assert.equal(proto.standFromSeat.call(club, true), true);
+    assert.equal(club._activeSeat, null);
+});
+
 test('beams light the smoke they cross and dust is only seen inside them', () => {
     const { window } = loadClassic('js/club/07-animation-core.js', { VRClubEffects: class {} });
     const proto = window.VRClubAnimationCore.prototype;
@@ -4917,7 +6831,8 @@ test('Quest entry uses only explicitly saved music and ships no podcast picker',
     assert.doesNotMatch(html, /id="podcastResidentBtn"|id="podcastColourizonBtn"/);
     assert.match(html, /id="savedSets"/);
     const credits = html.match(/<details id="modelCredits">([\s\S]*?)<\/details>/)[1];
-    assert.match(credits, /No music, podcasts or third-party sound recordings are included/);
+    assert.match(credits, /only music included is the club's own original house set/);
+    assert.match(credits, /No podcasts or third-party sound recordings are included/);
     assert.match(credits, /IP address/, 'the credits must keep the streaming privacy disclosure');
 });
 
@@ -5183,13 +7098,71 @@ test('spinning lasers run at quarter speed, independently of frame rate, with th
                 lasers: [laser], lasersActive: true, laserSpeed: speed, vjManualMode: true,
                 vecPool: { laserDir: new BABYLON.Vector3() },
                 _laserColor: () => BABYLON.Color3.White(), _laserView: () => ({}),
-                laserBeamBatch: { mesh, hitMesh: mesh, material, hitMaterial: material }
+                laserBeamBatch: { mesh, material }
             };
             for (let i = 0; i < hz; i++) update.call(club, { time: i / hz, dtScale: 60 / hz });
             assert.ok(Math.abs(laser.rotation - 0.225 * speed) < 1e-9, `${hz} Hz rotation at ${speed}x`);
             assert.ok(Math.abs(laser.tiltPhase - 0.3 * speed) < 1e-9, `${hz} Hz tilt at ${speed}x`);
         }
     }
+});
+
+test('headset laser geometry follows the tier cadence without slowing motion', () => {
+    const BABYLON = require('../js/vendor/babylon.js');
+    const update = loadClassic('js/club/08-animation-fixtures.js', {
+        BABYLON, VRClubAnimationCore: class {}
+    }).window.VRClubAnimationFixtures.prototype.updateLasers;
+    let uploads = 0;
+    const mesh = {
+        isEnabled: () => true,
+        setEnabled() {},
+        updateVerticesData() { uploads++; }
+    };
+    const laser = { rotation: 0, tiltPhase: 0, beams: [] };
+    const material = { emissiveColor: new BABYLON.Color3() };
+    const club = {
+        lasers: [laser], lasersActive: true, laserSpeed: 1, vjManualMode: true,
+        isInVRMode: true, tierSettings: { vrLaserUpdateHz: 45 },
+        vecPool: { laserDir: new BABYLON.Vector3() },
+        _laserColor: () => BABYLON.Color3.White(),
+        _laserView: () => ({ cam: BABYLON.Vector3.Zero(), pixelAngle: 0.001 }),
+        laserBeamBatch: {
+            mesh, material, positions: [], colors: []
+        }
+    };
+    for (let i = 0; i < 90; i++) update.call(club, { time: i / 90, dt: 1 / 90, dtScale: 2 / 3 });
+    assert.ok(Math.abs(laser.rotation - 0.225) < 1e-9, 'motion must still integrate every display frame');
+    assert.ok(uploads >= 2 * 43 && uploads <= 2 * 46, `expected about 45 geometry uploads, got ${uploads / 2}`);
+});
+
+test('moving-head photometry uses one bounded distance and incidence model', () => {
+    const BABYLON = require('../js/vendor/babylon.js');
+    const gain = loadClassic('js/club/08-animation-fixtures.js', {
+        BABYLON, VRClubAnimationCore: class {}
+    }).window.VRClubAnimationFixtures.prototype._fixturePhotometricGain;
+    assert.equal(gain(7.3, 1), 1);
+    assert.equal(gain(7.3, 0), 0.2);
+    assert.equal(gain(1, 1), 2, 'near fixtures must stay bounded');
+    assert.equal(gain(100, 1), 0.25, 'distant fixtures must keep a visible floor');
+});
+
+test('base-scene compilation waits behind the splash but has a diagnostic timeout', async () => {
+    const Lifecycle = loadClassic('js/club/02-lifecycle.js', {
+        BABYLON: {}, VRClubCore: class {}, log: { warn() {} }
+    }).window.VRClubLifecycle;
+    const diagnostics = [];
+    await Lifecycle.prototype._waitForBaseSceneReady.call({
+        scene: { whenReadyAsync: async () => {} },
+        recordDiagnostic: (...args) => diagnostics.push(args)
+    }, 20);
+    assert.equal(diagnostics.length, 0);
+
+    await Lifecycle.prototype._waitForBaseSceneReady.call({
+        scene: { whenReadyAsync: () => new Promise(() => {}) },
+        recordDiagnostic: (...args) => diagnostics.push(args)
+    }, 1);
+    assert.equal(diagnostics.length, 1);
+    assert.equal(diagnostics[0][0], 'render');
 });
 
 test('mirror reflections use analytic room hits and thin-instance tier counts', () => {
@@ -5298,6 +7271,40 @@ test('mirror reflections use analytic room hits and thin-instance tier counts', 
     assert.ok(hit.pz > 0.25, `doorway reflection stopped on the old front-wall plane at z ${hit.pz}`);
     assert.ok(hit.py >= 0 && hit.py <= 2.83, `doorway reflection missed the stair at y ${hit.py}`);
     assert.ok(hit.ny === 1 || hit.nz === -1, 'doorway reflection did not land on a tread or riser');
+
+    // The restroom doorway is an opening, not a wall: a ray through it lands inside the restroom, never on the
+    // wall plane in the doorway, and a ray that misses the opening still lands on the wall.
+    ROOM_INTERIOR.restroomDoor = { z0: -4.1, z1: -2.3, height: 2.8, frame: 0.12 };
+    ROOM_INTERIOR.columns = { z: [-5, -15], halfWidth: 0.3, faceX: 12.2 };
+    effectsModule.window.VenueLayout.restroom = { wallX: -12.75, farX: -16.4, z0: -6.2, z1: -1.2, height: 3.2 };
+    const toward = (x, y, z) => new BABYLON.Vector3(x - 0, y - 6.5, z - -12).normalize();
+    let d = toward(-12.25, 1.5, -3.2);
+    effects._intersectRoomInterior(0, 6.5, -12, d.x, d.y, d.z, hit);
+    assert.ok(hit.px < -12.75, `a ray through the doorway stopped in the opening at x ${hit.px}`);
+    assert.ok(hit.px >= -16.4 && hit.pz >= -6.2 && hit.pz <= -1.2 && hit.py >= 0 && hit.py <= 3.2,
+        `a ray through the doorway left the restroom: ${hit.px}, ${hit.py}, ${hit.pz}`);
+    assert.ok(Math.abs(hit.t - Math.hypot(hit.px, hit.py - 6.5, hit.pz + 12)) < 1e-6, 'the hit distance must follow the hit point');
+    for (const [z, label] of [[-4.0, 'the frame post'], [-2.35, 'the other post'], [-6.5, 'beside the doorway']]) {
+        d = toward(-12.25, 1.5, z);
+        effects._intersectRoomInterior(0, 6.5, -12, d.x, d.y, d.z, hit);
+        assert.ok(Math.abs(hit.px - -12.23) < 1e-6, `${label}: a ray that misses the opening must land on the wall (x ${hit.px})`);
+    }
+    d = toward(-12.25, 3.1, -3.2);
+    effects._intersectRoomInterior(0, 6.5, -12, d.x, d.y, d.z, hit);
+    assert.ok(Math.abs(hit.px - -12.23) < 1e-6, `a ray over the lintel must land on the wall (x ${hit.px})`);
+
+    // Concrete columns stand 5 cm proud of the side walls: reflections land on their faces, not inside them.
+    for (const [side, wallX] of [[-1, -12.25], [1, 12.25]]) {
+        for (const z of [-5, -15, -4.8]) {
+            d = toward(wallX, 2, z);
+            effects._intersectRoomInterior(0, 6.5, -12, d.x, d.y, d.z, hit);
+            assert.ok(Math.abs(hit.px - side * 12.2) < 1e-6, `a reflection at z ${z} on the ${side < 0 ? 'left' : 'right'} wall is inside a column (x ${hit.px})`);
+            assert.ok(Math.abs(hit.t - Math.hypot(hit.px, hit.py - 6.5, hit.pz + 12)) < 1e-6);
+        }
+        d = toward(wallX, 2, -10);
+        effects._intersectRoomInterior(0, 6.5, -12, d.x, d.y, d.z, hit);
+        assert.ok(Math.abs(hit.px - side * 12.23) < 1e-6, 'between the columns the reflection stays on the wall');
+    }
 });
 
 test('laser sheet uses bounded two-axis motion for vertical and lateral cues', () => {
@@ -5455,11 +7462,9 @@ test('master dimming scales moving heads, ceiling lasers and the laser sheet con
         const mesh = () => ({ enabled: false, isEnabled() { return this.enabled; }, setEnabled(v) { this.enabled = v; }, updateVerticesData() {} });
         return {
             count,
-            mesh: mesh(), hitMesh: mesh(),
+            mesh: mesh(),
             material: { emissiveColor: new BABYLON.Color3() },
-            hitMaterial: { emissiveColor: new BABYLON.Color3() },
             positions: new Float32Array(count * 12), colors: new Float32Array(count * 16),
-            hitPositions: new Float32Array(count * 12), hitColors: new Float32Array(count * 16),
             hit: {}
         };
     };
@@ -5502,7 +7507,6 @@ test('master dimming scales moving heads, ceiling lasers and the laser sheet con
         const batch = club.laserBeamBatch;
         return {
             beamAlpha: Math.max(...Array.from({ length: 20 }, (_, i) => batch.colors[i * 4 + 3])),
-            dotAlpha: Math.max(...Array.from({ length: 20 }, (_, i) => batch.hitColors[i * 4 + 3])),
             enabled: batch.mesh.enabled,
             emitter: laser.emitterMat.emissiveColor.r
         };
@@ -5513,9 +7517,8 @@ test('master dimming scales moving heads, ceiling lasers and the laser sheet con
     const offLaser = renderLasers(0);
     assert.equal(offLaser.enabled, false, 'zero master left the ceiling laser beams drawn');
     assert.equal(offLaser.emitter, 0, 'zero master left the ceiling laser emitter glowing');
-    assert.ok(fullLaser.beamAlpha > 0 && fullLaser.dotAlpha > 0);
+    assert.ok(fullLaser.beamAlpha > 0);
     assert.ok(Math.abs(halfLaser.beamAlpha / fullLaser.beamAlpha - 0.5) < 0.02, 'half master did not halve the ceiling laser beam');
-    assert.ok(Math.abs(halfLaser.dotAlpha / fullLaser.dotAlpha - 0.5) < 0.02, 'half master did not halve the ceiling laser dots');
     assert.ok(Math.abs(halfLaser.emitter / fullLaser.emitter - 0.5) < 0.02, 'half master did not halve the ceiling laser emitter');
 
     const renderSheet = (master) => {
@@ -5752,7 +7755,7 @@ test('VJ panel toggles are allow-listed rather than written by DOM attribute nam
     assert.deepEqual(missing, [], `data-control toggles missing from TOGGLE_CONTROLS: ${missing.join(', ')}`);
 });
 
-test('PWA manifest declares an installable configuration', () => {
+test('PWA manifest declares an installable configuration', async () => {
     const manifest = JSON.parse(readFileSync(join(ROOT, 'manifest.json'), 'utf8'));
     assert.equal(manifest.name, 'NOCTURNE - Virtual Nightclub');
     assert.equal(manifest.display, 'standalone');
@@ -5761,6 +7764,44 @@ test('PWA manifest declares an installable configuration', () => {
     assert.ok(manifest.id, 'manifest.json must declare an `id`');
     assert.ok(manifest.scope, 'manifest.json must declare a `scope`');
     assert.ok(Array.isArray(manifest.icons) && manifest.icons.length > 0, 'manifest.json declares no icons');
+    assert.ok(manifest.short_name && manifest.short_name.length <= 12, 'short_name must fit under a home-screen icon');
+    assert.ok(manifest.start_url && manifest.theme_color && manifest.background_color && manifest.description && manifest.lang);
+    assert.equal(manifest.prefer_related_applications, false);
+    assert.ok(manifest.display_override.includes('standalone'), 'display_override must start from the preferred mode');
+    // Every declared image exists and is exactly the size it claims (a lying size breaks the install sheet).
+    const sharp = (await import('sharp')).default;
+    const sized = async entry => {
+        const info = await sharp(join(ROOT, entry.src)).metadata();
+        assert.equal(`${info.width}x${info.height}`, entry.sizes, `${entry.src} is not ${entry.sizes}`);
+        assert.equal(`image/${info.format === 'jpeg' ? 'jpeg' : info.format}`, entry.type, `${entry.src} has the wrong type`);
+    };
+    for (const icon of manifest.icons) await sized(icon);
+    assert.ok(manifest.icons.some(icon => icon.purpose === 'any' && icon.sizes === '192x192'), 'no 192px "any" icon');
+    assert.ok(manifest.icons.some(icon => icon.purpose === 'any' && icon.sizes === '512x512'), 'no 512px "any" icon');
+    assert.ok(manifest.icons.some(icon => icon.purpose === 'maskable'), 'no maskable icon');
+    // The rich install sheet needs both form factors, and each group the same aspect ratio.
+    for (const factor of ['wide', 'narrow']) {
+        const shots = manifest.screenshots.filter(shot => shot.form_factor === factor);
+        assert.ok(shots.length >= 1, `no ${factor} screenshot`);
+        assert.equal(new Set(shots.map(shot => shot.sizes)).size, 1, `${factor} screenshots differ in size`);
+        for (const shot of shots) { await sized(shot); assert.ok(shot.label, `${shot.src} has no label`); }
+    }
+    // iOS ignores the manifest icons: it wants a 180px apple-touch-icon and a title.
+    const html = readFileSync(join(ROOT, 'index.html'), 'utf8');
+    assert.match(html, /<link rel="apple-touch-icon" sizes="180x180" href="icons\/icon-180\.png\?v=[^"]+">/);
+    assert.match(html, /<meta name="apple-mobile-web-app-title" content="NOCTURNE">/);
+    assert.match(html, /<meta name="theme-color" content="#030308">/);
+    await sized({ src: 'icons/icon-180.png', sizes: '180x180', type: 'image/png' });
+    // The manifest has a stable name, so it must revalidate and be served as the manifest media type.
+    const headers = readFileSync(join(ROOT, '_headers'), 'utf8');
+    assert.match(headers, /\/manifest\.json\s+Content-Type: application\/manifest\+json\s+Cache-Control: no-cache/);
+    const serve = readFileSync(join(ROOT, 'scripts/serve.mjs'), 'utf8');
+    assert.match(serve, /application\/manifest\+json/);
+    assert.match(serve, /isPwaMetadata/);
+    // The install prompt is offered from the About panel, never forced, and torn down with the UI.
+    const ui = readFileSync(join(ROOT, 'js/ui-init.js'), 'utf8');
+    assert.ok(/addEventListener\('beforeinstallprompt'/.test(ui) && /addEventListener\('appinstalled'/.test(ui));
+    assert.match(html, /<div class="install-app" id="installApp" hidden>/);
 });
 
 
@@ -5846,8 +7887,34 @@ test('the bar layout leaves room for guests, stools and the bartender', () => {
     const slots = window.VRClubAudioCrowd.prototype._guestSlots.call({});
     for (const slot of slots) {
         const inFootprint = slot.x > stoolX - 0.7 && slot.z > backBar.z0 - 0.5 && slot.z < backBar.z1 + 0.5;
-        assert.ok(!inFootprint, `a guest at ${slot.x}, ${slot.z} stands in the bar`);
+        if (slot.barPatron) {
+            assert.ok(inFootprint && Math.abs(slot.x - stoolX) < 0.2 && stoolZ.includes(slot.z),
+                `the seated bar patron at ${slot.x}, ${slot.z} misses a stool`);
+        } else {
+            assert.ok(!inFootprint, `a guest at ${slot.x}, ${slot.z} stands in the bar`);
+        }
     }
+    const lounge = loadClassic('js/venueDressing.js').window.VenueLayout.lounge;
+    // Against the front wall (inner face z -0.25), centred between the doorway and the bar-side wall.
+    const entranceEdge = 2;
+    const barWall = 12.25;
+    assert.ok(lounge.z + lounge.depth / 2 <= -0.25, 'the couch must not pass through the front wall');
+    assert.ok(lounge.x - lounge.width / 2 > entranceEdge + 1.5,
+        'the couch must leave a generous path beside the entrance');
+    assert.ok(lounge.x + lounge.width / 2 < barWall - 1.5,
+        'the couch must leave a generous path beside the bar wall');
+    assert.ok(Math.abs(lounge.x - (entranceEdge + barWall) / 2) < 0.1,
+        'the couch must be centred between the entrance and bar wall');
+    assert.ok(lounge.z - lounge.depth / 2 > -1.3, 'the couch must stay against the entrance wall');
+    assert.equal(lounge.seats.length, 2, 'the sofa must expose exactly its two cushions');
+    assert.ok(lounge.seats[1] - lounge.seats[0] >= 0.7, 'the two couch seats overlap');
+    assert.ok(lounge.seats.every(offset => Math.abs(offset) < lounge.width / 2 - 0.4),
+        'a seat anchor drifted onto an arm rest');
+    const ModelLoaderSource = readFileSync(join(ROOT, 'js/modelLoader.js'), 'utf8');
+    const couch = /lounge_couch: \{[\s\S]*?placement: \{([^}]*)\}/.exec(ModelLoaderSource)[1];
+    assert.match(couch, new RegExp(`fitSize: ${lounge.width}\\b`));
+    assert.match(couch, new RegExp(`centerX: ${lounge.x}\\b`));
+    assert.match(couch, new RegExp(`centerZ: ${lounge.z}\\b`));
 });
 
 // ---------------------------------------------------------------------------
@@ -5953,6 +8020,32 @@ test('in VR the headset stands on the balcony, climbs its stair, steps off its e
     camera.realWorldHeight = eye;
     // The DJ Booth destination stands the headset on the 0.5 m riser; it stays there.
     assert.equal(at(0, -19.4, 0.5), 0.5);
+    // Walking up to the stage from the floor steps onto it, from the front and from either flank, in a quick eased climb:
+    // it used to count only for a walker already near its top, so a headset walked into the stage at floor level.
+    for (const [x, z] of [[0, -16.1], [-2.9, -17], [2.9, -17], [0, -19.9]]) {
+        club.jumpState.active = false;
+        at(x < 0 ? -8 : 8, -12, 0);
+        camera.position.x = x; camera.position.z = z;
+        let feetNow = 0, frames = 0;
+        camera.position.y = eye;
+        camera._deferredPositionUpdate.y = camera.position.y;
+        let last = 0;
+        while (feetNow < 0.5 && frames < 60) {
+            feetNow = at(x, z);
+            assert.ok(feetNow - last <= 3 * 0.017 + 1e-3, `the climb at (${x}, ${z}) jumped ${feetNow - last}`);
+            last = feetNow; frames++;
+        }
+        assert.equal(feetNow, 0.5, `(${x}, ${z}) did not reach the stage`);
+        assert.ok(frames > 4, `the climb took ${frames} frames`);
+        assert.equal(club._walkLevel, 0.5);
+    }
+    // Walking off the front edge falls to the floor under gravity, not through it and not by teleport.
+    at(0, -16.1, 0.5);
+    const off = at(0, -15.8);
+    assert.ok(off < 0.5 && off >= 0, `stepping off the stage snapped to ${off}`);
+    let down = 1;
+    while (at(0, -15.8) > 0 && down < 100) down++;
+    assert.equal(at(0, -15.8), 0);
     // In flight, the jump owns the height.
     club.jumpState.active = true;
     camera.position.y = 2.6;
@@ -6333,6 +8426,24 @@ test('credits stay one click away and the splash names every CC BY creator', () 
     for (const creator of creators) assert.ok(splash[1].includes(creator), `${creator} is not named on the splash`);
 });
 
+test('the lounge couch GLB is optimised: one mesh, 512 px WebP maps, and its CC BY credit is in the product', () => {
+    const json = readGlbJson('js/models/lounge/source/old_couch.glb');
+    assert.equal(json.meshes.reduce((sum, mesh) => sum + mesh.primitives.length, 0), 1, 'the couch must cost one draw');
+    assert.ok(json.images.length <= 3 && json.images.every(image => image.mimeType === 'image/webp'));
+    const source = readFileSync(join(ROOT, 'js/modelLoader.js'), 'utf8');
+    assert.match(source, /lounge_couch:\s*\{[\s\S]*?emissiveFloor:\s*0\b[\s\S]*?disableEmission:\s*true\b[\s\S]*?metallicFactor:\s*0\b[\s\S]*?matte:\s*true\b[\s\S]*?disableNormalMap:\s*true\b/,
+        'the couch must be non-emissive, dielectric, fully matte and free of the tiny-scale tangent-space normal map that breaks on medium precision');
+    assert.match(source, /config\.matte[\s\S]*?metallicTexture = null[\s\S]*?specularIntensity = 0/,
+        'matte must remove the packed gloss map and every specular term');
+    assert.match(source, /if \(config\.disableNormalMap && mesh\.material\.bumpTexture\)[\s\S]*?bumpTexture = null/,
+        'disableNormalMap must actually remove the normal texture');
+    assert.match(source, /if \(config\.disableEmission\)[\s\S]*?emissiveColor\.set\(0, 0, 0\)[\s\S]*?ambientColor\.set\(0, 0, 0\)/,
+        'disableEmission must clear both emission and the generic ambient floor');
+    const html = readFileSync(join(ROOT, 'index.html'), 'utf8');
+    assert.match(html, /"Old Couch"[\s\S]{0,400}Oliver Triplett[\s\S]{0,300}CC BY 4\.0/, 'the credit must name title, creator and licence');
+    assert.match(readFileSync(join(ROOT, 'ASSETS.md'), 'utf8'), /old_couch\.glb/);
+});
+
 test('the bass bin GLB is optimised: six draws, 512 px maps, and its credit is in the product', () => {
     const json = readGlbJson('js/models/bassbin/source/bass_bin_3.glb');
     assert.equal(json.meshes.reduce((sum, mesh) => sum + mesh.primitives.length, 0), 6, 'a bin must cost six draws');
@@ -6341,6 +8452,316 @@ test('the bass bin GLB is optimised: six draws, 512 px maps, and its credit is i
     const html = readFileSync(join(ROOT, 'index.html'), 'utf8');
     assert.match(html, /Bass Bin 3 - Subwoofer[\s\S]{0,400}darksoundlab[\s\S]{0,300}CC BY 4\.0/, 'the CC BY credit must name title, creator and licence');
     assert.match(readFileSync(join(ROOT, 'ASSETS.md'), 'utf8'), /bass_bin_3\.glb/);
+});
+
+test('the DJ booth Yamaha HS8 monitor speakers and restroom fixtures are one-draw vertex-coloured GLBs and sit on the DJ table and in the restroom', () => {
+    const html = readFileSync(join(ROOT, 'index.html'), 'utf8');
+    assert.match(html, /"Yamaha HS8 Studio Monitor"[\s\S]{0,400}Ivan_WSK[\s\S]{0,300}CC BY 4\.0/,
+        'the Yamaha HS8 CC BY 4.0 credit must name title, creator and licence');
+
+    for (const file of [
+        'js/models/monitors/source/monitor_speaker.glb',
+        'js/models/restroom/source/toilet.glb',
+        'js/models/restroom/source/bathroom_sink.glb'
+    ]) {
+        const json = readGlbJson(file);
+        assert.equal(json.meshes.reduce((sum, mesh) => sum + mesh.primitives.length, 0), 1, `${file} must cost one draw`);
+        assert.equal(json.materials.length, 1, `${file} must use one material`);
+        assert.equal((json.images || []).length, 0, `${file} should use vertex colours rather than extra textures`);
+        assert.ok(json.meshes[0].primitives[0].attributes.COLOR_0 !== undefined, `${file} must carry COLOR_0 vertex colours`);
+    }
+
+    const BABYLON = require('../js/vendor/babylon.js');
+    const CLUB_POSITIONS = { paSpeakers: { left: { x: -6, y: 7.1, z: -16 }, right: { x: 6, y: 7.1, z: -16 } } };
+    const { window: loaderWindow } = loadClassic('js/modelLoader.js', {
+        BABYLON, CLUB_POSITIONS, navigator: { userAgent: '' }, AbortController, IndexedDBAssetCache: class {}, InFlightRegistry: class {}
+    });
+    const configs = loaderWindow.ModelLoader.prototype.getModelConfigs.call({});
+    const { window: venueWindow } = loadClassic('js/venueDressing.js', {
+        BABYLON,
+        log: { info() {}, warn() {}, error() {} }
+    });
+    const { monitors, restroom } = venueWindow.VenueLayout;
+
+    // Monitor speakers sit on the DJ table (y 1.42) on either side of the VJ desk, angled toward the DJ.
+    assert.equal(configs.dj_monitor.placement.bottomY, monitors.tableY);
+    assert.equal(configs.dj_monitor.placement.fitSize, monitors.height);
+    assert.equal(configs.dj_monitor.placement.centerX, monitors.left.x);
+    assert.equal(configs.dj_monitor.placement.centerZ, monitors.left.z);
+    assert.equal(monitors.right.x, -monitors.left.x);
+    assert.equal(monitors.right.z, monitors.left.z);
+
+    // Restroom toilet and washbasin sit on the restroom floor inside the room's bounds.
+    assert.equal(configs.restroom_toilet.placement.centerX, restroom.toiletX);
+    assert.equal(configs.restroom_toilet.placement.centerZ, restroom.toiletZ[0]);
+    assert.equal(configs.restroom_toilet.placement.bottomY, 0);
+    assert.equal(configs.restroom_sink.placement.location ?? configs.restroom_sink.placement.bottomY, 0);
+    assert.equal(configs.restroom_sink.placement.centerZ, restroom.sinkZ[0]);
+
+    // Real Babylon geometry check for the restroom shell, partitions, doorway and acoustic muffling.
+    const scene = new BABYLON.Scene(new BABYLON.NullEngine());
+    const club = Object.assign({
+        scene,
+        modelLoadPromise: Promise.resolve(),
+        materialFactory: {
+            getPreset: name => new BABYLON.StandardMaterial(name, scene),
+            createPBRMaterial: name => new BABYLON.StandardMaterial(name, scene),
+            createStandardMaterial: name => new BABYLON.StandardMaterial(name, scene)
+        },
+        lightFactory: { createPointLight: (name, position) => new BABYLON.PointLight(name, position, scene) },
+        textureLoader: null,
+        concreteTextures: null,
+        _applyWorldUVs() {}
+    }, venueWindow.VenueDressing);
+    club.createRestroom();
+
+    assert.ok(club._restroomFloor, 'restroom floor must be created for teleportation');
+    assert.ok(club._restroomLight, 'restroom must have its own scoped accent light');
+    const walls = scene.getMeshByName('restroomWalls');
+    const partitions = scene.getMeshByName('restroomPartitions');
+    const mirrors = scene.getMeshByName('restroomMirrors');
+    assert.ok(walls && walls.checkCollisions, 'restroom outer walls must collide');
+    assert.ok(partitions && partitions.checkCollisions, 'restroom stall partitions must collide');
+    assert.ok(mirrors, 'restroom mirrors must be built');
+
+    // A ray from the main hall through the doorway centre (z -3.2) enters unobstructed until the far wall (x -16).
+    const doorRay = new BABYLON.Ray(new BABYLON.Vector3(-11.5, 1.2, -3.2), new BABYLON.Vector3(-1, 0, 0), 6);
+    const doorHit = scene.pickWithRay(doorRay, mesh => mesh.checkCollisions && mesh.isEnabled());
+    assert.ok(doorHit && doorHit.hit && Math.abs(doorHit.pickedPoint.x - restroom.farX) < 0.05,
+        `expected doorway ray to reach the far restroom wall (${restroom.farX}), hit ${doorHit && doorHit.pickedPoint && doorHit.pickedPoint.x}`);
+
+    // Acoustic enclosure is 0 on the dance floor and rises smoothly inside the restroom.
+    assert.equal(restroom.enclosure(0, -12), 0);
+    assert.equal(restroom.enclosure(-11.8, -3.2), 0);
+    assert.ok(restroom.enclosure(-14.2, -3.2) > 0.35 && restroom.enclosure(-14.2, -3.2) < 0.65,
+        'restroom interior should muffle the PA without silencing it');
+
+    // Nearfield monitor panners sit at the Yamaha HS8 positions, aimed inward toward the DJ, and fade in only in the booth.
+    const { club: audioClub } = createAudioHarness();
+    audioClub._connectAudioSourceOnce();
+    assert.ok(audioClub.monitorPannerLeft && audioClub.monitorPannerRight && audioClub.monitorGain,
+        'the audio graph must include nearfield HRTF panners for the left and right DJ monitors');
+    assert.equal(audioClub.monitorPannerLeft.positionX.value, -monitors.left.x, 'Web Audio X must be mirrored for left monitor');
+    assert.equal(audioClub.monitorPannerRight.positionX.value, -monitors.right.x, 'Web Audio X must be mirrored for right monitor');
+    assert.equal(audioClub.monitorPannerLeft.positionZ.value, monitors.left.z);
+    // Each cabinet faces the DJ behind the decks (-z) and toes in toward the middle of the booth.
+    for (const [side, panner, inward] of [[monitors.left, audioClub.monitorPannerLeft, 1], [monitors.right, audioClub.monitorPannerRight, -1]]) {
+        assert.ok(Math.cos(side.yaw) < -0.7, 'monitors must face the DJ (-z), not the dance floor');
+        assert.ok(Math.sin(side.yaw) * inward > 0.3, 'monitors must toe in toward the middle of the booth');
+        assert.ok(panner.orientationZ.value < -0.7, 'the monitor panner must aim at the DJ');
+        assert.ok(Math.abs(panner.orientationX.value - -Math.sin(side.yaw)) < 1e-6, 'Web Audio X must be mirrored');
+    }
+    assert.equal(monitors.height, 0.3, 'the studio monitors are the compact size');
+    audioClub.scene = { activeCamera: { globalPosition: { x: 0, y: 2.2, z: -19.1 }, getForwardRay: () => ({ direction: { x: 0, y: 0, z: 1 } }), upVector: { x: 0, y: 1, z: 0 } } };
+    audioClub.updateSpatialAudioListener();
+    const boothGain = audioClub.monitorGain.gain.value;
+    audioClub.scene.activeCamera.globalPosition = { x: 0, y: 1.7, z: -10 };
+    audioClub.updateSpatialAudioListener();
+    const floorGain = audioClub.monitorGain.gain.value;
+    assert.ok(boothGain > 0.5, `monitors should be active in the DJ booth (got ${boothGain})`);
+    assert.equal(floorGain, 0, 'monitors should roll off to zero out on the dance floor');
+
+    // A ray into each cubicle doorway from the washroom aisle hits the back wall, not a stall door or toilet.
+    for (const tz of restroom.toiletZ) {
+        const stallRay = new BABYLON.Ray(new BABYLON.Vector3(-13.8, 0.55, tz), new BABYLON.Vector3(-1, 0, 0), 3.5);
+        const stallHit = scene.pickWithRay(stallRay, mesh => mesh.checkCollisions && mesh.isEnabled());
+        assert.ok(stallHit && stallHit.hit && Math.abs(stallHit.pickedPoint.x - restroom.farX) < 0.05,
+            `stall doorway ray at z=${tz} must reach far wall (${restroom.farX}), not a door across the toilet`);
+    }
+    // Each cubicle doorway is wide enough for the desktop collision body (1 m across) with room to spare.
+    for (const [index, [z0, z1]] of [[-6.2, -4.6], [-2.8, -1.2]].entries()) {
+        const gap = z1 - z0 - 2 * restroom.stallPier;
+        assert.ok(gap >= 1.2, `a cubicle doorway is ${gap.toFixed(2)} m wide; the desktop body is 1 m`);
+        assert.ok(Math.abs(restroom.stallOpenings[index][0] - (z0 + restroom.stallPier)) < 1e-9
+            && Math.abs(restroom.stallOpenings[index][1] - (z1 - restroom.stallPier)) < 1e-9,
+            'stallOpenings must be the gap between the piers');
+        const across = new BABYLON.Ray(new BABYLON.Vector3(restroom.stallFrontX, 1.0, z0 + restroom.stallPier + 0.02),
+            new BABYLON.Vector3(0, 0, 1), gap - 0.04);
+        const blocked = scene.pickWithRay(across, mesh => mesh.checkCollisions && mesh.isEnabled());
+        assert.ok(!blocked.hit, `something stands in the cubicle doorway at z ${z0}..${z1}`);
+    }
+    // Every collidable partition vertex in the toilet bowl zone belongs only to the thin dividing walls
+    // at z = -4.6 and z = -2.8, never inside the stall where the toilet sits.
+    partitions.computeWorldMatrix(true);
+    const partPos = partitions.getVerticesData('position');
+    for (let i = 0; i < partPos.length; i += 3) {
+        const vx = partPos[i], vy = partPos[i + 1], vz = partPos[i + 2];
+        if (vx < restroom.stallFrontX - 0.05 && vy < 1.2) {
+            const onDivider = Math.abs(vz - (-4.6)) < 0.06 || Math.abs(vz - (-2.8)) < 0.06;
+            assert.ok(onDivider, `partition vertex (${vx.toFixed(2)}, ${vy.toFixed(2)}, ${vz.toFixed(2)}) intrudes into toilet stall`);
+        }
+    }
+    // The stall doors are hinged leaves, never collidable or pickable, so nothing can catch on one. Ajar they fold toward
+    // the side wall clear of the toilet, the cubicle opening and the washbasins; seated, they shut across the opening.
+    const worldVertices = (door, meshName) => {
+        door.hinge.computeWorldMatrix(true);
+        const mesh = scene.getMeshByName(meshName);
+        mesh.computeWorldMatrix(true);
+        const matrix = mesh.getWorldMatrix(), positions = mesh.getVerticesData('position');
+        const out = [];
+        for (let i = 0; i < positions.length; i += 3) out.push(BABYLON.Vector3.TransformCoordinates(new BABYLON.Vector3(positions[i], positions[i + 1], positions[i + 2]), matrix));
+        return out;
+    };
+    assert.equal(club._restroomDoors.length, 2, 'one door per cubicle');
+    assert.equal(scene.getMeshByName('restroomStallDoors'), null, 'the doors are separate meshes now, not one merged slab');
+    for (const door of club._restroomDoors) {
+        const leaf = scene.getMeshByName(`restroomStallDoor${door.index}`);
+        assert.ok(leaf, 'the stall door must be built');
+        assert.equal(leaf.checkCollisions, false, 'a door ajar is not solid, so nothing catches on it');
+        assert.equal(leaf.isPickable, true, 'a door can be pushed by hand; its click stands a seated guest up');
+        assert.equal(door.open, 1, 'doors start ajar');
+        const [opening0, opening1] = restroom.stallOpenings[door.index];
+        for (const v of worldVertices(door, `restroomStallDoor${door.index}`)) {
+            assert.ok(v.x > restroom.stallFrontX, `an ajar door vertex at x ${v.x.toFixed(2)} is inside the stall`);
+            for (const tz of restroom.toiletZ) {
+                assert.ok(!(Math.abs(v.x - restroom.toiletX) < 0.4 && Math.abs(v.z - tz) < 0.34), 'an ajar door reaches the toilet');
+            }
+            for (const sz of restroom.sinkZ) {
+                const inBasin = Math.abs(v.x - restroom.sinkX) < 0.24 + 0.02 && Math.abs(v.z - sz) < 0.31 && v.y < 1.0;
+                assert.ok(!inBasin, `an ajar door at (${v.x.toFixed(2)}, ${v.y.toFixed(2)}, ${v.z.toFixed(2)}) runs into a basin`);
+            }
+            assert.ok(v.z > restroom.z0 && v.z < restroom.z1, 'an ajar door passes through a side wall');
+        }
+        // Seated on that toilet the door closes across the whole opening; the other stall's door stays ajar.
+        club._activeSeat = { id: door.seatId };
+        club._updateRestroomDoors(1);
+        assert.equal(door.open, 0, 'the door shuts when the guest sits on its toilet');
+        assert.ok(door.lamp.material === door.busy, 'the lamp reads occupied while the door is shut');
+        const shut = worldVertices(door, `restroomStallDoor${door.index}`);
+        const zs = shut.map(v => v.z), xs = shut.map(v => v.x);
+        assert.ok(Math.min(...zs) >= opening0 && Math.max(...zs) <= opening1, 'a shut door stays inside its cubicle opening');
+        assert.ok(Math.max(...zs) - Math.min(...zs) > (opening1 - opening0) - 0.08, 'a shut door closes the opening');
+        assert.ok(Math.min(...xs) > restroom.stallFrontX && Math.max(...xs) < restroom.stallFrontX + 0.1, 'a shut door lies in the front plane');
+        const other = club._restroomDoors.find(d => d !== door);
+        assert.equal(other.open, 1, 'the other cubicle keeps its door ajar');
+        // Standing up opens it again, over about doorSeconds, never snapping.
+        club._activeSeat = null;
+        club._updateRestroomDoors(restroom.doorSeconds / 4);
+        assert.ok(door.open > 0 && door.open < 0.5, 'the door swings rather than snaps');
+        club._updateRestroomDoors(2);
+        assert.equal(door.open, 1);
+        assert.ok(door.lamp.material === door.free);
+    }
+
+    // Doors are networked through the state frames guests already send: a remote guest seated on a toilet shuts that door
+    // for everyone, wherever they are, and it opens again when they stand, leave or disconnect.
+    const peers = new Map();
+    club.avatarManager = { remotes: peers };
+    const seatedAt = (x, z, seated = true) => ({ target: { x, z, seated } });
+    peers.set('a', seatedAt(restroom.toiletSeatX, restroom.toiletZ[1]));
+    club._updateRestroomDoors(1);
+    assert.equal(club._restroomDoors[1].open, 0, 'a remote guest on the second toilet shuts its door');
+    assert.equal(club._restroomDoors[0].open, 1, 'and only that door');
+    assert.ok(club._restroomDoors[1].lamp.material === club._restroomDoors[1].busy, 'the lamp reads occupied for everyone');
+    peers.set('b', seatedAt(restroom.toiletSeatX, restroom.toiletZ[0], false));
+    peers.set('c', seatedAt(-5, -8));
+    club._updateRestroomDoors(1);
+    assert.equal(club._restroomDoors[0].open, 1, 'a guest merely standing there, or seated elsewhere, shuts nothing');
+    peers.set('a', seatedAt(restroom.toiletSeatX, restroom.toiletZ[1], false));
+    club._updateRestroomDoors(1);
+    assert.equal(club._restroomDoors[1].open, 1, 'it opens when they stand');
+    peers.set('a', seatedAt(restroom.toiletSeatX, restroom.toiletZ[1]));
+    club._updateRestroomDoors(1);
+    assert.equal(club._restroomDoors[1].open, 0);
+    peers.delete('a');
+    club._updateRestroomDoors(1);
+    assert.equal(club._restroomDoors[1].open, 1, 'it opens when they disconnect');
+    // The local guest and a remote guest on the same toilet keep it shut until both are gone.
+    club._activeSeat = { id: 'toilet-0' };
+    peers.set('d', seatedAt(restroom.toiletSeatX, restroom.toiletZ[0]));
+    club._updateRestroomDoors(1);
+    club._activeSeat = null;
+    club._updateRestroomDoors(1);
+    assert.equal(club._restroomDoors[0].open, 0, 'still occupied by the remote guest');
+    peers.delete('d');
+    club._updateRestroomDoors(1);
+    assert.equal(club._restroomDoors[0].open, 1);
+    club.avatarManager = null;
+
+    // By hand: a click on a door pushes it shut or ajar for the whole room; a shut door is solid unless somebody stands in its
+    // doorway; an occupied door does not give; the guest sitting behind a shut door stands up instead of pushing it.
+    const sent = [], messages = [];
+    club.multiplayer = { connected: true, client: { sendDoor: (index, shut) => sent.push([index, shut]) } };
+    club.showErrorMessage = text => messages.push(text);
+    club.camera = { position: new BABYLON.Vector3(-10, 1.7, -3) };
+    const leaf0 = scene.getMeshByName('restroomStallDoor0');
+    assert.equal(leaf0.isPickable, true, 'a door can be pushed by a click or a ray');
+    assert.equal(leaf0.checkCollisions, false, 'ajar, it is not solid');
+    assert.equal(club._pressStallDoor({ pickedMesh: leaf0 }), true);
+    club._updateRestroomDoors(1);
+    assert.equal(club._restroomDoors[0].open, 0, 'pushed shut by hand');
+    assert.ok(club._restroomDoors[0].lamp.material === club._restroomDoors[0].free,
+        'a door closed by hand over a vacant toilet is not locked: its lamp stays green');
+    assert.equal(club._restroomDoors[0].occupied, false);
+    assert.equal(JSON.stringify(sent), JSON.stringify([[0, true]]), 'and shared with the room');
+    assert.equal(leaf0.checkCollisions, true, 'a shut door is solid');
+    club.camera.position.set(-14.4, 1.7, -5.4);
+    club._updateRestroomDoors(0.1);
+    assert.equal(leaf0.checkCollisions, false, 'but not around somebody standing in its doorway');
+    club.camera.position.set(-10, 1.7, -3);
+    club._updateRestroomDoors(0.1);
+    assert.equal(leaf0.checkCollisions, true);
+    assert.equal(club._pressStallDoor({ pickedMesh: scene.getMeshByName('restroomStallHandle0') }), true, 'the handle is part of the door');
+    club._updateRestroomDoors(1);
+    assert.equal(club._restroomDoors[0].open, 1, 'pushed ajar again');
+    assert.equal(leaf0.checkCollisions, false);
+    assert.equal(JSON.stringify(sent), JSON.stringify([[0, true], [0, false]]));
+    assert.equal(club._pressStallDoor({ pickedMesh: { metadata: {} } }), false, 'anything else is not a door');
+    // A door the room's relay says is shut is shut here, and back to ajar when the room says so.
+    club.setSharedDoors([false, true]);
+    club._updateRestroomDoors(1);
+    assert.equal(club._restroomDoors[1].open, 0);
+    club.setSharedDoor(1, false);
+    club._updateRestroomDoors(1);
+    assert.equal(club._restroomDoors[1].open, 1);
+    club.setSharedDoor(9, true);
+    club.setSharedDoors(null);
+    // Occupied by somebody else: it does not give.
+    peers.set('e', seatedAt(restroom.toiletSeatX, restroom.toiletZ[0]));
+    club.avatarManager = { remotes: peers };
+    club._updateRestroomDoors(1);
+    sent.length = 0;
+    assert.equal(club.pushStallDoor(0), false);
+    assert.deepEqual(messages, [], 'it refuses silently: the red lamp already says it is occupied');
+    assert.equal(sent.length, 0);
+    peers.delete('e');
+    club.avatarManager = null;
+    club._updateRestroomDoors(1);
+    // Sitting behind it, a click on it stands the guest up (which opens it).
+    let stood = 0;
+    club.standFromSeat = () => { stood++; club._activeSeat = null; };
+    club._activeSeat = { id: 'toilet-0' };
+    club._updateRestroomDoors(1);
+    assert.equal(club._restroomDoors[0].open, 0);
+    club._pressStallDoor({ pickedMesh: leaf0 });
+    assert.equal(stood, 1);
+    club._updateRestroomDoors(1);
+    assert.equal(club._restroomDoors[0].open, 1);
+    club.multiplayer = null;
+
+    // Nothing covers a vanity mirror: the doorway frame posts are on the same wall, so each pane must stand clear.
+    const mirrorBox = mirrors.getBoundingInfo().boundingBox;
+    const mirrorSpans = restroom.sinkZ.map(z => [z - 0.36, z + 0.36]);
+    for (let i = 0; i < partPos.length; i += 3) {
+        const vx = partPos[i], vy = partPos[i + 1], vz = partPos[i + 2];
+        if (vx < restroom.wallX - 0.03 && vx > restroom.wallX - 0.15 && vy > 1.02 && vy < 1.94) {
+            for (const [a, b] of mirrorSpans) {
+                assert.ok(vz <= a || vz >= b, `a partition at z ${vz.toFixed(2)} covers a mirror (${a.toFixed(2)}..${b.toFixed(2)})`);
+            }
+        }
+    }
+    assert.ok(mirrorBox.minimumWorld.x < restroom.wallX - 0.02, 'the mirrors stand proud of the wall');
+    // The club's concrete pillar pokes into the restroom: no mirror may be hidden by it.
+    for (const [a, b] of mirrorSpans) {
+        assert.ok(b <= restroom.pillarZ[0] || a >= restroom.pillarZ[1],
+            `a mirror (${a.toFixed(2)}..${b.toFixed(2)}) is covered by the pillar at z ${restroom.pillarZ}`);
+        assert.ok(a >= restroom.z0 && b <= restroom.z1, 'a mirror runs past the restroom wall');
+    }
+    // The mirror reflects through a plane facing AWAY from the viewer: the pane looks into the room (-x).
+    if (club.restroomMirrorTexture) {
+        assert.equal(club.restroomMirrorTexture.mirrorPlane.normal.x, 1, 'Babylon mirrors need the normal pointing away from the viewer');
+    }
+    scene.dispose();
 });
 // ---------------------------------------------------------------------------
 // The street outside the club
@@ -6371,6 +8792,205 @@ test('the street layout in the bake script, the vestibule and the runtime agree'
     assert.ok(L.fenceZ[0] >= L.forecourtFrom && L.fenceZ[1] <= L.farFront);
 });
 
+test('the mirror reflection does not buzz with headset tremor, keeps its walk clip steady and follows real movement', () => {
+    const BABYLON = require('../js/vendor/babylon.js');
+    const { window: venueWindow } = loadClassic('js/venueDressing.js', { BABYLON, log: { info() {}, warn() {}, error() {} } });
+    const started = [];
+    const makeGroup = name => ({ start() { started.push(name); }, stop() {}, speedRatio: 1 });
+    const camera = {
+        globalPosition: { x: -13.8, y: 1.7, z: -3.6 }, yaw: Math.PI / 2,
+        getDirectionToRef(axis, ref) { ref.set(Math.sin(this.yaw), 0, Math.cos(this.yaw)); return ref; }
+    };
+    const club = Object.assign({
+        isInVRMode: false, _walkLevel: 0, _activeSeat: null, camera, _playerCamera: () => camera, _bodyEyeHeight: () => 1.7, _shownBodyEye: () => 1.7
+    }, venueWindow.VenueDressing);
+    const mannequin = { enabled: true, setEnabled(value) { this.enabled = value; } };
+    club._localRig = { meshes: [mannequin] };
+    const double = {
+        root: { position: new BABYLON.Vector3(), rotation: new BABYLON.Vector3(), setEnabled() {} },
+        groups: { Idle: makeGroup('Idle'), Walk: makeGroup('Walk'), Run: makeGroup('Run'), Seated_Loop: makeGroup('Seated_Loop') },
+        hands: { left: null, right: null }, handBuffers: { left: {}, right: {} }, current: null, speed: 0,
+        prevX: NaN, prevZ: NaN, x: 0, z: 0, yaw: 0, placed: false, gait: 'idle', seatKey: null
+    };
+    club._mirrorDouble = double;
+    let seed = 7;
+    const noise = () => { seed = (seed * 1664525 + 1013904223) >>> 0; return seed / 4294967296 * 2 - 1; };
+    const dt = 1 / 72;
+    // A guest standing still in a headset: 5 mm and 0.6 degrees of tremor, every frame.
+    let inputYaw = 0, outputYaw = 0, inputPos = 0, outputPos = 0, n = 0;
+    for (let i = 0; i < 720; i++) {
+        camera.globalPosition.x = -13.8 + noise() * 0.005;
+        camera.globalPosition.z = -3.6 + noise() * 0.005;
+        camera.yaw = Math.PI / 2 + noise() * 0.0105;
+        club._updateMirrorDouble(dt);
+        if (i === 0) {
+            assert.equal(double.shown, true);
+            assert.equal(mannequin.enabled, false, 'the old body is hidden in the same frame the chosen character appears');
+            assert.equal(club._localRig._standsDown, true);
+        }
+        if (i < 72) continue;
+        n++;
+        inputYaw += (camera.yaw - Math.PI / 2) ** 2; outputYaw += (double.root.rotation.y - Math.PI / 2) ** 2;
+        inputPos += (camera.globalPosition.x + 13.8) ** 2; outputPos += (double.root.position.x + 13.8) ** 2;
+    }
+    assert.ok(Math.sqrt(outputYaw / n) < 0.45 * Math.sqrt(inputYaw / n), 'the reflected body must not copy the heading tremor');
+    assert.ok(Math.sqrt(outputPos / n) < 0.5 * Math.sqrt(inputPos / n), 'the reflected body must not copy the positional tremor');
+    assert.equal(double.gait, 'idle');
+    assert.ok(!started.includes('Walk'), 'tremor must never start the walk clip');
+
+    // Walking 1.4 m/s: the walk clip starts, and the reflection trails the real head by well under 15 cm.
+    let x = -13.8;
+    for (let i = 0; i < 144; i++) {
+        x -= 1.4 * dt; camera.globalPosition.x = x;
+        club._updateMirrorDouble(dt);
+    }
+    assert.equal(double.gait, 'walk');
+    assert.ok(Math.abs(double.root.position.x - x) < 0.15, `the reflection lags the guest by ${(double.root.position.x - x).toFixed(3)} m`);
+    // A stop ends the walk (with hysteresis), and a 90 degree turn is followed within a third of a second.
+    for (let i = 0; i < 144; i++) club._updateMirrorDouble(dt);
+    assert.equal(double.gait, 'idle');
+    camera.yaw += Math.PI / 2;
+    for (let i = 0; i < 24; i++) club._updateMirrorDouble(dt);
+    assert.ok(Math.abs(double.root.rotation.y - camera.yaw) < 0.12, 'the body turns with the guest within a third of a second');
+    // The heading wraps the short way round and survives looking straight up.
+    camera.yaw = -Math.PI + 0.1;
+    double.yaw = Math.PI - 0.1;
+    club._updateMirrorDouble(dt);
+    assert.ok(Math.abs(double.yaw) > 2.9, 'the heading must wrap across +-pi, not spin the long way round');
+    const before = double.yaw;
+    camera.getDirectionToRef = (axis, ref) => ref.set(0, 1, 0.01);
+    for (let i = 0; i < 20; i++) club._updateMirrorDouble(dt);
+    assert.ok(Math.abs(double.yaw - before) < 0.5, 'looking straight up must not spin the body');
+    // A teleport snaps instead of gliding through the walls.
+    camera.globalPosition.x = -3; camera.globalPosition.z = -10;
+    club._updateMirrorDouble(dt);
+    assert.equal(double.root.position.x, -3);
+});
+
+test('the mirror gets a sharper, antialiased texture on desktop and a headset-sized one in VR, per tier', () => {
+    const BABYLON = require('../js/vendor/babylon.js');
+    const { window: venueWindow } = loadClassic('js/venueDressing.js', { BABYLON, log: { info() {}, warn() {}, error() {} } });
+    const quality = (tier, vr) => venueWindow.VenueDressing._restroomMirrorQuality.call({ graphicsTier: tier, isInVRMode: vr });
+    for (const tier of ['ultra', 'high', 'balanced']) {
+        const desktop = quality(tier, false), vr = quality(tier, true);
+        assert.ok(vr.size <= desktop.size && vr.size <= 512, `${tier}: the headset draws the mirror twice per frame, so it stays small`);
+        assert.ok(vr.samples <= 2, `${tier}: headset MSAA stays modest`);
+    }
+    assert.ok(quality('ultra', false).size >= 1024 && quality('ultra', false).samples >= 4);
+    assert.equal(quality('balanced', false).samples, 1);
+    // One render per eye through the material, never also as a custom render target.
+    const source = readFileSync(join(ROOT, 'js/venueDressing.js'), 'utf8');
+    assert.ok(!/customRenderTargets\.push/.test(source), 'the mirror must not also be a custom render target (it drew twice a frame)');
+    assert.ok(!/targetRate\s*=\s*this\.isInVRMode\s*\?\s*2/.test(source), 'the mirror must refresh every frame in a headset');
+});
+
+test('the restroom art atlas: cells fit, every placement sits on a real surface and faces into the room', () => {
+    const BABYLON = require('../js/vendor/babylon.js');
+    const { window: venueWindow } = loadClassic('js/venueDressing.js', { BABYLON, log: { info() {}, warn() {}, error() {} } });
+    const { window: artWindow } = loadClassic('js/restroomArt.js');
+    const Art = artWindow.RestroomArt;
+    const { restroom } = venueWindow.VenueLayout;
+
+    // Cells are inside the atlas, apart, and give texture coordinates inside 0..1.
+    const cells = Object.entries(Art.CELLS);
+    for (const [name, [x, y, w, h]] of cells) {
+        assert.ok(x >= 0 && y >= 0 && x + w <= Art.ATLAS.width && y + h <= Art.ATLAS.height, `cell ${name} leaves the atlas`);
+        const uv = Art.uv(name);
+        assert.ok(uv.u0 > 0 && uv.u1 < 1 && uv.vBottom > 0 && uv.vTop < 1 && uv.u0 < uv.u1 && uv.vBottom < uv.vTop, `${name} uv`);
+    }
+    for (let i = 0; i < cells.length; i++) {
+        for (let j = i + 1; j < cells.length; j++) {
+            const [, [ax, ay, aw, ah]] = cells[i], [, [bx, by, bw, bh]] = cells[j];
+            assert.ok(ax + aw <= bx || bx + bw <= ax || ay + ah <= by || by + bh <= ay, `cells ${cells[i][0]} and ${cells[j][0]} overlap`);
+        }
+    }
+    assert.ok(Art.ATLAS.width * Art.ATLAS.height <= 2048 * 1024, 'the atlas stays a 2048 x 1024 texture (headset memory)');
+
+    // The surfaces are the restroom's real planes.
+    assert.equal(Art.SURFACES.back.at, restroom.farX);
+    assert.equal(Art.SURFACES.wallEntrance.at, restroom.z1);
+    for (const key of ['dividerA', 'dividerAIn']) assert.ok(Math.abs(Math.abs(Art.SURFACES[key].at - (-4.6)) - 0.025) < 1e-9, key);
+    assert.ok(Math.abs(Math.abs(Art.SURFACES.dividerB.at - (-2.8)) - 0.025) < 1e-9, 'dividerB');
+
+    const rects = new Map();
+    const cross = (a, b) => [a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2], a[0] * b[1] - a[1] * b[0]];
+    for (const placement of Art.PLAN) {
+        const surface = Art.SURFACES[placement.surface];
+        assert.ok(surface, `${placement.cell}: unknown surface ${placement.surface}`);
+        const [, , cw, ch] = Art.CELLS[placement.cell];
+        assert.ok(Math.abs(placement.w / placement.h - cw / ch) < 0.04 * cw / ch, `${placement.cell} is stretched`);
+        assert.ok(placement.along - placement.w / 2 >= surface.lateral[0] - 1e-9 && placement.along + placement.w / 2 <= surface.lateral[1] + 1e-9,
+            `${placement.cell} on ${placement.surface} runs off the wall`);
+        assert.ok(placement.y - placement.h / 2 >= surface.y[0] && placement.y + placement.h / 2 <= surface.y[1], `${placement.cell} on ${placement.surface} is out of height`);
+        const rect = [placement.along - placement.w / 2, placement.y - placement.h / 2, placement.along + placement.w / 2, placement.y + placement.h / 2];
+        for (const other of rects.get(placement.surface) || []) {
+            assert.ok(rect[2] <= other[0] || other[2] <= rect[0] || rect[3] <= other[1] || other[3] <= rect[1], `two pieces overlap on ${placement.surface}`);
+        }
+        rects.set(placement.surface, [...(rects.get(placement.surface) || []), rect]);
+        // Right is the viewer's right: up x (-normal) in Babylon's left-handed frame.
+        const f = Art.frame(placement);
+        const expectRight = cross([0, 1, 0], f.normal.map(v => -v));
+        assert.equal(JSON.stringify(f.right.map(v => v + 0)), JSON.stringify(expectRight.map(v => v + 0)), `${placement.cell} on ${placement.surface} would read mirrored`);
+        // And the piece sits just in front of its wall, toward the room.
+        const along = Math.abs(f.normal[0]) ? 0 : 2;
+        const depth = f.centre[Math.abs(f.normal[0]) ? 0 : 2];
+        assert.ok(Math.sign(depth - surface.at) === Math.sign(f.normal[along === 0 ? 0 : 2]) && Math.abs(depth - surface.at) < 0.07, 'a piece floats away from its wall');
+    }
+    assert.equal(Art.PLAN.filter(p => p.kind === 'lightbox').length, 1);
+    assert.ok(Art.PLAN.length >= 4 && Art.PLAN.length <= 6, 'the restroom is dressed, not cluttered: a handful of pieces');
+    assert.ok(Art.DOORS.length <= 1, 'a shut door carries at most one thing');
+
+    // The geometry builder makes four vertices and two triangles a quad, with the stated normal.
+    const geometry = venueWindow.VenueDressing._artGeometry.call({}, Art.PLAN.map(p => ({ ...Art.frame(p), w: p.w, h: p.h, uv: Art.uv(p.cell) })));
+    assert.equal(geometry.positions.length, Art.PLAN.length * 12);
+    assert.equal(geometry.indices.length, Art.PLAN.length * 6);
+    assert.ok(Math.max(...geometry.indices) < geometry.positions.length / 3);
+    assert.ok(geometry.uvs.every(v => v > 0 && v < 1));
+
+    // Painting every cell runs without a font, an image or a DOM, and never draws outside the atlas.
+    const calls = new Map();
+    const gradient = { addColorStop() {} };
+    const ctx = new Proxy({}, {
+        get(target, key) {
+            if (key === 'measureText') return text => ({ width: String(text).length * 12 });
+            if (key === 'createLinearGradient' || key === 'createRadialGradient') return () => gradient;
+            if (key in target) return target[key];
+            return (...args) => { calls.set(key, (calls.get(key) || 0) + 1); };
+        },
+        set(target, key, value) { target[key] = value; return true; },
+        has(target, key) { return key in target; }
+    });
+    const { window: paintWindow } = loadClassic('js/restroomArt.js');
+    paintWindow.NocturneLogo = { WIDTH: 100, HEIGHT: 100, STROKE: 8, path: () => 'M0 0 L10 10' };
+    paintWindow.Path2D = class {};
+    paintWindow.RestroomArt.paint(ctx);
+    assert.equal(calls.get('save'), calls.get('restore'), 'every painter restores the context it saved');
+    assert.ok(calls.get('fillText') > 8, 'the posters carry real words');
+    const source = readFileSync(join(ROOT, 'js/restroomArt.js'), 'utf8');
+    for (const brand of ['Heineken', 'Red Bull', 'Coca', 'Pioneer', 'Absolut', 'Jack Daniel', 'Bacardi', 'Guinness', 'Smirnoff', 'Ask for Angela']) {
+        assert.ok(!source.includes(brand), `the restroom art must not use ${brand}`);
+    }
+
+    // The three Poly Haven props are placed where VenueLayout.restroom.props says, inside the restroom.
+    const { window: loaderWindow } = loadClassic('js/modelLoader.js', {
+        BABYLON, CLUB_POSITIONS: { paSpeakers: { left: { x: -6, y: 7.1, z: -16 }, right: { x: 6, y: 7.1, z: -16 } } },
+        navigator: { userAgent: '' }, AbortController, IndexedDBAssetCache: class {}, InFlightRegistry: class {}
+    });
+    const configs = loaderWindow.ModelLoader.prototype.getModelConfigs.call({});
+    for (const [key, prop] of [['restroom_bin', restroom.props.bin], ['restroom_wetsign', restroom.props.wetSign], ['restroom_plunger', restroom.props.plunger]]) {
+        assert.equal(configs[key].placement.centerX, prop.x, `${key} x`);
+        assert.equal(configs[key].placement.centerZ, prop.z, `${key} z`);
+        assert.equal(configs[key].placement.bottomY, 0);
+        assert.ok(prop.x > restroom.farX && prop.x < restroom.wallX && prop.z > restroom.z0 && prop.z < restroom.z1, `${key} stands outside the restroom`);
+        const json = readGlbJson(configs[key].url.replace('./', ''));
+        const draws = json.meshes.reduce((sum, mesh) => sum + mesh.primitives.length, 0);
+        assert.ok(draws <= 2, `${key} costs ${draws} draws`);
+        assert.ok(!(json.materials || []).some(material => material.alphaMode && material.alphaMode !== 'OPAQUE'), `${key} must be opaque: imported surfaces render opaque in the club`);
+    }
+    // The bin stands clear of the pillar's face and the hand dryer's wall.
+    assert.ok(restroom.props.bin.x + 0.2 <= restroom.wallX - 0.05 + 0.01);
+});
+
 test('the vestibule\'s enclosure curve runs from the room\'s mouth to the top of the stair', () => {
     const vestibule = loadClassic('js/venueDressing.js').window.VenueLayout.vestibule;
     const bounds = loadClassic('js/club/01-core.js', { localStorage: { getItem: () => null } }).window.ROOM_BOUNDS;
@@ -6390,7 +9010,7 @@ test('the vestibule\'s enclosure curve runs from the room\'s mouth to the top of
 
 test('how far outdoors a guest is: nothing in the club, everything on the street, one smooth ramp through the door', () => {
     const L = loadClassic('js/cityDistrict.js').window.CityLayout;
-    for (const [x, z] of [[0, -15], [10, -3], [-12, -0.5], [0, 0.2], [0, 3], [0, 4.9]]) {
+    for (const [x, z] of [[0, -15], [10, -3], [-12, -0.5], [-14.2, -3.2], [-15.7, -5.4], [0, 0.2], [0, 3], [0, 4.9]]) {
         assert.equal(L.exteriorAmount(x, z), 0, `(${x}, ${z}) is inside`);
     }
     // The forecourt beside the vestibule is outdoors even though it is only a metre from the club's wall.
@@ -6420,7 +9040,7 @@ test('on the street only the low bass comes through: a little more at the door t
         return {
             c1: club.occlusionFilter.frequency.value, c2: club.occlusionFilter2.frequency.value,
             reverb: club.reverbSend.gain.value, delay: club.roomDelayGain.gain.value, crowd: club.crowdAmbienceGain.gain.value,
-            sub: club.subGain.gain.value, master: club.audioMasterGain.gain.value
+            sub: club.subGain.gain.value, master: club.audioMasterGain.gain.value, presence: club._localPaPresence
         };
     };
     const room = stand(0, -10);
@@ -6442,6 +9062,10 @@ test('on the street only the low bass comes through: a little more at the door t
         assert.ok(spot.sub >= 0.5, `${label} the thump must stay present`);
     }
     assert.ok(door.master >= 1.15, 'at the door the bass-only signal needs the make-up gain');
+    assert.ok(room.presence > 0.8, 'people in the room should react strongly to the PA');
+    assert.ok(corridor.presence > 0 && corridor.presence < room.presence * 0.3,
+        'people should calm naturally as the listener climbs the stair');
+    assert.equal(avenue.presence, 0, 'street bass must not drive local crowd or DJ reactions');
     assert.ok(door.c1 > avenue.c1, 'the bass is clearer at the door than down the avenue');
     assert.ok(door.sub > avenue.sub, 'the thump fades with distance from the door');
     // And it gets quieter the further from the club: steadily, about -6 dB 8 m from the door, well down the block.
@@ -6499,6 +9123,117 @@ test('walking down the entrance stair lifts the muffling gradually instead of op
     // And the room's own tail arrives with it rather than being heard at full strength from the stairwell.
     assert.ok(top.reverb < bottom.reverb * 0.1 && top.delay < bottom.delay * 0.1 && top.crowd < bottom.crowd * 0.1,
         'the room must be shut away at the top of the stair');
+});
+
+test('the deck muffles the ear under it, the balcony is clearer, and the bar is only a shelf', () => {
+    const { club, window } = createAudioHarness();
+    window.CityLayout = loadClassic('js/cityDistrict.js').window.CityLayout;
+    window.MezzanineLayout = loadClassic('js/mezzanine.js').window.MezzanineLayout;
+    club._connectAudioSourceOnce();
+    club._audioFrameData = { average: 0 };
+    const stand = (x, y, z) => {
+        club.scene = { activeCamera: { globalPosition: { x, y, z }, getForwardRay: () => ({ direction: { x: 0, y: 0, z: 1 } }), upVector: { x: 0, y: 1, z: 0 } } };
+        club.updateSpatialAudioListener();
+        return {
+            c1: club.occlusionFilter.frequency.value,
+            reverb: club.reverbSend.gain.value,
+            sub: club.subGain.gain.value,
+            presence: club._localPaPresence
+        };
+    };
+    const floor = stand(0, 1.7, -15);
+    const under = stand(-11, 1.7, -15);
+    const balcony = stand(-11, 4.7, -15);
+    const bar = stand(9.6, 1.6, -10);
+    const openBarZ = stand(0, 1.6, -10);
+    assert.ok(Math.abs(floor.c1 - 20000) < 1, 'the open floor still hears the whole PA');
+    assert.ok(under.c1 < 900 && under.c1 > 700, `under the deck the top end closes toward 780 Hz (${under.c1.toFixed(0)})`);
+    assert.ok(under.reverb > floor.reverb, 'the soffit adds room, it does not dry the ear');
+    assert.ok(under.presence < floor.presence, 'people under the deck hear less of the PA');
+    assert.ok(balcony.c1 > 18000, 'the open balcony keeps the top end');
+    assert.ok(balcony.reverb < under.reverb, 'the balcony is more direct than the ear under the same deck');
+    assert.ok(balcony.presence > under.presence, 'the balcony is nearer the flown boxes than the floor beneath it');
+    assert.equal(under.sub, balcony.sub, 'the sub channel does not follow the soffit');
+    assert.ok(bar.c1 < openBarZ.c1 && bar.c1 > 6000, `the bar is a partial shelf (${bar.c1.toFixed(0)} Hz), not a wall`);
+    assert.ok(bar.reverb > openBarZ.reverb, 'the alcove adds a little room');
+    // The room-facing edge ramps over more than a metre, so a 10 cm step cannot jump the filter.
+    let previous = stand(-8, 1.7, -15).c1;
+    for (let x = -8.1; x >= -11; x -= 0.1) {
+        const here = stand(Number(x.toFixed(3)), 1.7, -15).c1;
+        assert.ok(here <= previous + 1, `the soffit opened walking under it at x ${x}`);
+        assert.ok(Math.abs(Math.log2(here / previous)) < 0.35, `the soffit jumped at x ${x}`);
+        previous = here;
+    }
+});
+
+test('an unlisted camera is not detached from a post-process pipeline', () => {
+    const { window } = loadClassic('js/club/01-core.js', {
+        BABYLON: { Material: { AllDirtyFlag: 63 } },
+        log: { info() {}, warn() {} },
+        localStorage: { getItem: () => null, setItem() {} }
+    });
+    const desktop = { name: 'camera' };
+    const xr = { name: 'xr' };
+    const cameras = [desktop];
+    const calls = [];
+    const manager = {
+        _renderPipelines: { ssao: { _cameras: cameras } },
+        detachCamerasFromRenderPipeline(name, camera) {
+            calls.push(camera);
+            cameras.splice(cameras.indexOf(camera), 1);
+        },
+        attachCamerasToRenderPipeline(name, camera) { cameras.push(camera); }
+    };
+    assert.equal(window.VRClubCore.detachPipelineCamera(manager, 'ssao', xr), false);
+    assert.deepEqual(calls, [], 'forwarding the XR camera would splice the desktop camera at index -1');
+    assert.deepEqual(cameras, [desktop]);
+    assert.equal(window.VRClubCore.detachPipelineCamera(manager, 'ssao', desktop), true);
+    assert.deepEqual(cameras, []);
+    assert.equal(window.VRClubCore.attachMissingPipelineCamera(manager, 'ssao', desktop), true);
+    assert.equal(window.VRClubCore.attachMissingPipelineCamera(manager, 'ssao', desktop), false);
+    assert.deepEqual(cameras.map(camera => camera.name), ['camera']);
+});
+
+test('every EXIT sign sits over a real opening', () => {
+    const { window } = loadClassic('js/club/04-environment.js', { VRClubRendering: class {} });
+    const vestibule = loadClassic('js/venueDressing.js').window.VenueLayout.vestibule;
+    const signs = window.signagePlan(vestibule.streetLevel);
+    const exits = signs.filter(sign => sign.cell === 'exit');
+    assert.equal(exits.length, 2);
+    const clubDoor = exits.find(sign => sign.wall < 1);
+    const streetDoor = exits.find(sign => sign.wall > 1);
+    assert.ok(clubDoor && streetDoor);
+    assert.equal(clubDoor.axis, 'z');
+    assert.ok(Math.abs(clubDoor.along) <= 2, 'the club EXIT must be over the doorway, not beside it');
+    assert.ok(clubDoor.y > 3.4 && clubDoor.y < 3.4 + 0.4, 'the club EXIT sits on the lintel');
+    assert.equal(streetDoor.along, 0);
+    assert.ok(streetDoor.y > vestibule.streetLevel + vestibule.doorHeight);
+    assert.ok(streetDoor.y < vestibule.streetLevel + vestibule.doorHeight + 0.5);
+    assert.ok(signs.every(sign => sign.cell !== 'exit' || sign.axis !== 'x'), 'no EXIT remains on a side wall');
+    assert.ok(signs.some(sign => sign.cell === 'nocturne') && signs.some(sign => sign.cell === 'bar'));
+});
+
+test('coats hang from the rail as garments, clear of the coat-check counter', () => {
+    const { window } = loadClassic('js/venueDressing.js');
+    const railY = 2.8 + 1.95;
+    const parts = window.coatSilhouetteParts(12, railY, 3.38, 1);
+    const shoulder = parts.find(part => part.d >= 0.35);
+    assert.ok(shoulder && shoulder.d > shoulder.w * 3, 'a coat has shoulders, not a slab face');
+    assert.ok(parts.every(part => part.w < 0.12), 'no coat part is a wide plank');
+    assert.ok(parts.some(part => part.tilt), 'sleeves leave the body');
+    const hook = parts.find(part => part.h < 0.08 && !part.tilt);
+    assert.ok(hook && hook.y > railY - 0.05 && hook.y < railY, 'the garment hangs from the rail');
+    const hem = Math.min(...parts.map(part => part.y - part.h / 2));
+    assert.ok(hem < railY - 0.7, 'the hem is a coat length below the rail');
+    const counterEnd = 2.1 + 1.0;
+    for (const scale of [0.86, 1, 1.06]) {
+        for (const z of [3.38, 3.96, 5.16]) {
+            for (const part of window.coatSilhouetteParts(12, railY, z, scale)) {
+                const reach = part.h / 2 * Math.sin(Math.abs(part.tilt || 0)) + part.d / 2;
+                assert.ok(part.z - reach > counterEnd, `a coat overlaps the counter at z ${z}`);
+            }
+        }
+    }
 });
 
 test('the street is drawn only near the entrance (with hysteresis) and the outdoors amount eases', () => {
@@ -6762,7 +9497,9 @@ function fakeAudio({ duration = 3600, currentTime = 0, paused = false, seekable 
         duration, currentTime, paused, ended: false, src: 'https://x/e.mp3',
         seekable: { length: seekable ? 1 : 0 },
         play() { this.paused = false; return Promise.resolve(); },
-        pause() { this.paused = true; }
+        pause() { this.paused = true; },
+        removeAttribute(name) { if (name === 'src') this.src = ''; },
+        load() {}
     };
 }
 
@@ -6871,7 +9608,6 @@ test('the VR seek bar maps a pointer position to a fraction, drags and commits o
     club.audioElement = fakeAudio({ duration: 3000, currentTime: 600 });
     club.nowPlayingLabel = 'Resident / Episode 803';
     club._vrSeek = { mesh, width: 1.48, drag: null, texture: { getContext: () => ctx, update() {} } };
-    club.pulseHaptic = () => {};
     let toast = '';
     club.showErrorMessage = text => { toast = text; };
 
@@ -6922,15 +9658,18 @@ test('the VR Music page: its seek row is free, every button is wired, and the ac
 
     const home = club._vrQuickMenuPageDefinitions('home');
     assert.ok(home.some(item => item && item.target === 'music'), 'the home page must reach the Music page');
-    for (const page of ['home', 'lighting', 'effects', 'comfort', 'crowd', 'travel', 'show', 'music']) {
+    for (const page of ['home', 'lights', 'effects', 'comfort', 'crowd', 'travel', 'show', 'showSections', 'music', 'musicSources']) {
         assert.ok(club._vrQuickMenuPageDefinitions(page).length <= 12, `${page} has more buttons than the menu has slots`);
     }
     const music = club._vrQuickMenuPageDefinitions('music');
     assert.deepEqual([...music.slice(0, 3)], [null, null, null], 'the first row belongs to the seek bar');
     assert.deepEqual([...music.slice(3).map(item => item.action)],
-        ['seek', 'playPause', 'seek', 'setStep', 'savedSet', 'setStep', 'musicSetup', 'back', 'close']);
+        ['seek', 'playPause', 'seek', 'sourceStep', 'stop', 'sourceStep', 'page', 'back', 'close']);
     assert.deepEqual([...music.filter(item => item && item.action === 'seek').map(item => item.delta)], [-60, 60]);
-    assert.deepEqual([...music.filter(item => item && item.action === 'setStep').map(item => item.delta)], [-1, 1]);
+    assert.deepEqual([...music.filter(item => item && item.action === 'sourceStep').map(item => item.delta)], [-1, 1]);
+    const sources = club._vrQuickMenuPageDefinitions('musicSources');
+    assert.ok(sources.some(item => item && item.action === 'folderMode'), 'folder order/shuffle is available in VR');
+    assert.ok(sources.some(item => item && item.action === 'musicSetup'), 'VR can exit to the system URL/file/folder picker');
 
     // Actions.
     const log = [];
@@ -6942,16 +9681,21 @@ test('the VR Music page: its seek row is free, every button is wired, and the ac
     const toasts = [];
     Object.assign(club, {
         musicLibrary: player,
-        pulseHaptic() {}, _refreshVRQuickMenu() {},
+        _refreshVRQuickMenu() {},
         showErrorMessage: text => toasts.push(text),
         seekAudioBy: delta => { log.push(['seekBy', delta]); return true; },
-        toggleAudioPlayback: () => { log.push(['toggle']); return true; }
+        toggleAudioPlayback: () => { log.push(['toggle']); return true; },
+        stopAudioPlayback: () => { log.push(['stop']); return true; },
+        stepAudioSource: async delta => { log.push(['sourceStep', delta]); return true; },
+        setLocalPlaylistShuffle: value => { log.push(['shuffle', value]); return true; }
     });
     await club._runVRMusicAction({ action: 'seek', delta: -60 });
     await club._runVRMusicAction({ action: 'playPause' });
-    await club._runVRMusicAction({ action: 'setStep', delta: 1 });
+    await club._runVRMusicAction({ action: 'stop' });
+    await club._runVRMusicAction({ action: 'sourceStep', delta: 1 });
+    await club._runVRMusicAction({ action: 'folderMode' });
     await club._runVRMusicAction({ action: 'savedSet' });
-    assert.deepEqual(log, [['seekBy', -60], ['toggle'], ['step', 1], ['play']]);
+    assert.deepEqual(log, [['seekBy', -60], ['toggle'], ['stop'], ['sourceStep', 1], ['shuffle', true], ['play']]);
 
     // Failures are reported, never thrown; a missing player is explained.
     player.play = async () => { throw new Error('feed down'); };
@@ -6971,6 +9715,84 @@ test('the VR Music page: its seek row is free, every button is wired, and the ac
     assert.equal(club._vrQuickMenuButtonValue({ action: 'playPause' }, club._isVRQuickMenuButtonActive({ action: 'playPause' })), 'PAUSED');
     club.audioElement.paused = false;
     assert.equal(club._vrQuickMenuButtonValue({ action: 'playPause' }, club._isVRQuickMenuButtonActive({ action: 'playPause' })), 'PLAYING');
+});
+
+test('a local folder filters audio, plays in natural filename order, wraps, and can shuffle without losing the current track', async () => {
+    const randomMath = Object.create(Math);
+    randomMath.random = () => 0;
+    const { window } = loadClassic('js/club/10-ui.js', { VRClubAnimationFinish: class {}, Math: randomMath });
+    const club = Object.create(window.VRClubUI.prototype);
+    const played = [];
+    const listeners = {};
+    club.guardHostControl = () => true;
+    club.showErrorMessage = assert.fail;
+    club.startAudioFromFile = async (file, options) => {
+        assert.equal(options.fromPlaylist, true);
+        played.push(file.name);
+        club._audioKind = 'file';
+        club.audioElement = {
+            addEventListener(type, listener) { listeners[type] = listener; }
+        };
+        return club.audioElement;
+    };
+    const files = [
+        { name: 'track10.mp3', type: 'audio/mpeg', webkitRelativePath: 'Set/track10.mp3' },
+        { name: 'cover.jpg', type: 'image/jpeg', webkitRelativePath: 'Set/cover.jpg' },
+        { name: 'track2.mp3', type: '', webkitRelativePath: 'Set/track2.mp3' },
+        { name: 'notes.txt', type: '', webkitRelativePath: 'Set/notes.txt' },
+        { name: 'intro.flac', type: '', webkitRelativePath: 'Set/intro.flac' }
+    ];
+
+    const first = await club.startAudioFolder(files, { shuffle: false });
+    assert.equal(first.name, 'intro.flac');
+    assert.deepEqual(played, ['intro.flac']);
+    assert.equal(club._localPlaylist.files.length, 3, 'non-audio folder files are ignored');
+    await club.stepAudioSource(1);
+    await club.stepAudioSource(1);
+    await club.stepAudioSource(1);
+    assert.deepEqual(played, ['intro.flac', 'track2.mp3', 'track10.mp3', 'intro.flac'], 'next wraps in natural order');
+    await club.stepAudioSource(-1);
+    assert.equal(played.at(-1), 'track10.mp3', 'previous wraps backwards');
+    assert.equal(typeof listeners.ended, 'function', 'folder completion advances automatically');
+
+    const current = club._localPlaylist.order[club._localPlaylist.position];
+    assert.equal(club.setLocalPlaylistShuffle(true), true);
+    assert.equal(club._localPlaylist.order[club._localPlaylist.position], current, 'changing mode does not interrupt the current track');
+    assert.equal(new Set(club._localPlaylist.order).size, 3, 'shuffle keeps every track exactly once');
+});
+
+test('stop pauses media, returns finite audio to the start, and source stepping selects then plays a saved URL', async () => {
+    const { window } = loadClassic('js/club/10-ui.js', { VRClubAnimationFinish: class {} });
+    const club = Object.create(window.VRClubUI.prototype);
+    const sent = [];
+    club.guardHostControl = () => true;
+    club.audioElement = fakeAudio({ duration: 600, currentTime: 241, paused: false });
+    club._audioKind = 'stream';
+    club._shareAudioPosition = playing => sent.push(playing);
+    assert.equal(club.stopAudioPlayback(), true);
+    assert.equal(club.audioElement.paused, true);
+    assert.equal(club.audioElement.currentTime, 0);
+    assert.deepEqual(sent, [false]);
+
+    club.audioElement = fakeAudio({ duration: Infinity, paused: false });
+    club._audioStreamUrl = 'https://x/live';
+    assert.equal(club.stopAudioPlayback(), true);
+    assert.equal(club.audioElement.src, '', 'stopping a live stream disconnects its media request');
+    assert.equal(club._stoppedAudioSource.src, 'https://x/live');
+    club._setAudioSrc = src => { club.audioElement.src = src; };
+    club.audioContext = null;
+    club.setAudioPlayback(true);
+    assert.equal(club.audioElement.src, 'https://x/live', 'Play reconnects a stopped live stream');
+    assert.equal(club.audioElement.paused, false);
+
+    const actions = [];
+    club._localPlaylist = null;
+    club.musicLibrary = {
+        step: delta => actions.push(['select', delta]),
+        play: async () => { actions.push(['play']); return true; }
+    };
+    assert.equal(await club.stepAudioSource(-1), true);
+    assert.deepEqual(actions, [['select', -1], ['play']], 'changing a saved source starts it immediately');
 });
 
 test('clock labels read h:mm:ss and survive garbage', () => {
@@ -6999,7 +9821,7 @@ test('generic DJs: one load per DJ, a clean swap, queued switches and safe ids',
     assert.ok(hair('female').r > 0.8 && hair('female').g > 0.7 && hair('female').b > 0.45 && hair('female').r > hair('female').b);
     assert.ok(Crowd.DJ_LOOKS.male.garment.r < 0.15);
     const tee = Crowd.DJ_LOOKS.female.garment;
-    assert.ok(tee.r > 0.3 && tee.r < 0.6, 'Miss Melera wears a mid-grey tee');
+    assert.ok(tee.r >= 0.1 && tee.r < 0.2, 'the fictional female DJ wears a charcoal tee inspired by the supplied reference');
 
     const spawned = [], disposed = [], loads = [];
     let initDone;
@@ -7050,7 +9872,8 @@ test('generic DJs: one load per DJ, a clean swap, queued switches and safe ids',
     // Refused ids leave the DJ alone; a failed load keeps the current one; a disposed club does nothing.
     assert.equal(await club.setDJ('__proto__'), false);
     assert.equal(club._djId, 'female');
-    club._djContainers.male = null;
+    delete club._djContainers['quaternius:male'];
+    club._characterStyles.sources.delete(Crowd.DJ_LOOKS.male.url);
     club._loadAvatarSource = async () => null;
     assert.equal(await club.setDJ('male'), false, 'a DJ whose file cannot load never replaces the working one');
     assert.equal(club._djId, 'female');
@@ -7313,18 +10136,32 @@ test('a following VJDirector leaves scene choice to the host', () => {
     assert.equal(picked, 1, 'a guest\'s own auto-scene picker must stand down');
 });
 
-test('VR menu: the room-code keypad types six digits, deletes, and the online page offers it', () => {
+test('VR menu: the safety guide precedes online options and the room-code keypad types six digits', async () => {
     const { window } = loadClassic('js/club/10-ui.js', { VRClubAnimationFinish: class {}, BABYLON: {}, log: { info() {}, warn() {}, error() {} }, document: {} });
     const proto = window.VRClubUI.prototype;
     const joined = [];
     const club = Object.create(proto);
-    club.multiplayer = { joinRoom: code => { joined.push(code); return true; }, currentRoom: 'lobby', connected: false };
+    let accepted = false;
+    club.multiplayer = {
+        joinRoom: code => { joined.push(code); return true; },
+        currentRoom: 'lobby',
+        connected: false,
+        hasAcceptedOnlineSafety: () => accepted,
+        acceptOnlineSafety: () => { accepted = true; },
+        joinNewPrivateRoom: () => true
+    };
     club.showErrorMessage = () => {};
-    club.pulseHaptic = () => {};
     const shown = [];
     club._showVRQuickMenuPage = page => shown.push(page);
     window.ClubMultiplayer = class { static EMOJI = []; };
     const common = { back: { label: 'BACK', action: 'back' }, close: { label: 'CLOSE', action: 'close' } };
+
+    const safety = proto._vrNetPageDefinitions.call(club, 'onlineSafety', common);
+    assert.ok(safety.some(b => b.label === 'START PRIVATE ROOM' && b.op === 'safetyPrivate'));
+    assert.ok(safety.some(b => b.label === 'STAY OFFLINE' && b.op === 'safetyOffline'));
+    await proto._runVRNetworkAction.call(club, safety.find(b => b.op === 'safetyAccept'));
+    assert.equal(accepted, true);
+    assert.equal(shown.at(-1), 'online');
 
     const keypad = proto._vrNetPageDefinitions.call(club, 'room', common);
     assert.deepEqual([...keypad.slice(0, 10).map(b => b.label)], ['1', '2', '3', '4', '5', '6', '7', '8', '9', '0']);
@@ -7359,7 +10196,7 @@ test('VR menu: lighting and music buttons read HOST ONLY for a guest, and travel
         assert.equal(proto._vrQuickMenuButtonValue.call(club, owned, true), 'HOST ONLY', JSON.stringify(owned));
     }
     for (const local of [{ action: 'travel', control: 'danceFloor' }, { control: 'photosensitiveSafeMode' }, { control: 'vrComfortMode' },
-        { control: 'bassHapticsEnabled' }, { action: 'quality' }]) {
+        { action: 'quality' }]) {
         assert.notEqual(proto._vrQuickMenuButtonValue.call(club, local, true), 'HOST ONLY', JSON.stringify(local));
     }
     club.multiplayer = { following: false };
@@ -7413,7 +10250,14 @@ test('VR menu: the LOOK page picks a pool and rerolls, and the online page still
 function deskHarness() {
     let now = 1000;
     const performance = { now: () => now };
-    const { VRClubUI } = loadClassic('js/club/10-ui.js', { VRClubAnimationFinish: class {}, BABYLON: {}, performance }).window;
+    const store = new Map();
+    const localStorage = { getItem: key => (store.has(key) ? store.get(key) : null), setItem: (key, value) => store.set(key, value) };
+    const { VRClubCore } = loadClassic('js/club/01-core.js', { localStorage }).window;
+    const finish = class {
+        static get STROBE_PATTERNS() { return ['all', 'chase']; }
+        static get STROBE_PATTERN_NAMES() { return { all: 'ALL AT ONCE', chase: 'CHASE' }; }
+    };
+    const { VRClubUI } = loadClassic('js/club/10-ui.js', { VRClubAnimationFinish: finish, VRClubCore, localStorage, BABYLON: {}, performance }).window;
     const { VJDesk, VJDeskLayout } = loadClassic('js/vjDesk.js', { BABYLON: {}, VRClubUI, performance }).window;
     const club = Object.create(VRClubUI.prototype);
     Object.assign(club, VJDesk);
@@ -7424,10 +10268,23 @@ function deskHarness() {
         spotlightMode: 0, spotlightPattern: 0, vjManualMode: false, lastVJInteraction: 0, VJ_TIMEOUT: 60,
         photosensitiveSafeMode: false, multiplayer: null,
         showErrorMessage: text => toasts.push(text),
-        pulseHaptic() {},
         isPeopleVisible: name => people[name] !== false,
         togglePeopleVisible: name => (people[name] = people[name] === false),
-        getPlaybackInfo: () => ({ playing: false }),
+        audioElement: { src: 'https://example.com/set.mp3' },
+        _audioKind: 'url',
+        _localPlaylist: { order: [0, 1], position: 0 },
+        _playbackInfo: { playing: false, seekable: true, position: 75, duration: 3600 },
+        _djEffects: { lowpass: 0, highpass: 0, echo: 0, flanger: 0, reverb: 0, channel: 1 },
+        _djEffectsState() { return this._djEffects; },
+        resetDJEffects() { calls.push('resetFx'); Object.assign(this._djEffects, { lowpass: 0, highpass: 0, echo: 0, flanger: 0, reverb: 0, channel: 1 }); },
+        setDJEffect(name, value) { calls.push(`effect ${name} ${value}`); this._djEffects[name] = value; return true; },
+        getPlaybackInfo() { return this._playbackInfo; },
+        setAudioPlayback(playing) { calls.push(`playback ${playing}`); this._playbackInfo.playing = playing; return true; },
+        stopAudioPlayback() { calls.push('stop'); this._playbackInfo.playing = false; this._playbackInfo.position = 0; return true; },
+        seekAudioBy(delta) { calls.push(`seek ${delta}`); this._playbackInfo.position += delta; return true; },
+        seekAudioFraction(fraction) { calls.push(`seekFraction ${fraction}`); this._playbackInfo.position = fraction * this._playbackInfo.duration; return true; },
+        stepAudioSource(delta) { calls.push(`sourceStep ${delta}`); return true; },
+        setPhotosensitiveSafeMode(value) { calls.push(`safe ${value}`); this.photosensitiveSafeMode = value; },
         resetVJControls() { calls.push('reset'); this.vjManualMode = false; },
         vjDirector: {
             bpm: 124, targetMasterIntensity: 1,
@@ -7439,30 +10296,38 @@ function deskHarness() {
             enabled: true, _movementName: 'pulse', movements: { pulse: { title: 'Pulse' } },
             isDriving: () => !club.vjManualMode,
             triggerShowDrop: () => calls.push('showDrop'),
-            nextMovement: () => { calls.push('next'); return 'Ascent'; }
+            nextMovement: () => { calls.push('next'); return 'Ascent'; },
+            nextSection: () => { calls.push('next'); return 'Ascent'; },
+            releaseHold() {}
         },
         camera: { position: { x: 0, y: 2.2, z: -19.4 } },
         _playerCamera() { return this.camera; }
     });
-    const button = id => [...VJDeskLayout.buttons.show, ...VJDeskLayout.buttons.lights].find(b => b.id === id);
+    const button = id => Object.values(VJDeskLayout.buttons).flat().find(b => b.id === id);
     const press = id => club._runVJDeskButton(button(id));
     return { club, toasts, calls, people, press, button, VJDeskLayout, VRClubUI, setNow: ms => { now = ms; } };
 }
 
 test('the VJ desk: every button fits its panel, nothing overlaps, and every light is one the club knows', () => {
     const { VJDeskLayout, VRClubUI } = deskHarness();
-    const { width, height } = VJDeskLayout.config.canvas;
     for (const [panel, buttons] of Object.entries(VJDeskLayout.buttons)) {
+        const { width, height } = panel === 'transport' ? VJDeskLayout.config.transport.canvas : VJDeskLayout.config.canvas;
         const ids = new Set();
         for (const b of buttons) {
             assert.ok(!ids.has(b.id), `${panel}: ${b.id} twice`);
             ids.add(b.id);
             assert.ok(b.label && b.label === b.label.toUpperCase(), `${b.id} needs a plain upper-case label`);
             const r = b.rect;
-            assert.ok(r.x >= 0 && r.y >= 130 && r.x + r.w <= width && r.y + r.h <= height, `${b.id} is off the panel or under the header`);
-            assert.ok(r.h >= 70 && r.w >= 300, `${b.id} is too small to hit with a controller ray`);
+            const minimumY = b.kind === 'playerPage' ? 0 : 130;
+            assert.ok(r.x >= 0 && r.y >= minimumY && r.x + r.w <= width && r.y + r.h <= height, `${b.id} is off the panel or under the header`);
+            const minimumWidth = b.kind === 'playerPage' ? 150 : b.kind === 'effect' ? 100 : b.kind === 'crossfader' ? 280
+                : b.kind === 'effectClear' ? 220 : panel === 'transport' ? 220 : b.kind === 'section' ? 270 : 300;
+            const minimumHeight = b.kind === 'crossfader' || b.kind === 'effectClear' ? 48 : 70;
+            assert.ok(r.h >= minimumHeight && r.w >= minimumWidth, `${b.id} is too small to hit with a controller ray`);
             for (const other of buttons) {
                 if (other === b) continue;
+                const pages = item => [].concat(item.page || []);
+                if (b.page && other.page && !pages(b).some(page => pages(other).includes(page))) continue;
                 const o = other.rect;
                 const overlap = r.x < o.x + o.w && o.x < r.x + r.w && r.y < o.y + o.h && o.y < r.y + r.h;
                 assert.ok(!overlap, `${b.id} overlaps ${other.id}`);
@@ -7470,17 +10335,32 @@ test('the VJ desk: every button fits its panel, nothing overlaps, and every ligh
             if (b.kind === 'fader') {
                 const track = VJDeskLayout.faderTrack(r);
                 assert.ok(track.left > r.x + 200 && track.right < r.x + r.w - 100 && track.right - track.left > 400, `${b.id}'s track`);
+            } else if (b.kind === 'crossfader') {
+                const track = VJDeskLayout.crossfaderTrack(r), cap = VJDeskLayout.crossfader.capW;
+                assert.ok(track.left - cap / 2 > r.x + 100 && track.right + cap / 2 <= r.x + r.w, 'the crossfader cap stays inside its button');
+                assert.ok(track.right - track.left >= 60 && track.right - track.left <= 110, 'a crossfader is a short throw: about 9 cm, one flick from cut to full');
+            } else if (b.kind === 'seek') {
+                const track = VJDeskLayout.seekTrack(r);
+                assert.ok(track.left > r.x && track.right < r.x + r.w && track.right - track.left > 800, `${b.id}'s seek track`);
             }
         }
     }
-    const steps = ['changeColor', 'changeMirrorBallColor', 'cycleSpotMode', 'cyclePattern', 'cycleGoboPattern', 'goboActive', 'cycleLedPattern'];
-    for (const b of VJDeskLayout.buttons.lights) {
+    const steps = ['changeColor', 'changeLaserColor', 'matchAllColors', 'changeMirrorBallColor',
+        'cycleSpotMode', 'cyclePattern', 'cycleGoboPattern', 'goboActive', 'cycleLedPattern', 'cycleStrobePattern'];
+    for (const b of VJDeskLayout.buttons.lights.filter(item => item.kind === 'light')) {
         assert.ok(VRClubUI.LIGHT_TOGGLES.has(b.control) || steps.includes(b.control), `${b.id} -> ${b.control} is not a light control`);
     }
     const labels = VJDeskLayout.buttons.lights.map(button => button.label);
     assert.ok(labels.includes('SPOT AIM PATH'), 'the desk calls a movement path a shape or pattern');
     assert.ok(labels.includes('PROJECT GOBO') && labels.includes('GOBO IMAGE'), 'the desk does not explain what the gobo controls do');
+    assert.ok(labels.includes('MIRROR BEAMS'), 'the physical desk cannot switch from mirror rays to surface spots only');
     assert.ok(labels.every(label => !/GOBO SHAPE|SPOT PATTERN/.test(label)), 'the desk still has an ambiguous shape/pattern label');
+    const onPage = page => VJDeskLayout.buttons.transport.filter(button => button.page === page).map(button => button.label);
+    assert.deepEqual([...onPage('player')], ['PREVIOUS', 'PLAY / PAUSE', 'STOP', 'NEXT', 'SET POSITION']);
+    assert.deepEqual([...onPage('fx')], ['LOW PASS', 'HIGH PASS', 'ECHO', 'FLANGER', 'REVERB', 'PHASER', 'NOISE SWEEP', 'GATER', 'XFADE', 'CLEAR FX']);
+    assert.ok(!VJDeskLayout.buttons.transport.some(button => /DISTORTION|CRUSHER/.test(button.label)), 'distortion and the bit crusher are gone');
+    assert.ok(VJDeskLayout.config.transport.width <= 1 && VJDeskLayout.config.transport.depth <= 0.3,
+        'the compact player can overlap the mixer or side panels');
     // The desktop panel keeps its own allow-list literal (a test reads it): it must be the same set.
     const source = readFileSync(join(ROOT, 'js/ui-init.js'), 'utf8');
     const listed = (source.match(/const TOGGLE_CONTROLS = Object\.freeze\(new Set\(\[([\s\S]*?)\]\)\)/)[1])
@@ -7507,6 +10387,9 @@ test('the VJ desk: touching a light hands you the lights, AUTO SHOW hands them b
     press('mirror');
     assert.equal(club.mirrorBallActive, true);
     assert.equal(club.lasersActive, false, 'the one-aerial-idea rule applies at the desk too');
+    club.mirrorBallRaysActive = true;
+    press('mirrorRays');
+    assert.equal(club.mirrorBallRaysActive, false, 'MIRROR BEAMS leaves the reflected surface spots on their own');
 
     calls.length = 0;
     press('drop');
@@ -7567,6 +10450,629 @@ test('the VJ desk under Photosensitive Safe Mode: the strobes cannot be switched
     assert.equal(club.strobesActive, false);
     assert.equal(club._vjDeskButtonState(button('strobes')).value, 'SAFE MODE');
     assert.equal(club._vjDeskButtonState(button('flash')).value, 'SAFE MODE');
+    press('safeMode');
+    assert.equal(club.photosensitiveSafeMode, false, 'the personal desk switch turns Safe Mode back off');
+});
+
+test('every club method the VJ desk calls exists, so a button can never throw inside the XR frame', () => {
+    // A press that threw (seekAudioToFraction was never a method) stopped the headset's frame loop: the picture froze
+    // while the music played on. The harness above stubs methods by name, so only the real source can catch a typo.
+    const defined = new Set();
+    const sources = [...readdirSync(join(ROOT, 'js')).filter(name => name.endsWith('.js')).map(name => join('js', name)),
+        ...readdirSync(join(ROOT, 'js/club')).filter(name => name.endsWith('.js')).map(name => join('js/club', name))];
+    for (const file of sources) {
+        const text = readFileSync(join(ROOT, file), 'utf8');
+        for (const match of text.matchAll(/^\s*(?:static\s+|async\s+|get\s+|set\s+)?([A-Za-z_$][\w$]*)\s*\([^)]*\)\s*\{/gm)) defined.add(match[1]);
+        for (const match of text.matchAll(/^\s*([A-Za-z_$][\w$]*)\s*:\s*(?:async\s*)?(?:function\s*)?\(/gm)) defined.add(match[1]);
+    }
+    const used = new Set();
+    for (const match of readFileSync(join(ROOT, 'js/vjDesk.js'), 'utf8').matchAll(/\bthis\.([A-Za-z_$][\w$]*)\(/g)) used.add(match[1]);
+    assert.ok(used.size > 40, 'the scan found suspiciously few calls');
+    const missing = [...used].filter(name => !defined.has(name));
+    assert.deepEqual(missing, [], `the VJ desk calls methods nothing defines: ${missing.join(', ')}`);
+});
+
+test('the VJ desk set player delegates source steps, play/pause and stop, then seeks once when its slider is released', async () => {
+    const { club, press, calls, button, VJDeskLayout } = deskHarness();
+    press('previousSource');
+    press('playPause');
+    press('playPause');
+    press('stop');
+    press('nextSource');
+    await Promise.resolve();
+    const track = VJDeskLayout.seekTrack(button('seek').rect);
+    assert.equal(club._vjDeskSetSeekPreview(button('seek'), track.left + (track.right - track.left) * 0.25), true);
+    assert.deepEqual(calls, ['sourceStep -1', 'playback true', 'playback false', 'stop', 'sourceStep 1'],
+        'dragging only previews; it does not repeatedly seek');
+    assert.equal(club._vjDeskButtonState(button('seek')).value, '15:00 / 60:00');
+    club.releaseVJDesk();
+    assert.deepEqual(calls, ['sourceStep -1', 'playback true', 'playback false', 'stop', 'sourceStep 1', 'seekFraction 0.25']);
+    assert.equal(club._vjDeskPlayerStatus().title, 'SET PLAYER');
+    assert.match(club._vjDeskPlayerStatus().detail, /PAUSED.*15:00 \/ 60:00/);
+});
+
+test('the VJ desk set player explains live and host-owned controls instead of pretending they worked', () => {
+    const { club, press, calls, button, VJDeskLayout } = deskHarness();
+    club._playbackInfo.seekable = false;
+    assert.equal(club._vjDeskDisabledReason(button('seek')), 'LIVE: NO TIMELINE');
+    assert.equal(club._vjDeskSetSeekPreview(button('seek'), 500), false);
+    club.multiplayer = { following: true, hostName: () => 'Bo' };
+    press('playPause');
+    assert.deepEqual(calls, [], 'a guest must not change the host music');
+    assert.equal(club._vjDeskButtonState(button('playPause')).value, 'HOST ONLY');
+    club.multiplayer = null;
+    club._localPlaylist.order = [0];
+    assert.equal(club._vjDeskDisabledReason(button('previousSource')), 'ONE SOURCE');
+    club._audioKind = 'soundcloud';
+    club.togglePeopleVisible('dj');
+    assert.equal(club._vjDeskDisabledReason(button('echo')), 'PLAYER AUDIO ONLY');
+    const k = VJDeskLayout.knob(button('echo').rect);
+    assert.equal(club._vjDeskGrabKnob(button('echo'), { panel: {}, x: k.x, y: k.y - k.r }), false);
+    assert.ok(!club._vjDeskDrag, 'a knob that cannot be used must not be grabbed');
+});
+
+test('a VJ desk effect knob falls back to circling the dial for a mouse: relative to the grab, clockwise up, with a detent', () => {
+    const { club, calls, people, button, VJDeskLayout } = deskHarness();
+    people.dj = false;
+    club._vjDesk = { panels: [], dirty: false };
+    const echo = button('echo');
+    const k = VJDeskLayout.knob(echo.rect);
+    const spec = VJDeskLayout.knobSpec;
+    const at = degrees => ({ panel: {}, x: k.x + 50 * Math.cos(degrees * Math.PI / 180), y: k.y + 50 * Math.sin(degrees * Math.PI / 180) });
+
+    // Grabbing anywhere does not move it.
+    assert.equal(club._vjDeskGrabKnob(echo, at(-20)), true);
+    assert.deepEqual(calls, [], 'grabbing a knob moved it');
+    // Clockwise on screen (a growing canvas angle) turns it up by the swept fraction of the 270 degree travel.
+    club._vjDeskTurnKnob(club._vjDeskDrag, at(25));
+    const quarter = Number(/effect echo (.+)/.exec(calls.at(-1))[1]);
+    assert.ok(Math.abs(quarter - 45 / 270) < 1e-6, `45 degrees turned it ${quarter}`);
+    // Anticlockwise comes back down, and it stops at the ends instead of wrapping round.
+    club._vjDeskTurnKnob(club._vjDeskDrag, at(-20));
+    assert.ok(Math.abs(Number(/effect echo (.+)/.exec(calls.at(-1))[1])) < 1e-6, 'turning back did not return it');
+    for (let degrees = -20; degrees < 400; degrees += 20) club._vjDeskTurnKnob(club._vjDeskDrag, at(degrees));
+    assert.equal(club._djEffects.echo, 1, 'a knob turned past its end stop must stay at full');
+    for (let degrees = 400; degrees > -400; degrees -= 20) club._vjDeskTurnKnob(club._vjDeskDrag, at(degrees));
+    assert.equal(club._djEffects.echo, 0, 'turning back past zero must stop at off');
+    // Straight over the spindle there is no angle to read.
+    const before = calls.length;
+    club._vjDeskTurnKnob(club._vjDeskDrag, { panel: {}, x: k.x + 2, y: k.y + 1 });
+    assert.equal(calls.length, before);
+
+    // The dial and a margin round it can be grabbed; the corner of the cell with the label cannot.
+    club.releaseVJDesk();
+    assert.equal(club._vjDeskGrabKnob(echo, { panel: {}, x: echo.rect.x + echo.rect.w - 2, y: echo.rect.y + echo.rect.h - 2 }), false);
+    assert.equal(club._vjDeskGrabKnob(echo, { panel: {}, x: k.x + spec.radius, y: k.y }), true);
+    assert.ok(spec.grab >= spec.radius * 2, 'the knob is too fiddly to grab with a controller ray');
+    assert.equal(club._vjDeskDrag.controller, null, 'a mouse has no controller, so it turns by circling the dial');
+
+    // There is no hidden double-tap: grabbing and letting go twice changes nothing.
+    club.releaseVJDesk();
+    club._djEffects.echo = 0.6;
+    calls.length = 0;
+    for (let i = 0; i < 2; i++) { club._vjDeskGrabKnob(echo, at(-90)); club.releaseVJDesk(); }
+    assert.deepEqual(calls, [], 'a quick double tap must not reset or move the knob');
+    assert.equal(club._djEffects.echo, 0.6);
+});
+
+/** A fake XR controller whose pointer pose is a world matrix we can roll, pointing along +z from the origin. */
+function fakeController(grip = false) {
+    const pose = { right: [1, 0, 0], up: [0, 1, 0], forward: [0, 0, 1], origin: [0, 0, 0] };
+    const node = {
+        getWorldMatrix: () => ({ m: [...pose.right, 0, ...pose.up, 0, ...pose.forward, 0, ...pose.origin, 1] })
+    };
+    const state = { grip };
+    const controller = {
+        pointer: node,
+        motionController: { getComponent: id => (id === 'xr-standard-squeeze' ? { pressed: state.grip } : null) }
+    };
+    // Roll the wrist: positive turns the top of the controller toward its right (clockwise from behind).
+    const rollBy = degrees => {
+        const a = degrees * Math.PI / 180, c = Math.cos(a), s = Math.sin(a);
+        const up = pose.up.map((v, i) => v * c + pose.right[i] * s);
+        const right = pose.right.map((v, i) => v * c - pose.up[i] * s);
+        pose.up = up; pose.right = right;
+    };
+    return { controller, pose, state, rollBy };
+}
+
+test('reaching in: a hand near a knob lights it, a NEW squeeze takes hold, the twist turns it 1:1, and letting go lets go', () => {
+    const { club, calls, people } = deskHarness();
+    people.dj = false;
+    class Vec {
+        constructor(x = 0, y = 0, z = 0) { this.x = x; this.y = y; this.z = z; }
+        static TransformCoordinates(p, mt) {
+            const m = mt.m;
+            return new Vec(p.x * m[0] + p.y * m[4] + p.z * m[8] + m[12], p.x * m[1] + p.y * m[5] + p.z * m[9] + m[13], p.x * m[2] + p.y * m[6] + p.z * m[10] + m[14]);
+        }
+        static TransformCoordinatesFromFloatsToRef(x, y, z, mt, ref) {
+            const m = mt.m;
+            ref.x = x * m[0] + y * m[4] + z * m[8] + m[12]; ref.y = x * m[1] + y * m[5] + z * m[9] + m[13]; ref.z = x * m[2] + y * m[6] + z * m[10] + m[14];
+            return ref;
+        }
+    }
+    const { VJDesk, VJDeskLayout: L } = loadClassic('js/vjDesk.js', { BABYLON: { Vector3: Vec }, VRClubUI: class {} }).window;
+    Object.assign(club, VJDesk);
+    const world = { m: [1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0.5, 2, -19, 1], clone() { return { invert: () => ({ m: [1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, -0.5, -2, 19, 1] }) }; } };
+    const panel = {
+        id: 'transport', width: 1, depth: 0.27, canvas: { width: 1024, height: 300 }, buttons: L.buttons.transport,
+        mesh: { getWorldMatrix: () => world, isEnabled: () => true }
+    };
+    club._vjDesk = { panels: [panel], playerVisible: true, dirty: false };
+    club.isInVRMode = true;
+    club._vjDeskPlayerPage = 'fx';
+    const echo = L.buttons.transport.find(b => b.id === 'echo');
+    const fader = L.buttons.transport.find(b => b.id === 'crossfader');
+    const spot = button => {
+        const k = button.kind === 'effect' ? L.knob(button.rect) : null;
+        if (k) return { x: 0.5 + (k.x / 1024 - 0.5), y: 2 + (0.5 - k.y / 300) * 0.27, z: -19 - (L.knob3D.collarH + L.knob3D.capH) };
+        const track = L.crossfaderTrack(button.rect);
+        return { x: 0.5 + (track.left + (track.right - track.left) * 1 / 1024 * 1024) / 1024 - 0.5, y: 2 + (0.5 - track.y / 300) * 0.27, z: -19 - 0.02 };
+    };
+
+    const pulses = [], state = { squeeze: false, trigger: false }, pointer = fakeController();
+    const grip = { x: 0, y: 0, z: 0 };
+    const hand = {
+        inputSource: { handedness: 'right' }, grip: { getAbsolutePosition: () => grip }, pointer: pointer.controller.pointer,
+        motionController: {
+            pulse: (strength, ms) => pulses.push([strength, ms]),
+            getComponent: id => ({ pressed: id === 'xr-standard-squeeze' ? state.squeeze : id === 'xr-standard-trigger' ? state.trigger : false })
+        }
+    };
+    club._xrControllers = [hand];
+    const near = (s, dx = 0.02, dy = 0.01, dz = -0.03) => Object.assign(grip, { x: s.x + dx, y: s.y + dy, z: s.z + dz });
+    const hover = () => club._vjDeskTouch.hover.right && club._vjDeskTouch.hover.right.button.id;
+
+    // Far away: nothing lit. Within reach: the knob lights and the controller ticks once.
+    Object.assign(grip, { x: 0.5, y: 2.3, z: -18.4 });
+    club._updateVJDeskTouch();
+    assert.equal(hover(), null);
+    near(spot(echo));
+    club._updateVJDeskTouch();
+    club._updateVJDeskTouch();
+    assert.equal(hover(), 'echo');
+    assert.deepEqual(pulses, [[0.1, 6]], 'one tick on reaching the knob, not one a frame');
+    assert.equal(club._vjDeskButtonState(echo).hover, true);
+    assert.ok(!club._vjDeskDrag, 'touching alone must not grab');
+
+    // A hand that arrives already squeezing does not grab; a new squeeze does.
+    Object.assign(grip, { x: 0.5, y: 2.3, z: -18.4 });
+    state.squeeze = true;
+    club._updateVJDeskTouch();
+    near(spot(echo));
+    club._updateVJDeskTouch();
+    assert.ok(!club._vjDeskDrag, 'sweeping a squeezed hand across the desk grabbed a knob');
+    state.squeeze = false;
+    club._updateVJDeskTouch();
+    state.squeeze = true;
+    club._updateVJDeskTouch();
+    const drag = club._vjDeskDrag;
+    assert.ok(drag && drag.direct && drag.knob && drag.controller === hand, 'a new squeeze on the knob did not take hold');
+    assert.deepEqual(pulses.at(-1), [0.15, 8]);
+    assert.deepEqual(calls, [], 'taking hold moved the knob');
+
+    // On the knob the twist is 1:1 (the ray's 1.5 is for a distance), and the trigger as well is fine control.
+    pointer.rollBy(90);
+    club._vjDeskTwistKnob();
+    assert.ok(Math.abs(Number(/effect echo (.+)/.exec(calls.at(-1))[1]) - 90 / 270) < 1e-6, 'a quarter turn of the wrist did not turn the dial a quarter turn');
+    state.trigger = true;
+    pointer.rollBy(90);
+    club._vjDeskTwistKnob();
+    assert.ok(Math.abs(Number(/effect echo (.+)/.exec(calls.at(-1))[1]) - (90 / 270 + 0.5 * 90 / 270)) < 1e-6, 'the trigger did not slow the knob');
+    assert.match(club._vjDeskPlayerStatus().detail, /FINE CONTROL/);
+
+    // The trigger going up (a pointer release) does not let go; the squeeze does.
+    club.releaseVJDesk();
+    assert.ok(club._vjDeskDrag, 'the trigger let go of a knob held by touch');
+    club.pressVJDesk({ hit: false });
+    state.squeeze = false;
+    club._updateVJDeskTouch();
+    assert.ok(!club._vjDeskDrag, 'letting go of the squeeze did not let go');
+
+    // The crossfader: take hold of the cap and slide the hand along the slot; the cap does not jump to the hand.
+    club._djEffects.channel = 1;
+    state.trigger = false;
+    const cap = spot(fader);
+    near(cap, 0.01, 0, -0.03);
+    club._updateVJDeskTouch();
+    assert.equal(hover(), 'crossfader');
+    state.squeeze = true;
+    club._updateVJDeskTouch();
+    assert.ok(club._vjDeskDrag && club._vjDeskDrag.direct && club._vjDeskDrag.button.kind === 'crossfader');
+    club._vjDeskFollowHand();
+    assert.equal(club._djEffects.channel, 1, 'the cap jumped when the hand took hold of it');
+    grip.x -= 0.045;
+    club._vjDeskFollowHand();
+    assert.ok(Math.abs(club._djEffects.channel - 0.5) < 0.05, `half a throw of the hand left the fader at ${club._djEffects.channel}`);
+    grip.x -= 0.2;
+    club._vjDeskFollowHand();
+    assert.equal(club._djEffects.channel, 0, 'sliding past the end stop did not cut');
+    state.squeeze = false;
+    club._updateVJDeskTouch();
+    assert.ok(!club._vjDeskDrag);
+
+    // A / X with a hand on a knob resets it (and does not jump).
+    club._djEffects.echo = 0.7;
+    near(spot(echo));
+    club._updateVJDeskTouch();
+    assert.equal(club.resetVJDeskFromController(hand.motionController), true);
+    assert.equal(club._djEffects.echo, 0);
+    // Not in a headset, or on the player page, a hand reaches nothing.
+    club._vjDeskPlayerPage = 'player';
+    club._updateVJDeskTouch();
+    assert.equal(hover(), null);
+});
+
+test('a VJ desk knob turns with the twist of the wrist, relative to the grab, with a fine mode on the grip', () => {
+    const { club, calls, people, button, VJDeskLayout } = deskHarness();
+    people.dj = false;
+    club._vjDesk = { panels: [], dirty: false };
+    const echo = button('echo');
+    const k = VJDeskLayout.knob(echo.rect);
+    const spec = VJDeskLayout.knobSpec;
+    const hit = { panel: {}, x: k.x, y: k.y - 20 };
+    const onRay = { pickedPoint: { x: 0, y: 0, z: 3 } };
+
+    // The pure twist: up toward right is positive, about the old pointing axis, and a wobble of the aim is ignored.
+    const base = { right: [1, 0, 0], up: [0, 1, 0], forward: [0, 0, 1] };
+    const rolled = degrees => {
+        const a = degrees * Math.PI / 180;
+        return { right: [Math.cos(a), -Math.sin(a), 0], up: [Math.sin(a), Math.cos(a), 0], forward: [0, 0, 1] };
+    };
+    assert.ok(Math.abs(VJDeskLayout.wristTwist(base, rolled(90)) - Math.PI / 2) < 1e-9, 'a quarter turn clockwise is +90 degrees');
+    assert.ok(Math.abs(VJDeskLayout.wristTwist(base, rolled(-30)) + Math.PI / 6) < 1e-9, 'anticlockwise is negative');
+    assert.equal(VJDeskLayout.wristTwist(base, base), 0);
+    const wobble = { right: [1, 0, 0.05], up: [0, 1, 0.1], forward: [0.02, 0.1, 1] };
+    assert.ok(Math.abs(VJDeskLayout.wristTwist(base, wobble)) < 0.02, 'aiming a little differently is not a twist');
+
+    // Pointing at the dial with the trigger grabs it without moving it.
+    const hand = fakeController();
+    club._xrControllers = [hand.controller];
+    assert.equal(club._vjDeskGrabKnob(echo, hit, onRay), true);
+    assert.equal(club._vjDeskDrag.controller, hand.controller, 'the controller pointing at the knob should hold it');
+    assert.deepEqual(calls, [], 'grabbing a knob moved it');
+    club._vjDeskTwistKnob();
+    assert.deepEqual(calls, [], 'holding a still wrist moved the knob');
+
+    // A 120 degree twist of the wrist sweeps the dial by wristGain x 120 of its 270 degrees; back again returns it.
+    hand.rollBy(120);
+    club._vjDeskTwistKnob();
+    const turned = Number(/effect echo (.+)/.exec(calls.at(-1))[1]);
+    assert.ok(Math.abs(turned - spec.wristGain * (120 / 270)) < 1e-6, `120 degrees of wrist turned it ${turned}`);
+    hand.rollBy(-120);
+    club._vjDeskTwistKnob();
+    assert.equal(club._djEffects.echo, 0, 'twisting back did not return it to off');
+    // It stops at both end stops instead of wrapping round.
+    for (let i = 0; i < 6; i++) { hand.rollBy(60); club._vjDeskTwistKnob(); }
+    assert.equal(club._djEffects.echo, 1);
+    for (let i = 0; i < 12; i++) { hand.rollBy(-60); club._vjDeskTwistKnob(); }
+    assert.equal(club._djEffects.echo, 0);
+
+    // Holding the grip as well is fine control: the same twist moves it by `fine` of the amount.
+    club.releaseVJDesk();
+    club._djEffects.echo = 0;
+    club._vjDeskGrabKnob(echo, hit, onRay);
+    hand.state.grip = true;
+    club._vjDeskPlayerPage = 'fx';
+    assert.match(club._vjDeskPlayerStatus().detail, /FINE CONTROL/);
+    hand.rollBy(120);
+    club._vjDeskTwistKnob();
+    assert.ok(Math.abs(club._djEffects.echo - spec.wristGain * spec.fine * (120 / 270)) < 1e-6, 'the grip did not slow the knob');
+
+    // The grab belongs to the controller whose ray is on the knob, not just any controller.
+    club.releaseVJDesk();
+    const other = fakeController();
+    other.pose.origin = [3, 0, 0];
+    club._xrControllers = [other.controller, hand.controller];
+    club._vjDeskGrabKnob(echo, hit, onRay);
+    assert.equal(club._vjDeskDrag.controller, hand.controller, 'the knob was given to the wrong hand');
+    // A press with no controller near it (a mouse click) falls back to circling the dial.
+    club.releaseVJDesk();
+    club._vjDeskGrabKnob(echo, hit, { pickedPoint: { x: 40, y: 40, z: 40 } });
+    assert.equal(club._vjDeskDrag.controller, null);
+    // Nothing is grabbed, and so nothing twists, while the effects cannot be used.
+    club.releaseVJDesk();
+    people.dj = true;
+    assert.equal(club._vjDeskGrabKnob(echo, hit, onRay), false);
+    assert.equal(club._vjDeskTwistKnob(), false);
+});
+
+test('the XFADE crossfader slides the PA level with a short throw, snaps at its end stops, and CLEAR FX puts every knob back', () => {
+    const { club, calls, people, button, VJDeskLayout } = deskHarness();
+    people.dj = false;
+    club._vjDesk = { panels: [], dirty: false };
+    const fader = button('crossfader'), clear = button('clearFx');
+    assert.equal(fader.kind, 'crossfader');
+    assert.equal(button('channel'), undefined, 'the MUTE MUSIC button is gone');
+    const track = VJDeskLayout.crossfaderTrack(fader.rect);
+    const at = f => track.left + f * (track.right - track.left);
+    assert.equal(club._vjDeskButtonState(fader).value, 'FULL');
+    // Press and slide: the level follows the pointer, clamps beyond the throw and snaps at both ends.
+    assert.equal(club._vjDeskSetCrossfader(fader, at(0.5)), true);
+    assert.equal(calls.at(-1), 'effect channel 0.5');
+    club._vjDeskSetCrossfader(fader, track.left - 200);
+    assert.equal(calls.at(-1), 'effect channel 0', 'past the left end stop is a full cut');
+    club._vjDeskSetCrossfader(fader, at(0.06));
+    assert.equal(calls.at(-1), 'effect channel 0', 'the last 8% at the bottom snaps to cut');
+    club._vjDeskSetCrossfader(fader, at(0.94));
+    assert.equal(calls.at(-1), 'effect channel 1', 'and at the top snaps to full');
+    club._vjDeskSetCrossfader(fader, track.right + 500);
+    assert.equal(calls.at(-1), 'effect channel 1');
+    club._djEffects.channel = 0;
+    assert.equal(club._vjDeskButtonState(fader).value, 'CUT');
+    club._djEffects.channel = 0.5;
+    assert.equal(club._vjDeskButtonState(fader).value, '50%');
+    // A drag on the panel keeps steering it until released.
+    const panel = { id: 'transport' };
+    club._vjDeskDrag = { panel, button: fader };
+    club._vjDeskHit = () => ({ panel, button: fader, x: at(0.25), y: fader.rect.y + 25 });
+    club.dragVJDesk({});
+    assert.equal(calls.at(-1), 'effect channel 0.25');
+    club.releaseVJDesk();
+    // CLEAR FX: every knob and the fader back to clean, through the shared reset.
+    Object.assign(club._djEffects, { lowpass: 0.7, echo: 0.4, channel: 0 });
+    assert.equal(club._vjDeskButtonState(clear).value, 'ALL KNOBS OFF');
+    club._runVJDeskButton(clear);
+    assert.equal(calls.at(-1), 'resetFx');
+    assert.equal(club._vjDeskButtonState(clear).value, 'ALREADY CLEAR');
+    // Both are unavailable, and say why, while the resident DJ is at the decks, and are host-owned in a room.
+    people.dj = true;
+    assert.equal(club._vjDeskDisabledReason(fader), 'SEND DJ HOME');
+    assert.equal(club._vjDeskDisabledReason(clear), 'SEND DJ HOME');
+    calls.length = 0;
+    assert.equal(club._vjDeskSetCrossfader(fader, at(0.5)), false);
+    assert.deepEqual(calls, []);
+    people.dj = false;
+    club.multiplayer = { following: true, hostName: () => 'Bo' };
+    assert.equal(club._vjDeskDisabledReason(fader), 'HOST ONLY');
+    assert.equal(club._vjDeskClearEffects(), false, 'a guest must not clear the host\'s effects');
+});
+
+test('a held desk control is felt on the controller that holds it: light ticks at the stops, the fader centre and a reset, never in between', () => {
+    const { club, calls, people, button, VJDeskLayout } = deskHarness();
+    people.dj = false;
+    club._vjDesk = { panels: [], dirty: false };
+    const pulses = [];
+    const controller = { motionController: { pulse: (strength, ms) => { pulses.push([strength, ms]); return Promise.resolve(true); } } };
+    const profile = VJDeskLayout.haptic;
+    // A crossfader slide: the ends and the middle tick, the stretches between do not.
+    const fader = button('crossfader');
+    const track = VJDeskLayout.crossfaderTrack(fader.rect);
+    const at = f => track.left + f * (track.right - track.left);
+    club._djEffects.channel = 1;
+    for (const f of [0.9, 0.8, 0.7, 0.6]) club._vjDeskSetCrossfader(fader, at(f), controller);
+    assert.deepEqual(pulses, [], 'sliding between the stops is silent');
+    club._vjDeskSetCrossfader(fader, at(0.4), controller);
+    assert.deepEqual(pulses, [[profile.centre.strength, profile.centre.ms]], 'passing the middle ticks once');
+    club._vjDeskSetCrossfader(fader, at(0.2), controller);
+    club._vjDeskSetCrossfader(fader, at(0), controller);
+    assert.deepEqual(pulses.at(-1), [profile.stop.strength, profile.stop.ms], 'reaching cut is the end stop');
+    const afterStop = pulses.length;
+    club._vjDeskSetCrossfader(fader, at(0), controller);
+    assert.equal(pulses.length, afterStop, 'resting on the stop does not buzz');
+    club._vjDeskSetCrossfader(fader, at(1), controller);
+    assert.deepEqual(pulses.at(-1), [profile.stop.strength, profile.stop.ms], 'and full is the other stop');
+    // A mouse or a controller with no actuator feels nothing and breaks nothing.
+    const before = pulses.length;
+    club._vjDeskSetCrossfader(fader, at(0), null);
+    club._vjDeskSetCrossfader(fader, at(1), { motionController: {} });
+    club._vjDeskSetCrossfader(fader, at(0), { motionController: { pulse() { throw new Error('no actuator'); } } });
+    assert.equal(pulses.length, before);
+    // A knob twisted to off or to full ticks; taking hold and a reset have their own ticks.
+    club._djEffects.echo = 0.5;
+    const knob = { controller, node: {}, pose: null, button: button('echo'), value: 0.5 };
+    pulses.length = 0;
+    club._vjDeskDrag = knob;
+    club._vjDeskFeel(controller, 0.5, 0.1);
+    assert.deepEqual(pulses, [], 'turning a knob between its stops is silent');
+    club._vjDeskFeel(controller, 0.1, 0);
+    club._vjDeskFeel(controller, 0.9, 1);
+    assert.deepEqual(pulses, [[profile.stop.strength, profile.stop.ms], [profile.stop.strength, profile.stop.ms]]);
+    club._vjDeskHaptic(controller, 'grab');
+    club._vjDeskHaptic(controller, 'reset');
+    assert.deepEqual(pulses.slice(2), [[profile.grab.strength, profile.grab.ms], [profile.reset.strength, profile.reset.ms]]);
+    for (const kind of Object.values(profile)) assert.ok(kind.strength <= 0.5 && kind.ms <= 25, 'desk ticks stay light and short');
+    assert.ok(calls.length > 0);
+});
+
+test('a slider held by a controller follows the ray on the panel plane, even past the edge of the glass', () => {
+    const { VJDeskLayout } = deskHarness();
+    const identity = [1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1];
+    // A ray from 1 m in front of the panel (it faces -z, so the viewer is at z -1) pointing straight at it.
+    assert.equal(JSON.stringify(VJDeskLayout.planePoint(identity, [0.2, 0.05, -1], [0, 0, 1])), JSON.stringify({ x: 0.2, y: 0.05 }));
+    // Tilted sideways it lands further along the plane, past the panel's 0.5 m half-width.
+    const wide = VJDeskLayout.planePoint(identity, [0, 0, -1], [0.8, 0, 0.6]);
+    assert.ok(Math.abs(wide.x - 1.3333333) < 1e-6 && Math.abs(wide.y) < 1e-9);
+    // Behind it, or along it, there is no hit.
+    assert.equal(VJDeskLayout.planePoint(identity, [0, 0, 1], [0, 0, 1]), null);
+    assert.equal(VJDeskLayout.planePoint(identity, [0, 0, -1], [1, 0, 0]), null);
+    // The panel's own transform is honoured: moved 0.3 m along x, the same ray is 0.3 m off.
+    const moved = [1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, -0.3, 0, 0, 1];
+    assert.ok(Math.abs(VJDeskLayout.planePoint(moved, [0.2, 0, -1], [0, 0, 1]).x + 0.1) < 1e-9);
+});
+
+test('A / X or a right-click puts a knob back to off and the crossfader to full, and is consumed even when it cannot act', () => {
+    const { club, calls, people, button } = deskHarness();
+    people.dj = false;
+    club._vjDesk = { panels: [], dirty: false };
+    club._djEffects.echo = 0.7; club._djEffects.channel = 0.2;
+    assert.equal(club._vjDeskResetControl(button('echo')), true);
+    assert.equal(calls.at(-1), 'effect echo 0', 'a knob defaults to off');
+    assert.equal(club._vjDeskResetControl(button('crossfader')), true);
+    assert.equal(calls.at(-1), 'effect channel 1', 'the crossfader defaults to full');
+    assert.equal(club._vjDeskResetControl(button('clearFx')), false, 'only a knob or the crossfader has a default gesture');
+    assert.equal(club._vjDeskResetControl(null), false);
+    // A knob that is held while it is reset keeps turning from zero, not from where it was.
+    club._vjDeskDrag = { button: button('echo'), value: 0.6, knob: true };
+    club._vjDeskResetControl(button('echo'));
+    assert.equal(club._vjDeskDrag.value, 0);
+    // Blocked (the DJ is at the decks): the press is still about the desk, so it does not jump, and nothing changes.
+    people.dj = true;
+    calls.length = 0;
+    assert.equal(club._vjDeskResetControl(button('echo')), true);
+    assert.deepEqual(calls, []);
+    // The mouse path goes through the same hit test as a press.
+    people.dj = false;
+    club._vjDeskHit = () => ({ button: button('echo') });
+    assert.equal(club.resetVJDeskAt({}), true);
+    assert.equal(calls.at(-1), 'effect echo 0');
+    club._vjDeskHit = () => ({ button: null });
+    assert.equal(club.resetVJDeskAt({}), false, 'a right-click off the controls is not ours');
+    // A controller does nothing on the player page (so A / X still jumps), and nothing without a desk.
+    club._vjDesk = { panels: [{ id: 'transport', mesh: { isEnabled: () => true } }], dirty: false };
+    club._vjDeskPlayerPage = 'player';
+    assert.equal(club.resetVJDeskFromController({}), false);
+    club._vjDeskPlayerPage = 'fx';
+    club._xrControllers = [];
+    assert.equal(club.resetVJDeskFromController({}), false, 'no controller, no ray');
+    // The jump binding asks the desk first, and a held A / X is consumed once so it cannot jump on a later event.
+    const source = readFileSync(join(ROOT, 'js/club/02-lifecycle.js'), 'utf8');
+    assert.ok(source.indexOf('resetVJDeskFromController(motionController)') > 0
+        && source.indexOf('resetVJDeskFromController(motionController)') < source.indexOf('this._startVRJump(xrCamera)'), 'A / X must try the desk reset before jumping');
+});
+
+test('while a controller holds a knob or the crossfader the hand is drawn ON it, easing on and off', () => {
+    class Vec {
+        constructor(x = 0, y = 0, z = 0) { this.x = x; this.y = y; this.z = z; }
+        static TransformCoordinatesFromFloatsToRef(x, y, z, m, ref) {
+            ref.x = x * m[0] + y * m[4] + z * m[8] + m[12];
+            ref.y = x * m[1] + y * m[5] + z * m[9] + m[13];
+            ref.z = x * m[2] + y * m[6] + z * m[10] + m[14];
+            return ref;
+        }
+    }
+    const B = { Vector3: Vec, Axis: { Y: 'y', Z: 'z' } };
+    const { VJDesk, VJDeskLayout } = loadClassic('js/vjDesk.js', { BABYLON: B, VRClubUI: class {} }).window;
+    const origin = [1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0.5, 2, -19, 1];
+    const panel = { width: 1, depth: 0.27, canvas: { width: 1024, height: 300 }, mesh: { getWorldMatrix: () => origin } };
+    const club = Object.assign({}, VJDesk, { _djEffectsState: () => ({ channel: 0.5 }), _vjDeskDrag: null });
+    const controller = handedness => ({ inputSource: { handedness } });
+    const echo = VJDeskLayout.buttons.transport.find(b => b.id === 'echo');
+    const fader = VJDeskLayout.buttons.transport.find(b => b.id === 'crossfader');
+    const frames = n => { for (let i = 0; i < n; i++) club._updateVJDeskHands(1 / 60); };
+
+    // A knob held by the right controller: that hand goes onto the cap, the other stays free.
+    club._vjDeskDrag = { panel, button: echo, knob: true, controller: controller('right') };
+    frames(40);
+    const hold = club._vjDeskHandHold;
+    const k = VJDeskLayout.knob(echo.rect);
+    assert.ok(hold.right.amount > 0.99 && hold.left.amount === 0);
+    assert.ok(Math.abs(hold.right.x - (0.5 + (k.x / 1024 - 0.5))) < 1e-9 && Math.abs(hold.right.y - (2 + (0.5 - k.y / 300) * 0.27)) < 1e-9);
+    assert.ok(Math.abs(hold.right.z - (-19 - (VJDeskLayout.knob3D.collarH + VJDeskLayout.knob3D.capH))) < 1e-9, 'the spot is the top of the cap');
+
+    // It eases on rather than jumping, and off again when the trigger is let go.
+    club._vjDeskHandHold.right.amount = 0;
+    club._updateVJDeskHands(1 / 60);
+    assert.ok(hold.right.amount > 0 && hold.right.amount < 0.5, 'the hand jumped onto the knob');
+    club._vjDeskDrag = null;
+    frames(90);
+    assert.equal(hold.right.amount, 0, 'the hand stayed on a knob nobody holds');
+
+    // The crossfader's cap is where its level says, and the controller that locked it holds it.
+    club._vjDeskDrag = { panel, button: fader, ray: { controller: controller('left') } };
+    frames(40);
+    const track = VJDeskLayout.crossfaderTrack(fader.rect);
+    assert.ok(hold.left.amount > 0.99 && hold.right.amount === 0);
+    assert.ok(Math.abs(hold.left.x - (0.5 + ((track.left + 0.5 * (track.right - track.left)) / 1024 - 0.5))) < 1e-9, 'the hand is not on the cap');
+
+    // A mouse holds nothing the hand could rest on.
+    club._vjDeskDrag = { panel, button: echo, knob: true, controller: null };
+    frames(90);
+    assert.equal(hold.left.amount + hold.right.amount, 0);
+
+    // The body, the mirror and other guests all read the hand through _handPose.
+    const { window: crowd } = loadClassic('js/club/11-audio-crowd.js', { BABYLON: B, VRClubUI: class {} });
+    const aim = { getDirectionToRef(axis, ref) { if (axis === 'z') { ref.x = 0; ref.y = 0; ref.z = 1; } else { ref.x = 0; ref.y = 1; ref.z = 0; } } };
+    const fake = {
+        _xrControllers: [{ inputSource: { handedness: 'right' }, grip: { getAbsolutePosition: () => ({ x: 0.2, y: 1.3, z: -19.2 }) }, pointer: aim }],
+        _vjDeskHandHold: { left: { amount: 0, x: 0, y: 0, z: 0 }, right: { amount: 0, x: 0.5, y: 1.5, z: -18.9 } }
+    };
+    const head = { x: 0, y: 1.7, z: -19.5 };
+    let hand = crowd.VRClubAudioCrowd.prototype._handPose.call(fake, 'right', head);
+    assert.deepEqual([hand.x, hand.y, hand.z].map(v => +v.toFixed(3)), [0.2, 1.3, -19.2], 'a free hand stays on its controller');
+    fake._vjDeskHandHold.right.amount = 1;
+    hand = crowd.VRClubAudioCrowd.prototype._handPose.call(fake, 'right', head);
+    assert.deepEqual([hand.x, hand.y, hand.z].map(v => +v.toFixed(3)), [0.5, 1.5, -18.97], 'the hand is drawn on the knob, its palm 7 cm short of the cap');
+});
+
+test('the real 3D knobs follow their values (the sweep is 7:30 to 4:30), ease back after a reset, and only show on the FX page', () => {
+    const { club, button, VJDeskLayout } = deskHarness();
+    const node = () => ({ enabled: null, setEnabled(v) { this.enabled = v; } });
+    const knob = id => ({ id, effect: id, cap: { rotation: { y: 0 } }, shown: null });
+    const echo = knob('echo');
+    const fader = { cap: { position: { x: 0 } }, left: -0.1, right: 0.1, shown: null };
+    const a = node(), b = node();
+    const desk = { controls: { knobs: [echo], nodes: [a, b], visible: null, fader }, playerVisible: true, dirty: false };
+    club._vjDesk = desk;
+    club._vjDeskDrag = null;
+    club._vjDeskPlayerPage = 'player';
+    club._djEffects.echo = 1; club._djEffects.channel = 0.5;
+    club._syncVJDeskControls(1 / 60);
+    assert.equal(a.enabled, false, 'the controls stay hidden on the player page');
+    club._vjDeskPlayerPage = 'fx';
+    club._syncVJDeskControls(1 / 60);
+    assert.deepEqual([a.enabled, b.enabled], [true, true]);
+    assert.ok(Math.abs(echo.cap.rotation.y - 0.75 * Math.PI) < 1e-9, 'full is 4:30: 135 degrees clockwise of 12 o\'clock');
+    assert.ok(Math.abs(fader.cap.position.x) < 1e-9, 'half-way is the middle of the throw');
+    club._djEffects.channel = 1;
+    club._syncVJDeskControls(1 / 60);
+    assert.ok(Math.abs(fader.cap.position.x - 0.1) < 1e-9, 'the fader cap is at the end of its throw at full');
+    // A reset swings back over a few frames instead of jumping, and arrives exactly.
+    club._djEffects.echo = 0;
+    club._syncVJDeskControls(1 / 60);
+    assert.ok(echo.cap.rotation.y < 0.75 * Math.PI && echo.cap.rotation.y > -0.75 * Math.PI, 'it is part way after one frame');
+    for (let i = 0; i < 120; i++) club._syncVJDeskControls(1 / 60);
+    assert.ok(Math.abs(echo.cap.rotation.y + 0.75 * Math.PI) < 1e-9, 'off is 7:30');
+    // A knob somebody holds follows their hand at once.
+    club._djEffects.echo = 0.5;
+    club._vjDeskDrag = { button: button('echo'), knob: true };
+    club._syncVJDeskControls(1 / 60);
+    assert.ok(Math.abs(echo.cap.rotation.y) < 1e-9, 'half-way points at 12 o\'clock, immediately');
+    // Leaving the page hides everything again; frame hitches cannot jump the easing.
+    club._vjDeskDrag = null;
+    club._vjDeskPlayerPage = 'player';
+    club._syncVJDeskControls(1 / 60);
+    assert.deepEqual([a.enabled, b.enabled], [false, false]);
+    assert.ok(VJDeskLayout.knob3D.capR * 2 > 0.04 && VJDeskLayout.knob3D.capR * 2 < 0.07, 'a mixer knob is a few centimetres across');
+});
+
+test('the VJ desk set player switches to compact effects and resets to PLAYER when the DJ returns', () => {
+    const { club, press, calls, people, button, VJDeskLayout } = deskHarness();
+    club._vjDesk = {
+        panels: [{ id: 'transport', mesh: { setEnabled() {} } }],
+        transportHousing: { setEnabled() {} },
+        playerVisible: null,
+        dirty: false
+    };
+    club._applyVJDeskPlayerVisibility();
+    assert.equal(club._vjDesk.playerVisible, false, 'the resident DJ hides the replacement player');
+    people.dj = false;
+    club._applyVJDeskPlayerVisibility();
+    assert.equal(club._vjDesk.playerVisible, true, 'sending the DJ home reveals the player');
+    press('playerPage');
+    assert.equal(club._vjDeskPlayerPage, 'fx');
+    assert.equal(club._vjDeskButtonState(button('playerPage')).value, 'SHOW PLAYER');
+    assert.match(club._vjDeskPlayerStatus().title, /DJ EFFECTS/);
+    const knob = VJDeskLayout.knob(button('echo').rect);
+    assert.equal(club._vjDeskGrabKnob(button('echo'), { panel: {}, x: knob.x, y: knob.y - 40 }), true);
+    club._vjDeskTurnKnob(club._vjDeskDrag, { panel: {}, x: knob.x + 40, y: knob.y });
+    assert.match(calls.at(-1), /^effect echo /);
+    club._vjDeskDrag = null;
+    // The phaser, noise sweep and gater knobs stand on the same page and count as touched for CLEAR FX.
+    const gater = VJDeskLayout.knob(button('gater').rect);
+    assert.equal(club._vjDeskGrabKnob(button('gater'), { panel: {}, x: gater.x, y: gater.y - 40 }), true);
+    club._vjDeskTurnKnob(club._vjDeskDrag, { panel: {}, x: gater.x + 40, y: gater.y });
+    assert.match(calls.at(-1), /^effect gater /);
+    club._vjDeskDrag = null;
+    club._djEffects.sweep = 0.4;
+    assert.match(club._vjDeskButtonState(button('clearFx')).value, /ALL KNOBS OFF/);
+    press('playerPage');
+    assert.equal(club._vjDeskPlayerPage, 'player');
+    press('playerPage');
+    assert.equal(club._vjDeskPlayerPage, 'fx');
+    people.dj = true;
+    club._applyVJDeskPlayerVisibility();
+    assert.equal(club._vjDeskPlayerPage, 'player', 'returning the DJ restores the transport page');
 });
 
 test('VR menu: who is in the club has its own CROWD page on HOME, not the bottom of COMFORT', () => {
@@ -7583,12 +11089,23 @@ test('VR menu: who is in the club has its own CROWD page on HOME, not the bottom
 test('all VJ surfaces distinguish spotlight aim paths from projected gobo images', () => {
     const { window } = loadClassic('js/club/10-ui.js', { VRClubAnimationFinish: class {}, BABYLON: {} });
     const club = Object.create(window.VRClubUI.prototype);
-    const lighting = club._vrQuickMenuPageDefinitions('lighting');
+    const lighting = club._vrQuickMenuPageDefinitions('lights');
     const effects = club._vrQuickMenuPageDefinitions('effects');
     assert.ok(lighting.some(button => button && button.label === 'SPOT AIM PATH' && button.control === 'cyclePattern'));
-    assert.ok(effects.some(button => button && button.label === 'PROJECT GOBO' && button.control === 'goboActive'));
+    assert.ok(lighting.some(button => button && button.label === 'MATCH ALL COLOURS'));
+    assert.ok(!lighting.some(button => button && /^LED /.test(button.label)), 'LED effects leaked onto the Lights page');
+    assert.ok(effects.some(button => button && button.label === 'PROJECTED GOBO' && button.control === 'goboActive'));
     assert.ok(effects.some(button => button && button.label === 'GOBO IMAGE' && button.control === 'cycleGoboPattern'));
+    assert.ok(effects.some(button => button && button.label === 'LED WALL'));
+    assert.ok(!effects.some(button => button && button.control === 'photosensitiveSafeMode'), 'Safe Mode is duplicated outside Comfort');
     assert.ok(lighting.length <= 12 && effects.length <= 12, 'clarified controls overflow the VR menu');
+
+    const show = club._vrQuickMenuPageDefinitions('show');
+    const sections = club._vrQuickMenuPageDefinitions('showSections');
+    assert.ok(show.some(button => button && button.action === 'showDrop'));
+    assert.ok(show.some(button => button && button.target === 'showSections'));
+    assert.deepEqual([...sections.filter(button => button.action === 'showSection').map(button => button.section)],
+        ['arrival', 'pulse', 'ascent', 'ignition', 'afterglow']);
 
     const html = readFileSync(join(ROOT, 'index.html'), 'utf8');
     assert.match(html, /data-control="cyclePattern">AIM PATH: RANDOM</);
@@ -7690,6 +11207,7 @@ test('VR menu: unavailable buttons are drawn disabled and say why; the chat page
     club.multiplayer = {
         connected: false, following: false, chat: [], chatUnread: 0, duckForVoice: true,
         isHost: () => false, pendingMusicInfo: () => null, blockedList: () => [],
+        canRestrictAudience: () => false,
         audienceLabel: () => 'Everyone',
         sendChat: text => { sent.push(text); return true; }, setDuckForVoice(v) { this.duckForVoice = v; }
     };
@@ -7729,6 +11247,7 @@ test('VR recipient pages fit all seven peers and delegate separate chat and voic
     club.showErrorMessage = () => {};
     club.multiplayer = {
         connected: true, chatAudience: ['p1'], voiceAudience: [],
+        canRestrictAudience: () => true,
         people: () => Array.from({ length: 7 }, (_, i) => ({ id: `p${i + 1}`, name: `Guest ${i + 1}` })),
         setAudience: (scope, ids) => calls.push([scope, ids]),
         toggleAudiencePeer: (scope, id) => calls.push([scope, id]),
@@ -8074,7 +11593,7 @@ test('the crowd stays on the beat with the lighter moves when only the rest of t
             const meta = CrowdDance.MOVES[f.move];
             const k = f.half ? 0.5 : 1;
             const anchor = f.half && meta.halfAnchor !== undefined ? meta.halfAnchor : meta.anchor;
-            const want = CrowdDance.wrap01((f.beat * k + anchor) / meta.beats);
+            const want = CrowdDance.wrap01(((f.beat - f.lag) * k + anchor + f.offset) / meta.beats);
             assert.ok(Math.abs(CrowdDance.wrapHalf(f.frac - want)) * meta.beats / k < 0.12, `${f.move} off the beat in the breakdown`);
         }
     }
@@ -8130,7 +11649,20 @@ function perform(dj, seconds, { energy = 0.5, hasAudio = true, visitors = null, 
         music.drop = false;
         if (each) each(music, t);
         const pose = dj.update(1 / 60, music, visitors);
-        frames.push({ t, bar: music.bar, activity: dj.activity, pitch: pose.headPitch, eyeY: pose.eyeY, leftY: pose.left.y, rightY: pose.right.y, pose });
+        frames.push({
+            t,
+            bar: music.bar,
+            activity: dj.activity,
+            pitch: pose.headPitch,
+            eyeY: pose.eyeY,
+            leftX: pose.left.x,
+            leftY: pose.left.y,
+            rightX: pose.right.x,
+            rightY: pose.right.y,
+            goalLeftTwist: dj._goalL.uy,
+            goalRightTwist: dj._goalR.uy,
+            pose
+        });
     }
     return frames;
 }
@@ -8175,6 +11707,37 @@ test('the DJ puts their hands up on the drop, and works the controller while mix
     assert.notEqual(quiet.activity, 'handsUp');
 });
 
+test('the DJ never beat-pumps a crowd arm and uses only one finite lift on a real drop', () => {
+    const { dj, desk, DJPerformer } = loadDJPerformer();
+    dj._begin('crowd', 99);
+    const crowd = perform(dj, 12, { energy: 1 });
+    for (const frame of crowd.slice(60)) {
+        assert.ok(Math.abs(frame.leftY - desk.top - 0.035) < 0.002);
+        assert.ok(Math.abs(frame.rightY - desk.top - 0.035) < 0.002, 'no alternating-beat fist pump');
+    }
+    const calm = loadDJPerformer().dj;
+    assert.ok(!perform(calm, 120, { energy: 1 }).some(frame => frame.activity === 'handsUp'),
+        'sustained loud music never starts a hands-up loop');
+    const celebrate = loadDJPerformer().dj;
+    celebrate._begin('handsUp', 99);
+    const frames = perform(celebrate, 4, { energy: 1 });
+    for (const key of ['leftY', 'rightY']) {
+        let peaks = 0, rising = true;
+        for (let i = 1; i < frames.length; i++) {
+            if (rising && frames[i][key] < frames[i - 1][key] - 0.00001) { peaks++; rising = false; }
+            if (!rising) assert.ok(frames[i][key] <= frames[i - 1][key] + 0.00001, 'a lowering hand cannot pump back up');
+        }
+        assert.equal(peaks, 1, 'one raise, hold and lower per arm');
+        assert.ok(Math.abs(frames.at(-1)[key] - desk.top - 0.035) < 0.002, 'hands return to the desk');
+    }
+    const held = loadDJPerformer().dj;
+    perform(held, DJPerformer.CELEBRATION_COOLDOWN + 4, { each: music => { music.drop = true; } });
+    assert.notEqual(held.activity, 'handsUp', 'a held drop flag cannot continually restart the gesture');
+    const repeated = loadDJPerformer().dj;
+    perform(repeated, 8, { each: (music, t) => { music.drop = t < 0.02 || (t > 4 && t < 4.02); } });
+    assert.ok(repeated._lastCelebrationAt < 0.1, 'nearby drop edges do not repeat the lift');
+});
+
 test('the DJ waves at someone who walks up to the booth, once, and looks their way', () => {
     const { dj, DJPerformer } = loadDJPerformer();
     const guest = { x: 2.5, z: -6, id: 'guest' };            // far back on the floor
@@ -8197,6 +11760,27 @@ test('the DJ waves at someone who walks up to the booth, once, and looks their w
     assert.equal(waves, 2, 'but again after the cool-down');
 });
 
+test('the DJ chooses the nearest new visitor regardless of array order and keeps attention locked', () => {
+    const run = reverse => {
+        const { dj } = loadDJPerformer();
+        const far = { x: -3.5, z: -14, id: 'far' };
+        const near = { x: 1.2, z: -16.5, id: 'near' };
+        const visitors = reverse ? [near, far] : [far, near];
+        perform(dj, 1, { visitors: visitors.map(v => ({ ...v, z: -8 })) });
+        perform(dj, 0.1, { visitors, t0: 1 });
+        assert.equal(dj.activity, 'wave');
+        assert.equal(dj._visitor.id, 'near', 'array order won over visitor salience');
+        const lockedYaw = dj._goalYaw;
+        far.x = -0.2; far.z = -17.5;
+        near.x = 2.2;
+        perform(dj, 0.5, { visitors, t0: 1.1 });
+        assert.equal(dj._visitor.id, 'near', 'a later arrival stole attention during the wave');
+        assert.ok(dj._goalYaw > lockedYaw, 'the DJ did not keep tracking the chosen visitor');
+        return dj._visitor.id;
+    };
+    assert.equal(run(false), run(true));
+});
+
 test('the DJ nods and bounces on the beat, deeper when the music is louder', () => {
     const swing = (energy, key) => {
         const { dj } = loadDJPerformer();
@@ -8214,6 +11798,45 @@ test('the DJ nods and bounces on the beat, deeper when the music is louder', () 
     const onBeat = frames.filter(f => (f.t * 124 / 60) % 1 < 0.04).slice(-4);
     const offBeat = frames.filter(f => Math.abs((f.t * 124 / 60) % 1 - 0.5) < 0.04).slice(-4);
     assert.ok(Math.max(...onBeat.map(f => f.eyeY)) < Math.min(...offBeat.map(f => f.eyeY)), 'down on the beat, up between');
+});
+
+test('the DJ uses deliberate, asymmetric role gestures instead of mirrored continuous loops', () => {
+    const { dj, DJPerformer } = loadDJPerformer();
+    assert.equal(DJPerformer.ACTIVITIES.cue.bars, 2, 'cueing holds the headphone for too long');
+    assert.equal(DJPerformer.ACTIVITIES.handsUp.bars, 1, 'a drop reaction should be an accent, not a section');
+    assert.equal(DJPerformer._turnGesture(0.3), 1);
+    assert.equal(DJPerformer._turnGesture(0.6), 1, 'a knob turn needs a readable hold');
+    assert.ok(DJPerformer._turnGesture(0.05) < DJPerformer._turnGesture(0.15));
+    assert.ok(DJPerformer._turnGesture(0.75) > DJPerformer._turnGesture(0.95));
+
+    dj._begin('tweak', 99);
+    const tweaking = perform(dj, 4, { energy: 0.8 });
+    const intentional = tweaking.filter(frame =>
+        Math.abs(frame.goalLeftTwist) > 0.05 || Math.abs(frame.goalRightTwist) > 0.05);
+    assert.ok(intentional.some(frame => Math.abs(frame.goalLeftTwist) > 0.05));
+    assert.ok(intentional.some(frame => Math.abs(frame.goalRightTwist) > 0.05));
+    assert.ok(intentional.every(frame =>
+        !(Math.abs(frame.goalLeftTwist) > 0.05 && Math.abs(frame.goalRightTwist) > 0.05)),
+    'both hands twist in mechanical synchrony');
+
+    dj._begin('handsUp', 99);
+    const celebrating = perform(dj, 2, { energy: 0.9, t0: 4 });
+    assert.ok(Math.max(...celebrating.map(frame => Math.abs(frame.leftY - frame.rightY))) > 0.035,
+        'hands-up remains perfectly mirrored');
+
+    dj._visitor.x = 2;
+    dj._visitor.z = -15;
+    dj._visitor.id = 'guest';
+    dj._begin('wave', 99);
+    const waving = perform(dj, 2.4, { t0: 6 });
+    let crossings = 0;
+    let previous = Math.sign(waving[0].rightX - (dj.home.x + 0.3));
+    for (const frame of waving.slice(1)) {
+        const sign = Math.sign(frame.rightX - (dj.home.x + 0.3));
+        if (sign && previous && sign !== previous) crossings++;
+        if (sign) previous = sign;
+    }
+    assert.ok(crossings >= 3 && crossings <= 6, `the wave changed direction ${crossings} times`);
 });
 
 // ---------------------------------------------------------------------------
@@ -8269,8 +11892,36 @@ test('the bouncer stands beside the street door and the queue waits behind the r
     const balancedQueue = ids(queue.slice(0, sizes[2]));
     assert.equal(new Set(balancedQueue).size, balancedQueue.length, 'the queue repeats a person');
     const balancedInside = ids(Crowd.prototype._guestSlots.call({}).slice(0, 2));
-    for (const id of ['f1', 'm2', 'hipHop', 'm1', 'f3', 'f2']) balancedInside.push(id);
+    for (const id of ['f1', 'm2', 'vm1', 'm1', 'f3', 'f2']) balancedInside.push(id);
     assert.deepEqual([...balancedQueue.filter(id => balancedInside.includes(id))], [], 'a balanced queue shows someone who is also inside');
+    for (const id of ['vf6', 'vm3', 'vm4', 'vm7', 'vm6']) {
+        const colors = readGlbVertexColorBytes(`js/models/avatars/club-crowd-${id}.glb`);
+        assert.ok(colors.length > 0, `${id} must retain vertex colours`);
+        assert.ok(Math.max(...colors) <= 180, `${id} has an overly bright clothing, hair or skin color`);
+    }
+});
+
+test('every person in the club is a different person: no source file appears in two slots', () => {
+    const BABYLON = makeBabylonStub();
+    BABYLON.Vector3 = class { constructor(x, y, z) { this.x = x; this.y = y; this.z = z; } };
+    const { window } = loadClassic('js/club/11-audio-crowd.js', { BABYLON, VRClubUI: class {} });
+    window.CityLayout = loadClassic('js/cityDistrict.js').window.CityLayout;
+    const Crowd = window.VRClubAudioCrowd;
+    const source = readFileSync(join(ROOT, 'js/club/11-audio-crowd.js'), 'utf8');
+    const block = source.slice(source.indexOf('const crowdSlots = ['), source.indexOf('this._crowdSlots = crowdSlots'));
+    const dancers = [...block.matchAll(/src: at\('(\w+)'\)/g)].map(match => match[1]);
+    assert.equal(dancers.length, 14);
+    const ids = slots => slots.map(slot => Crowd.AVATAR_SOURCES[slot.src].id);
+    const street = Crowd.prototype._streetSlots.call({});
+    const everyone = [
+        ...dancers, ...ids(Crowd.prototype._guestSlots.call({})), ...ids(street.queue), Crowd.AVATAR_SOURCES[street.bouncer.src].id
+    ];
+    assert.ok(everyone.length >= 31);
+    const repeated = everyone.filter((id, index) => everyone.indexOf(id) !== index);
+    assert.deepEqual(repeated, [], `these people appear more than once: ${repeated.join(', ')}`);
+    // Two ids must not be one file under two names (that was how a "different" dancer was the same man twice).
+    const files = Crowd.AVATAR_SOURCES.map(item => item.url);
+    assert.equal(new Set(files).size, files.length, 'two source ids load the same file');
 });
 
 function streetCrowdHarness() {
@@ -8312,7 +11963,7 @@ test('the street people wait for the street, load their files once in the backgr
     club._applyStreetPeople();
     club._applyStreetPeople();
     await club._streetTopUp;
-    assert.deepEqual(requested.sort(), ['club-crowd-bouncer.glb', 'club-crowd-f8.glb', 'club-crowd-m8.glb'], 'each file is fetched once');
+    assert.deepEqual(requested.sort(), ['club-crowd-bouncer.glb', 'club-crowd-vf6.glb', 'club-crowd-vm6.glb'], 'each file is fetched once');
     assert.deepEqual(spawned.map(item => item[0]), ['bouncer', 'queue0', 'queue1']);
     assert.ok(lit.length === 6 && lit.every(([, count]) => count === 1), 'everyone outside takes the door lamp and the street fill');
     assert.equal(club._bouncer.name, 'bouncer');
@@ -8506,6 +12157,8 @@ function loadCrowdDance(seed = 11) {
     return { CrowdDance: window.CrowdDance, choreographer: new window.CrowdDance({ rng }), rng };
 }
 const ALL_MOVES = ['Dance_Loop', 'Groove_Bounce', 'Groove_SideTap', 'Groove_Clap', 'Groove_Pump', 'Groove_Twist', 'Groove_HandsUp', 'Groove_Sway'];
+// What a freshly built dancer file carries: the older moves plus the overhead clap and the two free no-beat moves.
+const FULL_MOVES = [...ALL_MOVES, 'Groove_ClapUp', 'Groove_ArmsWide', 'Groove_ArmsUp'];
 
 /**
  * Play a dancer like the club does: the clip advances at the speed the choreographer asks for (a loop is beats x 0.5 s at
@@ -8521,7 +12174,7 @@ function playDancer(CrowdDance, choreographer, dancer, { seconds = 20, bpm = 124
         if (each) each(music, t);
         const d = choreographer.step(dancer, music, frac, out);
         if (d.switched || d.snap || move !== d.move) { frac = d.frac; move = d.move; }
-        frames.push({ t, beat: music.beat, move, frac, half: dancer.half, switched: d.switched, present: music.beatPresent });
+        frames.push({ t, beat: music.beat, move, frac, half: dancer.half, switched: d.switched, present: music.beatPresent, lag: dancer.lag || 0, offset: dancer.phaseOffset || 0 });
         const beats = CrowdDance.MOVES[move].beats;
         frac = (frac + (1 / fps) * d.speed / (beats * 0.5)) % 1;
     }
@@ -8530,7 +12183,7 @@ function playDancer(CrowdDance, choreographer, dancer, { seconds = 20, bpm = 124
 
 test('every move the choreographer knows is in the dancers\' files, as long as it says', () => {
     const { CrowdDance } = loadCrowdDance();
-    assert.deepEqual(Object.keys(CrowdDance.MOVES).sort(), [...ALL_MOVES].sort());
+    assert.deepEqual(Object.keys(CrowdDance.MOVES).sort(), [...FULL_MOVES].sort());
     for (const file of ['club-crowd-f1.glb', 'club-crowd-m7.glb']) {
         const json = readGlbJson(`js/models/avatars/${file}`);
         for (const [name, meta] of Object.entries(CrowdDance.MOVES)) {
@@ -8542,6 +12195,192 @@ test('every move the choreographer knows is in the dancers\' files, as long as i
     }
 });
 
+test('the crowd keeps its face detail: re-running the avatar optimizer must not simplify them again', () => {
+    for (const file of readdirSync(join(ROOT, 'js/models/avatars')).filter(name => /^club-crowd-.*\.glb$/.test(name))) {
+        const json = readGlbJson(`js/models/avatars/${file}`);
+        const triangles = json.meshes.flatMap(mesh => mesh.primitives)
+            .reduce((sum, primitive) => sum + json.accessors[primitive.indices].count / 3, 0);
+        // Every shipped person is about 2.7-3.4k triangles (the eyes and mouth are a few dozen each); halving them once more
+        // took the faces and thickened the arms in some poses.
+        assert.ok(triangles > 2400 && triangles < 4500, `${file}: ${triangles} triangles`);
+    }
+});
+
+test('shipped avatar GLBs keep compact skin attributes within the Quest payload budget', () => {
+    const files = readdirSync(join(ROOT, 'js/models/avatars'))
+        .filter(file => /^club-.*\.glb$/.test(file));
+    const totalBytes = files.reduce((sum, file) => sum + readFileSync(join(ROOT, 'js/models/avatars', file)).length, 0);
+    // The 24-file cast is about 14.4 MiB; the 13 recoloured crowd variants (vf/vm, ~0.35 MiB each) add the rest.
+    assert.ok(totalBytes < 20 * 1024 * 1024, `${(totalBytes / 1048576).toFixed(2)} MiB of shipped avatar GLBs`);
+
+    for (const file of files) {
+        const json = readGlbJson(`js/models/avatars/${file}`);
+        for (const primitive of json.meshes.flatMap(mesh => mesh.primitives)) {
+            const attributes = primitive.attributes;
+            for (const semantic of ['JOINTS_0', 'WEIGHTS_0', 'COLOR_0']) {
+                if (attributes[semantic] === undefined) continue;
+                const accessor = json.accessors[attributes[semantic]];
+                assert.equal(accessor.componentType, 5121, `${file} ${semantic} is not packed to Uint8`);
+                if (semantic !== 'JOINTS_0') {
+                    assert.equal(accessor.normalized, true, `${file} ${semantic} is not normalized`);
+                }
+            }
+        }
+    }
+});
+
+test('with no beat at all most dancers sway, some open their arms wide or reach up, and they change their minds only after a long while', () => {
+    const { CrowdDance, choreographer } = loadCrowdDance();
+    const dancers = Array.from({ length: 300 }, () => choreographer.createDancer(FULL_MOVES));
+    const out = {};
+    const quiet = { beatPresent: false, rhythm: false, beat: 0, bpm: 120, energy: 0, build: false, drop: false, time: 100 };
+    const counts = {};
+    for (const dancer of dancers) {
+        choreographer.step(dancer, quiet, null, out);
+        assert.ok(CrowdDance.MOVES[out.move].free, `${out.move} is not a free move`);
+        assert.equal(out.speed, CrowdDance.MOVES[out.move].freeSpeed || CrowdDance.FREE_SPEED, 'a free move runs at its own pace');
+        counts[out.move] = (counts[out.move] || 0) + 1;
+    }
+    const share = name => (counts[name] || 0) / dancers.length;
+    assert.ok(share('Groove_Sway') > 0.45 && share('Groove_Sway') < 0.8, `the plain sway is ${Math.round(share('Groove_Sway') * 100)}% of a quiet floor`);
+    assert.ok(share('Groove_ArmsWide') > 0.07, 'nobody spreads their arms wide');
+    assert.ok(share('Groove_ArmsUp') > 0.05, 'nobody reaches up high');
+    // They keep a move for at least the shortest hold, then some of them change.
+    const [lo, hi] = CrowdDance.FREE_HOLD;
+    const before = dancers.map(dancer => dancer.move);
+    quiet.time = 100 + lo - 1;
+    for (const dancer of dancers) choreographer.step(dancer, quiet, null, out);
+    assert.deepEqual(dancers.map(dancer => dancer.move), before, 'somebody changed move before the hold was over');
+    quiet.time = 100 + hi + 1;
+    let changed = 0;
+    for (const [i, dancer] of dancers.entries()) { choreographer.step(dancer, quiet, null, out); if (dancer.move !== before[i]) changed++; }
+    assert.ok(changed > dancers.length * 0.2, `only ${changed} of ${dancers.length} changed after a long quiet`);
+    // A dancer whose file lacks the new moves (an older avatar) still just sways.
+    const old = choreographer.createDancer(ALL_MOVES);
+    choreographer.step(old, quiet, null, out);
+    assert.equal(out.move, 'Groove_Sway');
+});
+
+test('when the kick drops out each dancer follows in their own moment, not the whole floor on one frame', () => {
+    const { CrowdDance, choreographer } = loadCrowdDance(23);
+    const dancers = Array.from({ length: 14 }, () => choreographer.createDancer(FULL_MOVES));
+    const out = {};
+    const music = { beatPresent: true, rhythm: false, beat: 0, bpm: 124, energy: 0.6, build: false, drop: false, time: 0 };
+    const frames = new Array(dancers.length).fill(null);
+    const changedAt = new Array(dancers.length).fill(null);
+    const LOSS = 20;
+    for (let t = 0; t < LOSS + 3; t += 1 / 60) {
+        music.time = t;
+        music.beat = t * 124 / 60;
+        music.beatPresent = t < LOSS;
+        dancers.forEach((dancer, i) => {
+            const before = dancer.move;
+            const d = choreographer.step(dancer, music, frames[i], out);
+            if (d.switched || d.snap || frames[i] === null) frames[i] = d.frac;
+            else frames[i] = (frames[i] + (1 / 60) * d.speed / (CrowdDance.MOVES[d.move].beats * 0.5)) % 1;
+            if (t >= LOSS && changedAt[i] === null && CrowdDance.MOVES[dancer.move].free && !(before && CrowdDance.MOVES[before].free)) changedAt[i] = t - LOSS;
+        });
+    }
+    assert.ok(changedAt.every(at => at !== null), 'somebody never moved on to the free sway');
+    assert.ok(Math.min(...changedAt) >= 0.09, `somebody reacted before their moment (${Math.min(...changedAt).toFixed(2)} s)`);
+    assert.ok(Math.max(...changedAt) <= 1.1, `somebody took ${Math.max(...changedAt).toFixed(2)} s to notice`);
+    assert.ok(Math.max(...changedAt) - Math.min(...changedAt) > 0.4, 'the whole floor changed on the same moment');
+    const frameOf = at => Math.round(at * 60);
+    const perFrame = new Map();
+    for (const at of changedAt) perFrame.set(frameOf(at), (perFrame.get(frameOf(at)) || 0) + 1);
+    assert.ok(Math.max(...perFrame.values()) <= 3, 'a lot of dancers changed move on the same frame');
+});
+
+test('a drop still reaches every dancer at once, whatever their reaction time', () => {
+    const { choreographer } = loadCrowdDance(5);
+    const dancers = Array.from({ length: 10 }, () => choreographer.createDancer(FULL_MOVES));
+    const out = {};
+    const music = { beatPresent: true, rhythm: false, beat: 8, bpm: 124, energy: 0.8, build: false, drop: false, time: 50 };
+    for (const dancer of dancers) choreographer.step(dancer, music, null, out);
+    music.time = 51;
+    music.drop = true;
+    for (const dancer of dancers) {
+        choreographer.step(dancer, music, 0.2, out);
+        assert.equal(out.switched, true, 'a dancer ignored the drop');
+    }
+});
+
+test('only a couple of dancers start a new clip in one frame, and everyone gets there', () => {
+    const BABYLON = makeBabylonStub();
+    const crowdWindow = loadClassic('js/crowdDance.js').window;
+    const { window } = loadClassic('js/club/11-audio-crowd.js', { BABYLON, VRClubUI: class {}, CrowdDance: crowdWindow.CrowdDance });
+    const Crowd = window.VRClubAudioCrowd;
+    let started = 0;
+    const makeGroup = (name) => ({
+        name, from: 0, to: 120, isPlaying: false, speedRatio: 1, animatables: [{ masterFrame: 0 }],
+        start() { started++; this.isPlaying = true; }, stop() { this.isPlaying = false; }, goToFrame(frame) { this.animatables[0].masterFrame = frame; }
+    });
+    const npcs = Array.from({ length: 14 }, () => {
+        const groups = new Map(['Dance_Loop', 'Groove_Bounce', 'Groove_SideTap', 'Groove_Clap', 'Groove_Twist', 'Groove_Sway'].map(name => [name, makeGroup(name)]));
+        const current = groups.get('Dance_Loop');
+        current.isPlaying = true;
+        return { root: { isEnabled: () => true }, animations: [current], dance: { groups, current, state: null } };
+    });
+    const club = Object.assign(Object.create(Crowd.prototype), {
+        npcAvatars: npcs,
+        _crowdMusic: () => ({ beatPresent: true, rhythm: false, beat: 4, bpm: 124, energy: 0.7, build: false, drop: true, time: 10 })
+    });
+    const perFrame = [];
+    for (let frame = 0; frame < 12; frame++) {
+        started = 0;
+        club._updateCrowdDance(1 / 60, null);
+        perFrame.push(started);
+        if (frame === 0) club._crowdMusic = () => ({ beatPresent: true, rhythm: false, beat: 4.2, bpm: 124, energy: 0.7, build: false, drop: false, time: 10.1 });
+    }
+    assert.ok(Math.max(...perFrame) <= Crowd.CROWD_STARTS_PER_FRAME, `${Math.max(...perFrame)} clips started in one frame`);
+    assert.ok(perFrame.filter(count => count > 0).length >= 3 && perFrame.reduce((a, b) => a + b, 0) >= 5, 'the floor changed move in one go instead of over a few frames');
+    for (const npc of npcs) {
+        const wanted = npc.dance.groups.get(npc.dance.state.move);
+        assert.equal(npc.dance.current, wanted, 'a dancer was left on a clip that is not the move the choreographer holds');
+        assert.ok(npc.animations.length === 1 && npc.animations[0] === wanted);
+    }
+});
+
+test('the free moves never appear while there is a pulse, and the overhead clap is a beat move', () => {
+    const { CrowdDance, choreographer } = loadCrowdDance();
+    const seen = new Set();
+    for (const pulse of [{ beatPresent: true }, { beatPresent: false, rhythm: true }]) {
+        for (let i = 0; i < 200; i++) {
+            const dancer = choreographer.createDancer(FULL_MOVES);
+            const frames = playDancer(CrowdDance, choreographer, dancer, { seconds: 90, music: { energy: 0.7, ...pulse }, fps: 30 });
+            for (const f of frames) seen.add(f.move);
+        }
+        for (const name of ['Groove_ArmsWide', 'Groove_ArmsUp']) assert.ok(!seen.has(name), `${name} was chosen while the music had a pulse`);
+    }
+    assert.ok(seen.has('Groove_ClapUp'), 'nobody ever claps above their head');
+    assert.ok(CrowdDance.MOVES.Groove_ClapUp.halfAnchor !== undefined, 'the overhead clap lands on the backbeat at half time like the other clap');
+});
+
+test('nobody is exactly on the grid: each dancer has a small personal lag and starts a move on their own beat of its phrase', () => {
+    const { choreographer } = loadCrowdDance(77);
+    const dancers = Array.from({ length: 200 }, () => choreographer.createDancer(ALL_MOVES));
+    const lags = dancers.map(d => d.lag);
+    assert.ok(Math.min(...lags) >= -0.02 && Math.max(...lags) <= 0.06, 'a lag is at most 30 ms at 120 BPM');
+    assert.ok(Math.max(...lags) - Math.min(...lags) > 0.05, 'the floor does not share one lag');
+    // The same eight-beat move, started at the same instant, is at different points of its phrase for different people.
+    const out = {};
+    const offsets = new Set(), phases = new Set();
+    for (const dancer of dancers) {
+        dancer.move = 'Dance_Loop'; dancer.hadBeat = true; dancer.barsLeft = 0; dancer.lastBar = 3;
+        const d = choreographer.step(dancer, { beatPresent: true, beat: 16, bpm: 120, energy: 0.6 }, null, out);
+        if (d.move !== 'Groove_Bounce') continue;
+        assert.ok(Number.isInteger(dancer.phaseOffset) && dancer.phaseOffset >= 0 && dancer.phaseOffset < 8, 'a whole beat of the phrase');
+        offsets.add(dancer.phaseOffset);
+        phases.add(Math.round(d.frac * 8 * 4) / 4 % 8);
+    }
+    assert.ok(offsets.size >= 4 || phases.size >= 3, 'every dancer starts the phrase on the same beat');
+    // Whole beats keep a dancer ON the beat: the clip's beat position is the music's, up to their own lag.
+    const dancer = choreographer.createDancer(ALL_MOVES);
+    dancer.move = 'Groove_Pump'; dancer.hadBeat = true; dancer.barsLeft = 999; dancer.lastBar = 0; dancer.half = false; dancer.phaseOffset = 3;
+    const d = choreographer.step(dancer, { beatPresent: true, beat: 8 + dancer.lag, bpm: 120, energy: 0.6 }, null, out);
+    assert.ok(Math.abs(d.frac * 8 - 3 - 0) < 1e-9 || Math.abs(d.frac * 8 - 3 - 8) < 1e-9, `beat 8 of a bar-8 phrase, offset 3: ${d.frac * 8}`);
+});
+
 test('dancers lock onto the beat: claps land on it, at any tempo, from any starting point', () => {
     for (const bpm of [96, 124, 140]) {
         const { CrowdDance, choreographer } = loadCrowdDance(bpm);
@@ -8551,8 +12390,9 @@ test('dancers lock onto the beat: claps land on it, at any tempo, from any start
         const frames = playDancer(CrowdDance, choreographer, dancer, { seconds: 8, bpm, each: (m, t) => { if (t === 0) m.beat = 0; } });
         const late = frames.filter(f => f.beat > 4);
         for (const f of late) {
-            // The clap loop is 2 beats with a clap at 0 and 0.5 of it: where the clip is should match the beat.
-            const want = (f.beat % 2) / 2;
+            // The clap loop is 2 beats with a clap at 0 and 0.5 of it: where the clip is should match the beat, less this
+            // person's own hair of lag.
+            const want = (((f.beat - dancer.lag) % 2) + 2) % 2 / 2;
             const err = Math.abs(CrowdDance.wrapHalf(f.frac - want)) * 2;
             assert.ok(err < 0.04, `${bpm} BPM: the clap is ${err.toFixed(3)} beats off at beat ${f.beat.toFixed(2)}`);
         }
@@ -8561,11 +12401,11 @@ test('dancers lock onto the beat: claps land on it, at any tempo, from any start
     const { CrowdDance, choreographer } = loadCrowdDance(3);
     const dancer = choreographer.createDancer(ALL_MOVES);
     const out = {};
-    dancer.move = 'Groove_Bounce'; dancer.hadBeat = true; dancer.barsLeft = 999; dancer.lastBar = 0;
-    const d = choreographer.step(dancer, { beatPresent: true, beat: 10, bpm: 120, energy: 0.5 }, CrowdDance.wrap01(10 / 2 + 0.2), out);
+    dancer.move = 'Groove_Bounce'; dancer.hadBeat = true; dancer.barsLeft = 999; dancer.lastBar = 0; dancer.lag = 0; dancer.phaseOffset = 0;
+    const d = choreographer.step(dancer, { beatPresent: true, beat: 10, bpm: 120, energy: 0.5 }, CrowdDance.wrap01(10 / 8 + 0.2 / 4), out);
     assert.equal(d.snap, false);
     assert.ok(d.speed < 1, 'ahead of the beat it slows down');
-    const far = choreographer.step(dancer, { beatPresent: true, beat: 10, bpm: 120, energy: 0.5 }, CrowdDance.wrap01(10 / 2 + 0.45), out);
+    const far = choreographer.step(dancer, { beatPresent: true, beat: 10, bpm: 120, energy: 0.5 }, CrowdDance.wrap01(10 / 8 + 0.45 / 4), out);
     assert.equal(far.snap, true, 'nearly a beat off it jumps rather than drifting for bars');
 });
 
@@ -8573,7 +12413,7 @@ test('Dance_Loop dips on the beat, and a half-time clap lands on 2 and 4', () =>
     const { CrowdDance, choreographer } = loadCrowdDance(5);
     const out = {};
     const dancer = choreographer.createDancer(ALL_MOVES);
-    dancer.move = 'Dance_Loop'; dancer.hadBeat = true; dancer.barsLeft = 999; dancer.lastBar = 0; dancer.half = false;
+    dancer.move = 'Dance_Loop'; dancer.hadBeat = true; dancer.barsLeft = 999; dancer.lastBar = 0; dancer.half = false; dancer.lag = 0;
     for (const beat of [8, 9, 10, 11]) {
         const d = choreographer.step(dancer, { beatPresent: true, beat, bpm: 120, energy: 0.5 }, null, out);
         // Its dips are at 0.25 and 0.75 of the loop.
@@ -8611,6 +12451,65 @@ test('dancers change moves only on bar lines, and the floor is varied', () => {
     assert.ok(timelines.some(frames => frames.some(f => f.half)), 'nobody ever takes a move at half time');
 });
 
+test('crowd personalities give a drop varied authored reactions', () => {
+    const { choreographer } = loadCrowdDance(41);
+    const count = dropResponse => {
+        const moves = new Map();
+        for (let i = 0; i < 500; i++) {
+            const dancer = choreographer.createDancer(ALL_MOVES);
+            dancer.move = 'Groove_Bounce';
+            dancer.hadBeat = true;
+            dancer.lastBar = 0;
+            dancer.barsLeft = 99;
+            dancer.response = i / 499;
+            dancer.dropResponse = dropResponse;
+            const out = choreographer.step(dancer, {
+                beatPresent: true, beat: 8, bpm: 124, energy: 0.9, drop: true
+            }, 0, {});
+            moves.set(out.move, (moves.get(out.move) || 0) + 1);
+        }
+        return moves;
+    };
+    const restrained = count(0), exuberant = count(1);
+    assert.ok((exuberant.get('Groove_HandsUp') || 0) > (restrained.get('Groove_HandsUp') || 0) * 2,
+        'every dancer answered the drop with the same-sized reaction');
+    assert.ok((restrained.get('Groove_Clap') || 0) + (restrained.get('Groove_Bounce') || 0) > 20,
+        'restrained dancers lost their smaller authored drop reactions');
+});
+
+test('crowd attention is bounded, deterministic and frame-rate independent without translating dancers', () => {
+    const simulate = fps => {
+        const BABYLON = makeBabylonStub();
+        const { window } = loadClassic('js/club/11-audio-crowd.js', { BABYLON, VRClubUI: class {} });
+        const Crowd = window.VRClubAudioCrowd;
+        const root = {
+            position: { x: 0, y: 0, z: -12 },
+            rotation: { y: 0 },
+            isEnabled: () => true
+        };
+        const dance = {
+            attentionSeed: 123, attentionYaw: 0, attentionTargetYaw: 0,
+            attentionUntil: 999, nextAttention: 0, attending: true
+        };
+        const npc = { root, dance, animations: [{}], homeYaw: 0, avoidYaw: 0, reactsToBeat: false };
+        const club = Object.assign(Object.create(Crowd.prototype), {
+            npcAvatars: [npc],
+            scene: { activeCamera: { position: { x: 2, y: 1.7, z: -12 } } },
+            _npcBeatBoost: 1,
+            _updateAmbientNPC() {}
+        });
+        for (let frame = 1; frame <= fps; frame++) {
+            club.updateDancingNPCs(frame / fps, { hasAudio: false, bass: 0 }, 1 / fps);
+        }
+        return { yaw: root.rotation.y, x: root.position.x, z: root.position.z, target: dance.attentionTargetYaw };
+    };
+    const at30 = simulate(30), at120 = simulate(120);
+    assert.equal(at30.target, 0.1, 'the nearby player did not earn the dancer’s attention');
+    assert.ok(at30.yaw > 0.09 && at30.yaw <= 0.1, `attention yaw was not eased or bounded (${at30.yaw})`);
+    assert.ok(Math.abs(at30.yaw - at120.yaw) < 0.003, 'attention easing depends on render rate');
+    assert.deepEqual([at30.x, at30.z], [0, -12], 'attention moved the dancer into the floor or an obstacle');
+});
+
 test('when the kick goes every dancer keeps swaying off the grid, and dances again when it comes back', () => {
     const { CrowdDance, choreographer } = loadCrowdDance(23);
     const dancers = Array.from({ length: 200 }, () => choreographer.createDancer(ALL_MOVES));
@@ -8637,6 +12536,7 @@ test('the crowd keeps a trusted beat through sparse audio frames and isolated mi
     });
     const club = Object.assign(Object.create(window.VRClubAudioCrowd.prototype), {
         barPhase: 0,
+        _localPaPresence: 0.25,
         vjDirector: {
             bpm: 120, beatNumber: 16, realOnsetCount: 2,
             lastRealOnsetAt: clock, onsetStreak: 2
@@ -8644,8 +12544,10 @@ test('the crowd keeps a trusted beat through sparse audio frames and isolated mi
         showDirector: null
     });
 
-    assert.equal(club._crowdMusic({ hasAudio: true, energy: 0.5 }).beatPresent, true,
+    const localMusic = club._crowdMusic({ hasAudio: true, energy: 0.8 });
+    assert.equal(localMusic.beatPresent, true,
         'two fresh kicks establish the beat');
+    assert.equal(localMusic.energy, 0.2, 'listener-local PA presence should scale reaction energy only');
     clock += 100;
     assert.equal(club._crowdMusic({ hasAudio: false, energy: 0 }).beatPresent, true,
         'one sparse analyser frame dropped the whole floor to sway');
@@ -8684,4 +12586,592 @@ test('a build brings out the claps, and a drop puts the hands up', () => {
     // A quiet track: little hands-up, but still a beat-driven dance rather than the free sway.
     assert.ok(share({ energy: 0.1 }, ['Groove_HandsUp']) < share({ energy: 0.9 }, ['Groove_HandsUp']));
     assert.equal(share({ energy: 0.1 }, ['Groove_Sway']), 0);
+});
+
+// ---------------------------------------------------------------------------
+// Light hold policy, strobe patterns and smoke
+// ---------------------------------------------------------------------------
+
+test('strobe patterns pick the right corners: the ring is 0, 1, 3, 2 (a circle), not the Z of plain index order', () => {
+    const { window } = loadClassic('js/club/09-animation-finish.js', { VRClubAnimationFixtures: class {} });
+    const F = window.VRClubAnimationFinish;
+    const run = (pattern, steps, count = 4, rand) => Array.from({ length: steps }, (_, s) => [...F.strobeTargets(pattern, count, s, rand)]);
+    assert.deepEqual(run('all', 2), [[0, 1, 2, 3], [0, 1, 2, 3]]);
+    assert.deepEqual(run('circle', 5), [[0], [1], [3], [2], [0]], 'clockwise round the floor');
+    assert.deepEqual(run('reverse', 5), [[2], [3], [1], [0], [2]], 'and back the other way');
+    assert.deepEqual(run('pingpong', 7), [[0], [1], [3], [2], [3], [1], [0]], 'out and back without repeating the ends');
+    assert.deepEqual(run('sides', 3), [[0, 2], [1, 3], [0, 2]], 'left pair then right pair');
+    assert.deepEqual(run('frontback', 3), [[0, 1], [2, 3], [0, 1]]);
+    assert.deepEqual(run('cross', 3), [[0, 3], [1, 2], [0, 3]], 'the two diagonals');
+    assert.deepEqual(run('build', 5), [[0], [0, 1], [0, 1, 3], [0, 1, 3, 2], [0]], 'one more corner each burst');
+    assert.deepEqual(run('nonsense', 1), [[0, 1, 2, 3]], 'an unknown pattern fires everything');
+    // Random never repeats the previous single corner, never returns nothing and stays in range.
+    let last = -1;
+    for (let i = 0; i < 500; i++) {
+        const targets = F.strobeTargets('random', 4, i, Math.random, last);
+        assert.ok(targets.length >= 1 && targets.length <= 2 && targets.every(t => t >= 0 && t < 4) && new Set(targets).size === targets.length);
+        if (targets.length === 1) { assert.notEqual(targets[0], last, 'random repeated a corner'); last = targets[0]; } else last = -1;
+    }
+    // Any number of strobes still gets a non-empty answer.
+    for (const pattern of F.STROBE_PATTERNS) {
+        for (const count of [1, 2, 3, 4, 6]) for (let s = 0; s < 12; s++) {
+            if (pattern === 'chase') continue; // the show's own, handled in updateStrobes
+            assert.ok(F.strobeTargets(pattern, count, s).length >= 1, `${pattern} x${count} step ${s} fired nothing`);
+        }
+    }
+    for (const pattern of F.STROBE_PATTERNS) assert.ok(F.STROBE_PATTERN_NAMES[pattern], `${pattern} has no display name`);
+    assert.ok(F.STROBE_PATTERNS.includes('all') && F.STROBE_PATTERNS.includes('chase'), 'the original two patterns remain');
+    assert.equal(F.STROBE_PATTERN_NAMES.random, 'IRREGULAR FLASH');
+    const values = [0.1, 0, 0.9, 1];
+    let at = 0;
+    const quick = F.strobeInterval('random', 0.65, 1, () => values[at++]);
+    const pause = F.strobeInterval('random', 0.65, 1, () => values[at++]);
+    assert.ok(quick >= 0.34 && quick <= 0.54, `irregular quick stab interval ${quick}`);
+    assert.ok(pause >= 0.85 && pause <= 1.6, `irregular long pause ${pause}`);
+    assert.ok(pause > quick * 2, 'irregular timing must be visibly different, not small metronome jitter');
+});
+
+test('the automatic spot path crosses the room at a believable moving-head rate', () => {
+    const BABYLON = makeBabylonStub();
+    const F = loadClassic('js/club/08-animation-fixtures.js', {
+        BABYLON, VRClubAnimationCore: class {}
+    }).window.VRClubAnimationFixtures;
+    const club = { spotlightPattern: 0, spotlightMode: 1, _spotStaticPositions: [] };
+    const a = F.prototype._solveSpotDirection.call(club, 0, 0, 1, 1, {});
+    const b = F.prototype._solveSpotDirection.call(club, 0, 0.8, 1, 1, {});
+    assert.ok(Math.hypot(b.x - a.x, b.z - a.z) < 0.3,
+        'RANDOM/AUTO changed aim too far in one second for a physical moving head');
+});
+
+test('every strobe pattern fires its corners in turn, under the three-a-second room limit, and never in Safe Mode', () => {
+    const BABYLON = makeBabylonStub();
+    const { window } = loadClassic('js/club/09-animation-finish.js', { BABYLON, VRClubAnimationFixtures: class {} });
+    const F = window.VRClubAnimationFinish;
+    const makeClub = (pattern, safe = false) => ({
+        strobesActive: true, photosensitiveSafeMode: safe, strobePattern: pattern, strobeSpeed: 1, vjDropActive: false,
+        vjBuildIntensity: 0, masterIntensity: 1,
+        cachedColors: { ledMonoWhite: new BABYLON.Color3(1, 1, 1) },
+        strobes: Array.from({ length: 4 }, (_, i) => ({
+            mesh: { position: { x: i, copyFrom() {} } },
+            material: { emissiveColor: new BABYLON.Color3() }, light: null, flashDuration: 0, currentIntensity: 0
+        })),
+        strobeFlashLight: { intensity: 0, position: { copyFrom() {}, set() {} } }
+    });
+    for (const pattern of F.STROBE_PATTERNS) {
+        const club = makeClub(pattern);
+        const bursts = [];
+        let wasLit = false;
+        const dt = 1 / 60;
+        for (let frame = 0; frame < 60 * 30; frame++) {
+            F.prototype.updateStrobes.call(club, { time: 10 + frame * dt, dt, audio: { bass: 0, hasAudio: false } });
+            const lit = club.strobes.map((s, i) => (s.material.emissiveColor.r > 0 ? i : -1)).filter(i => i >= 0);
+            if (lit.length && !wasLit) bursts.push(lit);
+            wasLit = lit.length > 0;
+        }
+        assert.ok(bursts.length / 30 <= 3.0, `${pattern}: ${(bursts.length / 30).toFixed(2)} flashes a second`);
+        assert.ok(bursts.length >= 10, `${pattern}: barely flashed (${bursts.length} bursts in 30 s)`);
+        const corners = new Set(bursts.flat());
+        if (pattern === 'all') assert.deepEqual(bursts[0], [0, 1, 2, 3], 'ALL fires every corner together');
+        else assert.ok(corners.size >= 2, `${pattern} only ever used corner ${[...corners]}`);
+        if (pattern === 'circle') {
+            // Steady tempo and strictly round the ring.
+            const ring = [0, 1, 3, 2];
+            const first = ring.indexOf(bursts[0][0]);
+            bursts.slice(0, 8).forEach((burst, i) => assert.deepEqual(burst, [ring[(first + i) % 4]], `circle burst ${i}`));
+        }
+    }
+    const safe = makeClub('circle', true);
+    for (let frame = 0; frame < 600; frame++) {
+        F.prototype.updateStrobes.call(safe, { time: 10 + frame / 60, dt: 1 / 60, audio: { bass: 0, hasAudio: false } });
+        assert.ok(safe.strobes.every(s => !(s.material.emissiveColor.r > 0)), 'Safe Mode must never flash a pattern');
+    }
+});
+
+test('the hold policy is saved, validated and falls back to the old behaviour', () => {
+    const store = new Map();
+    const localStorage = { getItem: key => (store.has(key) ? store.get(key) : null) };
+    const { window } = loadClassic('js/club/01-core.js', { localStorage });
+    const resolve = window.VRClubCore.resolveLightHold;
+    assert.deepEqual({ ...resolve() }, { mode: 'resume', delay: 60, shuffle: 15 }, 'nothing stored: the old one-minute hand-back');
+    store.set('vrclub.lightHold', JSON.stringify({ mode: 'keep', delay: 300, shuffle: 30 }));
+    assert.deepEqual({ ...resolve() }, { mode: 'keep', delay: 300, shuffle: 30 });
+    store.set('vrclub.lightHold', JSON.stringify({ mode: 'shuffle', delay: 7, shuffle: 99999 }));
+    assert.deepEqual({ ...resolve() }, { mode: 'shuffle', delay: 60, shuffle: 15 }, 'out-of-range numbers fall back per field');
+    for (const bad of ['not json', 'null', '"keep"', '{"mode":"__proto__"}', '[]', '']) {
+        store.set('vrclub.lightHold', bad);
+        assert.deepEqual({ ...resolve() }, { mode: 'resume', delay: 60, shuffle: 15 }, `bad value ${bad}`);
+    }
+    assert.deepEqual({ ...window.VRClubCore.resolveLightHold({ getItem() { throw new Error('private'); } }) }, { mode: 'resume', delay: 60, shuffle: 15 });
+});
+
+test('the hold policy decides whether the automatic show comes back after a hand-made change', () => {
+    const { window } = loadClassic('js/club/08-animation-fixtures.js', { BABYLON: makeBabylonStub(), VRClubAnimationCore: class {}, log: { info() {} } });
+    const proto = window.VRClubAnimationFixtures.prototype;
+    const club = hold => ({
+        lightHold: hold, VJ_TIMEOUT: 60, vjManualMode: true, lastVJInteraction: 0, spotlightPattern: 2,
+        showDirector: { released: 0, isDriving: () => false, releaseHold() { this.released++; } },
+        colorTransitionProgress: 1, lastColorChange: 0, energyLevel: 0,
+        lightHandBackSeconds: proto.lightHandBackSeconds
+    });
+    assert.equal(proto.lightHandBackSeconds.call(club({ mode: 'resume', delay: 120 })), 120);
+    assert.equal(proto.lightHandBackSeconds.call(club({ mode: 'keep', delay: 120 })), Infinity);
+    assert.equal(proto.lightHandBackSeconds.call(club({ mode: 'shuffle', delay: 120 })), Infinity);
+    assert.equal(proto.lightHandBackSeconds.call({ VJ_TIMEOUT: 45 }), 45, 'no policy at all: the legacy timeout');
+    const after = (hold, seconds) => {
+        const c = club(hold);
+        proto.updateSpotColorCycle.call(c, { time: seconds, dt: 1 / 60 });
+        return c;
+    };
+    assert.equal(after({ mode: 'resume', delay: 30 }, 29).vjManualMode, true, 'handed back too early');
+    const back = after({ mode: 'resume', delay: 30 }, 31);
+    assert.equal(back.vjManualMode, false, 'RETURN TO AUTO did not return');
+    assert.equal(back.showDirector.released, 1, 'a held show section is released with it');
+    assert.equal(after({ mode: 'keep', delay: 30 }, 100000).vjManualMode, true, 'KEEP IT handed the lights back');
+    assert.equal(after({ mode: 'shuffle', delay: 30, shuffle: 10 }, 100000).vjManualMode, true, 'SHUFFLE COLOURS handed the lights back');
+});
+
+test('while the lights are held by hand the palette engine leaves the colours alone, or shuffles them as chosen', () => {
+    const BABYLON = makeBabylonStub();
+    const { window } = loadClassic('js/vjDirector.js', { BABYLON });
+    const colors = [new BABYLON.Color3(1, 0, 0), new BABYLON.Color3(0, 1, 0), new BABYLON.Color3(0, 0, 1)];
+    const make = (hold, manual = true) => {
+        const club = { vjBPM: 128, cachedColors: {}, spotColorList: colors, mirrorBallColors: colors, mirrorBallColorIndex: 0,
+            vjManualMode: manual, lightHold: hold };
+        club.currentSpotColor = new BABYLON.Color3(0.25, 0.5, 0.75);   // the colour the guest picked
+        return { club, vj: new window.VJDirector(club) };
+    };
+    // Held, not shuffling: sixteen beats and more pass and the guest's colour is exactly as they left it.
+    for (const mode of ['resume', 'keep']) {
+        const { club, vj } = make({ mode, delay: 60, shuffle: 5 });
+        const hue = vj.masterHue;
+        for (let beat = 16; beat <= 96; beat += 16) { vj.beatNumber = beat; vj._updatePalette(1000 + beat * 100); }
+        assert.deepEqual({ r: club.currentSpotColor.r, g: club.currentSpotColor.g, b: club.currentSpotColor.b }, { r: 0.25, g: 0.5, b: 0.75 }, `${mode}: the picked colour was repainted`);
+        assert.equal(vj.masterHue, hue, `${mode}: the hue rotated under the guest`);
+    }
+    // Not held: the phrase rotation still runs exactly as before.
+    const auto = make({ mode: 'keep', delay: 60, shuffle: 5 }, false);
+    auto.vj.beatNumber = 16;
+    auto.vj._updatePalette(1000);
+    assert.notEqual(auto.vj.masterHue, 0, 'the automatic show stopped rotating the palette');
+    // Shuffle: a new, different hue every interval and not before, written to the whole rig.
+    const { club, vj } = make({ mode: 'shuffle', delay: 60, shuffle: 5 });
+    vj._updatePalette(10000);                                   // arms the timer
+    const start = vj.masterHue;
+    vj._updatePalette(14000);
+    assert.equal(vj.masterHue, start, 'shuffled before the interval');
+    vj._updatePalette(15001);
+    const hue1 = vj.masterHue;
+    assert.notEqual(hue1, start);
+    assert.ok(Math.abs(((hue1 - start + 1.5) % 1) - 0.5) >= 0.19, 'a shuffle must be a clear change, not a nudge');
+    assert.ok(club.currentSpotColor.r !== 0.25 || club.currentSpotColor.g !== 0.5, 'the shuffled hue did not reach the beams');
+    vj._updatePalette(20002);
+    assert.notEqual(vj.masterHue, hue1, 'it stopped shuffling');
+    // A guest following a host never rotates by themselves.
+    const follower = make({ mode: 'shuffle', delay: 60, shuffle: 5 });
+    follower.vj.remoteDriven = true;
+    follower.vj._updatePalette(10000);
+    follower.vj._updatePalette(99999);
+    assert.equal(follower.vj.masterHue, 0);
+});
+
+test('a show section the guest picks is kept, resumed after a time, or kept with shuffling colours', () => {
+    let clock = 100000;
+    const { window } = loadClassic('js/showDirector.js', { performance: { now: () => clock } });
+    const make = () => {
+        const vj = {
+            paletteMode: 'analogous', bpm: 120, beatNumber: 0, beatEnvelope: 0, blackoutUntil: 0,
+            realOnsetCount: 0, lastRealOnsetAt: clock, onsetStreak: 0, hueLocked: false, masterHue: 0.3, shuffles: 0,
+            setMasterHue(h) { this.masterHue = h; this.hueLocked = true; }, unlockHue() { this.hueLocked = false; },
+            shufflePalette() { this.shuffles++; this.masterHue = (this.masterHue + 0.4) % 1; }
+        };
+        const club = { vjManualMode: false, photosensitiveSafeMode: false, vjDirector: vj };
+        return { vj, club, show: new window.ShowDirector(club) };
+    };
+    const bars = (ctx, n) => {
+        for (let i = 0; i < n * 4; i++) {
+            clock += 500;
+            ctx.vj.beatNumber++;
+            ctx.show.update(clock / 1000, { hasAudio: true, bass: 0.4, mid: 0.3, treble: 0.1 });
+        }
+    };
+    const keep = { mode: 'keep', delay: 60, shuffle: 15 };
+
+    // KEEP IT: the section stays on its first look through many bars; the colour is pinned with it.
+    const a = make();
+    assert.equal(a.show.pickSection('ignition', keep), 'IGNITION'.replace('IGNITION', a.show.movements.ignition.title));
+    const look = a.show._cue.look;
+    assert.equal(a.show.isHeld(), true);
+    assert.equal(a.vj.hueLocked, true, 'the hold must pin the colour too');
+    bars(a, 40);
+    assert.equal(a.show._movementName, 'ignition');
+    assert.equal(a.show._cue.look, look, 'a kept section moved on');
+    assert.equal(a.show.holdSecondsLeft(), null, 'a kept section has no end');
+    // AUTO SHOW releases it and the show moves on again from where it was.
+    assert.equal(a.show.releaseHold(), true);
+    assert.equal(a.vj.hueLocked, false);
+    bars(a, 40);
+    assert.equal(a.show.isHeld(), false);
+    assert.ok(a.show._movementName !== 'ignition' || a.show._cue.look !== look, 'the show never moved on after AUTO SHOW');
+
+    // RETURN TO AUTO: held for the chosen time, then carried on.
+    const b = make();
+    b.show.pickSection('ignition', { mode: 'resume', delay: 30, shuffle: 15 });
+    bars(b, 5);                                         // 10 s at 120 BPM (a bar is 2 s)
+    assert.equal(b.show.isHeld(), true);
+    assert.ok(b.show.holdSecondsLeft() > 10 && b.show.holdSecondsLeft() <= 20, `left: ${b.show.holdSecondsLeft()}`);
+    bars(b, 11);                                        // 32 s in: past the 30 s hold
+    assert.equal(b.show.isHeld(), false, 'the timed hold never ended');
+
+    // SHUFFLE COLOURS: held, and a new hue at the interval.
+    const c = make();
+    c.show.pickSection('pulse', { mode: 'shuffle', delay: 60, shuffle: 5 });
+    bars(c, 16);                                        // 32 s
+    assert.equal(c.show.isHeld(), true);
+    assert.ok(c.vj.shuffles >= 5 && c.vj.shuffles <= 7, `expected about 6 shuffles in 32 s, got ${c.vj.shuffles}`);
+
+    // A follower in someone else's room cannot pick or hold; a countdown or a new section cancels a hold.
+    const d = make();
+    d.show.setFollower(true);
+    assert.equal(d.show.pickSection('ignition', keep), null);
+    assert.equal(d.show.holdLook(keep), false);
+    const e = make();
+    e.show.pickSection('ignition', keep);
+    e.show.triggerShowDrop();
+    assert.equal(e.show.isHeld(), false, 'a countdown must not stay held');
+    assert.equal(e.show.nextSection(keep) !== null, true);
+    assert.equal(e.show.isHeld(), true);
+});
+
+test('the lights follow the hold policy from every surface: choices are saved, timing steps per mode, sections resume the show first', () => {
+    const store = new Map();
+    const localStorage = { getItem: key => (store.has(key) ? store.get(key) : null), setItem: (key, value) => store.set(key, value) };
+    const core = loadClassic('js/club/01-core.js', { localStorage });
+    const { window } = loadClassic('js/club/10-ui.js', {
+        VRClubAnimationFinish: class { static get STROBE_PATTERNS() { return ['all', 'circle']; } },
+        VRClubCore: core.window.VRClubCore, localStorage
+    });
+    const proto = window.VRClubUI.prototype;
+    let held = false, picked = null, resumed = 0;
+    const club = Object.assign(Object.create(proto), {
+        lightHold: { mode: 'resume', delay: 60, shuffle: 15 }, vjManualMode: true, lastVJInteraction: 0,
+        guardHostControl: () => true, vjDirector: { _shuffleAt: 99 },
+        showDirector: {
+            follower: false, isHeld: () => held, holdLook(policy) { held = policy; }, releaseHold() { held = false; },
+            pickSection(name, policy) { picked = [name, policy.mode]; return name.toUpperCase(); },
+            nextSection(policy) { picked = ['next', policy.mode]; return 'NEXT'; }
+        }
+    });
+    performance.now = () => 5000;
+    // The summary says what will happen in words.
+    assert.equal(club.lightHoldSummary(), 'AUTO AFTER 1 MIN');
+    club.setLightHold({ mode: 'keep' });
+    assert.equal(club.lightHoldSummary(), 'KEPT UNTIL AUTO SHOW');
+    assert.deepEqual(JSON.parse(store.get('vrclub.lightHold')), { mode: 'keep', delay: 60, shuffle: 15 }, 'the choice is saved on this device');
+    club.setLightHold({ mode: 'bogus', delay: 7, shuffle: -1 });
+    assert.equal(club.lightHold.mode, 'keep', 'invalid values are ignored');
+    // The single VR/desk button steps the modes; its timing button steps the list that belongs to the mode.
+    club.setLightHold({ mode: 'resume' });
+    club.cycleLightHoldTiming();
+    assert.equal(club.lightHold.delay, 120);
+    assert.equal(club.lightHold.shuffle, 15, 'stepping auto-return timing leaves the shuffle interval alone');
+    club.setLightHold({ mode: 'shuffle' });
+    club.cycleLightHoldTiming();
+    assert.equal(club.lightHold.shuffle, 30);
+    assert.equal(club.lightHold.delay, 120);
+    club.setLightHold({ mode: 'keep' });
+    assert.equal(club.cycleLightHoldTiming().mode, 'keep', 'KEEP IT has no timing to step');
+    assert.equal(club.cycleLightHoldMode().mode, 'shuffle');
+    assert.equal(club.cycleLightHoldMode().mode, 'resume');
+    assert.equal(club.cycleLightHoldMode().mode, 'keep');
+    // Changing the policy while a section is held re-applies it to that hold.
+    held = true;
+    club.setLightHold({ mode: 'resume', delay: 30 });
+    assert.deepEqual({ ...held }, { mode: 'resume', delay: 30, shuffle: 30 });
+    held = false;
+    // Picking a section after hand-made changes hands the lights back to the show first, under the current policy.
+    club.resumeAutoShow = () => { resumed++; club.vjManualMode = false; };
+    assert.equal(club.pickShowSection('ignition'), 'IGNITION');
+    assert.equal(resumed, 1);
+    assert.deepEqual(picked, ['ignition', 'resume']);
+    club.vjManualMode = true;
+    assert.equal(club.nextShowSection(), 'NEXT');
+    assert.equal(resumed, 2);
+    // A guest cannot pick sections in someone else's room.
+    club.guardHostControl = () => false;
+    assert.equal(club.pickShowSection('pulse'), null);
+    club.guardHostControl = () => true;
+    club.showDirector.follower = true;
+    assert.equal(club.nextShowSection(), null);
+    // Taking the lights by hand cancels a held section; AUTO SHOW does too.
+    held = true;
+    proto.takeLightControl.call(club);
+    assert.equal(held, false);
+});
+
+test('smoke off is clear air and smoke on is haze: the level eases and scales fog, haze, lasers and beams', () => {
+    const BABYLON = makeBabylonStub();
+    const { window } = loadClassic('js/club/07-animation-core.js', { BABYLON, VRClubEffects: class {} });
+    const proto = window.VRClubAnimationCore.prototype;
+    const makeStops = () => [0, 1, 1, 0].map(() => ({ color1: { set(r, g, b, a) { this.a = a; }, a: 0 }, color2: { set(r, g, b, a) { this.a = a; }, a: 0 } }));
+    const club = (smokeActive) => ({
+        smokeActive, scene: { fogEnabled: false, fogDensity: 0.028, fogColor: { r: 0, g: 0, b: 0 }, activeCamera: null },
+        isInVRMode: false, vrSettings: { desktop: { fogDensity: 0.028 }, vr: { fogDensity: 0.022 } },
+        haze: { color1: { r: 0.5, g: 0.5, b: 0.5, a: 0.04 }, color2: { r: 0.5, g: 0.5, b: 0.5, a: 0.03 } },
+        _hazeGradients: makeStops(), _hazeFade: [0, 1, 1, 0], lightsActive: false, masterIntensity: 1
+    });
+    const settle = (c, seconds) => { for (let i = 0; i < seconds * 60; i++) proto._tintClubAir.call(c, 1 / 60); };
+
+    const on = club(true), off = club(false);
+    settle(on, 10); settle(off, 10);
+    assert.ok(Math.abs(on.scene.fogDensity - 0.028) < 1e-4, 'smoke on keeps the designed fog');
+    assert.ok(off.scene.fogDensity < 0.028 * 0.2, `smoke off still left ${(off.scene.fogDensity / 0.028 * 100).toFixed(0)}% of the fog`);
+    assert.ok(on._hazeGradients[1].color1.a > 0.039, 'full haze: the puffs keep their designed alpha');
+    const hazeOn = on._hazeGradients[1].color1.a;
+    assert.ok(off._hazeGradients[1].color1.a < hazeOn * 0.08, 'smoke off must clear the haze particles, not just stop the machines');
+    assert.equal(off._hazeGradients[0].color1.a, 0, 'the fade-in/out stops stay transparent');
+
+    // It eases: half a second after the switch the room is neither full nor empty, and it does not snap.
+    const toggled = club(true);
+    settle(toggled, 5);
+    toggled.smokeActive = false;
+    settle(toggled, 0.5);
+    assert.ok(toggled._smokeLevel > 0.4 && toggled._smokeLevel < 0.95, `snapped: ${toggled._smokeLevel}`);
+    settle(toggled, 10);
+    assert.equal(toggled._smokeLevel, 0);
+    toggled.smokeActive = true;
+    settle(toggled, 10);
+    assert.equal(toggled._smokeLevel, 1);
+});
+
+test('lasers, the laser sheet and the beams scatter less in clear air than in a hazy room', () => {
+    const src = ['js/club/07-animation-core.js', 'js/club/08-animation-fixtures.js']
+        .map(file => readFileSync(join(ROOT, file), 'utf8')).join('\n');
+    assert.doesNotMatch(src, /smokeActive === false\s*\n?\s*\? 0\.25/, 'a fixed 25% haze floor for smoke off is back');
+    assert.equal((src.match(/0\.2 \+ 0\.8 \* smokeNow/g) || []).length >= 3, true, 'laser, sheet and beam visibility must follow the smoke level');
+    assert.match(src, /_smokeLevel/);
+});
+
+test('the lights panel offers a strobe pattern, show sections and the hold choice, and every light button takes control', () => {
+    const html = readFileSync(join(ROOT, 'index.html'), 'utf8');
+    assert.match(html, /data-control="cycleStrobePattern"[^>]*>STROBE PATTERN: ALL AT ONCE</);
+    for (const section of ['arrival', 'pulse', 'ascent', 'ignition', 'afterglow']) assert.match(html, new RegExp(`data-section="${section}"`));
+    for (const hold of ['keep', 'resume', 'shuffle']) assert.match(html, new RegExp(`data-hold="${hold}"`));
+    assert.match(html, /id="vjHoldTiming"/);
+    const ui = readFileSync(join(ROOT, 'js/ui-init.js'), 'utf8');
+    const hand = /const HAND_CONTROLS = Object\.freeze\(new Set\(\[([^\]]*)\]\)\);/.exec(ui);
+    assert.ok(hand, 'HAND_CONTROLS is defined');
+    for (const control of ['changeColor', 'changeMirrorBallColor', 'cycleSpotMode', 'cyclePattern', 'goboActive', 'cycleGoboPattern', 'reverseGoboSpin', 'cycleStrobePattern']) {
+        assert.ok(hand[1].includes(`'${control}'`), `${control} no longer takes the lights from the automatic show`);
+    }
+    assert.match(ui, /if \(HAND_CONTROLS\.has\(control\)\) vrClubInstance\.takeLightControl\(\);/);
+    // Guests keep their own hold choice live in someone else's room, like their comfort settings.
+    assert.match(ui, /\[data-hold\], #vjHoldTiming/);
+});
+
+test('the VR menu offers the strobe pattern, the next section and the hold choice, with the timing disabled while keeping', () => {
+    const { window } = loadClassic('js/club/10-ui.js', { VRClubAnimationFinish: class {}, VRClubCore: { peopleCategories: () => [] } });
+    const proto = window.VRClubUI.prototype;
+    const club = Object.create(proto);
+    club._multiplayer = () => null;
+    club.lightHold = { mode: 'resume', delay: 60, shuffle: 15 };
+    const label = (page, text) => club._vrQuickMenuPageDefinitions(page).filter(Boolean).find(item => item.label === text);
+    assert.ok(label('effects', 'STROBE PATTERN'), 'EFFECTS has no strobe pattern button');
+    assert.equal(club._vrQuickMenuPageDefinitions('effects').filter(Boolean).length <= 12, true);
+    for (const text of ['NEXT SECTION', 'AFTER MY CHANGE', 'AUTO AFTER']) assert.ok(label('show', text), `SHOW is missing ${text}`);
+    club.lightHold.mode = 'shuffle';
+    assert.ok(label('show', 'COLOUR EVERY'));
+    club.lightHold.mode = 'keep';
+    assert.ok(label('show', 'TIMING'));
+    assert.equal(club._isVRButtonDisabled({ action: 'holdTiming' }), true, 'KEEP IT has no timing');
+    club.isFollowingHost = () => false;
+    club.lightHold.mode = 'resume';
+    assert.equal(club._isVRButtonDisabled({ action: 'holdTiming' }), false);
+    assert.equal(club._vrQuickMenuButtonValue({ action: 'holdMode' }, true), 'RETURN TO AUTO');
+    assert.equal(club._vrQuickMenuButtonValue({ action: 'holdTiming' }, true), '1 MIN');
+    club.lightHold = { mode: 'shuffle', delay: 60, shuffle: 30 };
+    assert.equal(club._vrQuickMenuButtonValue({ action: 'holdTiming' }, true), '30 S');
+    club.lightHold = { mode: 'keep', delay: 60, shuffle: 30 };
+    assert.equal(club._vrQuickMenuButtonValue({ action: 'holdTiming' }, true), 'NOT NEEDED');
+    // The section button is the host's in a room; the personal hold choice never is.
+    club.isFollowingHost = () => true;
+    assert.equal(club._isHostOwnedVRButton({ action: 'nextSection' }), true);
+    assert.equal(club._isHostOwnedVRButton({ action: 'holdMode' }), false);
+    assert.equal(club._isHostOwnedVRButton({ action: 'holdTiming' }), false);
+});
+
+test('a host\u2019s strobe pattern reaches guests through the allow-listed fixture frame', () => {
+    const { window } = loadClassic('js/multiplayer.js', {
+        VRClubAnimationFinish: { STROBE_PATTERNS: ['all', 'chase', 'circle'] }, NetworkClient: class {}, AvatarManager: class {}
+    });
+    const spec = window.ClubMultiplayer.MANUAL_FIXTURES;
+    assert.deepEqual([...spec.strobePatternIndex], [0, 31]);
+    const mp = Object.create(window.ClubMultiplayer.prototype);
+    mp.club = { strobePattern: 'circle', photosensitiveSafeMode: false };
+    assert.equal(mp._captureFixtures().strobePatternIndex, 2);
+    mp.club.strobePattern = 'invented';
+    assert.equal('strobePatternIndex' in mp._captureFixtures(), false, 'an unknown pattern is not sent');
+    mp._applyFixtures({ strobePatternIndex: 1 });
+    assert.equal(mp.club.strobePattern, 'chase');
+    mp._applyFixtures({ strobePatternIndex: 30 });
+    assert.equal(mp.club.strobePattern, 'chase', 'an index this build does not have is ignored');
+});
+test('the VJ desk: section buttons, strobe pattern and the after-my-change hold are on the panels and work', () => {
+    const { club, press, button, calls, toasts, VJDeskLayout } = deskHarness();
+    club.lightHold = { mode: 'resume', delay: 60, shuffle: 15 };
+    club.showDirector.pickSection = name => { calls.push(`pick ${name}`); return name.toUpperCase(); };
+    club.showDirector.isHeld = () => false;
+    club.resumeAutoShow = () => { calls.push('resume'); club.vjManualMode = false; };
+    const sections = VJDeskLayout.buttons.show.filter(b => b.kind === 'section').map(b => b.section);
+    assert.deepEqual([...sections], ['arrival', 'pulse', 'ascent', 'ignition', 'afterglow']);
+
+    press('section-ignition');
+    assert.deepEqual(calls, ['pick ignition']);
+    assert.equal(club._vjDeskButtonState(button('section-pulse')).active, true, 'the playing section lights up');
+    assert.equal(club._vjDeskButtonState(button('section-ignition')).active, false);
+
+    // The hold policy is personal: it cycles and persists without the host.
+    club.multiplayer = { isHost: () => false, following: true };
+    club.isFollowingHost = () => true;
+    assert.equal(club._vjDeskButtonState(button('holdMode')).value, 'RETURN TO AUTO');
+    press('holdMode');
+    assert.equal(club.lightHold.mode, 'keep');
+    assert.equal(club._vjDeskButtonState(button('holdMode')).value, 'KEEP IT');
+    assert.equal(club._vjDeskButtonState(button('holdTiming')).disabled, true, 'a kept look has no timer');
+    press('holdMode');
+    assert.equal(club.lightHold.mode, 'shuffle');
+    const before = club.lightHold.shuffle;
+    press('holdTiming');
+    assert.notEqual(club.lightHold.shuffle, before, 'the timing steps the shuffle interval');
+    assert.match(toasts.at(-1), /After my change/);
+    assert.equal(club._vjDeskButtonState(button('section-pulse')).value, 'HOST ONLY', 'sections belong to the host');
+
+    club.isFollowingHost = () => false;
+    club.strobePattern = 'all';
+    assert.equal(club._vjDeskButtonState(button('strobePattern')).value, 'ALL AT ONCE');
+    press('strobePattern');
+    assert.notEqual(club.strobePattern, 'all');
+});
+
+test('laser colour changes the lasers and sheet together, and match-all writes one colour across the rig', () => {
+    const BABYLON = makeBabylonStub();
+    const localStorage = { setItem() {} };
+    const { VRClubCore } = loadClassic('js/club/01-core.js', { localStorage }).window;
+    class Finish {
+        static get STROBE_PATTERNS() { return ['all']; }
+        static get STROBE_PATTERN_NAMES() { return { all: 'ALL AT ONCE' }; }
+    }
+    const { VRClubUI } = loadClassic('js/club/10-ui.js', {
+        BABYLON, VRClubCore, VRClubAnimationFinish: Finish, localStorage,
+        performance: { now: () => 5000 }, log: { info() {} }
+    }).window;
+    const red = new BABYLON.Color3(1, 0, 0);
+    const green = new BABYLON.Color3(0, 1, 0);
+    const blue = new BABYLON.Color3(0, 0, 1);
+    let harmony = '';
+    const club = Object.assign(Object.create(VRClubUI.prototype), {
+        spotColorList: [red, green, blue],
+        spotColorIndex: 0,
+        currentSpotColor: red.clone(),
+        cachedLaserColors: { red, green, blue },
+        currentColorIndex: 0,
+        colorLockActive: true,
+        ledPattern: 0,
+        ledPatternSwitchTime: 0,
+        _laserColor() {
+            if (this.colorLockActive) return this.currentSpotColor;
+            return [red, green, blue][this.currentColorIndex];
+        },
+        vjDirector: { setLedHarmony(value) { harmony = value; } },
+        mirrorBallSpotlights: [{ diffuse: null }],
+        mirrorBallBeams: [{ material: { emissiveColor: null } }],
+        mirrorBallHousings: [],
+        mirrorReflectionBatch: {
+            spotMat: { emissiveColor: red.clone() },
+            rayMat: { emissiveColor: red.clone() }
+        }
+    });
+
+    const laser = club.cycleLaserColor();
+    assert.deepEqual([laser.r, laser.g, laser.b], [0, 1, 0]);
+    assert.equal(club.colorLockActive, false, 'an individual laser choice releases the all-colour lock');
+    assert.equal(club.currentColorIndex, 1);
+    assert.equal(club.colorSwitchTime, 5);
+
+    const matched = club.matchAllLightColors();
+    assert.deepEqual([matched.r, matched.g, matched.b], [0, 1, 0]);
+    assert.equal(club.colorLockActive, true);
+    assert.equal(club.ledMonochrome, false);
+    assert.equal(club.ledMulti, false);
+    assert.equal(club.ledPattern, 5, 'matching selects the single-colour breathing wall show');
+    assert.equal(club.ledPatternSwitchTime, 5, 'the matched wall show starts a fresh dwell');
+    assert.equal(harmony, 'match');
+    assert.deepEqual(
+        [club.currentSpotColor, club._laserColor(), club.mirrorBallSpotlightColor].map(c => [c.r, c.g, c.b]),
+        [[0, 1, 0], [0, 1, 0], [0, 1, 0]]
+    );
+
+    club.cycleSpotColor();
+    assert.deepEqual([club.mirrorBallSpotlightColor.r, club.mirrorBallSpotlightColor.g, club.mirrorBallSpotlightColor.b], [0, 0, 1],
+        'spot colour keeps the whole rig matched while the lock is active');
+});
+
+test('moving-head beams clip and place pools on elevated venue surfaces (mezzanine deck, DJ table/riser, bar counter) and inner walls', () => {
+    const BABYLON = require('../js/vendor/babylon.js');
+    const ROOM_INTERIOR = { x: { min: -12.25, max: 12.25 }, y: { min: 0, max: 9.85 }, z: { min: -20, max: -0.25 } };
+    const ROOM_BOUNDS = { x: { min: -12.5, max: 12.5 }, z: { min: -21, max: -5 } };
+    const fixtures = loadClassic('js/club/08-animation-fixtures.js', {
+        BABYLON, VRClubAnimationCore: class {}, ROOM_INTERIOR, ROOM_BOUNDS
+    }).window.VRClubAnimationFixtures.prototype;
+
+    const club = Object.assign(Object.create(fixtures), {
+        vecPool: { up: new BABYLON.Vector3(), spotAxis: new BABYLON.Vector3() },
+        _quatIdentity: BABYLON.Quaternion.Identity(),
+        _quatFlipX: BABYLON.Quaternion.RotationAxis(new BABYLON.Vector3(1, 0, 0), Math.PI),
+        lightsActive: true,
+        goboEnabled: true,
+        goboRotation: 0
+    });
+
+    const makeSpot = (x, y, z) => ({
+        basePos: new BABYLON.Vector3(x, y, z),
+        beam: { position: new BABYLON.Vector3(), scaling: new BABYLON.Vector3(1, 1, 1), rotationQuaternion: new BABYLON.Quaternion() },
+        beamMat: {},
+        lightPool: { position: new BABYLON.Vector3(), rotation: new BABYLON.Vector3(), scaling: new BABYLON.Vector3(1, 1, 1), visibility: 1 },
+        lightPoolGlow: { position: new BABYLON.Vector3(), rotation: new BABYLON.Vector3(), scaling: new BABYLON.Vector3(1, 1, 1), visibility: 1 },
+        goboProjection: {
+            position: new BABYLON.Vector3(), rotation: new BABYLON.Vector3(), scaling: new BABYLON.Vector3(1, 1, 1),
+            visibility: 0, setEnabled() {}
+        },
+        goboMat: { emissiveTexture: {}, emissiveColor: new BABYLON.Color3() }
+    });
+
+    // 1. Beam aimed straight down over the mezzanine deck (x = -11, z = -15) stops at y = 3.0, not y = 0.
+    const mezzSpot = makeSpot(-11, 7.3, -15);
+    const down = new BABYLON.Vector3(0, -1, 0);
+    const mezzGeom = club._updateSpotBeamGeometry(mezzSpot, 0, down, 0, 1, 1);
+    assert.equal(mezzGeom.hitSurface, 'floor');
+    assert.ok(Math.abs(mezzGeom.surfaceIntersection.y - 3.0) < 1e-6, `expected y=3.0 on mezzanine deck, got ${mezzGeom.surfaceIntersection.y}`);
+    assert.ok(Math.abs(mezzSpot.beamMat.clipPlane4.d - 3.01) < 1e-6, 'clipPlane4.d must clip at y = 3.01');
+    club._placeSpotPool(mezzSpot, down, mezzGeom.hitSurface, mezzGeom.surfaceIntersection, 0.8, 0.8, 0, 0, 0);
+    assert.ok(Math.abs(mezzSpot.lightPool.position.y - 3.004) < 1e-6, 'pool rests on the 3.0 m deck');
+    club._updateSpotGoboProjection(mezzSpot, mezzGeom, { beamVisible: true, physicsIntensity: 1, spotColor: new BABYLON.Color3(1, 1, 1) });
+    assert.ok(Math.abs(mezzSpot.goboProjection.position.y - 3.025) < 1e-6, 'gobo rests on the 3.0 m deck');
+
+    // 2. Beam aimed down at the bar counter (x = 10.1, z = -10) stops at y = 1.1.
+    const barSpot = makeSpot(10.1, 7.3, -10);
+    const barHit = club._resolveSpotSurfaceHit(barSpot, down);
+    assert.ok(Math.abs(barHit.surfaceIntersection.y - 1.1) < 1e-6, `expected y=1.1 on bar counter, got ${barHit.surfaceIntersection.y}`);
+
+    // 3. Beam aimed down at the DJ riser (x = 2.5, z = -17) stops at y = 0.5, and at the DJ table (x = 0, z = -18.5) stops at y = 1.42.
+    const riserSpot = makeSpot(2.5, 7.3, -17);
+    assert.ok(Math.abs(club._resolveSpotSurfaceHit(riserSpot, down).surfaceIntersection.y - 0.5) < 1e-6);
+    const tableSpot = makeSpot(0, 7.3, -18.5);
+    assert.ok(Math.abs(club._resolveSpotSurfaceHit(tableSpot, down).surfaceIntersection.y - 1.42) < 1e-6);
+
+    // 4. Beam aimed at the back wall stops at ROOM_INTERIOR.z.min (-20), not ROOM_BOUNDS.z.min (-21).
+    const backSpot = makeSpot(0, 7.3, -16);
+    const backDir = new BABYLON.Vector3(0, -0.2, -1).normalize();
+    const backHit = club._resolveSpotSurfaceHit(backSpot, backDir);
+    assert.equal(backHit.hitSurface, 'backWall');
+    assert.ok(Math.abs(backHit.surfaceIntersection.z - (-20)) < 1e-6, `expected backWall at z=-20, got ${backHit.surfaceIntersection.z}`);
 });

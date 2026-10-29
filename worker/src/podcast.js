@@ -9,25 +9,101 @@
  *
  *   GET /podcast/colourizon/feed.xml         the feed, with every enclosure rewritten to the stream route below
  *   GET /podcast/colourizon/stream/<name>    the episode, with HTTP Range support, followed through the redirect
+ *   GET /soundcloud/resolve?url=<page>       a soundcloud.com/<user>/<track> page (or an on.soundcloud.com share link that
+ *                                            leads to one) -> a stream, but ONLY when SoundCloud
+ *                                            serves that track to podcast players (oEmbed gives the id, the podcast
+ *                                            stream endpoint must answer for it); otherwise 404 "not-published"
+ *   GET /soundcloud/stream/<name>            that stream, same Range/redirect handling
  *
- * Both answer only allow-listed browser Origins (the same rule as the WebSocket relay) and reach exactly one
- * upstream host with a validated path: this is not an open proxy.
+ * Both answer only allow-listed browser Origins (the same rule as the WebSocket relay) and reach exactly two upstream
+ * hosts (soundcloud.com's oEmbed and feeds.soundcloud.com/stream/) with validated paths: this is not an open proxy,
+ * and it never reads or unlocks audio SoundCloud does not hand to podcast apps.
  */
 
 export const COLOURIZON_FEED_URL = 'https://feeds.soundcloud.com/users/soundcloud:users:252951/sounds.rss';
 export const COLOURIZON_STREAM_BASE = 'https://feeds.soundcloud.com/stream/';
+export const SOUNDCLOUD_STREAM_BASE = COLOURIZON_STREAM_BASE;
 export const PODCAST_FEED_PATH = '/podcast/colourizon/feed.xml';
 export const PODCAST_STREAM_PREFIX = '/podcast/colourizon/stream/';
 export const MAX_FEED_BYTES = 2 * 1024 * 1024;
 export const FEED_CACHE_SECONDS = 600;
+export const METADATA_TIMEOUT_MS = 8000;
+export const STREAM_HEADERS_TIMEOUT_MS = 10000;
+export const HTTP_LIMIT_CAPACITY = 120;
+export const HTTP_LIMIT_REFILL_PER_SECOND = 2;
 
 /** `<track id>-missmelera-<slug>.mp3`: only Miss Melera's own uploads. */
 const STREAM_NAME = /^\d{6,20}-missmelera-[a-z0-9-]{1,200}\.mp3$/;
 /** A single byte range, open-ended or closed. Multi-range requests are refused (the CDN would answer multipart). */
 const RANGE = /^bytes=(?:\d{1,12}-\d{0,12}|-\d{1,12})$/;
 
+export const SOUNDCLOUD_RESOLVE_PATH = '/soundcloud/resolve';
+export const SOUNDCLOUD_STREAM_PREFIX = '/soundcloud/stream/';
+export const SOUNDCLOUD_OEMBED = 'https://soundcloud.com/oembed';
+export const MAX_OEMBED_BYTES = 64 * 1024;
+
+/** `<track id>-<user>-<slug>.mp3`: the name SoundCloud gives a track its creator publishes in a podcast RSS feed. */
+const SOUNDCLOUD_STREAM_NAME = /^\d{1,20}-[a-z0-9][a-z0-9_-]{0,100}\.mp3$/;
+const PERMALINK = /^[a-z0-9][a-z0-9_-]{0,100}$/;
+/** First path segments of soundcloud.com that are site pages, not people. */
+const SOUNDCLOUD_SITE_PAGES = new Set(['discover', 'stream', 'upload', 'you', 'search', 'pages', 'charts', 'mobile', 'people',
+    'tags', 'settings', 'messages', 'notifications', 'jobs', 'imprint', 'terms-of-use', 'feed', 'popular', 'trending']);
+/** Second segments that are a profile's tabs or a playlist, not one track. */
+const SOUNDCLOUD_PROFILE_TABS = new Set(['sets', 'tracks', 'albums', 'reposts', 'likes', 'following', 'followers', 'popular-tracks', 'comments']);
+const httpLimits = new Map();
+const MAX_LIMIT_KEYS = 2048;
+
 export function isStreamName(name) {
     return typeof name === 'string' && STREAM_NAME.test(name);
+}
+
+export function isSoundCloudStreamName(name) {
+    return typeof name === 'string' && SOUNDCLOUD_STREAM_NAME.test(name) && !name.includes('..');
+}
+
+export const SOUNDCLOUD_SHORT_HOST = 'on.soundcloud.com';
+
+/** The id of an on.soundcloud.com/<id> link (what the SoundCloud app's Share button copies), or null for anything else. */
+export function parseSoundCloudShortUrl(raw) {
+    let url;
+    try { url = new URL(String(raw)); } catch { return null; }
+    if (url.protocol !== 'https:' || url.username || url.password || url.hostname.toLowerCase() !== SOUNDCLOUD_SHORT_HOST) return null;
+    const parts = url.pathname.split('/').filter(Boolean);
+    return parts.length === 1 && /^[A-Za-z0-9]{4,40}$/.test(parts[0]) ? parts[0] : null;
+}
+
+/**
+ * Follows a share link's ONE redirect (fixed host, never automatically followed) and re-validates where it leads: the result
+ * must be an ordinary soundcloud.com/<user>/<track> page, so a share link to a playlist or profile is refused like any other.
+ */
+async function expandSoundCloudShortUrl(id) {
+    const response = await fetchHeaders(`https://${SOUNDCLOUD_SHORT_HOST}/${id}`, { redirect: 'manual' }, METADATA_TIMEOUT_MS);
+    try { await response.body?.cancel(); } catch { /* ignore */ }
+    if (![301, 302, 303, 307, 308].includes(response.status)) return null;
+    const location = response.headers.get('Location');
+    if (!location) return null;
+    let target;
+    try { target = new URL(location, `https://${SOUNDCLOUD_SHORT_HOST}/`); } catch { return null; }
+    return parseSoundCloudTrackUrl(target.href);
+}
+
+/** A soundcloud.com/<user>/<track> page URL, reduced to its two permalinks; null for anything else. */
+export function parseSoundCloudTrackUrl(raw) {
+    let url;
+    try { url = new URL(String(raw)); } catch { return null; }
+    if (url.protocol !== 'https:' || url.username || url.password) return null;
+    if (!/^(www\.|m\.)?soundcloud\.com$/i.test(url.hostname)) return null;
+    const parts = url.pathname.split('/').filter(Boolean).map(part => part.toLowerCase());
+    if (parts.length !== 2 || !PERMALINK.test(parts[0]) || !PERMALINK.test(parts[1])) return null;
+    if (SOUNDCLOUD_SITE_PAGES.has(parts[0]) || SOUNDCLOUD_PROFILE_TABS.has(parts[1])) return null;
+    return { user: parts[0], slug: parts[1], href: `https://soundcloud.com/${parts[0]}/${parts[1]}` };
+}
+
+/** The numeric track id inside SoundCloud's oEmbed player markup, or null (a playlist has none). */
+export function trackIdFromOembed(oembed) {
+    const html = oembed && typeof oembed.html === 'string' ? oembed.html : '';
+    const match = /api\.soundcloud\.com(?:%2F|\/)tracks(?:%2F|\/)(\d{1,20})/i.exec(html);
+    return match ? match[1] : null;
 }
 
 /**
@@ -90,26 +166,180 @@ function concatBytes(chunks, size) {
     return out;
 }
 
+const json = (status, body, headers) => new Response(JSON.stringify(body), { status, headers: { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store', ...headers } });
+
+function cacheApi() {
+    try { return typeof caches !== 'undefined' ? caches.default : null; } catch { return null; }
+}
+
+async function cachedMetadata(key) {
+    const cache = cacheApi();
+    if (!cache) return null;
+    try {
+        const hit = await cache.match(key);
+        return hit ? await hit.json() : null;
+    } catch {
+        return null;
+    }
+}
+
+async function storeMetadata(key, value, ttl) {
+    const cache = cacheApi();
+    if (!cache) return;
+    try {
+        await cache.put(key, new Response(JSON.stringify(value), {
+            headers: { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': `public, max-age=${ttl}` }
+        }));
+    } catch { /* cache failure degrades to a normal upstream request */ }
+}
+
+async function fetchCapped(url, init, limit) {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), METADATA_TIMEOUT_MS);
+    try {
+        const response = await fetch(url, { ...init, signal: controller.signal });
+        const body = response.ok ? await readCapped(response, limit) : '';
+        if (!response.ok) {
+            try { await response.body?.cancel(); } catch { /* ignore */ }
+        }
+        return { response, body };
+    } finally {
+        clearTimeout(timer);
+    }
+}
+
+async function fetchHeaders(url, init, timeoutMs = STREAM_HEADERS_TIMEOUT_MS) {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), timeoutMs);
+    try {
+        return await fetch(url, { ...init, signal: controller.signal });
+    } finally {
+        // Audio bodies deliberately outlive this header deadline and remain streamed.
+        clearTimeout(timer);
+    }
+}
+
 /**
- * Handles the two routes. Returns null for any other path so the caller can carry on.
+ * Best-effort abuse control only: isolates do not share this map and may be evicted.
+ * Durable, globally consistent rate limits would require additional infrastructure.
+ */
+function takeHttpLimit(request, origin, cost = 1, now = Date.now()) {
+    const ip = request.headers.get('CF-Connecting-IP') || 'unknown';
+    const key = `${ip}\n${origin}`;
+    let bucket = httpLimits.get(key);
+    if (!bucket) {
+        if (httpLimits.size >= MAX_LIMIT_KEYS) {
+            const oldest = httpLimits.keys().next().value;
+            if (oldest !== undefined) httpLimits.delete(oldest);
+        }
+        bucket = { tokens: HTTP_LIMIT_CAPACITY, at: now };
+        httpLimits.set(key, bucket);
+    }
+    bucket.tokens = Math.min(HTTP_LIMIT_CAPACITY,
+        bucket.tokens + Math.max(0, now - bucket.at) * HTTP_LIMIT_REFILL_PER_SECOND / 1000);
+    bucket.at = now;
+    if (bucket.tokens < cost) return false;
+    bucket.tokens -= cost;
+    return true;
+}
+
+export function resetPodcastStateForTests() {
+    httpLimits.clear();
+}
+
+/**
+ * Turns a soundcloud.com/<user>/<track> page into a playable relay stream, but ONLY when SoundCloud itself serves that
+ * track to podcast players: the track's id comes from SoundCloud's public oEmbed, and the stream is offered only if the
+ * podcast feed endpoint answers for it (it answers 404 for a track its creator has not published that way). Nothing
+ * here reads, scrapes or unlocks audio SoundCloud does not hand to podcast apps.
+ */
+async function resolveSoundCloud(url, cors) {
+    const raw = url.searchParams.get('url');
+    let track = parseSoundCloudTrackUrl(raw);
+    if (!track) {
+        const shortId = parseSoundCloudShortUrl(raw);
+        if (shortId) {
+            try { track = await expandSoundCloudShortUrl(shortId); } catch { return json(502, { error: 'unavailable' }, cors); }
+        }
+    }
+    if (!track) return json(400, { error: 'not-a-track' }, cors);
+    const cacheKey = new Request(`${url.origin}${SOUNDCLOUD_RESOLVE_PATH}?url=${encodeURIComponent(track.href)}`);
+    try {
+        const cached = await cachedMetadata(cacheKey);
+        if (cached) return json(200, cached, cors);
+        const { response: oembed, body } = await fetchCapped(
+            `${SOUNDCLOUD_OEMBED}?format=json&url=${encodeURIComponent(track.href)}`,
+            { cf: { cacheTtl: 3600, cacheEverything: true } },
+            MAX_OEMBED_BYTES
+        );
+        if (!oembed.ok) return json(404, { error: 'not-found' }, cors);
+        const info = JSON.parse(body);
+        const id = trackIdFromOembed(info);
+        if (!id) return json(404, { error: 'not-a-track' }, cors);
+        const name = `${id}-${track.user}-${track.slug}.mp3`;
+        if (!isSoundCloudStreamName(name)) return json(404, { error: 'not-a-track' }, cors);
+        const probe = await fetchHeaders(`${SOUNDCLOUD_STREAM_BASE}${name}`,
+            { redirect: 'follow', headers: { Range: 'bytes=0-0' } }, METADATA_TIMEOUT_MS);
+        try { await probe.body?.cancel(); } catch { /* ignore */ }
+        if (probe.status !== 200 && probe.status !== 206) return json(404, { error: 'not-published' }, cors);
+        const title = String(info.title || '').replace(/[\u0000-\u001f\u007f]+/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 120);
+        const resolved = { name, title, path: `${SOUNDCLOUD_STREAM_PREFIX}${name}` };
+        await storeMetadata(cacheKey, resolved, 3600);
+        return json(200, resolved, cors);
+    } catch {
+        return json(502, { error: 'unavailable' }, cors);
+    }
+}
+
+/**
+ * Handles the podcast and SoundCloud routes. Returns null for any other path so the caller can carry on.
  * @param {Request} request
  * @param {string} origin  the already-validated browser origin
  */
 export async function handlePodcast(request, url, origin) {
     const isFeed = url.pathname === PODCAST_FEED_PATH;
     const isStream = url.pathname.startsWith(PODCAST_STREAM_PREFIX);
-    if (!isFeed && !isStream) return null;
+    const isResolve = url.pathname === SOUNDCLOUD_RESOLVE_PATH;
+    const isScStream = url.pathname.startsWith(SOUNDCLOUD_STREAM_PREFIX);
+    if (!isFeed && !isStream && !isResolve && !isScStream) return null;
     const cors = corsHeaders(origin);
     if (request.method === 'OPTIONS') return new Response(null, { status: 204, headers: cors });
     if (request.method !== 'GET' && request.method !== 'HEAD') return text(405, 'method not allowed', cors);
+    const cost = isResolve ? 4 : (isFeed ? 2 : 1);
+    if (!takeHttpLimit(request, origin, cost)) {
+        return text(429, 'too many requests', { ...cors, 'Retry-After': '1' });
+    }
+
+    if (isResolve) return resolveSoundCloud(url, cors);
+    if (isScStream) {
+        let name;
+        try { name = decodeURIComponent(url.pathname.slice(SOUNDCLOUD_STREAM_PREFIX.length)); } catch { return text(404, 'not found', cors); }
+        return isSoundCloudStreamName(name) ? streamEpisode(request, SOUNDCLOUD_STREAM_BASE, name, cors) : text(404, 'not found', cors);
+    }
 
     if (isFeed) {
-        let upstream;
         try {
-            upstream = await fetch(COLOURIZON_FEED_URL, { cf: { cacheTtl: FEED_CACHE_SECONDS, cacheEverything: true } });
+            const cacheKey = new Request(`${url.origin}${PODCAST_FEED_PATH}`);
+            const cached = await cachedMetadata(cacheKey);
+            if (cached && typeof cached.xml === 'string') {
+                return new Response(request.method === 'HEAD' ? null : cached.xml, {
+                    status: 200,
+                    headers: {
+                        'Content-Type': 'application/rss+xml; charset=utf-8',
+                        'Cache-Control': `public, max-age=${FEED_CACHE_SECONDS}`,
+                        ...cors
+                    }
+                });
+            }
+            const { response: upstream, body } = await fetchCapped(
+                COLOURIZON_FEED_URL,
+                { cf: { cacheTtl: FEED_CACHE_SECONDS, cacheEverything: true } },
+                MAX_FEED_BYTES
+            );
             if (!upstream.ok) return text(502, 'the podcast feed is unavailable', cors);
-            const xml = await readCapped(upstream, MAX_FEED_BYTES);
-            return new Response(request.method === 'HEAD' ? null : rewriteFeed(xml, url.origin), {
+            const xml = rewriteFeed(body, url.origin);
+            await storeMetadata(cacheKey, { xml }, FEED_CACHE_SECONDS);
+            return new Response(request.method === 'HEAD' ? null : xml, {
                 status: 200,
                 headers: {
                     'Content-Type': 'application/rss+xml; charset=utf-8',
@@ -124,12 +354,20 @@ export async function handlePodcast(request, url, origin) {
 
     const name = decodeURIComponent(url.pathname.slice(PODCAST_STREAM_PREFIX.length));
     if (!isStreamName(name)) return text(404, 'not found', cors);
+    return streamEpisode(request, COLOURIZON_STREAM_BASE, name, cors);
+}
+
+/**
+ * One episode, with HTTP Range support, followed through the 302 to the CDN. `base` is a fixed upstream and `name`
+ * has already been validated against that route's pattern: this is not an open proxy.
+ */
+async function streamEpisode(request, base, name, cors) {
     const range = request.headers.get('Range');
     if (range && !RANGE.test(range)) return text(416, 'one byte range at a time', cors);
     try {
         // `follow` crosses the 302 to the CDN. The signed URL is fetched here, per request, so it never goes stale
         // under a long set: every seek the browser makes asks this route again and gets a fresh signature.
-        const upstream = await fetch(`${COLOURIZON_STREAM_BASE}${name}`, {
+        const upstream = await fetchHeaders(`${base}${name}`, {
             method: request.method,
             redirect: 'follow',
             headers: range ? { Range: range } : {}

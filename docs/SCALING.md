@@ -1,18 +1,21 @@
-# Development rooms: SFU audio and bounded presence
+# 32-person rooms: SFU audio, safety and bounded presence
 
-This implementation is development-only until explicitly provisioned and deployed.
-It creates no Cloudflare application, modifies no production deployment, and changes
-no payment or access records. Capacity is an admission limit, not a headset performance
-claim.
+This branch combines QuestDev's scaling experiment (`8de2fd1`) with QuestProtect's
+safety controls (`486d2ae`, `20d8c60`). The shared production relay was deployed on
+19 October 2026 with 32 guests in every room, not just ADE rooms. Changing these
+files alone does not deploy a service. Capacity is an admission limit, not a
+headset performance claim.
+The development-only free-VR bypass and development-host routing were not imported;
+the real account/access gate and existing host-music behavior are retained.
 
 ## Configuration
 
-Set these on the **development relay only**:
+The shared relay uses `worker/wrangler.toml`:
 
 | Variable | Value / purpose |
 | --- | --- |
-| `ROOM_CAPACITY` | Integer `8` through `32`; default `8`. Development target: `32`. |
-| `MEDIA_TRANSPORT` | `mesh` (default) or `sfu`. Development target: `sfu`. |
+| `ROOM_CAPACITY` | Integer `8` through `32`; unconfigured default `8`. Shared production: `32`. |
+| `MEDIA_TRANSPORT` | `mesh` (default) or `sfu`. Shared production: `sfu`; required above eight guests. |
 | `SFU_APP_ID` | App ID from a separately provisioned Cloudflare Realtime SFU application. |
 | `SFU_APP_SECRET` | That app's secret, stored as a Worker secret, never in browser code or committed configuration. |
 
@@ -20,7 +23,257 @@ SFU mode fails configuration validation without both app credentials. It does **
 fall back to mesh on API, negotiation, or connectivity errors. A welcome frame advertises
 `capacity`, `mediaTransport`, and `poseBatch`. Existing deployments with unset variables
 remain eight-person mesh rooms. Old browsers can still use mesh rooms; SFU rooms require
-the updated media client, and the backend rejects mesh signaling in those rooms.
+the updated media client, and the backend rejects old clients before socket admission
+and rejects mesh signaling in those rooms.
+
+## Owner-only DEV room 000032
+
+Use the normal **Join room** flow and enter **000032** (`private-000032`).
+This is available on the updated ADE, Quest and SideQuest frontends.
+No developer panel, per-visitor configuration or extra credentials
+are needed. The device must already have the verified owner's API session
+(headset pairing supplies it); otherwise verify the owner email through Access.
+Knowing the code, supplying an email header or possessing an old invitation
+cookie does not authorize admission. Ordinary VR entitlements and leases remain
+unchanged; this is not a free-VR bypass.
+
+Configuration in `worker/wrangler.toml`:
+
+| Variable | Purpose |
+| --- | --- |
+| `DEV_ROOM_ENABLED` | Only the exact value `"1"` enables this one reserved room; unset/disabled refuses it. |
+| `DEV_ROOM_OWNERS` | Comma-separated verified account emails permitted to enter, independent of Cloudflare Access administrator permissions. |
+
+The client preflights `POST /payments/dev-room` using the existing credentialed,
+exact-origin payment API. Only this room then opens its socket on the API host,
+where the HttpOnly cookie is available. The public relay rechecks the hashed
+server session, expiry, session/device revocation and owner allow-list before
+resolving the Durable Object. It strips incoming authorization headers, creates
+its own internal admission marker and removes the cookie before forwarding.
+No account credential enters JavaScript or a WebSocket URL. Denial is explicit,
+does not schedule connection retries, and a cancelled preflight cannot reconnect.
+Account authorization is checked on entry/reconnection, not continuously on an
+already admitted socket. No schema migration, new secret or SFU application is required.
+
+The first real owner starts the simulation. `worker/src/devAttendees.js` gives
+each guest individual activity choices on a measured navigation graph, not a shared
+tour: dance, watch from a wall or balcony, chat indoors/outside, get fresh air, sit
+at one of four available bar stools, either couch cushion or either balcony chair,
+or visit a toilet. The resident bar regular's stool is never assigned. Guests linger
+for roughly one to three minutes instead of continually circulating. At most three
+ordinary guests walk simultaneously; others continue their activity rather than
+queue on a corridor. Entire swept paths are reserved before departure. Human
+obstructions can cause safe backtracking, never teleports. An occupied destination
+is skipped or an approach is cancelled if a real player occupies it.
+
+Real players have furniture priority. Selecting an NPC's seat requests `dev-seat`;
+the NPC stands and leaves before the client seats the player. Selecting an occupied
+simulated toilet door also asks its occupant to leave. The toilet door opens before
+walking, and seat reuse is held for 30 seconds. The client waits for both server
+occupancy and the rendered body to clear; a 15-second timeout reports that the guest
+cannot yet move, rather than placing two bodies on one seat. Pending waits are
+cancelled on stand, another selection, disconnect or disposal. Real occupied
+furniture/toilets are never evicted. Requests are DEV-only, known-seat allow-listed
+and rate-limited.
+
+The 31 guests have distinct fictional international first names, such as Amina,
+Hiroto, Priya, Kwame, Thandi and Minh. These are not real visitor/account identities.
+Nearby resting guests turn toward one another and occasionally wave, nod or show
+a greeting emoji. Two- and three-person groups take turns in occasional short
+scripted fictional conversations shown as ordinary chat balloons, at most one
+room-wide utterance per five seconds. Assets with a talking clip use it; others
+keep their idle and gestures. Seated guests retain their seated pose.
+Dancers face the booth and occasionally nod or cheer
+with a raised-hands emoji toward the DJ. These are ordinary overhead reactions,
+not a private message to the DJ, a new targeting protocol or a scripted DJ reply.
+Reactions use the existing allow-lists and block-aware routing, with at least
+23 seconds between a guest's social events; nobody waves instead of walking on a stair.
+This is deterministic scripted behavior, not AI conversation, synthetic voice,
+complete pedestrian simulation or physical prop handling.
+Unit tests check actual walking surfaces, fixed-NPC clearance and furniture assignments,
+and run 31 attendees for a simulated hour across five seeds and 4/10/20 Hz updates,
+requiring every attendee to change activities without body overlaps or position
+jumps. The hour-long tests require at most three ordinary walkers on every update and
+no walking queue lasting more than 1.2 seconds (including the toilet-door opening);
+the browser regression checks architectural clearance in the loaded club.
+
+* The capacity counts **everyone present**, normally one owner and 31 fictional
+  guests. Another authorized owner replaces one simulated guest; departure
+  refills the spare place. No overflow past the configured capacity is allowed.
+* Simulated guests use the ordinary join/state/gesture/avatar path, with explicit
+  `simulated` metadata and persistent `state.dancing` for late joins, unblocks
+  and detailed-body loading. Human state sanitization does not accept that field.
+* They cannot host or receive host transfers. Blocks remain two-way; kicked or
+  banned simulated guests are not immediately replaced or rerolled to evade it.
+  The host's room lock still applies to new real arrivals.
+* There are **no synthetic WebSockets or SFU members**: only real owners join
+  media membership. Bots publish no voice, microphone or music; their fictional
+  scripted chat is explicitly part of the simulation.
+  Normal host music/lights and personal safety settings remain in use.
+* Leaving the last real owner clears simulated membership, world state and
+  pose/sweep timers. DEV owners must heartbeat from admission, including before
+  their first ping; a lost connection is removed after 30 seconds of inactivity,
+  checked by the ten-second sweeper. Synthetic guests cannot keep a room alive.
+* While an owner remains connected the active 20 Hz room timer incurs Durable
+  Object activity/cost. There is no autonomous unattended bot service.
+
+This tests relay **outgoing presence fanout**, movement/animation, full-detail
+pose cadence, retained bodies and client rendering. It does **not** test 31
+inbound sockets, 32 independent WebRTC/SFU senders, real network congestion,
+human behavior, moderation staffing or physical-headset frame time.
+All tiers retain each remote guest's assigned Quaternius body; the 17 looks can
+repeat. Only clearly unseen poses can pause. Use real clients for media
+load and a physical headset's performance report for headset measurements.
+
+To disable the feature, set `DEV_ROOM_ENABLED = "0"` and redeploy the Worker.
+Normal public/private rooms do not gain simulated attendees.
+
+### DEV-room release
+
+The initial DEV-room release used Worker version `944ae909-cb98-46ef-8eea-ced720b2b626`.
+Its ADE frontend was deployed at <https://a11d9b38.nocturne-ade.pages.dev>,
+serving `assets/app-b6e1aae623ba.js` and service worker `vrclub-v0c0105df1939`.
+The custom host's index, bundle and service worker were verified byte-for-byte,
+with its non-indexing headers intact. Anonymous and spoofed-owner preflights
+and WebSocket upgrades return 401 on the deployed service; wrong-origin
+preflights return 403. The 722-test suite and real relay/browser/VR regression
+pass. Positive owner authorization is covered with real SQLite sessions locally;
+a live owner-cookie/headset join still needs an owner-device check.
+
+The immersive-appearance update was deployed with shared Worker version
+`86f0ffb6-6b10-4419-8a40-aa5123436763` and ADE deployment
+<https://f111b1c1.nocturne-ade.pages.dev>, bundle `assets/app-5a55a6131ccf.js`,
+service worker `vrclub-v23f949b1aa71`. All 724 tests and the DEV-room, tracked-arm
+and 31-body desktop/VR browser regressions pass. The custom host's index, bundle
+and service worker match the build byte-for-byte; non-indexing and anonymous
+DEV-room rejection remain intact. The four verified-owner accounts remain configured.
+The ordinary/SideQuest frontends have not received this appearance update.
+
+The named/social-attendee update supersedes that Worker with version
+`88e9e99f-ac64-4a70-890d-746482f6d382`. The ADE frontend remains on the same
+verified build; no new frontend protocol is needed. All 726 tests and the real
+DEV-room relay/browser/VR regression pass, including visible emoji rendering and
+architectural clearance of the dispersed stops. Live anonymous/wrong-origin
+admission remains 401/403. Leave and rejoin `000032` to start with the new guests.
+
+The individual-activity update supersedes that release with shared Worker
+`f5c889f1-6ac4-4c03-82cf-ff3dadb660e6` and ADE deployment
+<https://67b25109.nocturne-ade.pages.dev>, bundle `assets/app-2d1d6e47b567.js`,
+service worker `vrclub-vbd3a5d37dfc4`. All 731 tests pass. The real relay/browser/VR
+regression verifies visible scripted chat balloons, real-player seat handover,
+requests to vacate simulated toilets, architectural navigation clearance and
+cleanup. Syntax and focused lint pass with one pre-existing unused-argument warning.
+The custom host's index, JavaScript bundle and service worker match the build
+byte-for-byte; noindex and anonymous/wrong-origin 401/403 checks remain intact.
+Reload the ADE site and rejoin `000032` to use the new client and fresh simulation.
+The ordinary and SideQuest frontends are unchanged; normal rooms gain no NPCs.
+Naturalness and 32-person frame time still need a physical-headset check.
+
+## Coordinated rollout
+
+1. Provision or explicitly choose an SFU application for the shared relay; validate
+   its quotas, billing and network requirements. Store both `SFU_APP_ID` and
+   `SFU_APP_SECRET` as Worker secrets. Never put the secret in a frontend build.
+2. Back up the entitlement D1 database and apply pending migrations, including
+   `0009_room_capacity.sql`, before deploying the updated Worker. Migration 0009
+   rebuilds only `public_rooms` with a 32-person count constraint, preserves its
+   rows and expiry index, and does not change access/payment/account tables.
+3. Publish SFU-capable frontends to **every site using the shared relay**, not only
+   the ADE site. They remain compatible with the current eight-person mesh relay.
+   Updating this branch does not update other branches or deployed sites.
+4. Deploy the shared Worker with the prepared credentials and 32/SFU settings,
+   using a planned maintenance window for active rooms. An SFU configuration with
+   missing credentials fails explicitly; it never falls back to a 32-person mesh.
+5. Validate microphone/music, public/private audiences, reports, blocks, handover,
+   late joining, room occupancy and 32/33 admission on an isolated rehearsal
+   deployment first, then smoke-test the deployed shared service and real headsets.
+
+Old cached frontends cannot use SFU rooms: their upgrade request receives HTTP 426.
+Guests must reload/update. Do not switch the shared relay before updating the sites.
+Rollback requires `ROOM_CAPACITY=8` together with `MEDIA_TRANSPORT=mesh`; the expanded
+directory schema can stay in place. No new Durable Object class migration is needed:
+SFU cleanup uses the existing class's KV storage and alarms, including on the
+shared relay's existing non-SQLite objects.
+
+### Production rollout completed on 19 October 2026
+
+The owner's Cloudflare account now has a dedicated `nocturne-production` SFU app.
+Its `SFU_APP_ID` and `SFU_APP_SECRET` are installed as secrets on the shared
+`vrclub-network` Worker. The existing `nocturne-dev` app and development relay
+were left unchanged. Secret values were not written to the repository or logs.
+
+The supported production frontends were published before switching the relay:
+
+| Pages project | Production branch | Deployment |
+| --- | --- | --- |
+| `nocturne-vr` | `Quest` | `ed6c4a85-0ab2-4896-8b8a-2361dd1e9951` |
+| `nocturne-sidequest` | `SideQuest` | `d4479860-a8fd-48c0-9d82-195af0c604fc` |
+| `nocturne-ade` | `explore/ade-live-dj` | `b066208e-b2ce-4cb3-bc1d-94a3cce316b1` |
+
+All three serve `assets/app-acdd9502aa43.js`. The ordinary and SideQuest sites
+retain their normal metadata and no automatic ADE dressing; the ADE site retains
+its dedicated dressing and noindex/nofollow metadata and HTTP headers.
+
+A private SQL backup of the entitlement database was saved outside the repository.
+Only pending migration `0009_room_capacity.sql` was applied; the expanded count
+constraint, expiry index, and migration history were checked afterward. The shared
+Worker version is `bf374783-cfd2-4030-b95a-83dc110290aa`, with capacity 32 and SFU
+transport. Its existing access/payment bindings, secrets and custom API route
+remain configured. No pending D1 migrations remain.
+
+Verification: all 704 Node tests passed; the current client passed isolated live
+32/33 admission and real SFU voice/music, recipient/block revocation and handover
+tests without changing the development deployment. The production directory and
+access API returned HTTP 200. Two private production smoke guests received
+32/SFU welcomes, exchanged real SFU microphone RTP and host music, and left their
+test room empty. Fake microphones and muted output were used. An initial production
+attempt encountered an ICE failure; a retry with serialized publication setup
+passed and verified increasing voice/music counters with no client errors. This
+is not a 32-person audio-load test or physical-headset performance evidence.
+
+These were direct deployments from the integrated ADE worktree. On 20 October
+2026 the shared source updates were also merged into Quest and SideQuest, including
+the optional character styles and owner-only DEV room. Their source trees exclude
+ADE artwork, event dressing and pitch build/deployment commands, and retain their
+existing deployment targets and normal metadata. This source integration does not
+redeploy the Worker or apply migrations. Future releases must retain the SFU-capable
+client before publishing against this relay.
+The optional CC0 character cast brings the ordinary production payload to about
+115 MiB; CI caps it at 120 MiB. Characters still load on demand for the selected
+style and tier, not as an initial download of the entire cast.
+Visitors never configure credentials; updated clients select the transport from
+the relay's welcome. Reload old open tabs before joining.
+
+## QuestProtect policy in both transports
+
+The DOM and VR menus share first-use safety guidance, Report & block, and host-only
+session report notifications. This is menu guidance, not a server admission check;
+direct invitation joins retain their existing automatic connection behavior.
+Public-room selected-recipient chat is rejected by
+the relay; SFU `media-control` also rejects selected voice audiences in public rooms.
+Private rooms retain independent chat and voice audiences, including all 31 other
+guests. Blocks revoke SFU subscriptions as well as presence/chat signaling.
+Reports go to the current room host, are rate-limited, and are not a persistent
+or independently staffed event-reporting service. A host can themselves be reported;
+the current protocol does not provide an independent escalation channel.
+Official events still need trusted hosts/moderators, published escalation/contact
+procedures, rights and ticket/admission enforcement; no ADE role or event ticket
+entitlement is introduced here.
+
+## Rendering and appearance limits
+
+Every remote guest retains their assigned Quaternius body, independent of tier
+or distance. Body construction is serialized across frames; loading or failed
+appearances never expose a blue capsule. Failures are reported and retried.
+Only poses clearly behind the viewer pause (130-degree hold / 115-degree resume,
+with nearby guests always animated); an active restroom mirror keeps poses running.
+Hidden/outdoor culling remains local and never changes shared positions or membership.
+The assignable pool remains 17 people: appearances can repeat once exhausted.
+Changed poses, including hands, are batched at up to 20 Hz regardless of distance;
+stationary senders still heartbeat at roughly 2 Hz and send seat/height changes.
+This deliberately increases simultaneous skeleton work and relay bandwidth compared
+with the old 6/10/14-body and distant-2-Hz limits. Full 32-person physical-headset
+frame time and traffic costs remain unmeasured.
 
 The existing origin allow-list, room admission/moderation, and heartbeat rules still
 apply. Media requests are authorized through the admitted room WebSocket, not a public
@@ -37,14 +290,39 @@ Each guest has at most four audio-only PeerConnections:
 * `voiceRx`: one receiving connection with separately addressable tracks for authorized
   speakers (up to 31 in a 32-person room).
 * `musicPub`: one host-only broadcast upstream.
-* `musicRx`: one receiving connection for the current host, only after **Listen Along**.
+* `musicRx`: one receiving connection for the current host, only while music listening
+  is enabled.
 
 The existing `NetworkClient` microphone, music, recipient, and callback APIs are retained.
 Voice streams continue through `AvatarManager`'s per-guest spatial audio and mute controls;
 music continues through the existing network-music audio graph. Voice recipient selection
 does not change chat selection. Muting one's own microphone does not stop receiving
-others. Leaving Listen Along closes music only. The transport never stops a host-owned
-music capture track.
+others. Disabling music listening closes music only. The existing app enables host-music
+listening on room connection; the transport's listening authorization does not introduce
+a new consent step. The transport never stops a host-owned music capture track.
+
+The host's existing `show` frames also carry optional `dj` (room DJ presence) and
+`audioFx` (nine allow-listed 0..1 control values). These fields are independent of
+automatic/manual lighting, retained for late joiners, host-only and block-aware.
+A guest's personal DJ hide wins without persisting the host's choice. URL listeners
+apply host effects locally; file broadcasts already contain the processed mix.
+While receiving one, the local effect graph is neutral even though knob readouts
+retain host values, preventing doubled wet effects, noise sweeps or crossfader cuts.
+Leaving/losing the host restores local settings; becoming host keeps current
+effects. New clients and relay are needed for this behavior; old clients ignore
+these optional fields, and an old relay strips them. This is not sample-accurate
+modulation or audio synchronization.
+
+The 19 October follow-up deployed this protocol as Worker version
+`a084e575-2808-4420-9982-30596b858638` and the ADE client as Pages deployment
+`210cf57f.nocturne-ade.pages.dev` (bundle `app-542e5eeaf615.js`, also verified on
+`nocturne-ade.mitwee.nl`). The normal and SideQuest frontend deployments were not
+changed by this follow-up; both participants need the updated ADE client for the
+new DJ/effect behavior. No database migration was required. Production verification
+used three temporary clients in one private room: 32-person SFU admission metadata,
+all nine effect settings, DJ absence and retained late-join state. No media was
+published; actual effects and VR visibility were exercised in browser regressions,
+not rechecked on physical headsets.
 
 The backend owns provider session IDs and publication names. Browser catalogs contain
 only room-member IDs, source kind, and an opaque publication version. Clients ask to
@@ -106,9 +384,9 @@ Updated clients opt in with `poseBatch=1`. Legacy clients still receive immediat
 frames. For capable recipients, a 50 ms room timer sends one `states` frame containing the
 latest changed pose for each visible guest:
 
-* Under 12 metres (3D distance, including height): at most 20 Hz, including hands.
-* Farther away: at most 2 Hz, hands omitted.
-* Until the recipient has supplied a pose: full-detail near behavior.
+* All distances and floors: at most 20 Hz, including hands.
+* Identical poses are coalesced; the relay never invents extra sender updates.
+* Visibility-based pose holds happen only on the receiving client.
 
 The welcome includes full current snapshots for late joiners. Coalescing reads current
 membership and blocks at flush time, so queued stale or blocked guests cannot leak back
@@ -123,8 +401,8 @@ responses, forced-close retry, durable cleanup recovery, microphone/music client
 31 separately mapped incoming voice tracks, capacity, and pose coalescing. Existing
 networking and real-browser mesh tests remain the compatibility baseline.
 
-No real SFU credentials are needed for these mocked tests. Once the parent has uploaded
-the development secrets and deployed the isolated relay, run the opt-in real browser test:
+No real SFU credentials are needed for these mocked tests. Once an owner has uploaded
+rehearsal credentials and deployed an isolated relay, run the opt-in real browser test:
 
 ```powershell
 $env:VRCLUB_SFU_RELAY_URL = 'wss://<isolated-dev-relay>.workers.dev'
@@ -142,10 +420,11 @@ SFU quotas/billing, or headset frame time. ICE currently uses Cloudflare's publi
 service; restrictive networks requiring authenticated TURN are not provisioned by this
 change. There is intentionally no mesh fallback.
 
-The isolated development relay's live two-browser fixture passed on 10 October 2026,
+The source experiment records that its isolated development relay's live two-browser fixture passed on 10 October 2026,
 including real microphone/music RTP, recipient withdrawal, two-way blocking/unblocking,
 Listen Along withdrawal, and music after host handover. This does not replace headset
-or 32-person media load testing.
+or 32-person media load testing, and is not evidence that this combined branch has
+been deployed or tested against a real SFU.
 
 Official references retrieved for this implementation (10 October 2026):
 
