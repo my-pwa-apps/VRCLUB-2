@@ -524,16 +524,10 @@ class VRClubEffects extends VRClubFixtures {
         sheetMat.emissiveFresnelParameters.bias = 0;
         sheetMat.emissiveFresnelParameters.power = 1;
         
-        // Haze density drifting through the plane. The noise texture writes alpha 1, so its brightness
-        // must be read as the opacity or the smoke never shows.
+        // Haze density drifting through the plane. Uses VRCLUB-UNITY's high-contrast tileable 4-octave
+        // fractal value noise with 3x6 tiling so smoke clouds visibly billow and drift across the sheet.
         const noiseSize = this.tierSettings.laserSheetNoiseSize;
-        const noiseTexture = new BABYLON.NoiseProceduralTexture("laserSheetNoise", noiseSize, this.scene);
-        noiseTexture.octaves = 4;
-        noiseTexture.persistence = 0.5;
-        noiseTexture.animationSpeedFactor = 0.5;
-        noiseTexture.brightness = 0.62;
-        noiseTexture.getAlphaFromRGB = true;
-        
+        const noiseTexture = this._createLaserSheetNoiseTexture("laserSheetNoise", noiseSize, 3, 6, 0);
         sheetMat.opacityTexture = noiseTexture;
         
         sheet.material = sheetMat;
@@ -549,16 +543,11 @@ class VRClubEffects extends VRClubFixtures {
         hazeSheet.scaling.set(0.985, 1, 0.985);
 
         const hazeMat = sheetMat.clone("laserSheetHazeMat");
-        const hazeNoise = new BABYLON.NoiseProceduralTexture(
-            "laserSheetHazeNoise", Math.max(64, noiseSize >> 1), this.scene);
-        hazeNoise.octaves = 6;
-        hazeNoise.persistence = 0.48;
-        hazeNoise.animationSpeedFactor = 0.16;
-        hazeNoise.brightness = 0.56;
-        hazeNoise.getAlphaFromRGB = true;
+        const hazeNoise = this._createLaserSheetNoiseTexture(
+            "laserSheetHazeNoise", Math.max(64, noiseSize >> 1), 2, 4, 17);
         hazeMat.opacityTexture = hazeNoise;
         hazeMat.emissiveTexture = null;
-        hazeMat.alpha = 0.05;
+        hazeMat.alpha = 0.065;
         hazeSheet.material = hazeMat;
         this.laserSheetHaze = hazeSheet;
 
@@ -599,6 +588,69 @@ class VRClubEffects extends VRClubFixtures {
         this.configureLaserSheetVariant();
         
         log.info('✨ Laser sheet effect created with hyperrealistic source');
+    }
+
+    /**
+     * Periodically tileable 4-octave fractal value noise ported from VRCLUB-UNITY (`LightingRigBuilder.Common.cs: NoiseTexture`).
+     * Unlike `BABYLON.NoiseProceduralTexture` (which is non-periodic on [0..1] and low-contrast at brightness 0.62),
+     * this tiles seamlessly under UV scrolling and has crisp dark voids + bright smoke wisps (`uScale` x `vScale`).
+     */
+    _createLaserSheetNoiseTexture(name, size, uScale, vScale, seed = 0) {
+        const n = Math.max(64, size | 0);
+        if (typeof document === 'undefined' || !BABYLON.DynamicTexture) {
+            const fallback = new BABYLON.NoiseProceduralTexture(name, n, this.scene);
+            fallback.getAlphaFromRGB = true;
+            fallback.uScale = uScale;
+            fallback.vScale = vScale;
+            return fallback;
+        }
+        const tex = new BABYLON.DynamicTexture(name, { width: n, height: n }, this.scene, false);
+        const ctx = tex.getContext();
+        const img = ctx.createImageData(n, n);
+        const data = img.data;
+        const hash = (x, y) => {
+            let h = (Math.imul(x + seed, 374761393) + Math.imul(y + seed * 31, 668265263)) >>> 0;
+            h = Math.imul(h ^ (h >>> 13), 1274126177) >>> 0;
+            return ((h ^ (h >>> 16)) & 0xffff) / 65535;
+        };
+        const valueNoise = (x, y, period) => {
+            const x0 = Math.floor(x), y0 = Math.floor(y);
+            let fx = x - x0, fy = y - y0;
+            fx = fx * fx * (3 - 2 * fx);
+            fy = fy * fy * (3 - 2 * fy);
+            const xa = ((x0 % period) + period) % period, xb = (xa + 1) % period;
+            const ya = ((y0 % period) + period) % period, yb = (ya + 1) % period;
+            const a = hash(xa, ya) + (hash(xb, ya) - hash(xa, ya)) * fx;
+            const b = hash(xa, yb) + (hash(xb, yb) - hash(xa, yb)) * fx;
+            return a + (b - a) * fy;
+        };
+        for (let y = 0; y < n; y++) {
+            for (let x = 0; x < n; x++) {
+                let v = 0, amp = 0.5, norm = 0;
+                for (let o = 0; o < 4; o++) {
+                    const cells = 4 << o;
+                    v += amp * valueNoise((x * cells) / n, (y * cells) / n, cells);
+                    norm += amp;
+                    amp *= 0.5;
+                }
+                // High-contrast smoke curve from VRCLUB-UNITY so dark air gaps and bright smoke wisps read clearly
+                const c = Math.max(0, Math.min(1, (v / norm) * 1.48 - 0.18));
+                const byte = Math.round(c * 255);
+                const idx = (y * n + x) * 4;
+                data[idx] = byte;
+                data[idx + 1] = byte;
+                data[idx + 2] = byte;
+                data[idx + 3] = 255;
+            }
+        }
+        ctx.putImageData(img, 0, 0);
+        tex.update(false);
+        tex.wrapU = BABYLON.Texture ? BABYLON.Texture.WRAP_ADDRESSMODE : 1;
+        tex.wrapV = BABYLON.Texture ? BABYLON.Texture.WRAP_ADDRESSMODE : 1;
+        tex.uScale = uScale;
+        tex.vScale = vScale;
+        tex.getAlphaFromRGB = true;
+        return tex;
     }
 
     /**

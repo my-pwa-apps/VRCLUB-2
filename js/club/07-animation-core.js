@@ -577,6 +577,36 @@ class VRClubAnimationCore extends VRClubEffects {
         return beams;
     }
 
+    /** Snapshot of the active scanning laser-sheet planes for this frame so smoke puffs touching a sheet light up. */
+    _gatherAirSheets() {
+        const frame = this.scene ? this.scene.getFrameId() : 0;
+        if (this._airSheetFrame === frame) return this._airSheets;
+        this._airSheetFrame = frame;
+        const sheets = this._airSheets || (this._airSheets = []);
+        let n = 0;
+        if (this.laserSheetActive && this.laserSheetSource && (this.masterIntensity == null || this.masterIntensity > 0.02)) {
+            const addSource = (housing) => {
+                if (!housing || !housing.position || !housing.rotation) return;
+                const pitch = housing.rotation.x || 0;
+                const yaw = housing.rotation.y || 0;
+                const cp = Math.cos(pitch), sp = Math.sin(pitch);
+                const cy = Math.cos(yaw), sy = Math.sin(yaw);
+                const s = sheets[n] || (sheets[n] = {});
+                s.ox = housing.position.x; s.oy = housing.position.y; s.oz = housing.position.z;
+                // Forward axis (local +Z) and plane normal (local +Y) under Euler YXZ(yaw, pitch, 0)
+                s.fx = sy * cp; s.fy = -sp; s.fz = cy * cp;
+                s.nx = sy * sp; s.ny = cp; s.nz = cy * sp;
+                n++;
+            };
+            addSource(this.laserSheetSource);
+            if (this._laserSheetFollower && this._laserSheetFollower.mount) {
+                addSource(this._laserSheetFollower.mount.housing);
+            }
+        }
+        this._airSheetCount = n;
+        return sheets;
+    }
+
     _lightAirParticles(particles, mode) {
         if (!this.scene || !particles) return;
         if (this.isInVRMode) {
@@ -590,6 +620,9 @@ class VRClubAnimationCore extends VRClubEffects {
         }
         const beams = this._gatherAirBeams();
         const nBeams = this._airBeamCount || 0;
+        const sheets = this._gatherAirSheets ? this._gatherAirSheets() : null;
+        const nSheets = this._airSheetCount || 0;
+        const sheetColor = (nSheets > 0 && typeof this._laserColor === 'function') ? this._laserColor() : null;
         const cam = this.scene.activeCamera;
         const cp = cam ? (cam.globalPosition || cam.position) : null;
         const tint = this.currentSpotColor;
@@ -601,6 +634,7 @@ class VRClubAnimationCore extends VRClubEffects {
             const p = particles[i];
             const pos = p.position;
             let lit = 0;
+            let sheetLit = 0;
             for (let k = 0; k < nBeams; k++) {
                 const b = beams[k];
                 const vx = pos.x - b.ox, vy = pos.y - b.oy, vz = pos.z - b.oz;
@@ -622,21 +656,39 @@ class VRClubAnimationCore extends VRClubEffects {
                 lit += w * (0.35 + 0.65 * phase);
                 if (!isDust) b.acc += w;
             }
+            for (let s = 0; s < nSheets; s++) {
+                const sh = sheets[s];
+                const vx = pos.x - sh.ox, vy = pos.y - sh.oy, vz = pos.z - sh.oz;
+                const along = vx * sh.fx + vy * sh.fy + vz * sh.fz;
+                if (along < 0.4 || along > 22) continue;
+                const dist = Math.abs(vx * sh.nx + vy * sh.ny + vz * sh.nz);
+                const halfThick = 0.22 + (p.size || 1) * 0.22;
+                if (dist >= halfThick) continue;
+                const slice = 1 - dist / halfThick;
+                sheetLit += slice * slice * (3 - 2 * slice) * dim;
+            }
+            const totalLit = lit + sheetLit * 1.35;
             const c = p.color;
             if (isDust) {
                 // Dust is only seen where light catches it.
-                c.a = Math.min(0.9, c.a * (0.2 + Math.min(1.5, lit) * 1.7));
+                c.a = Math.min(0.9, c.a * (0.2 + Math.min(1.5, totalLit) * 1.7));
             } else if (isPlume) {
-                // Plumes keep their nozzle jet visibility while the room is lit, dim in blackout, and bloom in beams.
-                c.a = Math.min(0.45, c.a * ((0.15 + 0.85 * dim) + Math.min(1.5, lit) * 2.8));
-            } else if (lit > 0) {
-                c.a *= 1 + Math.min(1.2, lit) * 2.2;
+                // Plumes keep their nozzle jet visibility while the room is lit, dim in blackout, and bloom in beams/sheets.
+                c.a = Math.min(0.45, c.a * ((0.15 + 0.85 * dim) + Math.min(1.5, totalLit) * 2.8));
+            } else if (totalLit > 0) {
+                c.a *= 1 + Math.min(1.2, totalLit) * 2.2;
             }
             if (lit > 0 && tint) {
                 const m = Math.min(isPlume ? 0.82 : 0.7, lit * (isPlume ? 0.75 : 0.6));
                 c.r += (tint.r * 1.1 - c.r) * m;
                 c.g += (tint.g * 1.1 - c.g) * m;
                 c.b += (tint.b * 1.1 - c.b) * m;
+            }
+            if (sheetLit > 0 && sheetColor) {
+                const sm = Math.min(0.88, sheetLit * 0.85);
+                c.r += (sheetColor.r * 1.25 - c.r) * sm;
+                c.g += (sheetColor.g * 1.25 - c.g) * sm;
+                c.b += (sheetColor.b * 1.25 - c.b) * sm;
             }
         }
 
@@ -731,11 +783,11 @@ class VRClubAnimationCore extends VRClubEffects {
             // Compound, slightly asymmetric motion avoids the mechanical pendulum
             // look of a single sine while keeping the fan inside its calibrated aim.
             this._poseLaserSheet(time);
-            // Animate smoke texture flowing OUTWARD from source
+            // Animate smoke texture flowing OUTWARD from source (matching VRCLUB-UNITY's _NoiseScroll)
             if (sheetMat.opacityTexture) {
-                sheetMat.opacityTexture.vOffset = -time * 0.028 * speedMultiplierLaser;
-                sheetMat.opacityTexture.uOffset = 0.045 * Math.sin(time * 0.19) +
-                    0.015 * Math.sin(time * 0.47);
+                sheetMat.opacityTexture.vOffset = -time * 0.06 * speedMultiplierLaser;
+                sheetMat.opacityTexture.uOffset = 0.01 * time * speedMultiplierLaser +
+                    0.045 * Math.sin(time * 0.19) + 0.015 * Math.sin(time * 0.47);
             }
             
             // Scanned sheets read through the haze: thin air shows a faint veil, a full haze a solid plane.
@@ -748,11 +800,11 @@ class VRClubAnimationCore extends VRClubEffects {
             sheetMat.alpha = level;
             if (this.laserSheetHaze && this.laserSheetHaze.material) {
                 const hazeMat = this.laserSheetHaze.material;
-                hazeMat.alpha = 0.4 * level;
+                hazeMat.alpha = 0.58 * level;
                 if (hazeMat.opacityTexture) {
-                    hazeMat.opacityTexture.vOffset = time * 0.017 * speedMultiplierLaser;
-                    hazeMat.opacityTexture.uOffset = -0.055 * Math.sin(time * 0.13) +
-                        0.018 * Math.sin(time * 0.31 + 0.8);
+                    hazeMat.opacityTexture.vOffset = -time * 0.025 * speedMultiplierLaser;
+                    hazeMat.opacityTexture.uOffset = -0.008 * time * speedMultiplierLaser -
+                        0.055 * Math.sin(time * 0.13) + 0.018 * Math.sin(time * 0.31 + 0.8);
                 }
             }
             

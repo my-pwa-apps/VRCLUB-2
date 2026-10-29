@@ -484,9 +484,9 @@ class VRClubFixtures extends VRClubEnvironment {
             fogEmitter.minLifeTime = 4.0;
             fogEmitter.maxLifeTime = 7.5;
             
-            // Emission rate (VJ controlled)
-            fogEmitter.emitRate = 45;
-            fogEmitter.manualEmitCount = 0;
+            // Emission rate (VJ controlled). Leave manualEmitCount at default (-1) so Babylon uses emitRate;
+            // setting manualEmitCount = 0 puts Babylon's ParticleSystem into manual mode with 0 particles!
+            fogEmitter.emitRate = 55;
             fogEmitter.blendMode = BABYLON.ParticleSystem.BLENDMODE_STANDARD;
             
             // Direction - angled downward and inward into the dance floor (toward z = -12)
