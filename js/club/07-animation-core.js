@@ -496,14 +496,30 @@ class VRClubAnimationCore extends VRClubEffects {
         }
         const haze = this.haze;
         if (!haze || !haze.color1) return;
-        if (spot && this.lightsActive) {
-            haze.color1.r = 0.42 + spot.r * 0.22;
-            haze.color1.g = 0.40 + spot.g * 0.22;
-            haze.color1.b = 0.46 + spot.b * 0.22;
+        const dim = this.masterIntensity == null ? 1 : Math.max(0, Math.min(1, this.masterIntensity));
+        const anyLit = !!(this.lightsActive || this.lasersActive || this.laserSheetActive || this.mirrorBallActive || this.ledWallActive);
+        const lightScale = anyLit ? dim : 0.08;
+        const activeColor = (this.lightsActive && spot) ? spot
+            : (this.mirrorBallActive && this.mirrorBallSpotlightColor) ? this.mirrorBallSpotlightColor
+            : ((this.lasersActive || this.laserSheetActive) && typeof this._laserColor === 'function') ? this._laserColor()
+            : (this.ledWallActive && this.ledShowColor) ? this.ledShowColor : spot;
+        if (activeColor && anyLit) {
+            haze.color1.r = (0.42 + activeColor.r * 0.22) * lightScale;
+            haze.color1.g = (0.40 + activeColor.g * 0.22) * lightScale;
+            haze.color1.b = (0.46 + activeColor.b * 0.22) * lightScale;
             if (haze.color2) {
-                haze.color2.r = 0.48 + spot.r * 0.18;
-                haze.color2.g = 0.46 + spot.g * 0.18;
-                haze.color2.b = 0.52 + spot.b * 0.18;
+                haze.color2.r = (0.48 + activeColor.r * 0.18) * lightScale;
+                haze.color2.g = (0.46 + activeColor.g * 0.18) * lightScale;
+                haze.color2.b = (0.52 + activeColor.b * 0.18) * lightScale;
+            }
+        } else {
+            haze.color1.r = 0.04;
+            haze.color1.g = 0.04;
+            haze.color1.b = 0.055;
+            if (haze.color2) {
+                haze.color2.r = 0.045;
+                haze.color2.g = 0.045;
+                haze.color2.b = 0.06;
             }
         }
         // The live particles read the gradient stops, not color1/color2, so push the
@@ -564,11 +580,35 @@ class VRClubAnimationCore extends VRClubEffects {
                 if (!spot._photoPos || !hit || gain <= 0.02) continue;
                 const b = beams[n] || (beams[n] = {});
                 b.spot = spot;
+                b.color = spot._renderColor || this.currentSpotColor;
                 b.ox = spot._photoPos.x; b.oy = spot._photoPos.y; b.oz = spot._photoPos.z;
                 b.dx = spot._photoDir.x; b.dy = spot._photoDir.y; b.dz = spot._photoDir.z;
                 b.tan = Math.tan((spot._photoAngle || 0.52) * 0.5);
                 b.len = hit.centerDistanceToSurface;
                 b.gain = Math.min(1.5, gain);
+                b.acc = 0;
+                n++;
+            }
+        }
+        // Mirror-ball incident beams (from (±4, 7.5, -8/-16) to (0, 6.5, -12)) also illuminate smoke plumes crossing them
+        const dim = this.masterIntensity == null ? 1 : Math.max(0, Math.min(1, this.masterIntensity));
+        if (this.mirrorBallActive && this.mirrorBallSpotlightColor && dim > 0.02) {
+            const mbSources = this._mbAirSources || (this._mbAirSources = [
+                { ox: 4, oy: 7.5, oz: -8 }, { ox: -4, oy: 7.5, oz: -8 },
+                { ox: 4, oy: 7.5, oz: -16 }, { ox: -4, oy: 7.5, oz: -16 }
+            ]);
+            for (let m = 0; m < mbSources.length; m++) {
+                const src = mbSources[m];
+                const vx = 0 - src.ox, vy = 6.5 - src.oy, vz = -12 - src.oz;
+                const len = Math.sqrt(vx * vx + vy * vy + vz * vz) || 1;
+                const b = beams[n] || (beams[n] = {});
+                b.spot = null;
+                b.color = this.mirrorBallSpotlightColor;
+                b.ox = src.ox; b.oy = src.oy; b.oz = src.oz;
+                b.dx = vx / len; b.dy = vy / len; b.dz = vz / len;
+                b.tan = 0.22;
+                b.len = len + 1.5;
+                b.gain = 0.9 * dim;
                 b.acc = 0;
                 n++;
             }
@@ -609,9 +649,10 @@ class VRClubAnimationCore extends VRClubEffects {
 
     _lightAirParticles(particles, mode) {
         if (!this.scene || !particles) return;
-        if (this.isInVRMode) {
-            // Desktop only: ~0.3 ms per pass on a desktop CPU, unmeasured on a Quest.
-            // Hand the beams back to their neutral brightness on entering VR.
+        const isPlume = mode === 'plume';
+        if (this.isInVRMode && !isPlume) {
+            // Desktop only for the 2,200-particle room haze/dust: ~0.3 ms per pass on a desktop CPU.
+            // The 2 fog-machine nozzle plumes (~150 particles) run in both desktop and VR so they never self-glow.
             if (this.spotlights && this._airBeamCount) {
                 for (const spot of this.spotlights) spot._mediumDensity = null;
                 this._airBeamCount = 0;
@@ -622,19 +663,55 @@ class VRClubAnimationCore extends VRClubEffects {
         const nBeams = this._airBeamCount || 0;
         const sheets = this._gatherAirSheets ? this._gatherAirSheets() : null;
         const nSheets = this._airSheetCount || 0;
-        const sheetColor = (nSheets > 0 && typeof this._laserColor === 'function') ? this._laserColor() : null;
+        const laserColor = ((nSheets > 0 || this.lasersActive) && typeof this._laserColor === 'function') ? this._laserColor() : null;
         const cam = this.scene.activeCamera;
         const cp = cam ? (cam.globalPosition || cam.position) : null;
         const tint = this.currentSpotColor;
         const isDust = mode === 'dust';
-        const isPlume = mode === 'plume';
         const dim = Number.isFinite(this.masterIntensity) ? Math.max(0, Math.min(1, this.masterIntensity)) : 1;
+
+        // Room-wide indirect scatter contributions for fog-machine plumes so smoke is ONLY lit by active club lights
+        let envR = 0, envG = 0, envB = 0, envLit = 0;
+        if (isPlume && dim > 0.01) {
+            const kickBoost = 1 + (this.kickPulse || 0) * 0.35;
+            if (this.lightsActive && tint) {
+                const w = 0.22 * dim * kickBoost;
+                envR += tint.r * w; envG += tint.g * w; envB += tint.b * w; envLit += w;
+            }
+            if (this.mirrorBallActive && this.mirrorBallSpotlightColor) {
+                const mc = this.mirrorBallSpotlightColor;
+                const w = 0.20 * dim * kickBoost;
+                envR += mc.r * w; envG += mc.g * w; envB += mc.b * w; envLit += w;
+            }
+            if ((this.lasersActive || this.laserSheetActive) && laserColor) {
+                const w = 0.16 * dim;
+                envR += laserColor.r * w; envG += laserColor.g * w; envB += laserColor.b * w; envLit += w;
+            }
+            if (this.ledWallActive) {
+                const wc = this.ledShowColor || tint;
+                if (wc) {
+                    const w = 0.14 * (this.ledWallLevel ?? 1) * dim;
+                    envR += wc.r * w; envG += wc.g * w; envB += wc.b * w; envLit += w;
+                }
+            }
+            if (this.strobesActive && !this.photosensitiveSafeMode && this.strobes) {
+                let strobeOn = false;
+                for (let s = 0; s < this.strobes.length; s++) {
+                    if (this.strobes[s] && this.strobes[s].flashDuration > 0) { strobeOn = true; break; }
+                }
+                if (strobeOn) {
+                    const w = 0.95 * dim;
+                    envR += w; envG += w; envB += w; envLit += w;
+                }
+            }
+        }
 
         for (let i = 0; i < particles.length; i++) {
             const p = particles[i];
             const pos = p.position;
             let lit = 0;
             let sheetLit = 0;
+            let beamR = 0, beamG = 0, beamB = 0;
             for (let k = 0; k < nBeams; k++) {
                 const b = beams[k];
                 const vx = pos.x - b.ox, vy = pos.y - b.oy, vz = pos.z - b.oz;
@@ -653,8 +730,15 @@ class VRClubAnimationCore extends VRClubEffects {
                     // Henyey-Greenstein g = 0.5, normalised to 1 at cosT = 1
                     phase = Math.min(1, 0.35 / Math.pow(1.25 - cosT, 1.5));
                 }
-                lit += w * (0.35 + 0.65 * phase);
-                if (!isDust) b.acc += w;
+                const contrib = w * (0.35 + 0.65 * phase);
+                lit += contrib;
+                const bc = b.color || tint;
+                if (bc) {
+                    beamR += bc.r * contrib;
+                    beamG += bc.g * contrib;
+                    beamB += bc.b * contrib;
+                }
+                if (!isDust && b.spot) b.acc += w;
             }
             for (let s = 0; s < nSheets; s++) {
                 const sh = sheets[s];
@@ -667,37 +751,58 @@ class VRClubAnimationCore extends VRClubEffects {
                 const slice = 1 - dist / halfThick;
                 sheetLit += slice * slice * (3 - 2 * slice) * dim;
             }
-            const totalLit = lit + sheetLit * 1.35;
             const c = p.color;
+            if (isPlume) {
+                const totalLit = envLit + lit + sheetLit * 1.35;
+                if (totalLit <= 0.001) {
+                    // No lights active in the club: smoke has zero brightness of its own
+                    c.r = 0.02;
+                    c.g = 0.022;
+                    c.b = 0.03;
+                    c.a *= 0.08;
+                } else {
+                    const sCol = laserColor || tint;
+                    const rSum = envR + beamR + (sCol ? sCol.r * sheetLit * 1.35 : 0);
+                    const gSum = envG + beamG + (sCol ? sCol.g * sheetLit * 1.35 : 0);
+                    const bSum = envB + beamB + (sCol ? sCol.b * sheetLit * 1.35 : 0);
+                    const inv = 1 / totalLit;
+                    const gain = Math.min(1.25, 0.35 + totalLit * 0.85);
+                    c.r = Math.min(1.2, rSum * inv * gain);
+                    c.g = Math.min(1.2, gSum * inv * gain);
+                    c.b = Math.min(1.2, bSum * inv * gain);
+                    c.a = Math.min(0.42, c.a * (0.28 + Math.min(1.5, totalLit) * 2.6));
+                }
+                continue;
+            }
+            const totalLit = lit + sheetLit * 1.35;
             if (isDust) {
                 // Dust is only seen where light catches it.
                 c.a = Math.min(0.9, c.a * (0.2 + Math.min(1.5, totalLit) * 1.7));
-            } else if (isPlume) {
-                // Plumes keep their nozzle jet visibility while the room is lit, dim in blackout, and bloom in beams/sheets.
-                c.a = Math.min(0.45, c.a * ((0.15 + 0.85 * dim) + Math.min(1.5, totalLit) * 2.8));
             } else if (totalLit > 0) {
                 c.a *= 1 + Math.min(1.2, totalLit) * 2.2;
             }
             if (lit > 0 && tint) {
-                const m = Math.min(isPlume ? 0.82 : 0.7, lit * (isPlume ? 0.75 : 0.6));
-                c.r += (tint.r * 1.1 - c.r) * m;
-                c.g += (tint.g * 1.1 - c.g) * m;
-                c.b += (tint.b * 1.1 - c.b) * m;
+                const m = Math.min(0.7, lit * 0.6);
+                const inv = 1 / lit;
+                c.r += ((beamR * inv) * 1.1 - c.r) * m;
+                c.g += ((beamG * inv) * 1.1 - c.g) * m;
+                c.b += ((beamB * inv) * 1.1 - c.b) * m;
             }
-            if (sheetLit > 0 && sheetColor) {
+            if (sheetLit > 0 && laserColor) {
                 const sm = Math.min(0.88, sheetLit * 0.85);
-                c.r += (sheetColor.r * 1.25 - c.r) * sm;
-                c.g += (sheetColor.g * 1.25 - c.g) * sm;
-                c.b += (sheetColor.b * 1.25 - c.b) * sm;
+                c.r += (laserColor.r * 1.25 - c.r) * sm;
+                c.g += (laserColor.g * 1.25 - c.g) * sm;
+                c.b += (laserColor.b * 1.25 - c.b) * sm;
             }
         }
 
-        if (!isDust) {
+        if (!isDust && !this.isInVRMode) {
             // The beam mesh reads how much medium actually sits in its cone, and how much smoke there is to scatter it.
             const ref = Math.max(6, particles.length * 0.02);
             const smoke = 0.15 + 0.85 * (Number.isFinite(this._smokeLevel) ? this._smokeLevel : (this.smokeActive === false ? 0 : 1));
             for (let k = 0; k < nBeams; k++) {
                 const spot = beams[k].spot;
+                if (!spot) continue;
                 const target = Math.min(1, beams[k].acc / ref) * smoke;
                 const cur = spot._mediumDensity == null ? target : spot._mediumDensity;
                 spot._mediumDensity = cur + (target - cur) * 0.06;

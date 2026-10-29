@@ -467,10 +467,10 @@ class VRClubFixtures extends VRClubEnvironment {
             fogEmitter.minEmitBox = new BABYLON.Vector3(-0.06, -0.06, -0.06);
             fogEmitter.maxEmitBox = new BABYLON.Vector3(0.06, 0.06, 0.06);
             
-            // Visible smoke jet right from the nozzle that billows and thins across the floor
-            fogEmitter.color1 = new BABYLON.Color4(0.88, 0.90, 0.96, 0.26);
-            fogEmitter.color2 = new BABYLON.Color4(0.82, 0.85, 0.92, 0.20);
-            fogEmitter.colorDead = new BABYLON.Color4(0.50, 0.54, 0.64, 0.0);
+            // Unlit base colour is dark club air (zero self-brightness): plumes only light up from active club lighting
+            fogEmitter.color1 = new BABYLON.Color4(0.035, 0.04, 0.055, 0.22);
+            fogEmitter.color2 = new BABYLON.Color4(0.03, 0.035, 0.05, 0.18);
+            fogEmitter.colorDead = new BABYLON.Color4(0.02, 0.025, 0.035, 0.0);
             
             // Compact at nozzle, billowing as the jet disperses across the floor
             fogEmitter.minSize = 0.65;
@@ -511,13 +511,13 @@ class VRClubFixtures extends VRClubEnvironment {
             fogEmitter.addSizeGradient(0.7, 1.75);
             fogEmitter.addSizeGradient(1.0, 2.45);
             
-            // 6-key alpha/colour envelope: dense jet leaving the nozzle, billowing and fading across the floor
-            fogEmitter.addColorGradient(0.00, new BABYLON.Color4(0.92, 0.94, 1.00, 0.00));
-            fogEmitter.addColorGradient(0.05, new BABYLON.Color4(0.90, 0.92, 0.98, 0.26));
-            fogEmitter.addColorGradient(0.22, new BABYLON.Color4(0.86, 0.88, 0.95, 0.22));
-            fogEmitter.addColorGradient(0.50, new BABYLON.Color4(0.78, 0.82, 0.90, 0.14));
-            fogEmitter.addColorGradient(0.82, new BABYLON.Color4(0.68, 0.72, 0.82, 0.06));
-            fogEmitter.addColorGradient(1.00, new BABYLON.Color4(0.55, 0.58, 0.68, 0.00));
+            // 6-key alpha/colour envelope: unlit dark fog density profile; colour and brightness come solely from club lights
+            fogEmitter.addColorGradient(0.00, new BABYLON.Color4(0.035, 0.04, 0.055, 0.00));
+            fogEmitter.addColorGradient(0.05, new BABYLON.Color4(0.035, 0.04, 0.055, 0.22));
+            fogEmitter.addColorGradient(0.22, new BABYLON.Color4(0.035, 0.04, 0.055, 0.18));
+            fogEmitter.addColorGradient(0.50, new BABYLON.Color4(0.03, 0.035, 0.05, 0.12));
+            fogEmitter.addColorGradient(0.82, new BABYLON.Color4(0.025, 0.03, 0.04, 0.05));
+            fogEmitter.addColorGradient(1.00, new BABYLON.Color4(0.02, 0.025, 0.035, 0.00));
             
             fogEmitter.updateSpeed = 0.008;
             fogEmitter.preWarmCycles = 120;
