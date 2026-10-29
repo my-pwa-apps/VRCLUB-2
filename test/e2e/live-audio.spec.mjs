@@ -279,7 +279,42 @@ test('standalone sound check works without an invitation and never connects to a
     await expect(page.locator('#status')).toContainText('not broadcast');
     await expect(page.locator('#leftValue')).not.toHaveText('Silent');
     expect(sockets).toEqual([]);
+    await page.evaluate(() => {
+        document.getElementById('clipping').textContent = 'Input clipping: lower your mixer or interface output.';
+        document.getElementById('clipping').dataset.error = 'true';
+    });
     await page.locator('#stop').click();
+    await expect(page.locator('#clipping')).toHaveText('Keep peaks below clipping.');
+    await expect(page.locator('#clipping')).toHaveAttribute('data-error', 'false');
+    await expect(page.locator('#leftValue')).toHaveText('Silent');
+    await expect(page.locator('#discover')).toBeEnabled();
+    await expect(page.locator('#input')).toBeEnabled();
+    expect(await page.evaluate(() => window.__capturedStream.getTracks().every(track => track.readyState === 'ended'))).toBe(true);
+    await page.evaluate(() => { window.__inputSource.stop(); return window.__inputContext.close(); });
+});
+
+test('an invalid broadcaster invitation disables unavailable input actions without requesting permission', async ({ page }) => {
+    await syntheticInput(page);
+    await page.goto('/broadcast/?event=invalid');
+    await expect(page.locator('#status')).toHaveAttribute('data-error', 'true');
+    for (const id of ['discover', 'input', 'start', 'stop']) await expect(page.locator(`#${id}`)).toBeDisabled();
+    expect(await page.evaluate(() => window.__captureRequests)).toEqual([]);
+});
+
+test('an ended broadcaster event releases input and leaves no apparently usable capture controls', async ({ page }) => {
+    await syntheticInput(page);
+    await page.routeWebSocket(`${relay}/live/**`, socket => {
+        socket.onMessage(raw => {
+            if (JSON.parse(String(raw)).type === 'event-auth') {
+                socket.send(JSON.stringify({ type: 'live-welcome', id: 'publisher', role: 'publisher',
+                    event: { ...event, ended: true } }));
+            }
+        });
+    });
+    await page.goto(`/broadcast/?event=${id}&server=${encodeURIComponent(relay)}#${publisherToken}`);
+    await page.locator('#start').click();
+    await expect(page.locator('#status')).toContainText('event has ended');
+    for (const id of ['discover', 'input', 'start', 'stop']) await expect(page.locator(`#${id}`)).toBeDisabled();
     expect(await page.evaluate(() => window.__capturedStream.getTracks().every(track => track.readyState === 'ended'))).toBe(true);
     await page.evaluate(() => { window.__inputSource.stop(); return window.__inputContext.close(); });
 });

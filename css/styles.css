@@ -1556,7 +1556,8 @@ body:has(.panel:not(.hidden)) .payment-toggle,
 .first-run-hint {
     position: fixed;
     left: 50%;
-    bottom: calc(28px + env(safe-area-inset-bottom, 0px));
+    bottom: calc(88px + env(safe-area-inset-bottom, 0px));
+    transform: translateX(-50%);
     z-index: 104;
     display: grid;
     gap: 3px;
@@ -1569,6 +1570,10 @@ body:has(.panel:not(.hidden)) .payment-toggle,
     color: white;
     box-shadow: var(--shadow-lg);
     font: 13px/1.45 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+}
+
+body:has(.panel:not(.hidden), #modelCredits[open], #cameraControls.expanded, #socialBar:not([hidden])) .first-run-hint {
+    display: none;
 }
 
 .first-run-hint strong {
@@ -2454,7 +2459,7 @@ body:has(.panel:not(.hidden)) .payment-toggle,
    ring, which several rules cancelled with `outline: none` - leaving keyboard users
    with no visible focus indicator at all. This restores a high-contrast ring on
    keyboard focus only, so mouse/touch interaction stays visually unchanged. */
-:where(a, button, input, select, textarea, summary, [tabindex]):focus-visible {
+:is(a, button, input, select, textarea, summary, [tabindex]):focus-visible {
     outline: 3px solid var(--focus-ring);
     outline-offset: 2px;
     border-radius: 4px;

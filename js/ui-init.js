@@ -47,6 +47,34 @@ function closeOtherSidePanels(openId) {
     }
 }
 
+function setPanelMinimized(menu, button, minimized, label) {
+    menu.classList.toggle('minimized', minimized);
+    if (!button) return;
+    const glyph = button.querySelector('span') || button;
+    glyph.textContent = minimized ? '+' : '\u2212';
+    const action = minimized ? 'Expand' : 'Minimize';
+    button.setAttribute('aria-label', `${action} ${label} panel`);
+    button.setAttribute('title', action);
+    button.setAttribute('aria-expanded', String(!minimized));
+}
+
+function panelOwnsEscape(event, panel) {
+    if (event.defaultPrevented || event.key !== 'Escape' || panel.classList.contains('hidden')) return false;
+    const modal = event.target?.closest?.('[aria-modal="true"], dialog[open]');
+    return !modal || modal === panel;
+}
+
+function panelTabDestination(event, index, tabs) {
+    if (event.defaultPrevented || event.altKey || event.ctrlKey || event.metaKey) return null;
+    switch (event.key) {
+        case 'Home': return tabs[0];
+        case 'End': return tabs[tabs.length - 1];
+        case 'ArrowLeft': return tabs[(index - 1 + tabs.length) % tabs.length];
+        case 'ArrowRight': return tabs[(index + 1) % tabs.length];
+        default: return null;
+    }
+}
+
 function initPanelSwitchers() {
     const toggleByPanel = {
         vjMenu: 'vjToggle',
@@ -80,10 +108,9 @@ function initVJTabs() {
     tabs.forEach((tab, index) => {
         tab.addEventListener('click', () => select(tab));
         tab.addEventListener('keydown', event => {
-            if (event.key !== 'ArrowLeft' && event.key !== 'ArrowRight') return;
+            const next = panelTabDestination(event, index, tabs);
+            if (!next) return;
             event.preventDefault();
-            const direction = event.key === 'ArrowRight' ? 1 : -1;
-            const next = tabs[(index + direction + tabs.length) % tabs.length];
             select(next);
             next.focus();
         });
@@ -114,10 +141,9 @@ function initAudioSourceTabs() {
     tabs.forEach((tab, index) => {
         tab.addEventListener('click', () => select(tab));
         tab.addEventListener('keydown', event => {
-            if (event.key !== 'ArrowLeft' && event.key !== 'ArrowRight') return;
+            const next = panelTabDestination(event, index, tabs);
+            if (!next) return;
             event.preventDefault();
-            const direction = event.key === 'ArrowRight' ? 1 : -1;
-            const next = tabs[(index + direction + tabs.length) % tabs.length];
             select(next);
             next.focus();
         });
@@ -612,7 +638,8 @@ function initVJMenu() {
     };
     const openVJMenu = () => {
         closeOtherSidePanels('vjMenu');
-        vjMenu.classList.remove('hidden', 'minimized');
+        vjMenu.classList.remove('hidden');
+        setPanelMinimized(vjMenu, vjMinimize, false, 'Show and Lights');
         vjToggle.setAttribute('aria-expanded', 'true');
         updateButtonStates();
         if (vjTitle) vjTitle.focus();
@@ -628,11 +655,7 @@ function initVJMenu() {
     // destroys the aria-hidden wrapper and exposes a bare "−" glyph to screen readers.
     if (vjMinimize) {
         vjMinimize.addEventListener('click', () => {
-            const minimized = vjMenu.classList.toggle('minimized');
-            const glyph = vjMinimize.querySelector('span') || vjMinimize;
-            glyph.textContent = minimized ? '+' : '\u2212';
-            vjMinimize.setAttribute('aria-label', minimized ? 'Expand Show and Lights panel' : 'Minimize Show and Lights panel');
-            vjMinimize.setAttribute('aria-expanded', String(!minimized));
+            setPanelMinimized(vjMenu, vjMinimize, !vjMenu.classList.contains('minimized'), 'Show and Lights');
         });
     }
     
@@ -642,7 +665,7 @@ function initVJMenu() {
     }
 
     const onVJKeyDown = e => {
-        if (e.key === 'Escape' && !vjMenu.classList.contains('hidden')) {
+        if (panelOwnsEscape(e, vjMenu)) {
             e.preventDefault();
             closeVJMenu();
         }
@@ -1265,7 +1288,7 @@ function initKeyboardShortcuts() {
     };
     const onKey = (e) => {
         const t = e.target;
-        if (e.defaultPrevented || isTextTarget(t)) return;
+        if (e.defaultPrevented || isTextTarget(t) || t?.closest?.('[aria-modal="true"], dialog[open]')) return;
         // Closing a panel leaves focus on its button; M and T must still work then. Space and Enter stay the button's.
         if (isActivatable(t) && (e.key === ' ' || e.key === 'Enter')) return;
         if (e.ctrlKey || e.metaKey || e.altKey) return;
@@ -1276,14 +1299,10 @@ function initKeyboardShortcuts() {
             case 'e': case 'E':
                 if (!e.repeat && club.jumpDesktop()) e.preventDefault();
                 break;
-            case ' ': {
-                const el = club.audioElement;
-                if (!el) return;
+            case ' ':
                 e.preventDefault();
-                if (!club.guardHostControl('music')) break;
-                if (el.paused) el.play().catch(() => {}); else el.pause();
+                club.toggleAudioPlayback();
                 break;
-            }
             case 'b': case 'B':
                 if (vjMacros.blackout) {
                     e.preventDefault();
@@ -1539,7 +1558,8 @@ function initAudioMenu() {
     };
     const openAudioMenu = () => {
         closeOtherSidePanels('audioMenu');
-        audioMenu.classList.remove('hidden', 'minimized');
+        audioMenu.classList.remove('hidden');
+        setPanelMinimized(audioMenu, audioMinimize, false, 'Music');
         audioToggle.setAttribute('aria-expanded', 'true');
         audioToggle.classList.remove('needs-attention');
         if (audioTitle) audioTitle.focus();
@@ -1569,11 +1589,7 @@ function initAudioMenu() {
     // delete the aria-hidden <span> and leave the label describing the wrong action.
     if (audioMinimize) {
         audioMinimize.addEventListener('click', () => {
-            const minimized = audioMenu.classList.toggle('minimized');
-            const glyph = audioMinimize.querySelector('span') || audioMinimize;
-            glyph.textContent = minimized ? '+' : '\u2212';
-            audioMinimize.setAttribute('aria-label', minimized ? 'Expand audio panel' : 'Minimize audio panel');
-            audioMinimize.setAttribute('aria-expanded', String(!minimized));
+            setPanelMinimized(audioMenu, audioMinimize, !audioMenu.classList.contains('minimized'), 'Music');
         });
     }
     
@@ -1583,7 +1599,7 @@ function initAudioMenu() {
     }
 
     const onAudioKeyDown = e => {
-        if (e.key === 'Escape' && !audioMenu.classList.contains('hidden')) {
+        if (panelOwnsEscape(e, audioMenu)) {
             e.preventDefault();
             closeAudioMenu();
         }
@@ -2337,7 +2353,9 @@ function initSocialBar(mp) {
     });
     // Escape closes the open tray or chat box; Escape in the message field also leaves it.
     const onKey = (e) => {
-        if (e.key !== 'Escape' || (tray.hidden && box.hidden)) return;
+        if (e.defaultPrevented || e.key !== 'Escape' || (tray.hidden && box.hidden)
+            || e.target?.closest?.('[aria-modal="true"], dialog[open]')) return;
+        e.preventDefault();
         closeAll();
         if (document.activeElement === input) input.blur();
     };
@@ -2432,7 +2450,8 @@ function initNetworkMenu() {
     };
     const openNetworkMenu = () => {
         closeOtherSidePanels('networkMenu');
-        networkMenu.classList.remove('hidden', 'minimized');
+        networkMenu.classList.remove('hidden');
+        setPanelMinimized(networkMenu, networkMinimize, false, 'Online');
         networkToggle.setAttribute('aria-expanded', 'true');
         if (!mp.hasAcceptedOnlineSafety() && safetyGate) safetyGate.focus();
         else if (networkTitle) networkTitle.focus();
@@ -2445,17 +2464,13 @@ function initNetworkMenu() {
 
     if (networkMinimize) {
         networkMinimize.addEventListener('click', () => {
-            const minimized = networkMenu.classList.toggle('minimized');
-            const glyph = networkMinimize.querySelector('span') || networkMinimize;
-            glyph.textContent = minimized ? '+' : '\u2212';
-            networkMinimize.setAttribute('aria-label', minimized ? 'Expand multiplayer panel' : 'Minimize multiplayer panel');
-            networkMinimize.setAttribute('aria-expanded', String(!minimized));
+            setPanelMinimized(networkMenu, networkMinimize, !networkMenu.classList.contains('minimized'), 'Online');
         });
     }
     if (networkClose) networkClose.addEventListener('click', () => closeNetworkMenu());
 
     const onNetworkKeyDown = (e) => {
-        if (e.key === 'Escape' && !networkMenu.classList.contains('hidden')) {
+        if (panelOwnsEscape(e, networkMenu)) {
             e.preventDefault();
             closeNetworkMenu();
         }

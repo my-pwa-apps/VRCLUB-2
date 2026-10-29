@@ -371,7 +371,14 @@ test('keyboard shortcuts leave focused buttons to native Space activation but st
             removeEventListener() {}
         },
         uiTeardowns: [],
-        vrClubInstance: { audioElement: audio, moveCameraToPreset() {}, guardHostControl() { return true; } },
+        vrClubInstance: {
+            audioElement: audio,
+            moveCameraToPreset() {},
+            toggleAudioPlayback() {
+                if (audio.paused) void audio.play();
+                else audio.pause();
+            }
+        },
         vjMacros: {}
     });
     vm.runInContext(source.slice(start, end), context);
@@ -409,6 +416,17 @@ test('keyboard shortcuts leave focused buttons to native Space activation but st
         preventDefault() { assert.fail('default-prevented keys must be ignored'); }
     });
     assert.equal(audio.pauseCalls, 0, 'a default-prevented Space should not pause audio');
+
+    onKey({
+        key: ' ',
+        target: { tagName: 'DIV', closest: selector => selector.includes('aria-modal') ? {} : null },
+        defaultPrevented: false,
+        preventDefault() { assert.fail('modal shortcuts belong to the dialog'); }
+    });
+    assert.equal(audio.pauseCalls, 0, 'Space in a dialog must not change the music behind it');
+    const shortcuts = source.slice(start, end);
+    assert.match(shortcuts, /club\.toggleAudioPlayback\(\)/, 'Space delegates to the shared, host-gated transport');
+    assert.doesNotMatch(shortcuts, /\.play\(\)|\.pause\(\)/, 'keyboard shortcuts do not bypass playback rules or silence errors');
 });
 
 test('the audio menu exposes labelled levels and a clipboard paste action', async () => {
@@ -5229,7 +5247,7 @@ test('strobes are short stabs, and the free-running timer never exceeds three fl
 test('headset MSAA follows the config, never exceeds the GPU, and can be overridden', () => {
     const store = new Map();
     const localStorage = { getItem: key => (store.has(key) ? store.get(key) : null) };
-    const { window } = loadClassic('js/club/01-core.js', { localStorage });
+    const { window } = loadClassic('js/club/01-core.js', { localStorage, URLSearchParams });
     const resolve = window.VRClubCore.resolveVRMsaaSamples;
     assert.equal(resolve(4, 4), 4, 'the default is 4x where the GPU supports it');
     assert.equal(resolve(4, 8), 4);
@@ -5244,6 +5262,7 @@ test('headset MSAA follows the config, never exceeds the GPU, and can be overrid
     assert.equal(resolve(4, 4), 1);
     store.set('vrclub.vrMsaa', '16');
     assert.equal(resolve(4, 4), 4, 'an invalid override is ignored');
+    assert.equal(resolve(4, 4, true), 1, 'the opt-in multiview probe disables MSAA');
     assert.equal(loadClassic('js/club/01-core.js', { localStorage: { getItem() { throw new Error('private'); } } })
         .window.VRClubCore.resolveVRMsaaSamples(4, 4), 4, 'unreadable storage uses the default');
 
@@ -5261,8 +5280,80 @@ test('headset MSAA follows the config, never exceeds the GPU, and can be overrid
         'the headset pipeline is back to no MSAA');
 
     const lifecycle = readFileSync(join(ROOT, 'js/club/02-lifecycle.js'), 'utf8');
-    assert.ok(!/preferMultiviewOnInit/.test(lifecycle),
-        'Babylon WebXR Layers multiview renders a black frame with the headset post-process pipeline');
+    assert.match(lifecycle, /this\.xrMultiviewProbe && this\.xrMultiviewProbe\.requested/);
+    assert.match(lifecycle, /preferMultiviewOnInit:\s*true/);
+    assert.match(lifecycle, /true,\s*false/);
+});
+
+test('XR multiview probe is opt-in and selects standard OVR multiview when available', () => {
+    const { window } = loadClassic('js/club/01-core.js', { URLSearchParams });
+    const configure = window.VRClubCore.configureXRMultiviewProbe;
+    const oculusMultiview = { name: 'OCULUS_multiview' };
+    const multiview = { name: 'OVR_multiview2' };
+    const caps = { multiview, oculusMultiview };
+    const engine = { getCaps: () => caps };
+
+    const disabled = configure(engine, '');
+    assert.equal(disabled.requested, false);
+    assert.strictEqual(caps.oculusMultiview, oculusMultiview, 'default mode does not patch engine caps');
+
+    const enabled = configure(engine, '?xrMultiview=ovr');
+    assert.equal(enabled.requested, true);
+    assert.equal(enabled.enabled, true);
+    assert.equal(enabled.extension, 'OVR_multiview2');
+    assert.equal(caps.oculusMultiview, null, 'the Oculus-specific extension is bypassed');
+    assert.strictEqual(caps.multiview, multiview, 'standard OVR multiview remains available');
+
+    const unsupportedCaps = { multiview: null, oculusMultiview };
+    const unsupported = configure({ getCaps: () => unsupportedCaps }, '?xrMultiview=ovr');
+    assert.equal(unsupported.enabled, false);
+    assert.equal(unsupported.reason, 'OVR_multiview2 is unavailable');
+    assert.strictEqual(unsupportedCaps.oculusMultiview, oculusMultiview, 'unsupported hardware remains untouched');
+});
+
+test('XR multiview probe enables WebXR Layers only when explicitly requested', async () => {
+    const { window } = loadClassic('js/club/02-lifecycle.js', {
+        VRClubCore: class {},
+        BABYLON: { WebXRFeatureName: { LAYERS: 'xr-layers' } },
+        log: { warn() {} }
+    });
+    const featureArgs = [];
+    const diagnostics = [];
+    const feature = { name: 'xr-layers' };
+    const helper = {
+        baseExperience: {
+            featuresManager: {
+                enableFeature(...args) {
+                    featureArgs.push(args);
+                    return feature;
+                }
+            }
+        }
+    };
+    const makeClub = probe => ({
+        floorMesh: {},
+        vrSettings: { vr: { framebufferScaleFactor: 1 } },
+        xrMultiviewProbe: probe,
+        _createXRExperience: async () => helper,
+        recordDiagnostic: (...args) => diagnostics.push(args)
+    });
+
+    const normal = makeClub({ requested: false, enabled: false });
+    await window.VRClubLifecycle.prototype._initXRHelper.call(normal);
+    assert.equal(featureArgs.length, 0, 'normal stereo does not enable WebXR Layers');
+
+    const experimental = makeClub({
+        requested: true, enabled: true, extension: 'OVR_multiview2'
+    });
+    await window.VRClubLifecycle.prototype._initXRHelper.call(experimental);
+    assert.equal(featureArgs.length, 1);
+    assert.equal(featureArgs[0][0], 'xr-layers');
+    assert.equal(featureArgs[0][1], 'latest');
+    assert.equal(featureArgs[0][2].preferMultiviewOnInit, true);
+    assert.equal(featureArgs[0][3], true);
+    assert.equal(featureArgs[0][4], false, 'feature failure must not prevent normal XR startup');
+    assert.strictEqual(experimental.xrMultiviewLayerFeature, feature);
+    assert.ok(diagnostics.some(([, message]) => message === 'Opt-in OVR_multiview2 probe configured'));
 });
 
 test('switching strobes on by hand resets a leftover show speed, but never a guest-chosen one', () => {
@@ -9105,7 +9196,7 @@ test('the restroom art atlas: cells fit, every placement sits on a real surface 
             if (key === 'measureText') return text => ({ width: String(text).length * 12 });
             if (key === 'createLinearGradient' || key === 'createRadialGradient') return () => gradient;
             if (key in target) return target[key];
-            return (...args) => { calls.set(key, (calls.get(key) || 0) + 1); };
+            return () => { calls.set(key, (calls.get(key) || 0) + 1); };
         },
         set(target, key, value) { target[key] = value; return true; },
         has(target, key) { return key in target; }
@@ -13885,9 +13976,39 @@ test('Unity-ported fog machines face inward into the dance floor, wrap plume bea
     const onSheet = { position: vec(-6, 7.55, -10), size: 1.5, color: { r: 0.03, g: 0.03, b: 0.04, a: 0.15 } };
     const outsideFan = { position: vec(6, 7.55, -10), size: 1.5, color: { r: 0.03, g: 0.03, b: 0.04, a: 0.15 } };
     plumeEmitter.updateFunction([onSheet, outsideFan]);
-    assert.ok(onSheet.color.g > 0.6 && onSheet.color.a > 0.25, 'puff sliced by laser sheet glows in diode green');
+    assert.ok(onSheet.color.g > 0.30 && onSheet.color.g < 0.65 && onSheet.color.a > 0.04 && onSheet.color.a < 0.15,
+        'puff sliced by laser sheet gets a subtle diode green tint matching the low-alpha laser sheet');
     assert.ok(outsideFan.color.a < 0.03, 'puff outside the laser sheet fan lateral boundary stays dark');
     assert.ok(club._laserSheetSmokeBoost > 1, 'smoke puffs crossing the laser sheet boost the sheet scatter density');
+
+    // Mirror-ball rays through the entrance doorway never float in mid-air at z = -0.27
+    const coreWin = loadClassic('js/club/01-core.js').window;
+    const venueWin = loadClassic('js/venueDressing.js').window;
+    const fxWin = loadClassic('js/club/06-effects.js', {
+        ROOM_INTERIOR: coreWin.ROOM_INTERIOR,
+        VRClubFixtures: class {}
+    }).window;
+    fxWin.VenueLayout = venueWin.VenueLayout;
+    const fxProto = fxWin.VRClubEffects.prototype;
+    const doorHit = {};
+    for (let k = 0; k < 280; k++) {
+        let lat = 0.5 / 280, w = 0.5;
+        for (let idx = k; idx > 0; idx = (idx / 2) | 0) { lat += (idx % 2) * w; w *= 0.5; }
+        const dy = Math.max(-0.94, Math.min(0.94, 1 - 2 * lat));
+        const r = Math.sqrt(Math.max(0, 1 - dy * dy));
+        for (let rot = 0; rot < 6.28; rot += 0.2) {
+            const a = k * Math.PI * (3 - Math.sqrt(5)) - rot;
+            const dx = Math.cos(a) * r, dz = Math.sin(a) * r;
+            if (dz <= 0) continue;
+            const tDoor = (-0.27 - (-12)) / dz;
+            const fx = dx * tDoor, fy = 6.5 + dy * tDoor;
+            if (Math.abs(fx) < 1.86 && fy > 0.02 && fy < 3.24) {
+                fxProto._intersectRoomInterior(0, 6.5, -12, dx, dy, dz, doorHit);
+                assert.ok(!(Math.abs(doorHit.pz - (-0.27)) < 0.01 && doorHit.nz === -1),
+                    `mirror-ball ray through doorway floated in air at (${fx.toFixed(2)}, ${fy.toFixed(2)})`);
+            }
+        }
+    }
 
     // Corner strobe parabolic flood + forward Mie silver-lining scatter
     club.laserSheetActive = false;

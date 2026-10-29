@@ -1125,30 +1125,68 @@ class VRClubEffects extends VRClubFixtures {
         const stair = venue.stair;
         const rise = venue.streetLevel / stair.steps;
         const tread = (stair.zTop - stair.zBottom) / (stair.steps - 1);
+        const ceilY = (venue.streetLevel || 2.8) + (venue.height || 3.7) - 0.02;
         out.t = Infinity;
 
         if (dy < -1e-6) {
+            // Bottom landing including the 0.5 m doorway threshold (from z = -0.30 to stair.zBottom)
             this._considerEntranceHit((0.02 - oy) / dy, minT, ox, oy, oz, dx, dy, dz,
                 -venue.halfWidth, venue.halfWidth, -Infinity, Infinity,
-                venue.wallZ, stair.zBottom, 0, 1, 0, out);
+                -0.30, stair.zBottom + 0.012, 0, 1, 0, out);
             for (let i = 1; i < stair.steps; i++) {
                 const y = i * rise + 0.012;
                 const z0 = stair.zBottom + (i - 1) * tread;
                 this._considerEntranceHit((y - oy) / dy, minT, ox, oy, oz, dx, dy, dz,
                     -stair.halfWidth, stair.halfWidth, -Infinity, Infinity,
-                    z0, z0 + tread, 0, 1, 0, out);
+                    z0 - 0.012, z0 + tread + 0.012, 0, 1, 0, out);
             }
+            // Top landing and galleries at street level
             this._considerEntranceHit((venue.streetLevel + 0.03 - oy) / dy, minT,
                 ox, oy, oz, dx, dy, dz, -venue.halfWidth, venue.halfWidth,
-                -Infinity, Infinity, stair.zTop, venue.farZ + 0.3, 0, 1, 0, out);
+                -Infinity, Infinity, stair.zBottom - 0.012, venue.farZ + 0.3, 0, 1, 0, out);
+        } else if (dy > 1e-6) {
+            // Doorway lintel soffit and vestibule ceiling
+            this._considerEntranceHit((3.24 - oy) / dy, minT, ox, oy, oz, dx, dy, dz,
+                -venue.halfWidth, venue.halfWidth, -Infinity, Infinity,
+                -0.30, venue.wallZ, 0, -1, 0, out);
+            this._considerEntranceHit((ceilY - oy) / dy, minT, ox, oy, oz, dx, dy, dz,
+                -venue.halfWidth, venue.halfWidth, -Infinity, Infinity,
+                venue.wallZ, venue.farZ + 0.3, 0, -1, 0, out);
         }
         if (dz > 1e-6) {
             for (let i = 1; i <= stair.steps; i++) {
                 const z = stair.zBottom + (i - 1) * tread - 0.012;
                 this._considerEntranceHit((z - oz) / dz, minT, ox, oy, oz, dx, dy, dz,
-                    -stair.halfWidth, stair.halfWidth, (i - 1) * rise, i * rise,
+                    -stair.halfWidth, stair.halfWidth, Math.max(0, (i - 1) * rise - 0.012), i * rise + 0.03,
                     -Infinity, Infinity, 0, 0, -1, out);
             }
+            // Gallery front walls either side of the stairwell at z = stair.zBottom
+            this._considerEntranceHit((stair.zBottom - 0.012 - oz) / dz, minT, ox, oy, oz, dx, dy, dz,
+                -venue.halfWidth, -stair.halfWidth, 0, venue.streetLevel + 0.03,
+                -Infinity, Infinity, 0, 0, -1, out);
+            this._considerEntranceHit((stair.zBottom - 0.012 - oz) / dz, minT, ox, oy, oz, dx, dy, dz,
+                stair.halfWidth, venue.halfWidth, 0, venue.streetLevel + 0.03,
+                -Infinity, Infinity, 0, 0, -1, out);
+            // Vestibule street wall / back plane
+            this._considerEntranceHit((venue.farZ - 0.02 - oz) / dz, minT, ox, oy, oz, dx, dy, dz,
+                -venue.halfWidth, venue.halfWidth, 0, ceilY,
+                -Infinity, Infinity, 0, 0, -1, out);
+        }
+        // Doorway jambs and stairwell / gallery inner side walls at x = ±stair.halfWidth, plus outer vestibule walls
+        if (dx > 1e-6) {
+            this._considerEntranceHit((stair.halfWidth - 0.012 - ox) / dx, minT, ox, oy, oz, dx, dy, dz,
+                -Infinity, Infinity, 0, venue.streetLevel + 0.46,
+                -0.30, venue.farZ + 0.3, -1, 0, 0, out);
+            this._considerEntranceHit((venue.halfWidth - 0.02 - ox) / dx, minT, ox, oy, oz, dx, dy, dz,
+                -Infinity, Infinity, 0, ceilY,
+                venue.wallZ, venue.farZ + 0.3, -1, 0, 0, out);
+        } else if (dx < -1e-6) {
+            this._considerEntranceHit((-stair.halfWidth + 0.012 - ox) / dx, minT, ox, oy, oz, dx, dy, dz,
+                -Infinity, Infinity, 0, venue.streetLevel + 0.46,
+                -0.30, venue.farZ + 0.3, 1, 0, 0, out);
+            this._considerEntranceHit((-venue.halfWidth + 0.02 - ox) / dx, minT, ox, oy, oz, dx, dy, dz,
+                -Infinity, Infinity, 0, ceilY,
+                venue.wallZ, venue.farZ + 0.3, 1, 0, 0, out);
         }
 
         return Number.isFinite(out.t);

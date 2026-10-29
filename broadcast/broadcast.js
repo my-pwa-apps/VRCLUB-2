@@ -30,7 +30,11 @@
         }
         status(localOnly ? 'Only you - test your mixer here without joining a session. Nothing will be broadcast.'
             : 'Private DJ invitation ready. Choose your mixer, then press Start broadcasting when you are ready for guests to hear it.');
-    } catch (error) { status(error.message, true); }
+    } catch (error) {
+        el.discover.disabled = true;
+        el.input.disabled = true;
+        status(error.message, true);
+    }
 
     const audioConstraints = () => window.LiveInput.constraints(el.input.value).audio;
 
@@ -51,9 +55,12 @@
         }
         el.left.value = el.right.value = 0;
         el.leftValue.textContent = el.rightValue.textContent = 'Silent';
+        clipUntil = 0;
+        el.clipping.textContent = 'Keep peaks below clipping.';
+        el.clipping.dataset.error = 'false';
         el.start.disabled = !valid;
-        el.discover.disabled = false;
-        el.input.disabled = false;
+        el.discover.disabled = !valid;
+        el.input.disabled = !valid;
         el.stop.disabled = true;
         status(message, error);
     }
@@ -188,5 +195,5 @@
             }
         }).catch(error => status(`Could not refresh audio inputs: ${error.message}`, true));
     });
-    window.addEventListener('pagehide', () => { void stop('Broadcast closed.'); }, { once: true });
+    window.addEventListener('pagehide', () => { void stop(localOnly ? 'Sound check closed.' : 'Broadcast closed.'); }, { once: true });
 })();

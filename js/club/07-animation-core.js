@@ -800,19 +800,20 @@ class VRClubAnimationCore extends VRClubEffects {
             const halfThick = (isPlume ? 0.52 : 0.32) + size * 0.24;
             if (dist >= halfThick) continue;
             const veil = 1 - dist / halfThick;
-            const core = Math.exp(-(dist * dist) / 0.028);
+            const core = Math.exp(-(dist * dist) / 0.024);
             const uNorm = Math.min(1, Math.abs(across) / Math.max(0.1, fanHalfW));
-            const edgeBoost = 0.88 + 0.55 * Math.pow(uNorm, 6);
-            const falloff = Math.min(1, Math.pow(4.5 / Math.max(along, 1.5), 0.35)) * Math.exp(-0.01 * along);
-            const wisp = 0.78 + 0.35 * Math.sin(along * 0.9 - t * 3.0) * Math.cos(across * 1.15 + t * 1.6);
-            let phase = 1.0;
+            const edgeBoost = 0.78 + 0.35 * Math.pow(uNorm, 6);
+            const falloff = Math.min(1, Math.pow(3.5 / Math.max(along, 1.5), 0.42)) * Math.exp(-0.014 * along);
+            const wisp = 0.72 + 0.28 * Math.sin(along * 0.9 - t * 3.0) * Math.cos(across * 1.15 + t * 1.6);
+            let phase = 0.75;
             if (cp) {
                 const cx = cp.x - pos.x, cy = cp.y - pos.y, cz = cp.z - pos.z;
                 const cl = Math.sqrt(cx * cx + cy * cy + cz * cz) || 1;
                 const cosT = (cx * sh.fx + cy * sh.fy + cz * sh.fz) / cl;
-                phase = 0.85 + Math.min(1.15, 0.38 / Math.pow(1.22 - cosT * 0.85, 1.5));
+                phase = 0.65 + Math.min(0.65, 0.24 / Math.pow(1.25 - cosT * 0.75, 1.5));
             }
-            const contrib = (0.65 * veil * veil + 1.25 * core) * edgeBoost * falloff * wisp * phase * dim;
+            // Subtle, delicate sheet slice: the laser sheet is a thin low-alpha veil, not a spotlight
+            const contrib = (0.22 * veil * veil + 0.38 * core) * edgeBoost * falloff * wisp * phase * dim;
             sheetLit += contrib;
             sh.acc += contrib;
         }
@@ -955,7 +956,8 @@ class VRClubAnimationCore extends VRClubEffects {
             }
             const c = p.color;
             if (isPlume) {
-                const totalLit = localLit + lit + sheetLit * 1.35;
+                const sheetWeight = sheetLit * 0.45;
+                const totalLit = localLit + lit + sheetWeight;
                 if (totalLit <= 0.001) {
                     // No light reaching this particle's 3D position: smoke stays dark unlit fog
                     c.r = 0.02;
@@ -964,24 +966,24 @@ class VRClubAnimationCore extends VRClubEffects {
                     c.a *= 0.08;
                 } else {
                     const sCol = laserColor || tint;
-                    const rSum = localR + beamR + (sCol ? sCol.r * sheetLit * 1.35 : 0);
-                    const gSum = localG + beamG + (sCol ? sCol.g * sheetLit * 1.35 : 0);
-                    const bSum = localB + beamB + (sCol ? sCol.b * sheetLit * 1.35 : 0);
+                    const rSum = localR + beamR + (sCol ? sCol.r * sheetWeight : 0);
+                    const gSum = localG + beamG + (sCol ? sCol.g * sheetWeight : 0);
+                    const bSum = localB + beamB + (sCol ? sCol.b * sheetWeight : 0);
                     const inv = 1 / totalLit;
-                    const gain = Math.min(1.3, 0.32 + totalLit * 0.95);
-                    c.r = Math.min(1.2, rSum * inv * gain);
-                    c.g = Math.min(1.2, gSum * inv * gain);
-                    c.b = Math.min(1.2, bSum * inv * gain);
-                    c.a = Math.min(0.44, c.a * (0.18 + Math.min(1.6, totalLit) * 2.7));
+                    const gain = Math.min(1.25, 0.30 + totalLit * 0.92);
+                    c.r = Math.min(1.15, rSum * inv * gain);
+                    c.g = Math.min(1.15, gSum * inv * gain);
+                    c.b = Math.min(1.15, bSum * inv * gain);
+                    c.a = Math.min(0.42, c.a * (0.18 + Math.min(1.6, localLit + lit + sheetWeight * 0.5) * 2.7));
                 }
                 continue;
             }
-            const totalLit = lit + sheetLit * 1.35 + localLit;
+            const totalLit = lit + sheetLit * 0.55 + localLit;
             if (isDust) {
                 // Dust is only seen where light catches it.
                 c.a = Math.min(0.9, c.a * (0.2 + Math.min(1.5, totalLit) * 1.7));
             } else if (totalLit > 0) {
-                c.a *= 1 + Math.min(1.2, totalLit) * 2.2;
+                c.a *= 1 + Math.min(1.2, totalLit) * 1.8;
             }
             if ((lit + localLit) > 0 && (tint || localLit > 0)) {
                 const weight = lit + localLit;
@@ -995,17 +997,17 @@ class VRClubAnimationCore extends VRClubEffects {
                 c.b += (tb * 1.1 - c.b) * m;
             }
             if (sheetLit > 0 && laserColor) {
-                const sm = Math.min(0.88, sheetLit * 0.85);
-                c.r += (laserColor.r * 1.25 - c.r) * sm;
-                c.g += (laserColor.g * 1.25 - c.g) * sm;
-                c.b += (laserColor.b * 1.25 - c.b) * sm;
+                const sm = Math.min(0.52, sheetLit * 0.48);
+                c.r += (laserColor.r * 0.95 - c.r) * sm;
+                c.g += (laserColor.g * 0.95 - c.g) * sm;
+                c.b += (laserColor.b * 0.95 - c.b) * sm;
             }
         }
 
         if (isPlume && nSheets > 0) {
             let sheetAcc = 0;
             for (let s = 0; s < nSheets; s++) sheetAcc += sheets[s].acc || 0;
-            const target = Math.min(1.35, 1.0 + (sheetAcc / Math.max(4, particles.length * 0.06)) * 0.35);
+            const target = Math.min(1.14, 1.0 + (sheetAcc / Math.max(4, particles.length * 0.08)) * 0.16);
             const cur = this._laserSheetSmokeBoost == null ? target : this._laserSheetSmokeBoost;
             this._laserSheetSmokeBoost = cur + (target - cur) * 0.08;
         }

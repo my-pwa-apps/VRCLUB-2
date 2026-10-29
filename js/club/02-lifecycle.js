@@ -296,6 +296,54 @@ class VRClubLifecycle extends VRClubCore {
             this.recordDiagnostic('xr', 'WebXR helper initialization failed', { error: message });
             return null;
         });
+        if (this.xrMultiviewProbe && this.xrMultiviewProbe.requested) {
+            const abandonProbe = () => {
+                this.xrMultiviewProbe.enabled = false;
+                const caps = this.engine && typeof this.engine.getCaps === 'function'
+                    ? this.engine.getCaps()
+                    : null;
+                if (caps && this.xrMultiviewProbe.originalOculusMultiview) {
+                    caps.oculusMultiview = this.xrMultiviewProbe.originalOculusMultiview;
+                }
+            };
+            if (!helper) {
+                const reason = 'WebXR helper is unavailable';
+                log.warn(`XR multiview probe unavailable: ${reason}`);
+                this.recordDiagnostic('xr', 'Multiview probe unavailable', { reason });
+                abandonProbe();
+            } else if (!this.xrMultiviewProbe.enabled) {
+                this.recordDiagnostic('xr', 'Multiview probe unavailable', { reason: this.xrMultiviewProbe.reason });
+            } else {
+                const featureManager = helper.baseExperience && helper.baseExperience.featuresManager;
+                const layersFeature = BABYLON.WebXRFeatureName && BABYLON.WebXRFeatureName.LAYERS;
+                if (!featureManager || typeof featureManager.enableFeature !== 'function' || !layersFeature) {
+                    const reason = 'Babylon WebXR Layers feature is unavailable';
+                    log.warn(`XR multiview probe unavailable: ${reason}`);
+                    this.recordDiagnostic('xr', 'Multiview probe unavailable', { reason });
+                    abandonProbe();
+                } else {
+                    try {
+                        this.xrMultiviewLayerFeature = featureManager.enableFeature(
+                            layersFeature,
+                            'latest',
+                            { preferMultiviewOnInit: true },
+                            true,
+                            false
+                        );
+                        log.warn('XR multiview probe configured for OVR_multiview2 with MSAA disabled.');
+                        this.recordDiagnostic('xr', 'Opt-in OVR_multiview2 probe configured', {
+                            extension: this.xrMultiviewProbe.extension,
+                            msaaSamples: 1
+                        });
+                    } catch (error) {
+                        const reason = error && error.message ? error.message : String(error);
+                        log.warn(`XR multiview probe could not enable WebXR Layers: ${reason}`);
+                        this.recordDiagnostic('xr', 'Multiview probe setup failed', { error: reason });
+                        abandonProbe();
+                    }
+                }
+            }
+        }
         return helper;
     }
 

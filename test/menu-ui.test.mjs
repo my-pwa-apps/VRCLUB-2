@@ -6,6 +6,13 @@ import vm from 'node:vm';
 const root = new URL('../', import.meta.url);
 const read = file => readFileSync(new URL(file, root), 'utf8');
 
+function loadPanelHelpers() {
+    const source = read('js/ui-init.js');
+    const context = vm.createContext({});
+    vm.runInContext(source.slice(source.indexOf('function setPanelMinimized('), source.indexOf('function initPanelSwitchers(')), context);
+    return context;
+}
+
 function loadMenuClass() {
     const window = {};
     const context = vm.createContext({ window, URL, log: { error() {}, warn() {}, info() {} }, VRClubAnimationFinish: class {} });
@@ -97,8 +104,60 @@ test('the Access button follows the corner-button pattern (icon over one word) a
     assert.match(css, /\.audio-input-group \.audio-paste-button\s*\{/, 'the Paste button style must out-rank .audio-button');
 });
 
+test('panel minimization and reopening keep glyph, accessible state and action labels consistent', () => {
+    const { setPanelMinimized } = loadPanelHelpers();
+    for (const label of ['Show and Lights', 'Music', 'Online']) {
+        const classes = new Set();
+        const attributes = {};
+        const glyph = {};
+        const menu = { classList: { toggle(name, on) { if (on) classes.add(name); else classes.delete(name); } } };
+        const button = { querySelector: () => glyph, setAttribute(name, value) { attributes[name] = value; } };
+        for (const minimized of [true, false]) {
+            setPanelMinimized(menu, button, minimized, label);
+            assert.equal(classes.has('minimized'), minimized);
+            assert.equal(glyph.textContent, minimized ? '+' : '\u2212');
+            assert.equal(attributes['aria-expanded'], String(!minimized));
+            assert.equal(attributes['aria-label'], `${minimized ? 'Expand' : 'Minimize'} ${label} panel`);
+            assert.equal(attributes.title, minimized ? 'Expand' : 'Minimize');
+        }
+    }
+    const source = read('js/ui-init.js');
+    for (const [prefix, label] of [['vj', 'Show and Lights'], ['audio', 'Music'], ['network', 'Online']]) {
+        assert.match(source, new RegExp(`setPanelMinimized\\(${prefix}Menu, ${prefix}Minimize, false, '${label}'\\)`),
+            `${prefix} resets its minimized control on reopening`);
+    }
+});
+
+test('Escape closes a visible side panel only when no modal or earlier handler owns it', () => {
+    const { panelOwnsEscape } = loadPanelHelpers();
+    const panel = { classList: { contains: () => false } };
+    const key = overrides => ({ key: 'Escape', defaultPrevented: false, target: { closest: () => null }, ...overrides });
+    assert.equal(panelOwnsEscape(key(), panel), true);
+    assert.equal(panelOwnsEscape(key({ defaultPrevented: true }), panel), false);
+    assert.equal(panelOwnsEscape(key({ key: 'Enter' }), panel), false);
+    assert.equal(panelOwnsEscape(key({ target: { closest: () => ({}) } }), panel), false);
+    assert.equal(panelOwnsEscape(key(), { classList: { contains: () => true } }), false);
+});
+
+test('both panel tab lists support wrapping arrows, Home and End without stealing browser shortcuts', () => {
+    const { panelTabDestination } = loadPanelHelpers();
+    const tabs = [{ id: 'first' }, { id: 'middle' }, { id: 'last' }];
+    assert.strictEqual(panelTabDestination({ key: 'Home' }, 1, tabs), tabs[0]);
+    assert.strictEqual(panelTabDestination({ key: 'End' }, 1, tabs), tabs[2]);
+    assert.strictEqual(panelTabDestination({ key: 'ArrowLeft' }, 0, tabs), tabs[2]);
+    assert.strictEqual(panelTabDestination({ key: 'ArrowRight' }, 2, tabs), tabs[0]);
+    for (const flags of [{ altKey: true }, { ctrlKey: true }, { metaKey: true }, { defaultPrevented: true }]) {
+        assert.equal(panelTabDestination({ key: 'ArrowLeft', ...flags }, 1, tabs), null);
+    }
+    assert.equal((read('js/ui-init.js').match(/const next = panelTabDestination\(event, index, tabs\)/g) || []).length, 2);
+});
+
 test('desktop control panels use the same language and can switch without exposed corner controls', () => {
     const html = read('index.html');
+    const splashControls = /class="splash-hint splash-controls">([\s\S]*?)<\/p>/.exec(html)?.[1] || '';
+    for (const phrase of ['add your music in Music', 'control the lights in Show', 'choose a viewpoint in Go to']) {
+        assert.ok(splashControls.includes(phrase), `the splash names the visible control: ${phrase}`);
+    }
     assert.match(html, /<span>Show &amp; Lights<\/span>/);
     assert.match(html, /id="networkMenuTitle"[\s\S]{0,160}<span>Online<\/span>/);
     assert.match(html, /id="networkToggle"[\s\S]{0,240}<span class="toggle-word" aria-hidden="true">Online<\/span>/);
@@ -136,6 +195,9 @@ test('Music presents one source path at a time and disables transport until play
     const html = read('index.html');
     assert.deepEqual([...html.matchAll(/data-audio-source="([^"]+)"/g)].map(match => match[1]),
         ['link', 'file', 'folder', 'live']);
+    assert.match(html, /id="audioSourceTabLive"[^>]*aria-controls="audioSourceLive"/);
+    assert.match(html, /id="audioSourceLive"[^>]*role="tabpanel"/);
+    assert.match(read('js/ui-init.js'), /live:\s*document\.getElementById\('audioSourceLive'\)/);
     const addMusic = /<div class="vj-section-title">Add music<\/div>([\s\S]*?)<details class="audio-help">/.exec(html)?.[1] || '';
     assert.ok(addMusic.indexOf('id="setName"') < addMusic.indexOf('id="playStreamBtn"'),
         'the optional name is chosen before Save & play');

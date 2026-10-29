@@ -35,6 +35,8 @@ test('restore recovers the two-slot device list, confirms replacement/removal, a
     await page.goto('/');
     await page.waitForFunction(() => !!window.VRPayment);
     await page.evaluate(async () => { await window.VRPayment.refreshEntitlement(); window.VRPayment.showGate(); await window.VRPayment.refreshEntitlement(); });
+    await page.getByRole('button', { name: 'Restore existing access' }).click();
+    await expect(page.getByRole('textbox', { name: 'Email for access recovery' })).toBeVisible();
     await page.getByRole('textbox', { name: 'Email for access recovery' }).fill('owner@example.com');
     await page.getByRole('button', { name: 'Send verification code' }).click();
     await expect(page.getByRole('button', { name: 'Verify email', exact: true })).toBeEnabled();
