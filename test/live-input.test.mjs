@@ -247,3 +247,90 @@ test('Live input Perform as DJ mode hides the NPC DJ, drives the player avatar w
     assert.equal(npcRoot.enabled, true, 'resident NPC DJ returns when Perform as DJ is turned off');
 });
 
+test('AvatarRig resolves Ready Player Me / Tribe XR / Mixamo full-body and half-body skeletons', () => {
+    const window = {};
+    const Vector3 = class {
+        constructor(x = 0, y = 0, z = 0) { this.x = x; this.y = y; this.z = z; }
+        set(x, y, z) { this.x = x; this.y = y; this.z = z; return this; }
+        setAll(v) { this.x = v; this.y = v; this.z = v; return this; }
+        copyFrom(o) { this.x = o.x; this.y = o.y; this.z = o.z; return this; }
+        clone() { return new Vector3(this.x, this.y, this.z); }
+        subtract(o) { return new Vector3(this.x - o.x, this.y - o.y, this.z - o.z); }
+        lengthSquared() { return this.x * this.x + this.y * this.y + this.z * this.z; }
+        normalize() {
+            const l = Math.hypot(this.x, this.y, this.z) || 1;
+            this.x /= l; this.y /= l; this.z /= l;
+            return this;
+        }
+        static Distance(a, b) { return Math.hypot(a.x - b.x, a.y - b.y, a.z - b.z); }
+        static TransformCoordinates(p) { return p.clone(); }
+    };
+    const Quaternion = class {
+        static Identity() { return { x: 0, y: 0, z: 0, w: 1, clone() { return { ...this }; } }; }
+    };
+    const TransformNode = class {
+        constructor(name) {
+            this.name = name;
+            this.position = new Vector3();
+            this.scaling = new Vector3(1, 1, 1);
+            this.rotationQuaternion = Quaternion.Identity();
+            this.parent = null;
+        }
+        computeWorldMatrix() {}
+        getWorldMatrix() { return { clone: () => ({ invert: () => ({}) }) }; }
+        getAbsolutePosition() { return this.position; }
+        getScene() { return null; }
+    };
+    const context = vm.createContext({
+        window,
+        BABYLON: { Vector3, Quaternion, TransformNode }
+    });
+    vm.runInContext(readFileSync(new URL('../js/avatarRig.js', import.meta.url), 'utf8'), context);
+    const { AvatarRig } = window;
+
+    // 1. Ready Player Me / Mixamo full-body skeleton
+    const rootFull = new TransformNode('rig0_Armature');
+    const rpmFullNames = [
+        'Hips', 'Spine', 'Spine1', 'Spine2', 'Neck', 'Head',
+        'LeftShoulder', 'LeftArm', 'LeftForeArm', 'LeftHand', 'LeftHandIndex1', 'LeftHandPinky1',
+        'RightShoulder', 'RightArm', 'RightForeArm', 'RightHand', 'RightHandIndex1', 'RightHandPinky1',
+        'LeftUpLeg', 'LeftLeg', 'LeftFoot', 'LeftToeBase',
+        'RightUpLeg', 'RightLeg', 'RightFoot', 'RightToeBase'
+    ];
+    const fullHierarchy = rpmFullNames.map(n => {
+        const node = new TransformNode(`rig0_${n}`);
+        node.parent = rootFull;
+        return node;
+    });
+    const resolvedFull = AvatarRig._resolveBoneNodes(rootFull, 'rig0_', fullHierarchy, true);
+    assert.ok(resolvedFull, 'Ready Player Me full-body skeleton resolves');
+    assert.equal(resolvedFull.rigMode, 'full');
+    for (const bone of AvatarRig.BONES) {
+        assert.ok(resolvedFull.nodes[bone], `Ready Player Me full-body resolves ${bone}`);
+    }
+
+    // 2. Ready Player Me / Tribe XR half-body VR skeleton (no leg or toe bones)
+    const rootHalf = new TransformNode('rig1_Armature');
+    const rpmHalfNames = [
+        'Hips', 'Spine', 'Head',
+        'LeftArm', 'LeftForeArm', 'LeftHand',
+        'RightArm', 'RightForeArm', 'RightHand'
+    ];
+    const halfHierarchy = rpmHalfNames.map(n => {
+        const node = new TransformNode(`rig1_${n}`);
+        node.parent = rootHalf;
+        if (n === 'Head') node.position.set(0, 1.6, 0);
+        if (n === 'Hips') node.position.set(0, 1.0, 0);
+        if (n === 'LeftArm') node.position.set(0.18, 1.4, 0);
+        if (n === 'RightArm') node.position.set(-0.18, 1.4, 0);
+        return node;
+    });
+    const resolvedHalf = AvatarRig._resolveBoneNodes(rootHalf, 'rig1_', halfHierarchy, true);
+    assert.ok(resolvedHalf, 'Ready Player Me half-body VR skeleton resolves');
+    assert.equal(resolvedHalf.rigMode, 'upper-body');
+    for (const bone of AvatarRig.BONES) {
+        assert.ok(resolvedHalf.nodes[bone], `Ready Player Me half-body resolves or synthesizes ${bone}`);
+    }
+});
+
+

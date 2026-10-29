@@ -1818,9 +1818,185 @@ class VRClubAudioCrowd extends VRClubUI {
     }
 
     _avatarContainerFor(style) {
+        if (this._customAvatarContainer) return this._customAvatarContainer;
         const list = this._crowdSourceContainers;
         if (!list) return null;
         return (style === 'male' ? list[1] : list[0]) || list[0] || list[1] || null;
+    }
+
+    static CUSTOM_AVATAR_CACHE_KEY = 'local://custom-avatar.glb';
+    static CUSTOM_AVATAR_STORAGE_KEY = 'vrclub.customAvatarName';
+    static CUSTOM_AVATAR_MAX_BYTES = 30 * 1024 * 1024;
+
+    hasCustomAvatarGlb() {
+        return !!(this._customAvatarContainer && !this._disposed);
+    }
+
+    getCustomAvatarName() {
+        if (this._customAvatarName) return this._customAvatarName;
+        try {
+            return (typeof localStorage !== 'undefined' && localStorage.getItem(VRClubAudioCrowd.CUSTOM_AVATAR_STORAGE_KEY)) || null;
+        } catch (_) {
+            return null;
+        }
+    }
+
+    _customAvatarCache() {
+        if (this.modelLoader && this.modelLoader.assetCache) return this.modelLoader.assetCache;
+        if (!this._fallbackAvatarCache && typeof IndexedDBAssetCache !== 'undefined') {
+            this._fallbackAvatarCache = new IndexedDBAssetCache('VRClubModelCache', 'models');
+        }
+        return this._fallbackAvatarCache || null;
+    }
+
+    /**
+     * Load a user-supplied `.glb` avatar (Ready Player Me, Tribe XR, Mixamo, VRM, or custom),
+     * bind it to `AvatarRig` for walking, sitting, mirror reflection, and `DJPerformer` in the booth,
+     * and persist it locally on this device.
+     */
+    async loadCustomAvatarGlb(input, name = '', options = {}) {
+        if (this._disposed || !this.scene || typeof BABYLON === 'undefined' || !BABYLON.SceneLoader) {
+            throw new Error('Scene is not ready yet.');
+        }
+        let buffer = null;
+        const label = String(name || (input && input.name) || 'Custom avatar.glb').trim() || 'Custom avatar.glb';
+        if (input instanceof ArrayBuffer) {
+            buffer = input;
+        } else if (ArrayBuffer.isView(input)) {
+            buffer = input.buffer.slice(input.byteOffset, input.byteOffset + input.byteLength);
+        } else if (input && typeof input.arrayBuffer === 'function') {
+            buffer = await input.arrayBuffer();
+        }
+        if (!buffer || !(buffer.byteLength >= 20)) {
+            throw new Error('Please choose a valid .glb 3D avatar file.');
+        }
+        if (buffer.byteLength > VRClubAudioCrowd.CUSTOM_AVATAR_MAX_BYTES) {
+            throw new Error('This .glb file is larger than 30 MB. Please use a lighter avatar.');
+        }
+        const magic = new DataView(buffer).getUint32(0, true);
+        if (magic !== 0x46546C67) {
+            throw new Error('This file is not a binary .glb model (missing glTF header).');
+        }
+
+        const blobUrl = URL.createObjectURL(new Blob([buffer], { type: 'model/gltf-binary' }));
+        let container = null;
+        try {
+            container = await BABYLON.SceneLoader.LoadAssetContainerAsync('', blobUrl, this.scene, null, '.glb');
+        } finally {
+            try { URL.revokeObjectURL(blobUrl); } catch (_) { /* ignore */ }
+        }
+        if (!container || this._disposed) {
+            if (container) { try { container.dispose(); } catch (_) { /* ignore */ } }
+            throw new Error('Could not load this .glb file.');
+        }
+
+        if (this._prepareAvatarMaterials && container.materials) {
+            this._prepareAvatarMaterials(container.materials, null);
+        }
+        if (container.materials) {
+            for (let i = 0; i < container.materials.length; i++) {
+                const mat = container.materials[i];
+                if (!mat) continue;
+                mat.maxSimultaneousLights = this.maxLights || 3;
+                mat.disableDepthWrite = false;
+                if (typeof mat.unfreeze === 'function') mat.unfreeze();
+                if (typeof mat.markAsDirty === 'function' && BABYLON.Material) {
+                    mat.markAsDirty(BABYLON.Material.LightDirtyFlag);
+                }
+            }
+        }
+        if (this._restoreLightBudgets) this._restoreLightBudgets();
+
+        const rig = new AvatarRig(this, container, {
+            eyeHeight: this._bodyEyeHeight(),
+            hideHead: !this.performingAsDJ,
+            allowFallback: true
+        });
+        if (!rig.ok) {
+            try { container.dispose(); } catch (_) { /* ignore */ }
+            throw new Error('Could not bind this .glb model as an avatar.');
+        }
+
+        if (this._localRig) {
+            try { this._localRig.dispose(); } catch (_) { /* ignore */ }
+            this._localRig = null;
+        }
+        if (this._customAvatarContainer && this._customAvatarContainer !== container) {
+            try { this._customAvatarContainer.dispose(); } catch (_) { /* ignore */ }
+        }
+        this._customAvatarContainer = container;
+        this._customAvatarName = label;
+        this._localRig = rig;
+
+        if (options.persist !== false) {
+            try {
+                if (typeof localStorage !== 'undefined') {
+                    localStorage.setItem(VRClubAudioCrowd.CUSTOM_AVATAR_STORAGE_KEY, label);
+                }
+            } catch (_) { /* ignore */ }
+            const cache = this._customAvatarCache();
+            if (cache && typeof cache.put === 'function') {
+                try { await cache.put(VRClubAudioCrowd.CUSTOM_AVATAR_CACHE_KEY, buffer, { name: label }); } catch (_) { /* ignore */ }
+            }
+        }
+
+        if (typeof this._syncMirrorDouble === 'function') this._syncMirrorDouble();
+        if (typeof this._syncRestroomMirrorRenderList === 'function') this._syncRestroomMirrorRenderList();
+        if (typeof window !== 'undefined' && typeof window.dispatchEvent === 'function' && typeof CustomEvent === 'function') {
+            window.dispatchEvent(new CustomEvent('customavatarchange', {
+                detail: { active: true, name: label, rigMode: rig.rigMode }
+            }));
+        }
+        return { ok: true, name: label, rigMode: rig.rigMode };
+    }
+
+    async clearCustomAvatarGlb() {
+        this._customAvatarName = null;
+        try {
+            if (typeof localStorage !== 'undefined') {
+                localStorage.removeItem(VRClubAudioCrowd.CUSTOM_AVATAR_STORAGE_KEY);
+            }
+        } catch (_) { /* ignore */ }
+        const cache = this._customAvatarCache();
+        if (cache) {
+            try {
+                if (typeof cache.delete === 'function') await cache.delete(VRClubAudioCrowd.CUSTOM_AVATAR_CACHE_KEY);
+                else if (typeof cache.put === 'function') await cache.put(VRClubAudioCrowd.CUSTOM_AVATAR_CACHE_KEY, null);
+            } catch (_) { /* ignore */ }
+        }
+        if (this._localRig) {
+            try { this._localRig.dispose(); } catch (_) { /* ignore */ }
+            this._localRig = null;
+        }
+        if (this._customAvatarContainer) {
+            try { this._customAvatarContainer.dispose(); } catch (_) { /* ignore */ }
+            this._customAvatarContainer = null;
+        }
+        this._spawnLocalPlayerBody();
+        if (typeof this._syncMirrorDouble === 'function') this._syncMirrorDouble();
+        if (typeof this._syncRestroomMirrorRenderList === 'function') this._syncRestroomMirrorRenderList();
+        if (typeof window !== 'undefined' && typeof window.dispatchEvent === 'function' && typeof CustomEvent === 'function') {
+            window.dispatchEvent(new CustomEvent('customavatarchange', {
+                detail: { active: false, name: null, rigMode: null }
+            }));
+        }
+        return true;
+    }
+
+    async _restoreCustomAvatarGlb() {
+        const savedName = this.getCustomAvatarName();
+        if (!savedName) return false;
+        const cache = this._customAvatarCache();
+        if (!cache || typeof cache.get !== 'function') return false;
+        try {
+            const payload = await cache.get(VRClubAudioCrowd.CUSTOM_AVATAR_CACHE_KEY);
+            if (!payload) return false;
+            await this.loadCustomAvatarGlb(payload, savedName, { persist: false });
+            return true;
+        } catch (err) {
+            log.warn('⚠️ Could not restore saved custom .glb avatar:', err);
+            return false;
+        }
     }
 
     // ───────────────────────── the DJ, performing ─────────────────────────
@@ -1986,7 +2162,9 @@ class VRClubAudioCrowd extends VRClubUI {
             }
         } else {
             this._selfDJPose = null;
-            if (this._localRig && this._localRig.headMeshes) {
+            if (this._localRig && typeof this._localRig.setHeadVisible === 'function') {
+                this._localRig.setHeadVisible(false);
+            } else if (this._localRig && this._localRig.headMeshes) {
                 this._localRig.headMeshes.forEach(m => { m.isVisible = false; });
             }
             if (typeof this._syncMirrorDouble === 'function') this._syncMirrorDouble();
@@ -2009,7 +2187,11 @@ class VRClubAudioCrowd extends VRClubUI {
         // otherwise the standard 1.7 m one; desktop is always 1.7 m because its camera is. Sitting on the club's
         // furniture or in Seated mode never shrinks it: a seated guest keeps a standing person, and Seated mode lifts
         // the view to it (`_xrHeadHeight`).
-        const rig = new AvatarRig(this, container, { eyeHeight: this._bodyEyeHeight(), hideHead: true });
+        const rig = new AvatarRig(this, container, {
+            eyeHeight: this._bodyEyeHeight(),
+            hideHead: true,
+            allowFallback: !!this._customAvatarContainer
+        });
         this._localRig = rig.ok ? rig : null;
     }
 
@@ -2113,11 +2295,13 @@ class VRClubAudioCrowd extends VRClubUI {
             const djPose = this._selfDJPose;
             rig.setEyeHeight(eye);
             const away = Math.hypot(djPose.x - pos.x, (djPose.eyeY || 2.1) - pos.y, djPose.z - pos.z);
-            if (rig.headMeshes) rig.headMeshes.forEach(m => { m.isVisible = away > 0.35; });
+            if (typeof rig.setHeadVisible === 'function') rig.setHeadVisible(away > 0.35);
+            else if (rig.headMeshes) rig.headMeshes.forEach(m => { m.isVisible = away > 0.35; });
             rig.update(dt, djPose);
             return;
         }
-        if (rig.headMeshes) rig.headMeshes.forEach(m => { m.isVisible = false; });
+        if (typeof rig.setHeadVisible === 'function') rig.setHeadVisible(false);
+        else if (rig.headMeshes) rig.headMeshes.forEach(m => { m.isVisible = false; });
         const pose = this._localPose || (this._localPose = {
             x: 0, z: 0, groundY: 0, eyeY: 1.7, headYaw: 0, headPitch: 0, left: null, right: null
         });
@@ -2219,6 +2403,7 @@ class VRClubAudioCrowd extends VRClubUI {
         }
 
         this._spawnLocalPlayerBody();
+        void this._restoreCustomAvatarGlb();
         this._applyCrowdSize();
         this._refreshShadowCasters();
 

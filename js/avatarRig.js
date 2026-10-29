@@ -39,13 +39,207 @@ class AvatarRig {
         'index_01_l', 'pinky_01_l', 'index_01_r', 'pinky_01_r'
     ];
 
+    /**
+     * Bone-name aliases across UE Mannequin, Ready Player Me (Tribe XR), Mixamo,
+     * Quaternius Modular, and VRM / VRoid humanoid `.glb` rigs.
+     */
+    static BONE_ALIASES = {
+        root: ['root', 'Armature', 'AvatarRoot', 'RootNode', 'Character', 'GeneralSkeleton', 'Root'],
+        pelvis: ['pelvis', 'Hips', 'mixamorig:Hips', 'mixamorigHips', 'Body', 'hips', 'Hip', 'J_Bip_C_Hips'],
+        spine_01: ['spine_01', 'Spine', 'mixamorig:Spine', 'mixamorigSpine', 'Abdomen', 'spine', 'Spine_01', 'spine1', 'J_Bip_C_Spine'],
+        spine_02: ['spine_02', 'Spine1', 'mixamorig:Spine1', 'mixamorigSpine1', 'Torso', 'Chest', 'chest', 'Spine_02', 'spine2', 'J_Bip_C_Chest'],
+        spine_03: ['spine_03', 'Spine2', 'mixamorig:Spine2', 'mixamorigSpine2', 'UpperChest', 'upperChest', 'upper_chest', 'Spine_03', 'spine3', 'J_Bip_C_UpperChest'],
+        neck_01: ['neck_01', 'Neck', 'mixamorig:Neck', 'mixamorigNeck', 'neck', 'Neck_01', 'J_Bip_C_Neck'],
+        Head: ['Head', 'mixamorig:Head', 'mixamorigHead', 'head', 'J_Bip_C_Head'],
+        clavicle_l: ['clavicle_l', 'LeftShoulder', 'mixamorig:LeftShoulder', 'mixamorigLeftShoulder', 'Shoulder.L', 'shoulder.L', 'shoulder_l', 'leftShoulder', 'Left_Shoulder', 'J_Bip_L_Shoulder'],
+        upperarm_l: ['upperarm_l', 'LeftArm', 'mixamorig:LeftArm', 'mixamorigLeftArm', 'UpperArm.L', 'upper_arm.L', 'upper_arm_l', 'leftUpperArm', 'LeftUpperArm', 'Left_UpperArm', 'J_Bip_L_UpperArm'],
+        lowerarm_l: ['lowerarm_l', 'LeftForeArm', 'mixamorig:LeftForeArm', 'mixamorigLeftForeArm', 'LowerArm.L', 'forearm.L', 'forearm_l', 'leftLowerArm', 'LeftLowerArm', 'Left_LowerArm', 'J_Bip_L_LowerArm'],
+        hand_l: ['hand_l', 'LeftHand', 'mixamorig:LeftHand', 'mixamorigLeftHand', 'Wrist.L', 'Hand.L', 'hand.L', 'leftHand', 'LeftWrist', 'Left_Hand', 'J_Bip_L_Hand'],
+        clavicle_r: ['clavicle_r', 'RightShoulder', 'mixamorig:RightShoulder', 'mixamorigRightShoulder', 'Shoulder.R', 'shoulder.R', 'shoulder_r', 'rightShoulder', 'Right_Shoulder', 'J_Bip_R_Shoulder'],
+        upperarm_r: ['upperarm_r', 'RightArm', 'mixamorig:RightArm', 'mixamorigRightArm', 'UpperArm.R', 'upper_arm.R', 'upper_arm_r', 'rightUpperArm', 'RightUpperArm', 'Right_UpperArm', 'J_Bip_R_UpperArm'],
+        lowerarm_r: ['lowerarm_r', 'RightForeArm', 'mixamorig:RightForeArm', 'mixamorigRightForeArm', 'LowerArm.R', 'forearm.R', 'forearm_r', 'rightLowerArm', 'RightLowerArm', 'Right_LowerArm', 'J_Bip_R_LowerArm'],
+        hand_r: ['hand_r', 'RightHand', 'mixamorig:RightHand', 'mixamorigRightHand', 'Wrist.R', 'Hand.R', 'hand.R', 'rightHand', 'RightWrist', 'Right_Hand', 'J_Bip_R_Hand'],
+        thigh_l: ['thigh_l', 'LeftUpLeg', 'mixamorig:LeftUpLeg', 'mixamorigLeftUpLeg', 'UpperLeg.L', 'thigh.L', 'leftUpperLeg', 'LeftUpperLeg', 'Left_UpperLeg', 'J_Bip_L_UpperLeg'],
+        calf_l: ['calf_l', 'LeftLeg', 'mixamorig:LeftLeg', 'mixamorigLeftLeg', 'LowerLeg.L', 'shin.L', 'leftLowerLeg', 'LeftLowerLeg', 'Left_LowerLeg', 'J_Bip_L_LowerLeg'],
+        foot_l: ['foot_l', 'LeftFoot', 'mixamorig:LeftFoot', 'mixamorigLeftFoot', 'Foot.L', 'foot.L', 'leftFoot', 'Left_Foot', 'J_Bip_L_Foot'],
+        ball_l: ['ball_l', 'LeftToeBase', 'mixamorig:LeftToeBase', 'mixamorigLeftToeBase', 'Toes.L', 'Toe.L', 'toe.L', 'leftToes', 'LeftToes', 'Left_Toes', 'J_Bip_L_ToeBase'],
+        thigh_r: ['thigh_r', 'RightUpLeg', 'mixamorig:RightUpLeg', 'mixamorigRightUpLeg', 'UpperLeg.R', 'thigh.R', 'rightUpperLeg', 'RightUpperLeg', 'Right_UpperLeg', 'J_Bip_R_UpperLeg'],
+        calf_r: ['calf_r', 'RightLeg', 'mixamorig:RightLeg', 'mixamorigRightLeg', 'LowerLeg.R', 'shin.R', 'rightLowerLeg', 'RightLowerLeg', 'Right_LowerLeg', 'J_Bip_R_LowerLeg'],
+        foot_r: ['foot_r', 'RightFoot', 'mixamorig:RightFoot', 'mixamorigRightFoot', 'Foot.R', 'foot.R', 'rightFoot', 'Right_Foot', 'J_Bip_R_Foot'],
+        ball_r: ['ball_r', 'RightToeBase', 'mixamorig:RightToeBase', 'mixamorigRightToeBase', 'Toes.R', 'Toe.R', 'toe.R', 'rightToes', 'RightToes', 'Right_Toes', 'J_Bip_R_ToeBase'],
+        index_01_l: ['index_01_l', 'LeftHandIndex1', 'mixamorig:LeftHandIndex1', 'mixamorigLeftHandIndex1', 'Index1.L', 'f_index.01.L', 'leftIndexProximal', 'LeftIndexProximal', 'J_Bip_L_Index1'],
+        pinky_01_l: ['pinky_01_l', 'LeftHandPinky1', 'mixamorig:LeftHandPinky1', 'mixamorigLeftHandPinky1', 'Pinky1.L', 'f_pinky.01.L', 'leftLittleProximal', 'LeftLittleProximal', 'J_Bip_L_Little1', 'LeftHandThumb1', 'Thumb1.L'],
+        index_01_r: ['index_01_r', 'RightHandIndex1', 'mixamorig:RightHandIndex1', 'mixamorigRightHandIndex1', 'Index1.R', 'f_index.01.R', 'rightIndexProximal', 'RightIndexProximal', 'J_Bip_R_Index1'],
+        pinky_01_r: ['pinky_01_r', 'RightHandPinky1', 'mixamorig:RightHandPinky1', 'mixamorigRightHandPinky1', 'Pinky1.R', 'f_pinky.01.R', 'rightLittleProximal', 'RightLittleProximal', 'J_Bip_R_Little1', 'RightHandThumb1', 'Thumb1.R']
+    };
+
     /** Meshes that would put a skull, hair or a mask around the player's own camera. */
-    static HEAD_MESH = /head|hair|eye|teeth|neck|skull|face|brow|ear|mask|superhero|sphere\.005|plane\.002|cylinder\.002/i;
+    static HEAD_MESH = /head|hair|eye|teeth|neck|skull|face|brow|ear|mask|beard|glasses|headwear|superhero|sphere\.005|plane\.002|cylinder\.002/i;
+
+    static _normalizeBoneName(name) {
+        return String(name || '')
+            .replace(/^(?:mixamorig:|mixamorig_|mixamorig|armature\||character\||bip01_|bip001_)/i, '')
+            .toLowerCase();
+    }
+
+    static _findBoneNode(rawByName, normByName, key) {
+        const aliases = AvatarRig.BONE_ALIASES[key] || [key];
+        for (let i = 0; i < aliases.length; i++) {
+            const exact = rawByName[aliases[i]];
+            if (exact) return exact;
+        }
+        for (let i = 0; i < aliases.length; i++) {
+            const norm = normByName[AvatarRig._normalizeBoneName(aliases[i])];
+            if (norm) return norm;
+        }
+        return null;
+    }
+
+    /**
+     * Resolve `AvatarRig.BONES` on a hierarchy, bridging optional spine/neck/clavicle joints and
+     * synthesizing missing leaf/leg effectors (such as half-body Ready Player Me VR avatars).
+     */
+    static _resolveBoneNodes(root, strip, hierarchy, allowCustom = false) {
+        const rawByName = {};
+        const normByName = {};
+        for (let i = 0; i < hierarchy.length; i++) {
+            const node = hierarchy[i];
+            const raw = node.name.startsWith(strip) ? node.name.slice(strip.length) : node.name;
+            if (!rawByName[raw]) rawByName[raw] = node;
+            const norm = AvatarRig._normalizeBoneName(raw);
+            if (norm && !normByName[norm]) normByName[norm] = node;
+        }
+        const nodes = {};
+        let exactAll = true;
+        for (let i = 0; i < AvatarRig.BONES.length; i++) {
+            const name = AvatarRig.BONES[i];
+            if (rawByName[name]) {
+                nodes[name] = rawByName[name];
+            } else {
+                exactAll = false;
+            }
+        }
+        if (exactAll) return { nodes, rigMode: 'full', synthNodes: [] };
+        if (!allowCustom) return null;
+
+        for (let i = 0; i < AvatarRig.BONES.length; i++) {
+            const name = AvatarRig.BONES[i];
+            const found = AvatarRig._findBoneNode(rawByName, normByName, name);
+            if (found) nodes[name] = found;
+        }
+
+        const core = ['pelvis', 'spine_01', 'Head', 'upperarm_l', 'lowerarm_l', 'hand_l', 'upperarm_r', 'lowerarm_r', 'hand_r'];
+        for (let i = 0; i < core.length; i++) {
+            if (!nodes[core[i]]) return null;
+        }
+
+        nodes.root = nodes.root || nodes.pelvis.parent || root;
+        nodes.spine_02 = nodes.spine_02 || nodes.spine_01;
+        nodes.spine_03 = nodes.spine_03 || nodes.spine_02 || nodes.spine_01;
+        nodes.neck_01 = nodes.neck_01 || nodes.Head;
+        nodes.clavicle_l = nodes.clavicle_l || nodes.upperarm_l.parent || nodes.spine_03;
+        nodes.clavicle_r = nodes.clavicle_r || nodes.upperarm_r.parent || nodes.spine_03;
+
+        root.computeWorldMatrix(true);
+        for (let i = 0; i < hierarchy.length; i++) hierarchy[i].computeWorldMatrix(true);
+
+        const V = BABYLON.Vector3, Q = BABYLON.Quaternion;
+        const pelW = nodes.pelvis.getAbsolutePosition();
+        const headW = nodes.Head.getAbsolutePosition();
+        const ulW = nodes.upperarm_l.getAbsolutePosition();
+        const urW = nodes.upperarm_r.getAbsolutePosition();
+        const torsoH = Math.max(0.1, V.Distance(pelW, headW));
+        const leftDir = new V(ulW.x - urW.x, 0, ulW.z - urW.z);
+        if (leftDir.lengthSquared() > 1e-6) leftDir.normalize();
+        else leftDir.set(1, 0, 0);
+        const fwdDir = new V(-leftDir.z, 0, leftDir.x);
+
+        const synthNodes = [];
+        const scene = root.getScene ? root.getScene() : null;
+        const makeSynth = (name, parentNode, worldPos) => {
+            const tn = new BABYLON.TransformNode(`${strip}${name}`, scene);
+            tn.parent = parentNode;
+            parentNode.computeWorldMatrix(true);
+            const inv = parentNode.getWorldMatrix().clone().invert();
+            const localPos = V.TransformCoordinates(worldPos, inv);
+            tn.position.copyFrom(localPos);
+            tn.rotationQuaternion = Q.Identity();
+            tn.scaling.setAll(1);
+            tn.computeWorldMatrix(true);
+            hierarchy.push(tn);
+            synthNodes.push(tn);
+            return tn;
+        };
+
+        let rigMode = 'full';
+        const hasLegs = !!(nodes.thigh_l && nodes.calf_l && nodes.foot_l && nodes.thigh_r && nodes.calf_r && nodes.foot_r);
+        if (!hasLegs) {
+            rigMode = 'upper-body';
+            for (const [sfx, sign] of [['l', 1], ['r', -1]]) {
+                const hipW = new V(
+                    pelW.x + leftDir.x * sign * torsoH * 0.16,
+                    pelW.y - torsoH * 0.06,
+                    pelW.z + leftDir.z * sign * torsoH * 0.16
+                );
+                const kneeW = new V(hipW.x, hipW.y - torsoH * 0.68, hipW.z);
+                const ankleW = new V(kneeW.x, kneeW.y - torsoH * 0.68, kneeW.z);
+                const toeW = new V(
+                    ankleW.x + fwdDir.x * torsoH * 0.22,
+                    ankleW.y - torsoH * 0.08,
+                    ankleW.z + fwdDir.z * torsoH * 0.22
+                );
+                nodes[`thigh_${sfx}`] = makeSynth(`synth_thigh_${sfx}`, nodes.pelvis, hipW);
+                nodes[`calf_${sfx}`] = makeSynth(`synth_calf_${sfx}`, nodes[`thigh_${sfx}`], kneeW);
+                nodes[`foot_${sfx}`] = makeSynth(`synth_foot_${sfx}`, nodes[`calf_${sfx}`], ankleW);
+                nodes[`ball_${sfx}`] = makeSynth(`synth_ball_${sfx}`, nodes[`foot_${sfx}`], toeW);
+            }
+        } else {
+            for (const sfx of ['l', 'r']) {
+                if (!nodes[`ball_${sfx}`]) {
+                    const ankleW = nodes[`foot_${sfx}`].getAbsolutePosition();
+                    const toeW = new V(
+                        ankleW.x + fwdDir.x * torsoH * 0.22,
+                        ankleW.y,
+                        ankleW.z + fwdDir.z * torsoH * 0.22
+                    );
+                    nodes[`ball_${sfx}`] = makeSynth(`synth_ball_${sfx}`, nodes[`foot_${sfx}`], toeW);
+                }
+            }
+        }
+
+        for (const [sfx, sign] of [['l', 1], ['r', -1]]) {
+            if (!nodes[`index_01_${sfx}`] || !nodes[`pinky_01_${sfx}`]) {
+                const wristW = nodes[`hand_${sfx}`].getAbsolutePosition();
+                const elbowW = nodes[`lowerarm_${sfx}`].getAbsolutePosition();
+                const armDir = wristW.subtract(elbowW);
+                if (armDir.lengthSquared() > 1e-6) armDir.normalize();
+                else armDir.set(leftDir.x * sign, -0.5, leftDir.z * sign).normalize();
+                if (!nodes[`index_01_${sfx}`]) {
+                    const idxW = new V(
+                        wristW.x + armDir.x * torsoH * 0.11 + fwdDir.x * torsoH * 0.04,
+                        wristW.y + armDir.y * torsoH * 0.11 + fwdDir.y * torsoH * 0.04,
+                        wristW.z + armDir.z * torsoH * 0.11 + fwdDir.z * torsoH * 0.04
+                    );
+                    nodes[`index_01_${sfx}`] = makeSynth(`synth_index_${sfx}`, nodes[`hand_${sfx}`], idxW);
+                }
+                if (!nodes[`pinky_01_${sfx}`]) {
+                    const pkyW = new V(
+                        wristW.x + armDir.x * torsoH * 0.11 - fwdDir.x * torsoH * 0.04,
+                        wristW.y + armDir.y * torsoH * 0.11 - fwdDir.y * torsoH * 0.04,
+                        wristW.z + armDir.z * torsoH * 0.11 - fwdDir.z * torsoH * 0.04
+                    );
+                    nodes[`pinky_01_${sfx}`] = makeSynth(`synth_pinky_${sfx}`, nodes[`hand_${sfx}`], pkyW);
+                }
+            }
+        }
+
+        return { nodes, rigMode, synthNodes };
+    }
 
     /**
      * @param {object} club  the VRClub (scene, _prepareAvatarMaterials)
-     * @param {BABYLON.AssetContainer} container a UE-skeleton dancer (female/male/DJ)
-     * @param {{eyeHeight?:number, hideHead?:boolean}} [options]
+     * @param {BABYLON.AssetContainer} container a humanoid skeleton (UE-mannequin, Ready Player Me, Mixamo, VRM, etc.)
+     * @param {{eyeHeight?:number, hideHead?:boolean, allowFallback?:boolean}} [options]
      */
     constructor(club, container, options = {}) {
         this.club = club;
@@ -53,6 +247,8 @@ class AvatarRig {
         this.ok = false;
         this.disposed = false;
         this.hideHead = !!options.hideHead;
+        this.rigMode = 'full';
+        this.rootYOffset = 0;
 
         const prefix = `rig${AvatarRig._seq++}`;
         // The crowd's materials, shared: they are already compiled and ready. Giving each
@@ -65,24 +261,34 @@ class AvatarRig {
             { doNotInstantiate: true }
         );
         this.entry = entry;
-        // Procedural only. An un-started clip would still be a live animation group.
-        entry.animationGroups.forEach(group => { group.stop(); group.dispose(); });
         const root = entry.rootNodes[0];
         if (!root) { this.dispose(); return; }
         this.root = root;
         root.rotationQuaternion = null;
         root.rotation.set(0, 0, 0);
 
-        // --- bones by name -----------------------------------------------------------
+        // --- bones by name or standard humanoid alias ------------------------------
         const strip = `${prefix}_`;
-        const nodes = {};
         const hierarchy = root.getChildTransformNodes(false);
-        hierarchy.forEach(node => {
-            if (node.name.startsWith(strip)) nodes[node.name.slice(strip.length)] = node;
-        });
+        const allowCustom = !!(options.allowCustomSkeleton || options.allowFallback);
+        const resolved = AvatarRig._resolveBoneNodes(root, strip, hierarchy, allowCustom);
+        if (!resolved) {
+            if (!options.allowFallback) {
+                entry.animationGroups.forEach(group => { group.stop(); group.dispose(); });
+                this.dispose();
+                return;
+            }
+            this._initRigidFallback(options.eyeHeight || 1.7);
+            return;
+        }
+        // Procedural only. An un-started clip would still be a live animation group.
+        entry.animationGroups.forEach(group => { group.stop(); group.dispose(); });
+        const nodes = resolved.nodes;
+        this.rigMode = resolved.rigMode;
+        this._synthNodes = resolved.synthNodes;
         this.bone = nodes;
         for (const name of AvatarRig.BONES) {
-            if (!nodes[name]) { this.dispose(); return; }   // not a UE-mannequin skeleton
+            if (!nodes[name]) { this.dispose(); return; }
             if (!nodes[name].rotationQuaternion) {
                 nodes[name].rotationQuaternion = BABYLON.Quaternion.FromEulerAngles(
                     nodes[name].rotation.x, nodes[name].rotation.y, nodes[name].rotation.z);
@@ -97,6 +303,12 @@ class AvatarRig {
         // Babylon returns a parent-before-child hierarchy walk. Filtering that one walk is
         // enough; sorting every node by repeatedly walking its ancestors was quadratic.
         this.order = hierarchy.filter(node => needed.has(node));
+        this.order.forEach(node => {
+            if (!node.rotationQuaternion) {
+                node.rotationQuaternion = BABYLON.Quaternion.FromEulerAngles(
+                    node.rotation.x, node.rotation.y, node.rotation.z);
+            }
+        });
         this.index = new Map();
         this.order.forEach((n, i) => this.index.set(n, i));
         this.ix = {};
@@ -116,10 +328,11 @@ class AvatarRig {
             mesh.alwaysSelectAsActiveMesh = true;   // skinned bind-pose bounds cull wrongly
             mesh.renderingGroupId = 0;
         });
+        const matchedHead = this.meshes.filter(mesh => AvatarRig.HEAD_MESH.test(mesh.name));
+        this.headMeshes = (matchedHead.length > 0 && matchedHead.length < this.meshes.length) ? matchedHead : [];
+        this._headVisible = true;
         if (this.hideHead) {
-            this.meshes.forEach(mesh => {
-                if (AvatarRig.HEAD_MESH.test(mesh.name)) mesh.isVisible = false;
-            });
+            this.setHeadVisible(false);
         }
         if (club._prepareAvatarMaterials) {
             club._prepareAvatarMaterials(Array.from(new Set(this.meshes.map(m => m.material).filter(Boolean))), null);
@@ -138,6 +351,65 @@ class AvatarRig {
 
         this._measure(options.eyeHeight || 1.7);
         this._measureHeadphones();
+        this.ok = true;
+    }
+
+    _initRigidFallback(eyeHeight) {
+        const root = this.root;
+        this.rigMode = 'rigid';
+        this.order = [];
+        this.ix = {};
+        this.bone = {};
+        this._initPoseScratch();
+        const V = BABYLON.Vector3;
+        this.F = new V(0, 0, 1);
+        this.R = new V(1, 0, 0);
+        this.U = new V(0, 1, 0);
+        this.meshes = root.getChildMeshes(false);
+        this.meshes.forEach(mesh => {
+            mesh.isPickable = false;
+            mesh.alwaysSelectAsActiveMesh = true;
+            mesh.renderingGroupId = 0;
+        });
+        this.headMeshes = [];
+        this._headVisible = true;
+        if (this.club._prepareAvatarMaterials) {
+            this.club._prepareAvatarMaterials(Array.from(new Set(this.meshes.map(m => m.material).filter(Boolean))), null);
+        }
+        root.scaling.setAll(1);
+        root.position.set(0, 0, 0);
+        root.computeWorldMatrix(true);
+        const bounds = root.getHierarchyBoundingVectors(true);
+        const rawH = Math.max(0.1, bounds.max.y - bounds.min.y);
+        const scale = (eyeHeight / 0.935) / rawH;
+        root.scaling.setAll(scale);
+        root.computeWorldMatrix(true);
+        const scaledBounds = root.getHierarchyBoundingVectors(true);
+        this.rootYOffset = -scaledBounds.min.y;
+        root.position.y = this.rootYOffset;
+        this.scaleK = scale;
+        this.standEye = eyeHeight;
+        this.pelvisF = 0;
+        this.pelvisR = 0;
+        this.pelvisH = eyeHeight * 0.56;
+        this.yaw0 = 0;
+        this.yawDir = 1;
+        this.sideL = 1;
+        this.bodyYaw = 0;
+        this.phase = 0;
+        this.speed = 0;
+        this.walkW = 0;
+        this.time = 0;
+        this._prevX = NaN;
+        this._prevZ = NaN;
+        this._placed = false;
+        if (this.entry && this.entry.animationGroups && this.entry.animationGroups.length > 0) {
+            this.entry.animationGroups[0].start(true);
+            for (let i = 1; i < this.entry.animationGroups.length; i++) {
+                this.entry.animationGroups[i].stop();
+                this.entry.animationGroups[i].dispose();
+            }
+        }
         this.ok = true;
     }
 
@@ -297,10 +569,22 @@ class AvatarRig {
     _measure(eyeHeight) {
         const b = this.bone, root = this.root, v = this._v;
         const head = b.Head;
+        const lowestY = bounds => {
+            if (this.rigMode === 'upper-body') {
+                return Math.min(
+                    bounds.min.y,
+                    b.foot_l.getAbsolutePosition().y,
+                    b.foot_r.getAbsolutePosition().y,
+                    b.ball_l.getAbsolutePosition().y,
+                    b.ball_r.getAbsolutePosition().y
+                );
+            }
+            return bounds.min.y;
+        };
         const plant = () => {
             this._refreshAll();
             const bounds = root.getHierarchyBoundingVectors(true);
-            root.position.y -= bounds.min.y;
+            root.position.y -= lowestY(bounds);
             this._refreshAll();
         };
 
@@ -309,11 +593,13 @@ class AvatarRig {
         root.position.set(0, 0, 0);
         this._refreshAll();
         const raw = root.getHierarchyBoundingVectors(true);
-        root.scaling.setAll(1.78 / Math.max(1e-6, raw.max.y - raw.min.y));
+        const rawMinY = lowestY(raw);
+        root.scaling.setAll(1.78 / Math.max(1e-6, raw.max.y - rawMinY));
         plant();
         // Eyes sit ~5% of the head-bone height above it; scale so they land on eyeHeight.
-        root.scaling.scaleInPlace(eyeHeight / (head.getAbsolutePosition().y * 1.052));
+        root.scaling.scaleInPlace(eyeHeight / Math.max(0.2, head.getAbsolutePosition().y * 1.052));
         plant();
+        this.rootYOffset = this.rigMode === 'upper-body' ? root.position.y : 0;
         this.scaleK = root.scaling.x;
         this.standEye = eyeHeight;
         this.eyeAbove = head.getAbsolutePosition().y * 0.052;
@@ -600,13 +886,14 @@ class AvatarRig {
         const back = 0.06 + 0.13 * Math.min(1, down / 1.0);
         const cx = px - F.x * back, cz = pz - F.z * back;
         root.rotation.y = (this.bodyYaw - this.yaw0) * this.yawDir;
-        const rootY = seated ? num(pose.seatY, ground + 0.48) - this.pelvisH : Math.max(ground - 0.7, bodyFloor) + bob;
+        const rootY = (seated ? num(pose.seatY, ground + 0.48) - this.pelvisH : Math.max(ground - 0.7, bodyFloor) + bob) + (this.rootYOffset || 0);
         root.position.set(
             cx - (F.x * this.pelvisF + R.x * this.pelvisR),
             rootY,
             cz - (F.z * this.pelvisF + R.z * this.pelvisR)
         );
         root.computeWorldMatrix(true);
+        if (this.rigMode === 'rigid') return;
         for (let i = 0; i < this._extNodes.length; i++) this._extNodes[i].computeWorldMatrix(true);
         for (let i = 0; i < this.order.length; i++) this.Lq[i].copyFrom(this.restQ[i]);
         this._refreshCache();
@@ -755,6 +1042,22 @@ class AvatarRig {
         if (this.root) this.root.setEnabled(!!visible);
     }
 
+    setHeadVisible(visible) {
+        const next = !!visible;
+        if (this._headVisible === next) return;
+        this._headVisible = next;
+        if (this.headMeshes && this.headMeshes.length > 0) {
+            for (let i = 0; i < this.headMeshes.length; i++) {
+                this.headMeshes[i].isVisible = next;
+            }
+        } else if (this.bone && this.bone.Head && this.ix && this.Ls && this.ix.Head !== undefined) {
+            const s = next ? 1 : 0.0001;
+            const rest = this._headRestScale || (this._headRestScale = this.bone.Head.scaling.clone());
+            this.bone.Head.scaling.set(rest.x * s, rest.y * s, rest.z * s);
+            this.Ls[this.ix.Head].copyFrom(this.bone.Head.scaling);
+        }
+    }
+
     /** Forget the cached limb lengths: the character was rescaled, so they are measured again on the next pose. */
     invalidateLimbs() {
         if (this._limbL1) this._limbL1.fill(0);
@@ -764,6 +1067,10 @@ class AvatarRig {
     /** Re-fit the body when the active mode's eye-height calibration changes. */
     setEyeHeight(eyeHeight) {
         if (!this.ok || !(eyeHeight > 0.8) || Math.abs(eyeHeight - this.standEye) < 0.04) return;
+        if (this.rigMode === 'rigid') {
+            this._initRigidFallback(Math.min(2.1, eyeHeight));
+            return;
+        }
         const yaw = this.root.rotation.y, pos = this.root.position.clone();
         this.order.forEach((n, i) => n.rotationQuaternion.copyFrom(this.restQ[i]));
         this._measure(Math.min(2.1, eyeHeight));
@@ -777,6 +1084,12 @@ class AvatarRig {
         if (this.disposed) return;
         this.disposed = true;
         this.ok = false;
+        if (this._synthNodes) {
+            for (let i = 0; i < this._synthNodes.length; i++) {
+                try { this._synthNodes[i].dispose(); } catch (_) { /* ignore */ }
+            }
+            this._synthNodes = null;
+        }
         if (this.entry) { try { this.entry.dispose(); } catch (_) { /* already gone with the scene */ } }
         this.entry = null;
     }

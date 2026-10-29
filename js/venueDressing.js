@@ -1329,12 +1329,20 @@ const VenueDressing = {
                 if (double && double.skeletons) for (let i = 0; i < double.skeletons.length; i++) double.skeletons[i].prepare(true);
                 // The reflection shows the whole person, head included; the player's own view does not.
                 if (double) this._setSelfHead(double, true);
+                else if (this._localRig && typeof this._localRig.setHeadVisible === 'function') {
+                    this._localRig._mirrorRestoreHead = !this._localRig._headVisible;
+                    if (this._localRig._mirrorRestoreHead) this._localRig.setHeadVisible(true);
+                }
             });
             mirrorTex.onAfterRenderObservable.add(() => {
                 const shown = mirrorTex._revealed;
                 for (let i = 0; i < shown.length; i++) if (!shown[i].isDisposed()) shown[i].isVisible = false;
                 shown.length = 0;
                 if (this._mirrorDouble) this._setSelfHead(this._mirrorDouble, !!this._mirrorDouble.headWanted);
+                else if (this._localRig && this._localRig._mirrorRestoreHead) {
+                    this._localRig._mirrorRestoreHead = false;
+                    this._localRig.setHeadVisible(false);
+                }
             });
             mat.reflectionTexture = mirrorTex;
             this.restroomMirrorTexture = mirrorTex;
@@ -1384,6 +1392,7 @@ const VenueDressing = {
 
     /** Who the mirror shows: the relay's assignment in a room, otherwise the character the player chose (null = their own body). */
     _mirrorAvatarId() {
+        if (typeof this.hasCustomAvatarGlb === 'function' && this.hasCustomAvatarGlb()) return null;
         const mp = this.multiplayer;
         if (mp && mp.connected) return mp.selfAvatar || null;
         const selected = typeof this.getLocalCharacter === 'function' ? this.getLocalCharacter() : null;

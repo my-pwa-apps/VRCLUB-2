@@ -270,6 +270,10 @@
                 </select>
                 <button class="vj-button vj-button-wide" id="editPersonalAvatar" type="button">EDIT MY CHARACTER</button>
                 <p class="vj-help">Choose fitted hair and outfits, change colours and preview your personal character. Saved on this device and shared with room guests. Custom characters use the detailed personal model in either room style.</p>
+                <input id="customAvatarGlbInput" type="file" accept=".glb,model/gltf-binary" hidden>
+                <button class="vj-button vj-button-wide" id="uploadCustomAvatarBtn" type="button">UPLOAD CUSTOM AVATAR (.GLB)</button>
+                <button class="vj-button vj-button-wide" id="clearCustomAvatarBtn" type="button" hidden>REMOVE CUSTOM .GLB AVATAR</button>
+                <p class="vj-help" id="customAvatarStatus">Upload any Ready Player Me, Tribe XR, Mixamo or VRM .glb avatar to use as your body in the club, mirror and DJ booth. Saved on this device.</p>
                 <label class="vj-field-label" for="djStyle">Resident DJ</label>
                 <select class="audio-input" id="djStyle">
                     <option value="male">Male DJ</option>
@@ -566,6 +570,7 @@
                     <p class="network-help">Use headphones before switching this on to avoid feedback. It only changes what you hear, not what guests receive.</p>
                     <button id="liveInputPerformDJ" class="audio-button" type="button" aria-pressed="true">Perform as DJ in booth: ON</button>
                     <p class="network-help">Places your own avatar behind the decks with live DJ animations and hides the resident NPC DJ while your input is active.</p>
+                    <button id="liveInputUploadGlb" class="audio-button" type="button">Upload Tribe / custom .GLB avatar</button>
                     <h3 class="vj-section-title">3. Share your live set</h3>
                     <label for="liveInputTitle">Name of your set</label>
                     <input id="liveInputTitle" class="audio-input" maxlength="80" value="My live DJ set">

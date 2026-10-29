@@ -301,8 +301,15 @@ class AvatarEditor {
         error.hidden = true;
 
         const actions = element('footer', 'avatar-editor__actions');
+        const uploadGlbBtn = button(
+            this.club?.getCustomAvatarName?.()
+                ? `Custom .GLB: ${this.club.getCustomAvatarName()}`
+                : 'Upload .GLB avatar',
+            { action: 'upload-glb' }
+        );
         actions.append(
             button('Reset personal appearance', { action: 'reset' }),
+            uploadGlbBtn,
             element('span'),
             button('Cancel', { action: 'cancel' }),
             button('Save appearance', { className: 'is-primary', action: 'save' })
@@ -361,6 +368,13 @@ class AvatarEditor {
         dialog.querySelector('[data-action="cancel"]').addEventListener('click', () => this.close());
         dialog.querySelector('[data-action="save"]').addEventListener('click', () => void this._saveDesktop());
         dialog.querySelector('[data-action="reset"]').addEventListener('click', () => void this._resetDesktop());
+        dialog.querySelector('[data-action="upload-glb"]')?.addEventListener('click', () => {
+            const globalInput = document.getElementById('customAvatarGlbInput');
+            if (globalInput) {
+                globalInput.click();
+                this.close();
+            }
+        });
         this._onPointerDown = event => {
             this._dragX = event.clientX;
             this._canvas.setPointerCapture?.(event.pointerId);

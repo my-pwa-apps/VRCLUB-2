@@ -1860,6 +1860,66 @@ function initAudioMenu() {
         vrClubInstance.avatarEditor ||= new window.AvatarEditor(vrClubInstance);
         vrClubInstance.avatarEditor.open();
     });
+    const customAvatarGlbInput = document.getElementById('customAvatarGlbInput');
+    const uploadCustomAvatarBtn = document.getElementById('uploadCustomAvatarBtn');
+    const clearCustomAvatarBtn = document.getElementById('clearCustomAvatarBtn');
+    const liveInputUploadGlb = document.getElementById('liveInputUploadGlb');
+    const customAvatarStatus = document.getElementById('customAvatarStatus');
+    const renderCustomAvatarUi = () => {
+        const activeName = vrClubInstance.getCustomAvatarName ? vrClubInstance.getCustomAvatarName() : null;
+        if (uploadCustomAvatarBtn) {
+            uploadCustomAvatarBtn.textContent = activeName ? `CHANGE CUSTOM .GLB (${activeName})` : 'UPLOAD CUSTOM AVATAR (.GLB)';
+        }
+        if (liveInputUploadGlb) {
+            liveInputUploadGlb.textContent = activeName ? `Custom .GLB active: ${activeName} (change)` : 'Upload Tribe / custom .GLB avatar';
+        }
+        if (clearCustomAvatarBtn) {
+            clearCustomAvatarBtn.hidden = !activeName;
+        }
+        if (customAvatarStatus) {
+            customAvatarStatus.textContent = activeName
+                ? `Active custom .glb avatar: ${activeName}. Used for your body in the club, mirror and DJ booth.`
+                : 'Upload any Ready Player Me, Tribe XR, Mixamo or VRM .glb avatar to use as your body in the club, mirror and DJ booth. Saved on this device.';
+        }
+    };
+    renderCustomAvatarUi();
+    window.addEventListener('customavatarchange', renderCustomAvatarUi);
+    teardowns.push(() => window.removeEventListener('customavatarchange', renderCustomAvatarUi));
+    if (uploadCustomAvatarBtn && customAvatarGlbInput) {
+        uploadCustomAvatarBtn.addEventListener('click', () => customAvatarGlbInput.click());
+    }
+    if (liveInputUploadGlb && customAvatarGlbInput) {
+        liveInputUploadGlb.addEventListener('click', () => customAvatarGlbInput.click());
+    }
+    if (clearCustomAvatarBtn) {
+        clearCustomAvatarBtn.addEventListener('click', () => {
+            if (!vrClubInstance.clearCustomAvatarGlb) return;
+            vrClubInstance.clearCustomAvatarGlb()
+                .then(() => {
+                    renderCustomAvatarUi();
+                    showStatus('Restored club avatar', 'info');
+                })
+                .catch(error => showStatus(error.message || 'Could not remove custom avatar', 'error'));
+        });
+    }
+    if (customAvatarGlbInput) {
+        customAvatarGlbInput.addEventListener('change', (e) => {
+            const file = e.target.files && e.target.files[0];
+            if (!file || !vrClubInstance.loadCustomAvatarGlb) return;
+            vrClubInstance.loadCustomAvatarGlb(file, file.name)
+                .then(res => {
+                    renderCustomAvatarUi();
+                    const modeNote = res.rigMode === 'upper-body'
+                        ? 'upper-body rig'
+                        : res.rigMode === 'rigid'
+                            ? 'custom 3D model'
+                            : 'full humanoid rig';
+                    showStatus(`Loaded ${res.name} (${modeNote})`, 'success');
+                })
+                .catch(error => showStatus(error.message || 'Could not load .glb avatar', 'error'))
+                .finally(() => { customAvatarGlbInput.value = ''; });
+        });
+    }
     if (myCharacter) {
         const labels = (window.ClubMultiplayer && window.ClubMultiplayer.AVATAR_LABELS) || {};
         for (const id of window.VRClubAudioCrowd.MY_CHARACTERS) {
@@ -2113,7 +2173,7 @@ function initAudioMenu() {
 function initRoomGuestLock(mp) {
     const club = vrClubInstance;
     const panels = [
-        { id: 'vjMenu', what: 'show controls', keep: '#vjSafeModeBtn, #vjVRComfortBtn, #vjMinimize, #vjClose, [data-open-panel], [data-vj-tab-target], [data-control="cycleGraphicsQuality"], [data-control="cycleSpotTarget"], [data-people], [data-hold], #vjHoldTiming, #djStyle, #myCharacter, #editPersonalAvatar, #vjAutoQualityBtn, #lightweightCharacters, #retryCharacterStyle' },
+        { id: 'vjMenu', what: 'show controls', keep: '#vjSafeModeBtn, #vjVRComfortBtn, #vjMinimize, #vjClose, [data-open-panel], [data-vj-tab-target], [data-control="cycleGraphicsQuality"], [data-control="cycleSpotTarget"], [data-people], [data-hold], #vjHoldTiming, #djStyle, #myCharacter, #editPersonalAvatar, #uploadCustomAvatarBtn, #clearCustomAvatarBtn, #customAvatarGlbInput, #vjAutoQualityBtn, #lightweightCharacters, #retryCharacterStyle' },
         { id: 'audioMenu', what: 'music', keep: '#audioMinimize, #audioClose, #audioVolume, #crowdAmbience, [data-open-panel], #audioSourceTabLive, #audioSourceLive button, #audioSourceLive input, #audioSourceLive select' }
     ];
     const renders = [];

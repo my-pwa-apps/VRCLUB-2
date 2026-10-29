@@ -183,8 +183,18 @@ test('the rig builds on every UE-skeleton body and stands at the requested eye h
 });
 
 test('a non-mannequin skeleton is refused instead of half-posed', async () => {
-    const { rig } = await loadRig('house.glb', { eyeHeight: 1.7 });
-    assert.equal(rig.ok, false, 'a Mixamo skeleton must not be driven as a mannequin');
+    const { rig, scene } = await loadRig('house.glb', { eyeHeight: 1.7 });
+    assert.equal(rig.ok, false, 'a Mixamo skeleton must not be driven as a mannequin without allowCustomSkeleton');
+    scene.dispose();
+    const custom = await loadRig('house.glb', { eyeHeight: 1.7, allowCustomSkeleton: true });
+    assert.equal(custom.rig.ok, true, 'a custom Mixamo / Ready Player Me .glb is driven when allowCustomSkeleton is enabled');
+    const Performer = vm.runInContext('DJPerformer', sandbox());
+    const desk = { cx: 0, near: -18.89, far: -18.35, top: 1.54, halfWidth: 0.51 };
+    const dj = new Performer({ x: 0, z: desk.near - 0.18, groundY: 0.5, eyeHeight: 1.7, desk, rng: () => 0.5 });
+    const music = { hasAudio: true, beatPhase: 0, bar: 0, energy: 0.7, drop: false, bpm: 126 };
+    for (let i = 0; i < 60; i++) custom.rig.update(DT, dj.update(DT, music, null));
+    assert.ok(Number.isFinite(pos(custom.rig, 'hand_l').x) && Number.isFinite(pos(custom.rig, 'hand_r').x));
+    custom.scene.dispose();
 });
 
 test('walking plants the stance foot, steps, keeps limbs rigid and stays cheap', async () => {
