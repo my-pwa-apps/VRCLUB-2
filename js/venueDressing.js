@@ -1387,7 +1387,7 @@ const VenueDressing = {
         const mp = this.multiplayer;
         if (mp && mp.connected) return mp.selfAvatar || null;
         const selected = typeof this.getLocalCharacter === 'function' ? this.getLocalCharacter() : null;
-        return selected || (this.getCharacterStyle && this.getCharacterStyle() === 'diverse'
+        return selected || ((this.performingAsDJ || (this.getCharacterStyle && this.getCharacterStyle() === 'diverse'))
             ? this.getLocalAvatarStyle() === 'male' ? 'm1' : 'f1' : null);
     },
 
@@ -1586,6 +1586,45 @@ const VenueDressing = {
             }
             double.shown = true;
             double.root.setEnabled(true);
+        }
+        if (this.performingAsDJ && this._selfDJPose) {
+            const djPose = this._selfDJPose;
+            const eyeH = this._shownBodyEye();
+            double.x = djPose.x;
+            double.z = djPose.z;
+            double.yaw = (djPose.headYaw || 0) * 0.35;
+            const bounceY = (djPose.eyeY || (djPose.groundY + eyeH)) - (djPose.groundY + eyeH);
+            double.root.position.set(djPose.x, djPose.groundY + Math.max(-0.08, Math.min(0.04, bounceY)), djPose.z);
+            double.root.rotation.y = double.yaw;
+            double.placed = true;
+            double.prevX = NaN;
+            double.speed = 0;
+            double.gait = 'idle';
+            this._playMirrorDouble(double, 'Idle', 1);
+            if (!double._djLightAdded && this.scene) {
+                const djLight = this.scene.getLightByName && this.scene.getLightByName('djConsoleLight');
+                if (djLight) {
+                    this._extendAccentLight(djLight, double.meshes);
+                    double._djLightAdded = true;
+                }
+            }
+            for (const side of ['left', 'right']) {
+                const tracked = (this.isInVRMode && this._handPose ? this._handPose(side, pos) : null) || djPose[side];
+                if (!tracked) { double.hands[side] = null; continue; }
+                const hand = double.handBuffers[side];
+                hand.x = tracked.x - double.x;
+                hand.y = tracked.y - (djPose.groundY + eyeH);
+                hand.z = tracked.z - double.z;
+                hand.fx = tracked.fx; hand.fy = tracked.fy; hand.fz = tracked.fz;
+                hand.ux = tracked.ux; hand.uy = tracked.uy; hand.uz = tracked.uz;
+                double.hands[side] = hand;
+            }
+            if (double.head) {
+                const away = Math.hypot(djPose.x - pos.x, (djPose.eyeY || (djPose.groundY + eyeH)) - pos.y, djPose.z - pos.z);
+                double.headWanted = away > 0.34;
+                this._setSelfHead(double, double.headWanted);
+            }
+            return;
         }
         const seat = this._activeSeat;
         const dir = this._mirrorDir || (this._mirrorDir = new BABYLON.Vector3());

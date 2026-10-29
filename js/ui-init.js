@@ -1358,7 +1358,7 @@ function initAudioMenu() {
         const club = vrClubInstance;
         const root = document.getElementById('audioSourceLive');
         if (!root || !club.multiplayer) return;
-        const el = Object.fromEntries(['Device', 'Discover', 'Test', 'Stop', 'Status', 'Signal', 'Format', 'Left', 'Right', 'Monitor', 'Title', 'Go', 'Pause', 'Invite']
+        const el = Object.fromEntries(['Device', 'Discover', 'Test', 'Stop', 'Status', 'Signal', 'Format', 'Left', 'Right', 'Monitor', 'PerformDJ', 'Title', 'Go', 'Pause', 'Invite']
             .map(key => [key, document.getElementById(`liveInput${key}`)]));
         let discovering = false, discoveryRevision = 0;
         const render = () => {
@@ -1377,6 +1377,11 @@ function initAudioMenu() {
             el.Monitor.disabled = !input.stream;
             el.Monitor.setAttribute('aria-pressed', String(input.monitoring));
             el.Monitor.textContent = `Hear test audio: ${input.monitoring ? 'ON' : 'OFF'}`;
+            if (el.PerformDJ) {
+                el.PerformDJ.disabled = blocked;
+                el.PerformDJ.setAttribute('aria-pressed', String(input.performAsDJ));
+                el.PerformDJ.textContent = `Perform as DJ in booth: ${input.performAsDJ ? 'ON' : 'OFF'}`;
+            }
             el.Go.disabled = !input.stream || busy || !!input.publisher || blocked;
             el.Go.textContent = input.goingLive ? 'Connecting...' : input.live ? 'You are live' : 'Go live';
             el.Pause.disabled = !input.publisher || input.goingLive;
@@ -1425,6 +1430,13 @@ function initAudioMenu() {
         });
         el.Stop.addEventListener('click', () => input.stop());
         el.Monitor.addEventListener('click', () => input.setMonitoring(!input.monitoring));
+        if (el.PerformDJ) {
+            el.PerformDJ.addEventListener('click', () => {
+                const next = !input.performAsDJ;
+                input.setPerformAsDJ(next);
+                if (!input.stream) club.setPerformingAsDJ?.(next, { moveCamera: next });
+            });
+        }
         el.Go.addEventListener('click', async () => {
             try { await input.goLive(el.Title.value); }
             catch (error) {

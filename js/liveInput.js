@@ -11,6 +11,7 @@ class LiveInput {
         this.goingLive = false;
         this.live = false;
         this.monitoring = false;
+        this.performAsDJ = true;
         this.status = 'Connect your mixer, then test it here. Nothing is sent to guests.';
         this.format = '';
         this.levels = [0, 0];
@@ -91,6 +92,7 @@ class LiveInput {
                 this.format += ' Your browser still has voice processing on; this can change how music sounds.';
             }
             this._startMeters();
+            if (this.performAsDJ) this.club.setPerformingAsDJ?.(true, { moveCamera: true });
             this.status = 'Only you - the crowd and lights follow your input. Guests cannot hear this test.';
         } catch (error) {
             if (revision === this.revision) this.stop(LiveInput.inputError(error));
@@ -126,6 +128,12 @@ class LiveInput {
     setMonitoring(on) {
         this.monitoring = !!on && !!this.remote;
         if (this.remote) this.remote.monitor.gain.setTargetAtTime(this.monitoring ? (this.club._audioVolume ?? 1) : 0, this.club.audioContext.currentTime, 0.025);
+        this._changed();
+    }
+
+    setPerformAsDJ(on) {
+        this.performAsDJ = !!on;
+        this.club.setPerformingAsDJ?.(this.performAsDJ && !!this.stream, { moveCamera: this.performAsDJ });
         this._changed();
     }
 
@@ -240,6 +248,7 @@ class LiveInput {
         for (const analyser of this.analysers || []) analyser.disconnect();
         if (this.remote) this.club.stopNetworkMusic(this.remote);
         this.remote = null;
+        this.club.setPerformingAsDJ?.(false);
         this.levels.fill(0);
         this.signal = '';
         this.format = '';

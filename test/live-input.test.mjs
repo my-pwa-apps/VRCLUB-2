@@ -192,3 +192,58 @@ test('music transport cannot restart an old track over the mixer and VR can stop
     assert.equal(surface.stopAudioPlayback(), true);
     assert.equal(stopped, true);
 });
+
+test('Live input Perform as DJ mode hides the NPC DJ, drives the player avatar with DJPerformer, and broadcasts booth hands to guests', async t => {
+    const h = setup(t);
+    const djTransitions = [];
+    h.club.setPerformingAsDJ = (on, opts) => { djTransitions.push([on, !!opts?.moveCamera]); };
+    await h.input.start();
+    assert.deepEqual(djTransitions, [[true, true]], 'starting Live input puts the player avatar in the DJ booth by default');
+    h.input.setPerformAsDJ(false);
+    assert.deepEqual(djTransitions.at(-1), [false, false]);
+    h.input.setPerformAsDJ(true);
+    assert.deepEqual(djTransitions.at(-1), [true, true]);
+    h.input.stop();
+    assert.deepEqual(djTransitions.at(-1), [false, false], 'stopping Live input restores normal player mode');
+
+    // Verify VRClub.setPerformingAsDJ + _updateDJ + updateNetworkPresence broadcast the DJPerformer pose and hands
+    const ctx = vm.createContext({
+        window: {}, console, Math, Number, Boolean, String, Object, Array, Map, Set, Float32Array, Float64Array, Uint8Array,
+        BABYLON: { Vector3: class { constructor(x = 0, y = 0, z = 0) { this.x = x; this.y = y; this.z = z; } set(x, y, z) { this.x = x; this.y = y; this.z = z; return this; } } },
+        VRClubEffects: class {},
+        VRClubUI: class {}
+    });
+    ctx.window = ctx;
+    vm.runInContext(readFileSync(new URL('../js/djPerformer.js', import.meta.url), 'utf8'), ctx);
+    vm.runInContext(readFileSync(new URL('../js/club/07-animation-core.js', import.meta.url), 'utf8'), ctx);
+    vm.runInContext(readFileSync(new URL('../js/club/11-audio-crowd.js', import.meta.url), 'utf8'), ctx);
+    const sent = [];
+    const npcRoot = { enabled: true, isEnabled() { return this.enabled; }, setEnabled(v) { this.enabled = v; } };
+    const club = Object.assign(Object.create(ctx.window.VRClubAudioCrowd.prototype), {
+        updateNetworkPresence: ctx.window.VRClubAnimationCore.prototype.updateNetworkPresence,
+        isInVRMode: false,
+        camera: { position: new ctx.BABYLON.Vector3(0, 1.7, -5), rotation: { y: 0 }, setTarget(t) { this.target = t; } },
+        networkManager: { connected: true, capacity: 32, sendState: s => sent.push(JSON.parse(JSON.stringify(s))) },
+        npcAvatars: [{ name: 'djPerformer', root: npcRoot, animations: [] }],
+        isPeopleVisible: () => true,
+        _refreshContactShadows() {},
+        _unanalysedDanceMusic: () => null,
+        _playerCamera() { return this.camera; },
+        _bodyEyeHeight: () => 1.7,
+        _shownBodyEye: () => 1.7
+    });
+    club.setPerformingAsDJ(true);
+    assert.equal(club.performingAsDJ, true);
+    assert.equal(npcRoot.enabled, false, 'resident NPC DJ is hidden while the player performs at the decks');
+    assert.equal(club.camera.position.z, -14.8, 'desktop camera moves in front of the booth to watch the performance');
+    club._updateDJ(1 / 60, { hasAudio: true, energy: 0.75 });
+    assert.ok(club._selfDJPose && club._selfDJPose.left && club._selfDJPose.right, 'DJPerformer generates booth hand targets');
+    club.updateNetworkPresence({ time: 1, dt: 1 / 60 });
+    assert.equal(sent.length, 1);
+    assert.equal(sent[0].floorY, 0.5, 'network presence places the DJ on the 0.5 m booth riser');
+    assert.ok(sent[0].z < -18.5, 'network presence places the DJ behind the Pioneer console');
+    assert.ok(sent[0].hands && sent[0].hands.left && sent[0].hands.right, 'network presence broadcasts live DJPerformer hands to guests');
+    club.setPerformingAsDJ(false);
+    assert.equal(npcRoot.enabled, true, 'resident NPC DJ returns when Perform as DJ is turned off');
+});
+

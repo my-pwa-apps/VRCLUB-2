@@ -54,7 +54,7 @@ class VRClubAnimationCore extends VRClubEffects {
         const net = this.networkManager;
         if (!net || !net.connected) return;
 
-        const interval = this.isInVRMode ? 0.05 : 0.1;
+        const interval = (this.isInVRMode || this.performingAsDJ) ? 0.05 : 0.1;
         if (ctx.time - (this._lastNetworkSendTime || 0) < interval) return;
         this._lastNetworkSendTime = ctx.time;
 
@@ -65,25 +65,29 @@ class VRClubAnimationCore extends VRClubEffects {
         const state = this._networkPose || (this._networkPose = {
             x: 0, y: 0, z: 0, rotY: 0, hands: null, seated: false, floorY: 0, eh: 1.7
         });
-        const seat = this._activeSeat;
+        const djPose = (this.performingAsDJ && !this.isInVRMode) ? this._selfDJPose : null;
+        const seat = djPose ? null : this._activeSeat;
         state.eh = Math.round(this._bodyEyeHeight() * 100) / 100;
-        state.x = seat ? seat.x : position.x;
-        state.y = position.y;
-        state.z = seat ? seat.z : position.z;
-        state.rotY = seat ? seat.facing : rotY;
+        state.x = djPose ? djPose.x : (seat ? seat.x : position.x);
+        state.y = djPose ? (djPose.groundY + state.eh) : position.y;
+        state.z = djPose ? djPose.z : (seat ? seat.z : position.z);
+        state.rotY = djPose ? ((djPose.headYaw || 0) * 0.35) : (seat ? seat.facing : rotY);
         state.seated = !!seat;
-        state.floorY = seat ? seat.floorY : (this._walkLevel || 0);
+        state.floorY = djPose ? djPose.groundY : (seat ? seat.floorY : (this._walkLevel || 0));
         state.seatH = seat ? Math.round((seat.seatY - seat.floorY) * 100) / 100 : 0;
         state.hands = null;
-        if (this.isInVRMode) {
+        if (this.isInVRMode || djPose) {
             const hands = this._networkHands || (this._networkHands = { left: null, right: null });
+            const refX = djPose ? state.x : position.x;
+            const refY = djPose ? state.y : position.y;
+            const refZ = djPose ? state.z : position.z;
             for (let i = 0; i < 2; i++) {
                 const side = i === 0 ? 'left' : 'right';
-                const tracked = this._handPose(side, position);
+                const tracked = this.isInVRMode ? this._handPose(side, position) : djPose?.[side];
                 if (!tracked) { hands[side] = null; continue; }
                 const key = side === 'left' ? '_networkHandL' : '_networkHandR';
                 const hand = this[key] || (this[key] = {});
-                hand.x = tracked.x - position.x; hand.y = tracked.y - position.y; hand.z = tracked.z - position.z;
+                hand.x = tracked.x - refX; hand.y = tracked.y - refY; hand.z = tracked.z - refZ;
                 hand.fx = tracked.fx; hand.fy = tracked.fy; hand.fz = tracked.fz;
                 hand.ux = tracked.ux; hand.uy = tracked.uy; hand.uz = tracked.uz;
                 hands[side] = hand;

@@ -1880,8 +1880,8 @@ class VRClubAudioCrowd extends VRClubUI {
     /** Per frame: tell the DJ where the music is and who is near, then pose the rig. */
     _updateDJ(dt, audioData) {
         const rig = this._djRig, performer = this._djPerformer;
-        if (!rig || !rig.ok || !performer || !rig.root || !rig.root.isEnabled()) return;
-        const music = this._djMusic;
+        if (!this.performingAsDJ && (!rig || !rig.ok || !performer || !rig.root || !rig.root.isEnabled())) return;
+        const music = this._djMusic || (this._djMusic = { hasAudio: false, beatPhase: 0, bar: 0, energy: 0, drop: false, bpm: 120 });
         const vj = this.vjDirector, show = this.showDirector;
         const fallback = this._unanalysedDanceMusic();
         music.hasAudio = this._audioKind === 'soundcloud' ? !!fallback : !!(audioData && audioData.hasAudio);
@@ -1917,11 +1917,11 @@ class VRClubAudioCrowd extends VRClubUI {
             }
         }
         // Who might walk up to the booth: this guest, and the other people in the room.
-        const visitors = this._djVisitors;
+        const visitors = this._djVisitors || (this._djVisitors = []);
         visitors.length = 0;
         const cam = this._playerCamera();
         const pos = cam && (cam.globalPosition || cam.position);
-        if (pos) {
+        if (pos && !this.performingAsDJ) {
             const me = this._djMe || (this._djMe = { x: 0, z: 0, id: 'me' });
             me.x = pos.x; me.z = pos.z;
             visitors.push(me);
@@ -1934,7 +1934,65 @@ class VRClubAudioCrowd extends VRClubUI {
                 visitors.push(v);
             }
         }
+        if (this.performingAsDJ && typeof DJPerformer !== 'undefined') {
+            const desk = this._djDesk();
+            const eyeHeight = this._shownBodyEye ? this._shownBodyEye() : 1.7;
+            if (!this._selfDJPerformer) {
+                this._selfDJPerformer = new DJPerformer({ x: desk.cx, z: desk.near - 0.18, groundY: 0.5, eyeHeight, desk });
+            } else {
+                this._selfDJPerformer.desk = desk;
+                this._selfDJPerformer.home.x = desk.cx;
+                this._selfDJPerformer.home.z = desk.near - 0.18;
+                this._selfDJPerformer.eye = eyeHeight;
+            }
+            if (!this._djMusic) {
+                this._djMusic = { hasAudio: false, beatPhase: 0, bar: 0, energy: 0, drop: false, bpm: 120 };
+            }
+            this._selfDJPose = this._selfDJPerformer.update(dt, music, visitors);
+            if (typeof this._updateMirrorDouble === 'function') this._updateMirrorDouble(dt);
+            return;
+        }
+        if (!rig || !rig.ok || !performer || !rig.root || !rig.root.isEnabled()) return;
         rig.update(dt, performer.update(dt, music, visitors));
+    }
+
+    /**
+     * Put the local player's own avatar behind the Pioneer console in the DJ booth, driven by `DJPerformer`
+     * (jog-wheel mixing, knob tweaking, headphone cueing, beat bounce and drop hands-up) while hiding the
+     * resident NPC DJ and broadcasting the live DJ hand poses to everyone in the room.
+     */
+    setPerformingAsDJ(on, options = {}) {
+        const next = !!on;
+        if (Boolean(this.performingAsDJ) === next && !options.force) return next;
+        this.performingAsDJ = next;
+        if (next) {
+            const desk = this._djDesk();
+            const eyeHeight = this._shownBodyEye ? this._shownBodyEye() : 1.7;
+            if (!this._selfDJPerformer && typeof DJPerformer !== 'undefined') {
+                this._selfDJPerformer = new DJPerformer({ x: desk.cx, z: desk.near - 0.18, groundY: 0.5, eyeHeight, desk });
+            }
+            if (!this._djMusic) {
+                this._djMusic = { hasAudio: false, beatPhase: 0, bar: 0, energy: 0, drop: false, bpm: 120 };
+            }
+            if (this._selfDJPerformer) {
+                this._selfDJPose = this._selfDJPerformer.update(1 / 60, this._djMusic, null);
+            }
+            if (typeof this._syncMirrorDouble === 'function') this._syncMirrorDouble();
+            this._applyDJVisibility();
+            if (options.moveCamera !== false && !this.isInVRMode && this.camera && typeof this.camera.setTarget === 'function') {
+                this.camera.position.set(0, 1.7, -14.8);
+                this.camera.setTarget(new BABYLON.Vector3(0, 1.85, -19.0));
+                this._walkLevel = 0;
+            }
+        } else {
+            this._selfDJPose = null;
+            if (this._localRig && this._localRig.headMeshes) {
+                this._localRig.headMeshes.forEach(m => { m.isVisible = false; });
+            }
+            if (typeof this._syncMirrorDouble === 'function') this._syncMirrorDouble();
+            this._applyDJVisibility();
+        }
+        return next;
     }
 
     _playerCamera() {
@@ -2051,6 +2109,15 @@ class VRClubAudioCrowd extends VRClubUI {
         const cam = this._playerCamera();
         const pos = cam && (cam.globalPosition || cam.position);
         if (!pos) return;
+        if (this.performingAsDJ && this._selfDJPose) {
+            const djPose = this._selfDJPose;
+            rig.setEyeHeight(eye);
+            const away = Math.hypot(djPose.x - pos.x, (djPose.eyeY || 2.1) - pos.y, djPose.z - pos.z);
+            if (rig.headMeshes) rig.headMeshes.forEach(m => { m.isVisible = away > 0.35; });
+            rig.update(dt, djPose);
+            return;
+        }
+        if (rig.headMeshes) rig.headMeshes.forEach(m => { m.isVisible = false; });
         const pose = this._localPose || (this._localPose = {
             x: 0, z: 0, groundY: 0, eyeY: 1.7, headYaw: 0, headPitch: 0, left: null, right: null
         });
@@ -2677,7 +2744,7 @@ class VRClubAudioCrowd extends VRClubUI {
 
     /** The DJ is not a crowd slot: an AvatarRig posed by DJPerformer, replaced on local selection. */
     _applyDJVisibility() {
-        const enabled = this.isPeopleVisible('dj');
+        const enabled = this.isPeopleVisible('dj') && !this.performingAsDJ;
         if (typeof this._applyVJDeskPlayerVisibility === 'function') this._applyVJDeskPlayerVisibility();
         if (enabled && !this.isFollowingHost?.() && typeof this.resetDJEffects === 'function') this.resetDJEffects();
         if (enabled && this._djWanted && this._djWanted !== this._djId) {
