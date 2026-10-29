@@ -968,8 +968,10 @@ class VRClubLifecycle extends VRClubCore {
             this._streamRecovery = null;
         }
         if (this.audioElement && this._onAudioFault) {
+            this.audioElement.removeEventListener('waiting', this._onAudioWaiting);
             this.audioElement.removeEventListener('error', this._onAudioFault);
             this.audioElement.removeEventListener('playing', this._onAudioPlaying);
+            this._onAudioWaiting = null;
             this._onAudioFault = null;
             this._onAudioPlaying = null;
         }

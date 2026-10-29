@@ -402,10 +402,10 @@ class VRClubCore {
             // the smoke loop — was allocating 5 fresh Color3 objects per fog
             // machine per frame).
             fogActive: new BABYLON.Color3(1, 0.2, 0),       // Red — burst firing
-            fogReady: new BABYLON.Color3(0, 0.8, 0),        // Green — ready
+            fogReady: new BABYLON.Color3(0, 0.3, 0),        // Green — ready (subtle practical, not a neon orb)
             fogContinuous: new BABYLON.Color3(1, 0.5, 0),   // Orange — continuous
             fogStandby: new BABYLON.Color3(0.3, 0.3, 1),    // Blue — standby
-            fogOff: new BABYLON.Color3(0.3, 0.3, 0.3)       // Gray — off
+            fogOff: new BABYLON.Color3(0.08, 0.08, 0.08)    // Dark gray — off
         };
         
         // PERFORMANCE: Pre-allocated Color3 for LED patterns (eliminates thousands of allocations/frame)

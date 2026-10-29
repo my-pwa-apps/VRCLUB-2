@@ -2807,9 +2807,33 @@ class VRClubUI extends VRClubAnimationFinish {
      * reconnect with bounded backoff. Local files and user pauses are left alone.
      */
     _watchAudioStream(audio) {
-        const recovery = this._streamRecovery = { attempts: 0, timer: null, lastTime: -1, stalledFor: 0, hasPlayed: false };
-        this._onAudioFault = () => this._recoverAudioStream('error');
-        this._onAudioPlaying = () => { recovery.attempts = 0; recovery.stalledFor = 0; recovery.hasPlayed = true; };
+        const recovery = this._streamRecovery = { attempts: 0, timer: null, lastTime: -1, stalledFor: 0, hasPlayed: false, waiting: false };
+        this._onAudioWaiting = () => {
+            if (recovery.waiting) return;
+            recovery.waiting = true;
+            if (typeof this.recordDiagnostic === 'function') {
+                this.recordDiagnostic('audio', 'Audio stream waiting for data (buffering)');
+            }
+        };
+        this._onAudioFault = () => {
+            const code = audio.error && audio.error.code ? ` (error code ${audio.error.code})` : '';
+            if (typeof this.recordDiagnostic === 'function') {
+                this.recordDiagnostic('audio', `Audio media error${code}`);
+            }
+            this._recoverAudioStream('error');
+        };
+        this._onAudioPlaying = () => {
+            if (recovery.waiting) {
+                recovery.waiting = false;
+                if (typeof this.recordDiagnostic === 'function') {
+                    this.recordDiagnostic('audio', 'Audio stream resumed after buffering');
+                }
+            }
+            recovery.attempts = 0;
+            recovery.stalledFor = 0;
+            recovery.hasPlayed = true;
+        };
+        audio.addEventListener('waiting', this._onAudioWaiting);
         audio.addEventListener('error', this._onAudioFault);
         audio.addEventListener('playing', this._onAudioPlaying);
         this._audioWatchdog = setInterval(() => {

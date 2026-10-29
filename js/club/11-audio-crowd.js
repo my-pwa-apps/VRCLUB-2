@@ -199,6 +199,11 @@ class VRClubAudioCrowd extends VRClubUI {
                 this.subGain.gain.value = 0.95;
 
                 // 4. Warehouse Air Absorption / High Frequency Damping Filter
+                // Downmix to mono before the PA/sub/room-reflection paths so a track's stereo mix
+                // cannot skew the room reflections relative to the HRTF speaker panners.
+                this.paMonoInput = this.audioContext.createGain();
+                this.paMonoInput.channelCount = 1;
+                this.paMonoInput.channelCountMode = 'explicit';
                 this.airAbsorptionFilter = this.audioContext.createBiquadFilter();
                 this.airAbsorptionFilter.type = 'lowpass';
                 this.airAbsorptionFilter.frequency.value = 16000;
@@ -661,6 +666,16 @@ class VRClubAudioCrowd extends VRClubUI {
             
             // Pre-spatial analyser tap ensures lighting and VJ reactivity remain 100% full-bandwidth
             if (this.pannerLeft && this.pannerRight && this.airAbsorptionFilter && this.audioCompressor) {
+                if (this.paMonoInput) {
+                    this.paMonoInput.connect(this.airAbsorptionFilter);
+                    if (this.monitorPannerLeft && this.monitorPannerRight) {
+                        this.paMonoInput.connect(this.monitorPannerLeft);
+                        this.paMonoInput.connect(this.monitorPannerRight);
+                    }
+                    if (this.subFilter && this.subGain) {
+                        this.paMonoInput.connect(this.subFilter);
+                    }
+                }
                 // Directional Mains
                 this.airAbsorptionFilter.connect(this.pannerLeft);
                 this.airAbsorptionFilter.connect(this.pannerRight);
@@ -717,12 +732,16 @@ class VRClubAudioCrowd extends VRClubUI {
             audible = this.djFxOutput;
         }
         if (this.pannerLeft && this.pannerRight && this.airAbsorptionFilter && this.audioCompressor) {
-            audible.connect(this.airAbsorptionFilter);
-            if (this.monitorPannerLeft && this.monitorPannerRight) {
-                audible.connect(this.monitorPannerLeft);
-                audible.connect(this.monitorPannerRight);
+            if (this.paMonoInput) {
+                audible.connect(this.paMonoInput);
+            } else {
+                audible.connect(this.airAbsorptionFilter);
+                if (this.monitorPannerLeft && this.monitorPannerRight) {
+                    audible.connect(this.monitorPannerLeft);
+                    audible.connect(this.monitorPannerRight);
+                }
+                if (this.subFilter && this.subGain) audible.connect(this.subFilter);
             }
-            if (this.subFilter && this.subGain) audible.connect(this.subFilter);
         } else if (this.audioCompressor) {
             audible.connect(this.audioCompressor);
         }
@@ -817,12 +836,12 @@ class VRClubAudioCrowd extends VRClubUI {
             const fwd = ray.direction;
             const up = this._listenerUp(cam);
             if (listener.forwardX && listener.forwardX.setTargetAtTime) {
-                listener.forwardX.setTargetAtTime(AudioUtils.audioX(fwd.x), now, 0.03);
-                listener.forwardY.setTargetAtTime(fwd.y, now, 0.03);
-                listener.forwardZ.setTargetAtTime(fwd.z, now, 0.03);
-                listener.upX.setTargetAtTime(AudioUtils.audioX(up.x), now, 0.03);
-                listener.upY.setTargetAtTime(up.y, now, 0.03);
-                listener.upZ.setTargetAtTime(up.z, now, 0.03);
+                listener.forwardX.setTargetAtTime(AudioUtils.audioX(fwd.x), now, 0.08);
+                listener.forwardY.setTargetAtTime(fwd.y, now, 0.08);
+                listener.forwardZ.setTargetAtTime(fwd.z, now, 0.08);
+                listener.upX.setTargetAtTime(AudioUtils.audioX(up.x), now, 0.08);
+                listener.upY.setTargetAtTime(up.y, now, 0.08);
+                listener.upZ.setTargetAtTime(up.z, now, 0.08);
             } else if (listener.setOrientation) {
                 listener.setOrientation(AudioUtils.audioX(fwd.x), fwd.y, fwd.z, AudioUtils.audioX(up.x), up.y, up.z);
             }

@@ -768,8 +768,9 @@ class ModelLoader {
                 ), { intensity: 0.8, range: 8, group: 'speakers' });
                 speakerLight.renderPriority = 1;
                 speakerLight.includedOnlyMeshes = result.meshes.slice();
+                this._addPASpeakerInnerBacking(modelKey, result.meshes, speakerLight);
                 // Priority sorts scene.lights, not existing meshes' cached light lists.
-                result.meshes.forEach(mesh => mesh._resyncLightSources());
+                speakerLight.includedOnlyMeshes.forEach(mesh => mesh._resyncLightSources && mesh._resyncLightSources());
                 this.log.info(`   💡 Added light for ${config.name} (${config.hangFromTruss ? 'truss-flown' : 'floor-standing'})`);
                 
                 // Ensure PA speakers are fully opaque and render properly
@@ -850,6 +851,47 @@ class ModelLoader {
             
             return result;
             
+        }
+    }
+
+    /**
+     * Internal opaque backing plate inside each flown PA cabinet (`stage_speaker___black.glb`),
+     * ported from VRCLUB-UNITY (`ConfigureSpeakerOcclusionAndLighting`): blocks the bright LED
+     * wall behind the speaker from showing through subtle openings in the horn/grill geometry.
+     */
+    _addPASpeakerInnerBacking(modelKey, meshes, speakerLight) {
+        if (!this.scene || !BABYLON.MeshBuilder || typeof BABYLON.MeshBuilder.CreateBox !== 'function') return;
+        const primary = meshes && meshes.find(m => m && typeof m.getTotalVertices === 'function' && m.getTotalVertices() > 0 && typeof m.getBoundingInfo === 'function');
+        const bb = primary && primary.getBoundingInfo && primary.getBoundingInfo()?.boundingBox;
+        if (!bb || !bb.maximum || !bb.minimum || !bb.center || !bb.extendSize) return;
+        const size = bb.maximum.subtract(bb.minimum);
+        if (!(size.x > 0 && size.y > 0 && size.z > 0)) return;
+        const backing = BABYLON.MeshBuilder.CreateBox(`paCabinetBacking_${modelKey}`, {
+            width: size.x * 0.94,
+            height: size.y * 0.94,
+            depth: size.z * 0.04
+        }, this.scene);
+        backing.parent = primary;
+        backing.position = new BABYLON.Vector3(bb.center.x, bb.center.y, bb.center.z - bb.extendSize.z * 0.6);
+        backing.isPickable = false;
+        backing.renderingGroupId = 0;
+        if (this.materialFactory) {
+            const mat = this.materialFactory.createPBRMaterial('paCabinetBackingShared', {
+                baseColor: [0.012, 0.012, 0.014],
+                metallic: 0.0,
+                roughness: 0.9,
+                environmentIntensity: 0.0
+            }, true);
+            mat.maxSimultaneousLights = this.maxLights;
+            mat.alpha = 1.0;
+            mat.transparencyMode = 0;
+            mat.needAlphaBlending = () => false;
+            mat.needAlphaTesting = () => false;
+            mat.disableDepthWrite = false;
+            backing.material = mat;
+        }
+        if (speakerLight && Array.isArray(speakerLight.includedOnlyMeshes)) {
+            speakerLight.includedOnlyMeshes.push(backing);
         }
     }
 

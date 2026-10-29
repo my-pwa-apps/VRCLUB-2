@@ -538,6 +538,11 @@ class VRClubAnimationCore extends VRClubEffects {
         };
         wrap(this.haze, 'haze');
         wrap(this.dustMotes, 'dust');
+        if (this.fogMachines) {
+            for (const machine of this.fogMachines) {
+                wrap(machine && machine.emitter, 'plume');
+            }
+        }
     }
 
     /** Snapshot of the lit cones for this frame, shared by the haze and dust passes. */
@@ -586,6 +591,8 @@ class VRClubAnimationCore extends VRClubEffects {
         const cp = cam ? (cam.globalPosition || cam.position) : null;
         const tint = this.currentSpotColor;
         const isDust = mode === 'dust';
+        const isPlume = mode === 'plume';
+        const dim = Number.isFinite(this.masterIntensity) ? Math.max(0.15, Math.min(1, this.masterIntensity)) : 1;
 
         for (let i = 0; i < particles.length; i++) {
             const p = particles[i];
@@ -616,11 +623,14 @@ class VRClubAnimationCore extends VRClubEffects {
             if (isDust) {
                 // Dust is only seen where light catches it.
                 c.a = Math.min(0.9, c.a * (0.2 + Math.min(1.5, lit) * 1.7));
+            } else if (isPlume) {
+                // Plumes stay dark when unlit in blackout and bloom forward when a beam cuts through them.
+                c.a = Math.min(0.32, c.a * (0.35 * dim + Math.min(1.5, lit) * 2.8));
             } else if (lit > 0) {
                 c.a *= 1 + Math.min(1.2, lit) * 2.2;
             }
             if (lit > 0 && tint) {
-                const m = Math.min(0.7, lit * 0.6);
+                const m = Math.min(isPlume ? 0.82 : 0.7, lit * (isPlume ? 0.75 : 0.6));
                 c.r += (tint.r * 1.1 - c.r) * m;
                 c.g += (tint.g * 1.1 - c.g) * m;
                 c.b += (tint.b * 1.1 - c.b) * m;

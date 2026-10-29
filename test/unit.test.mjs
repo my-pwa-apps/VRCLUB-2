@@ -13807,3 +13807,64 @@ test('moving-head beams clip and place pools on elevated venue surfaces (mezzani
     assert.equal(backHit.hitSurface, 'backWall');
     assert.ok(Math.abs(backHit.surfaceIntersection.z - (-20)) < 1e-6, `expected backWall at z=-20, got ${backHit.surfaceIntersection.z}`);
 });
+
+test('Unity-ported fog machines face inward into the dance floor, wrap plume beam-scatter and record stream buffering diagnostics', () => {
+    const fixturesSource = readFileSync(join(ROOT, 'js/club/05-fixtures.js'), 'utf8');
+    assert.match(fixturesSource, /rotY:\s*Math\.PI\s*-\s*0\.3/, 'left fog machine must turn inward toward the dance floor (-Z)');
+    assert.match(fixturesSource, /rotY:\s*Math\.PI\s*\+\s*0\.3/, 'right fog machine must turn inward toward the dance floor (-Z)');
+    assert.match(fixturesSource, /pos\.z\s*-\s*0\.15/, 'nozzle emitter must sit on the dance-floor side of the z=-8 truss');
+    assert.match(fixturesSource, /new BABYLON\.Vector3\(centerDir - 0\.18,\s*-0\.75,\s*-0\.70\)/, 'plume direction must shoot into -Z');
+
+    const { window } = loadClassic('js/club/07-animation-core.js', { BABYLON: makeBabylonStub(), VRClubEffects: class {} });
+    const proto = window.VRClubAnimationCore.prototype;
+    const vec = (x, y, z) => ({ x, y, z });
+    const spot = {
+        _photoPos: vec(0, 7, -12), _photoDir: vec(0, -1, 0), _photoIntensity: 40, _photoAngle: 0.5,
+        _surfaceHit: { centerDistanceToSurface: 7 }
+    };
+    let plumeUpdateCalled = false;
+    const plumeEmitter = { updateFunction() { plumeUpdateCalled = true; } };
+    const club = {
+        lightsActive: true,
+        masterIntensity: 0,
+        spotlights: [spot],
+        currentSpotColor: { r: 0, g: 1, b: 1 },
+        scene: { getFrameId: () => 1, activeCamera: { globalPosition: vec(0, 1.7, -4) } },
+        fogMachines: [{ emitter: plumeEmitter }],
+        _gatherAirBeams: proto._gatherAirBeams,
+        _lightAirParticles: proto._lightAirParticles
+    };
+    proto._installAirLighting.call(club);
+    assert.equal(plumeEmitter._airLit, true, '_installAirLighting must wrap fog machine plume emitters');
+    const inBeam = { position: vec(0, 3, -12), size: 1.5, color: { r: 0.68, g: 0.72, b: 0.82, a: 0.07 } };
+    const unlitBlackout = { position: vec(6, 3, -12), size: 1.5, color: { r: 0.68, g: 0.72, b: 0.82, a: 0.07 } };
+    plumeEmitter.updateFunction([inBeam, unlitBlackout]);
+    assert.equal(plumeUpdateCalled, true);
+    assert.ok(inBeam.color.a > 0.07 * 1.5, 'plume puff inside a beam must brighten');
+    assert.ok(inBeam.color.g > 0.75 && inBeam.color.r < 0.5, 'plume puff inside a beam must take the beam colour');
+    assert.ok(unlitBlackout.color.a < 0.07 * 0.2, 'unlit plume puff must stay dark during blackout');
+
+    const uiWindow = loadClassic('js/club/10-ui.js', {
+        VRClubAnimationFinish: class {},
+        setTimeout: () => 1, clearTimeout() {}, setInterval: () => 1,
+        log: { warn() {}, info() {}, error() {} }
+    }).window;
+    const listeners = {};
+    const diagnostics = [];
+    const audio = {
+        paused: false, currentTime: 0, error: { code: 3 },
+        addEventListener(type, fn) { listeners[type] = fn; }
+    };
+    const uiClub = Object.create(uiWindow.VRClubUI.prototype);
+    uiClub.recordDiagnostic = (cat, msg) => diagnostics.push(`${cat}:${msg}`);
+    uiClub._recoverAudioStream = () => {};
+    uiClub._watchAudioStream(audio);
+    listeners.waiting();
+    listeners.waiting();
+    assert.equal(diagnostics.filter(d => d.includes('waiting for data')).length, 1, 'duplicate waiting events must be coalesced');
+    listeners.playing();
+    assert.ok(diagnostics.some(d => d.includes('resumed after buffering')));
+    listeners.error();
+    assert.ok(diagnostics.some(d => d.includes('error code 3')));
+});
+
