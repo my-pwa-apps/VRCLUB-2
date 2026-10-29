@@ -758,9 +758,12 @@ class VRClubAnimationCore extends VRClubEffects {
                 const cy = Math.cos(yaw), sy = Math.sin(yaw);
                 const s = sheets[n] || (sheets[n] = {});
                 s.ox = housing.position.x; s.oy = housing.position.y; s.oz = housing.position.z;
-                // Forward axis (local +Z) and plane normal (local +Y) under Euler YXZ(yaw, pitch, 0)
+                // Orthonormal basis of the projector under Euler YXZ(yaw, pitch, 0):
+                // forward (local +Z), plane normal (local +Y), and lateral fan axis (local +X)
                 s.fx = sy * cp; s.fy = -sp; s.fz = cy * cp;
                 s.nx = sy * sp; s.ny = cp; s.nz = cy * sp;
+                s.rx = cy; s.ry = 0; s.rz = -sy;
+                s.acc = 0;
                 n++;
             };
             addSource(this.laserSheetSource);
@@ -769,7 +772,85 @@ class VRClubAnimationCore extends VRClubEffects {
             }
         }
         this._airSheetCount = n;
+        this._airSheetTime = this._laserSheetLastPoseTime || 0;
         return sheets;
+    }
+
+    /**
+     * Evaluate how strongly a smoke puff at `pos` is sliced by the active scanning laser sheets:
+     * includes lateral fan bounds, galvo turnaround edge brightening, 1/r radial falloff,
+     * razor-thin planar cross-section, forward Mie scatter, and scrolling wisp modulation.
+     */
+    _sampleAirSheets(pos, size, isPlume, dim, cp, sheets, nSheets) {
+        let sheetLit = 0;
+        const t = this._airSheetTime || 0;
+        for (let s = 0; s < nSheets; s++) {
+            const sh = sheets[s];
+            const vx = pos.x - sh.ox, vy = pos.y - sh.oy, vz = pos.z - sh.oz;
+            const along = vx * sh.fx + vy * sh.fy + vz * sh.fz;
+            if (along < 0.3 || along > 24) continue;
+            const fanHalfW = along * (11 / 24);
+            const across = vx * sh.rx + vy * sh.ry + vz * sh.rz;
+            if (Math.abs(across) > fanHalfW + size * 0.35) continue;
+            const dist = Math.abs(vx * sh.nx + vy * sh.ny + vz * sh.nz);
+            const halfThick = (isPlume ? 0.52 : 0.32) + size * 0.24;
+            if (dist >= halfThick) continue;
+            const veil = 1 - dist / halfThick;
+            const core = Math.exp(-(dist * dist) / 0.028);
+            const uNorm = Math.min(1, Math.abs(across) / Math.max(0.1, fanHalfW));
+            const edgeBoost = 0.88 + 0.55 * Math.pow(uNorm, 6);
+            const falloff = Math.min(1, Math.pow(4.5 / Math.max(along, 1.5), 0.35)) * Math.exp(-0.01 * along);
+            const wisp = 0.78 + 0.35 * Math.sin(along * 0.9 - t * 3.0) * Math.cos(across * 1.15 + t * 1.6);
+            let phase = 1.0;
+            if (cp) {
+                const cx = cp.x - pos.x, cy = cp.y - pos.y, cz = cp.z - pos.z;
+                const cl = Math.sqrt(cx * cx + cy * cy + cz * cz) || 1;
+                const cosT = (cx * sh.fx + cy * sh.fy + cz * sh.fz) / cl;
+                phase = 0.85 + Math.min(1.15, 0.38 / Math.pow(1.22 - cosT * 0.85, 1.5));
+            }
+            const contrib = (0.65 * veil * veil + 1.25 * core) * edgeBoost * falloff * wisp * phase * dim;
+            sheetLit += contrib;
+            sh.acc += contrib;
+        }
+        return sheetLit;
+    }
+
+    /**
+     * Evaluate directional parabolic flood + forward Mie silver-lining scatter from firing corner strobes
+     * at a 3D smoke particle position `pos` (writes `out.r/g/b/lit`).
+     */
+    _sampleAirStrobes(pos, dim, cp, out) {
+        out.r = out.g = out.b = out.lit = 0;
+        if (!this.strobesActive || this.photosensitiveSafeMode || !this.strobes) return;
+        for (let si = 0; si < this.strobes.length; si++) {
+            const st = this.strobes[si];
+            if (!st || !(st.flashDuration > 0)) continue;
+            const sp = st.mesh && st.mesh.position;
+            const sx = sp ? sp.x : 0, sy = sp ? (sp.y || 7.6) : 7.6, sz = sp ? (sp.z || -8) : -8;
+            const vx = pos.x - sx, vy = pos.y - sy, vz = pos.z - sz;
+            const distSq = vx * vx + vy * vy + vz * vz;
+            const d = Math.sqrt(distSq) || 1;
+            // Parabolic reflector floods inward and downward toward the dance floor centre (0, 2.0, -12)
+            const aimX = -sx, aimY = 2.0 - sy, aimZ = -12 - sz;
+            const aimLen = Math.sqrt(aimX * aimX + aimY * aimY + aimZ * aimZ) || 1;
+            const cosFlood = (vx * aimX + vy * aimY + vz * aimZ) / (d * aimLen);
+            const flood = Math.max(0.18, Math.min(1, (cosFlood + 0.25) / 0.95));
+            // Forward Mie silver-lining scatter when looking through smoke toward the firing strobe
+            let phase = 0.55;
+            if (cp) {
+                const cx = cp.x - pos.x, cy = cp.y - pos.y, cz = cp.z - pos.z;
+                const cl = Math.sqrt(cx * cx + cy * cy + cz * cz) || 1;
+                const cosView = (cx * vx + cy * vy + cz * vz) / (cl * d);
+                phase = 0.45 + Math.min(1.4, 0.28 / Math.pow(1.38 - cosView * 0.85, 1.5));
+            }
+            const pulse = Math.min(1.2, Math.max(0.45, st.flashDuration / 0.032)) * ((st.currentIntensity || 80) / 80);
+            const sw = (2.1 * dim * pulse * flood * phase) / (1 + distSq * 0.032);
+            // Crisp xenon strobe colour temperature (cool blue-white)
+            out.r += sw * 0.95;
+            out.g += sw * 0.98;
+            out.b += sw * 1.00;
+            out.lit += sw;
+        }
     }
 
     _lightAirParticles(particles, mode) {
@@ -802,7 +883,6 @@ class VRClubAnimationCore extends VRClubEffects {
             const p = particles[i];
             const pos = p.position;
             let lit = 0;
-            let sheetLit = 0;
             let beamR = 0, beamG = 0, beamB = 0;
             for (let k = 0; k < nBeams; k++) {
                 const b = beams[k];
@@ -839,20 +919,12 @@ class VRClubAnimationCore extends VRClubEffects {
                     beamB += bc.b * contrib;
                 }
             }
-            for (let s = 0; s < nSheets; s++) {
-                const sh = sheets[s];
-                const vx = pos.x - sh.ox, vy = pos.y - sh.oy, vz = pos.z - sh.oz;
-                const along = vx * sh.fx + vy * sh.fy + vz * sh.fz;
-                if (along < 0.4 || along > 22) continue;
-                const dist = Math.abs(vx * sh.nx + vy * sh.ny + vz * sh.nz);
-                const halfThick = (isPlume ? 0.45 : 0.22) + (p.size || 1) * 0.25;
-                if (dist >= halfThick) continue;
-                const slice = 1 - dist / halfThick;
-                sheetLit += slice * slice * (3 - 2 * slice) * dim;
-            }
+            const sheetLit = nSheets > 0
+                ? (this._sampleAirSheets || VRClubAnimationCore.prototype._sampleAirSheets).call(this, pos, p.size || 1, isPlume, dim, cp, sheets, nSheets)
+                : 0;
             let localR = 0, localG = 0, localB = 0, localLit = 0;
             if (ledActive && !isDust) {
-                this._sampleAirLedWall(pos, ledSample);
+                (this._sampleAirLedWall || VRClubAnimationCore.prototype._sampleAirLedWall).call(this, pos, ledSample);
                 localR += ledSample.r;
                 localG += ledSample.g;
                 localB += ledSample.b;
@@ -870,19 +942,12 @@ class VRClubAnimationCore extends VRClubEffects {
                     const mw = (0.55 * dim * sparkle) / (1 + mDistSq * 0.04);
                     localR += mc.r * mw; localG += mc.g * mw; localB += mc.b * mw; localLit += mw;
                 }
-                // 3D per-corner strobe flashes so chase/circle patterns leap from corner to corner through the smoke
-                if (this.strobesActive && !this.photosensitiveSafeMode && this.strobes) {
-                    for (let si = 0; si < this.strobes.length; si++) {
-                        const st = this.strobes[si];
-                        if (!st || !(st.flashDuration > 0)) continue;
-                        const sp = st.mesh && st.mesh.position;
-                        const sx = sp ? pos.x - sp.x : 0;
-                        const sy = sp ? pos.y - (sp.y || 7.8) : 0;
-                        const sz = sp ? pos.z - (sp.z || -8) : 0;
-                        const sw = (1.65 * dim) / (1 + (sx * sx + sy * sy + sz * sz) * 0.035);
-                        localR += sw; localG += sw; localB += sw; localLit += sw;
-                    }
-                }
+                const strobeSample = this._airStrobeSample || (this._airStrobeSample = { r: 0, g: 0, b: 0, lit: 0 });
+                (this._sampleAirStrobes || VRClubAnimationCore.prototype._sampleAirStrobes).call(this, pos, dim, cp, strobeSample);
+                localR += strobeSample.r;
+                localG += strobeSample.g;
+                localB += strobeSample.b;
+                localLit += strobeSample.lit;
             }
             const c = p.color;
             if (isPlume) {
@@ -933,6 +998,13 @@ class VRClubAnimationCore extends VRClubEffects {
             }
         }
 
+        if (isPlume && nSheets > 0) {
+            let sheetAcc = 0;
+            for (let s = 0; s < nSheets; s++) sheetAcc += sheets[s].acc || 0;
+            const target = Math.min(1.35, 1.0 + (sheetAcc / Math.max(4, particles.length * 0.06)) * 0.35);
+            const cur = this._laserSheetSmokeBoost == null ? target : this._laserSheetSmokeBoost;
+            this._laserSheetSmokeBoost = cur + (target - cur) * 0.08;
+        }
         if (!isDust && !this.isInVRMode) {
             // The beam mesh reads how much medium actually sits in its cone, and how much smoke there is to scatter it.
             const ref = Math.max(6, particles.length * 0.02);
@@ -1037,7 +1109,8 @@ class VRClubAnimationCore extends VRClubEffects {
             const smokeNow = Number.isFinite(this._smokeLevel) ? this._smokeLevel : (this.smokeActive === false ? 0 : 1);
             const haze = Math.min(1, Math.max(0.25, (this.fogIntensity == null ? 1 : this.fogIntensity) / 1.5)) *
                 (0.2 + 0.8 * smokeNow);
-            const pulse = 0.75 + (audioData.average || 0) * 0.25 + (this.kickPulse || 0) * 0.35;
+            const plumeBoost = Number.isFinite(this._laserSheetSmokeBoost) ? this._laserSheetSmokeBoost : 1;
+            const pulse = (0.75 + (audioData.average || 0) * 0.25 + (this.kickPulse || 0) * 0.35) * plumeBoost;
             const level = Math.min(1, 0.75 * pulse * (0.35 + 0.65 * haze)) * master;
             sheetMat.alpha = level;
             if (this.laserSheetHaze && this.laserSheetHaze.material) {

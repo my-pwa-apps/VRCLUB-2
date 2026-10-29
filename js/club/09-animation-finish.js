@@ -134,6 +134,12 @@ class VRClubAnimationFinish extends VRClubAnimationFixtures {
             if (ambient) ambient.intensity = this._preStrobeAmbientIntensity;
             this._preStrobeAmbientIntensity = undefined;
         }
+        if (this._preStrobeFogSaved && this.scene?.fogColor && this._preStrobeFogColor) {
+            this.scene.fogColor.r = this._preStrobeFogColor.r;
+            this.scene.fogColor.g = this._preStrobeFogColor.g;
+            this.scene.fogColor.b = this._preStrobeFogColor.b;
+            this._preStrobeFogSaved = false;
+        }
         if (this.strobeRetinalFlash?.color) this.strobeRetinalFlash.color.a = 0;
         if (this.strobes && this.strobes.length > 0) {
             // Photosensitive Safe Mode hard-disables strobes regardless of VJ state
@@ -309,6 +315,17 @@ class VRClubAnimationFinish extends VRClubAnimationFixtures {
                         if (ambient) {
                             this._preStrobeAmbientIntensity = ambient.intensity;
                             ambient.intensity = ambient.intensity + (impulse.ambient - ambient.intensity) * master;
+                        }
+                        if (this.scene?.fogColor) {
+                            const fog = this.scene.fogColor;
+                            const save = this._preStrobeFogColor || (this._preStrobeFogColor = { r: 0, g: 0, b: 0 });
+                            save.r = fog.r; save.g = fog.g; save.b = fog.b;
+                            this._preStrobeFogSaved = true;
+                            const smokeNow = Number.isFinite(this._smokeLevel) ? this._smokeLevel : (this.smokeActive === false ? 0 : 1);
+                            const fogFlash = (0.04 + 0.14 * smokeNow) * master * Math.min(1, maxIntensity / 90);
+                            fog.r = Math.min(0.35, fog.r + fogFlash * 0.94);
+                            fog.g = Math.min(0.35, fog.g + fogFlash * 0.97);
+                            fog.b = Math.min(0.38, fog.b + fogFlash * 1.00);
                         }
                         if (this.strobeRetinalFlash?.color) {
                             this.strobeRetinalFlash.color.a = impulse.retinal * master;

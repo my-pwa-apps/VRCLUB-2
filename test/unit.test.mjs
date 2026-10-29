@@ -13873,6 +13873,37 @@ test('Unity-ported fog machines face inward into the dance floor, wrap plume bea
     assert.ok(puffMid.color.g > puffMid.color.r * 2 && puffMid.color.g > puffMid.color.b * 2, 'centre smoke puff takes centre LED wall green');
     assert.ok(puffRight.color.b > puffRight.color.r * 3 && puffRight.color.b > puffRight.color.g * 3, 'right smoke puff takes right LED wall blue');
 
+    // Laser sheet slice: puff on the scanning sheet plane inside the fan lights up in the diode colour; puff outside lateral fan stays dark
+    club.ledWallActive = false;
+    club.laserSheetActive = true;
+    club.laserSheetSource = { position: vec(-6, 7.55, -16), rotation: vec(0, 0, 0) };
+    club._laserColor = () => ({ r: 0, g: 1, b: 0 });
+    club._gatherAirSheets = proto._gatherAirSheets;
+    club._sampleAirSheets = proto._sampleAirSheets;
+    club._sampleAirStrobes = proto._sampleAirStrobes;
+    club.scene.getFrameId = () => 3;
+    const onSheet = { position: vec(-6, 7.55, -10), size: 1.5, color: { r: 0.03, g: 0.03, b: 0.04, a: 0.15 } };
+    const outsideFan = { position: vec(6, 7.55, -10), size: 1.5, color: { r: 0.03, g: 0.03, b: 0.04, a: 0.15 } };
+    plumeEmitter.updateFunction([onSheet, outsideFan]);
+    assert.ok(onSheet.color.g > 0.6 && onSheet.color.a > 0.25, 'puff sliced by laser sheet glows in diode green');
+    assert.ok(outsideFan.color.a < 0.03, 'puff outside the laser sheet fan lateral boundary stays dark');
+    assert.ok(club._laserSheetSmokeBoost > 1, 'smoke puffs crossing the laser sheet boost the sheet scatter density');
+
+    // Corner strobe parabolic flood + forward Mie silver-lining scatter
+    club.laserSheetActive = false;
+    club.strobesActive = true;
+    club.photosensitiveSafeMode = false;
+    club.strobes = [
+        { flashDuration: 0.032, currentIntensity: 90, mesh: { position: vec(-10, 7.6, -8) } },
+        { flashDuration: 0, currentIntensity: 0, mesh: { position: vec(10, 7.6, -8) } }
+    ];
+    club.scene.getFrameId = () => 4;
+    const nearFiringStrobe = { position: vec(-7, 6.2, -9.5), size: 1.5, color: { r: 0.03, g: 0.03, b: 0.04, a: 0.15 } };
+    const farCornerSmoke = { position: vec(9, 6.2, -16), size: 1.5, color: { r: 0.03, g: 0.03, b: 0.04, a: 0.15 } };
+    plumeEmitter.updateFunction([nearFiringStrobe, farCornerSmoke]);
+    assert.ok(nearFiringStrobe.color.b > 0.7 && nearFiringStrobe.color.b >= nearFiringStrobe.color.r, 'strobe-lit smoke flashes cool xenon white');
+    assert.ok(nearFiringStrobe.color.a > farCornerSmoke.color.a * 2.5, 'firing corner strobe lights nearby smoke far more than the opposite corner');
+
     const uiWindow = loadClassic('js/club/10-ui.js', {
         VRClubAnimationFinish: class {},
         setTimeout: () => 1, clearTimeout() {}, setInterval: () => 1,
