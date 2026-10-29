@@ -13834,23 +13834,44 @@ test('Unity-ported fog machines face inward into the dance floor, wrap plume bea
     const plumeEmitter = { updateFunction() { plumeUpdateCalled = true; } };
     const club = {
         lightsActive: true,
-        masterIntensity: 0,
+        masterIntensity: 1,
         spotlights: [spot],
         currentSpotColor: { r: 0, g: 1, b: 1 },
         scene: { getFrameId: () => 1, activeCamera: { globalPosition: vec(0, 1.7, -4) } },
         fogMachines: [{ emitter: plumeEmitter }],
         _gatherAirBeams: proto._gatherAirBeams,
+        _gatherAirLedWall: proto._gatherAirLedWall,
+        _sampleAirLedWall: proto._sampleAirLedWall,
         _lightAirParticles: proto._lightAirParticles
     };
     proto._installAirLighting.call(club);
     assert.equal(plumeEmitter._airLit, true, '_installAirLighting must wrap fog machine plume emitters');
-    const inBeam = { position: vec(0, 3, -12), size: 1.5, color: { r: 0.68, g: 0.72, b: 0.82, a: 0.07 } };
-    const unlitBlackout = { position: vec(6, 3, -12), size: 1.5, color: { r: 0.68, g: 0.72, b: 0.82, a: 0.07 } };
-    plumeEmitter.updateFunction([inBeam, unlitBlackout]);
+    const inBeam = { position: vec(0, 3, -12), size: 1.5, color: { r: 0.035, g: 0.04, b: 0.055, a: 0.07 } };
+    const unlitOutside = { position: vec(8, 3, -12), size: 1.5, color: { r: 0.035, g: 0.04, b: 0.055, a: 0.07 } };
+    plumeEmitter.updateFunction([inBeam, unlitOutside]);
     assert.equal(plumeUpdateCalled, true);
     assert.ok(inBeam.color.a > 0.07 * 1.5, 'plume puff inside a beam must brighten');
-    assert.ok(inBeam.color.g > 0.75 && inBeam.color.r < 0.5, 'plume puff inside a beam must take the beam colour');
-    assert.ok(unlitBlackout.color.a < 0.07 * 0.2, 'unlit plume puff must stay dark during blackout');
+    assert.ok(inBeam.color.g > 0.5 && inBeam.color.r < 0.1, 'plume puff inside a beam must take the beam colour');
+    assert.ok(unlitOutside.color.a < 0.07 * 0.2 && unlitOutside.color.g < 0.04, 'plume puff outside every light source has no brightness of its own');
+
+    // Multi-colour LED wall: left panels red, centre green, right blue -> smoke puffs at left/centre/right take those distinct colours
+    club.lightsActive = false;
+    club.ledWallActive = true;
+    club.ledCols = 21;
+    club.ledRows = 10;
+    club.ledPanels = Array.from({ length: 210 }, (_, idx) => {
+        const col = idx % 21;
+        const ec = col < 7 ? { r: 1, g: 0, b: 0 } : (col < 14 ? { r: 0, g: 1, b: 0 } : { r: 0, g: 0, b: 1 });
+        return { material: { emissiveColor: ec } };
+    });
+    club.scene.getFrameId = () => 2;
+    const puffLeft = { position: vec(-9, 4, -17), size: 1.5, color: { r: 0.03, g: 0.03, b: 0.04, a: 0.15 } };
+    const puffMid = { position: vec(0, 4, -17), size: 1.5, color: { r: 0.03, g: 0.03, b: 0.04, a: 0.15 } };
+    const puffRight = { position: vec(9, 4, -17), size: 1.5, color: { r: 0.03, g: 0.03, b: 0.04, a: 0.15 } };
+    plumeEmitter.updateFunction([puffLeft, puffMid, puffRight]);
+    assert.ok(puffLeft.color.r > puffLeft.color.g * 3 && puffLeft.color.r > puffLeft.color.b * 3, 'left smoke puff takes left LED wall red');
+    assert.ok(puffMid.color.g > puffMid.color.r * 2 && puffMid.color.g > puffMid.color.b * 2, 'centre smoke puff takes centre LED wall green');
+    assert.ok(puffRight.color.b > puffRight.color.r * 3 && puffRight.color.b > puffRight.color.g * 3, 'right smoke puff takes right LED wall blue');
 
     const uiWindow = loadClassic('js/club/10-ui.js', {
         VRClubAnimationFinish: class {},
