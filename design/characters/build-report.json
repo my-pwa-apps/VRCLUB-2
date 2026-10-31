@@ -1,7 +1,7 @@
 [
   {
     "id": "nia",
-    "bytes": 3739244,
+    "bytes": 1951476,
     "clips": [
       "Idle",
       "Walk",
@@ -27,7 +27,7 @@
   },
   {
     "id": "luca",
-    "bytes": 3365960,
+    "bytes": 1855360,
     "clips": [
       "Idle",
       "Walk",
@@ -53,7 +53,7 @@
   },
   {
     "id": "robin",
-    "bytes": 2665528,
+    "bytes": 1003772,
     "clips": [
       "Idle_Loop",
       "Idle_Talking_Loop",
@@ -72,7 +72,7 @@
   },
   {
     "id": "tao",
-    "bytes": 3898896,
+    "bytes": 1951556,
     "clips": [
       "Idle",
       "Walk",
@@ -98,7 +98,7 @@
   },
   {
     "id": "sofia",
-    "bytes": 3392824,
+    "bytes": 1907772,
     "clips": [
       "Idle",
       "Walk",
@@ -124,7 +124,7 @@
   },
   {
     "id": "asha",
-    "bytes": 3318148,
+    "bytes": 1872500,
     "clips": [
       "Idle",
       "Walk",
@@ -150,7 +150,7 @@
   },
   {
     "id": "diego",
-    "bytes": 3436332,
+    "bytes": 1947792,
     "clips": [
       "Idle",
       "Walk",
@@ -176,7 +176,7 @@
   },
   {
     "id": "iris",
-    "bytes": 3295516,
+    "bytes": 1820396,
     "clips": [
       "Idle",
       "Walk",
@@ -202,7 +202,7 @@
   },
   {
     "id": "eden",
-    "bytes": 2544016,
+    "bytes": 991768,
     "clips": [
       "Idle_Loop",
       "Idle_Talking_Loop",
@@ -221,7 +221,7 @@
   },
   {
     "id": "ren",
-    "bytes": 3531236,
+    "bytes": 1895012,
     "clips": [
       "Idle",
       "Walk",
@@ -247,7 +247,7 @@
   },
   {
     "id": "felix",
-    "bytes": 3522576,
+    "bytes": 1871708,
     "clips": [
       "Idle",
       "Walk",
@@ -273,7 +273,7 @@
   },
   {
     "id": "kai",
-    "bytes": 2681276,
+    "bytes": 1006836,
     "clips": [
       "Idle_Loop",
       "Idle_Talking_Loop",
@@ -292,7 +292,7 @@
   },
   {
     "id": "jonas",
-    "bytes": 2668900,
+    "bytes": 988828,
     "clips": [
       "Idle_Loop",
       "Idle_Talking_Loop",
@@ -311,7 +311,7 @@
   },
   {
     "id": "mara",
-    "bytes": 2546328,
+    "bytes": 973208,
     "clips": [
       "Idle_Loop",
       "Idle_Talking_Loop",
@@ -330,7 +330,7 @@
   },
   {
     "id": "ellis",
-    "bytes": 1766604,
+    "bytes": 1558384,
     "clips": [
       "Idle",
       "Walk",
@@ -346,7 +346,7 @@
   },
   {
     "id": "amara",
-    "bytes": 2291068,
+    "bytes": 2087192,
     "clips": [
       "Idle",
       "Walk",
@@ -364,7 +364,7 @@
   },
   {
     "id": "malik",
-    "bytes": 2715964,
+    "bytes": 2450328,
     "clips": [
       "Idle",
       "Walk",
@@ -383,7 +383,7 @@
   },
   {
     "id": "mei",
-    "bytes": 2122440,
+    "bytes": 1920344,
     "clips": [
       "Idle",
       "Walk",
@@ -400,7 +400,7 @@
   },
   {
     "id": "rosa",
-    "bytes": 1766400,
+    "bytes": 1567836,
     "clips": [
       "Idle",
       "Walk",
@@ -416,7 +416,7 @@
   },
   {
     "id": "samir",
-    "bytes": 2056924,
+    "bytes": 1655660,
     "clips": [
       "Idle",
       "Walk",
@@ -448,7 +448,7 @@
   },
   {
     "id": "leila",
-    "bytes": 1770548,
+    "bytes": 1579768,
     "clips": [
       "Idle",
       "Walk",
@@ -533,7 +533,7 @@
   },
   {
     "id": "idris",
-    "bytes": 1936516,
+    "bytes": 1540636,
     "clips": [
       "Idle",
       "Walk",
