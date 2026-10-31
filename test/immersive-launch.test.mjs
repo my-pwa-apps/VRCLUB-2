@@ -391,6 +391,20 @@ test('links that cannot be used are reported instead of silently dropped', async
     assert.equal(t.launch.musicStatus, '1 LINK LOADED');
 });
 
+test('phone sync reports local saved-set failures instead of blaming the server', async () => {
+    const t = setup({ music: async () => ({ items: [] }) });
+    t.club.musicLibrary.readError = 'unreadable';
+    t.club.musicLibrary.replaceAll = () => { throw new Error('Saved sets cannot be changed until you retry or reset them in Music.'); };
+    await t.launch.syncMusic(true);
+    assert.equal(t.launch.musicStatus, 'SAVED SETS NEED RECOVERY');
+    assert.equal(t.calls.music, 0);
+    assert.match(t.calls.toast.at(-1), /retry or reset/);
+    t.club.musicLibrary.readError = null;
+    await t.launch.syncMusic(true);
+    assert.equal(t.launch.musicStatus, 'SAVED SETS COULD NOT BE UPDATED');
+    assert.match(t.calls.toast.at(-1), /retry or reset/);
+});
+
 test('linking during the session loads the music too, and the music page has its own words', async () => {
     const t = setup({ prepare: { state: 'needs-access' }, polls: ['approved'], music: async () => ({ items: [{ url: 'https://audio.example/a.mp3' }] }) });
     await t.launch.start();

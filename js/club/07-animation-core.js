@@ -284,17 +284,6 @@ class VRClubAnimationCore extends VRClubEffects {
         this.ledTime += dt * (this.ledWallSpeed || 1.0);
         this.frameCounter++;
         
-        // === GOBO ROTATION UPDATE ===
-        // Continuous 360° rotation for gobo patterns
-        if (this.goboEnabled) {
-            this.goboRotation += 0.02 * dtScale * (this.goboRotationSpeed || 1.0);
-            if (this.goboRotation > Math.PI * 2) {
-                this.goboRotation -= Math.PI * 2;
-            } else if (this.goboRotation < -Math.PI * 2) {
-                this.goboRotation += Math.PI * 2;
-            }
-        }
-        
         // Get audio data for reactive lighting (needed for laser sheet pulse)
         const audioData = this.getAudioData();
 
@@ -366,72 +355,43 @@ class VRClubAnimationCore extends VRClubEffects {
         }
 
         const { time, dt } = ctx;
-        this._tintClubAir(dt);
         const tierScale = this.isInVRMode ? (this.tierSettings?.vrFogOutputScale || 1) : 1;
         const outputScale = tierScale * VRClubAnimationCore.prototype._effectLoadScale.call(this);
         const burstRate = 150 * outputScale;
         const continuousRate = 80 * outputScale;
+        const intensity = Number.isFinite(this.fogIntensity) ? Math.min(2, Math.max(0, this.fogIntensity)) : 1;
+        const beat = typeof this.spotRigBeat === 'function' ? this.spotRigBeat(time) : time * (this.vjBPM || 120) / 60;
+        const burstPhase = ((beat % 16) + 16) % 16;
+        const bursting = this.fogBurstMode === 'auto' && burstPhase < 3;
+        const burstFade = bursting ? Math.min(1, (3 - burstPhase) / 0.75) : 0;
+        this._tintClubAir(dt, burstFade);
 
         // === FOG MACHINE SYSTEM CONTROL ===
         if (this.fogMachines && this.fogMachines.length > 0) {
-            const currentTime = time;
-            
             if (this.smokeActive) {
                 // Ensure haze is running for beam visibility
                 if (this.haze && !this.haze.isStarted()) this.haze.start();
                 
                 // Update each fog machine
-                this.fogMachines.forEach((machine, i) => {
+                this.fogMachines.forEach(machine => {
                     const emitter = machine.emitter;
                     const ledMat = machine.ledMat;
                     
                     // === FOG BURST LOGIC ===
                     if (this.fogBurstMode === 'auto') {
-                        // Automatic bursts synced to music/phase
-                        const timeSinceLastBurst = currentTime - this.lastFogBurst;
-                        const burstInterval = this.fogBurstInterval / this.fogIntensity;
-                        
-                        if (!machine.isBursting && timeSinceLastBurst > burstInterval) {
-                            // Start a burst
-                            machine.isBursting = true;
-                            machine.burstTimer = 2.5; // 2.5 second burst
-                            emitter.emitRate = burstRate * this.fogIntensity;
-                            
-                            // Update LED to red (active) — cached, no allocation
-                            ledMat.emissiveColor = this.cachedColors.fogActive;
-                            
-                            if (i === 0) this.lastFogBurst = currentTime;
-                        }
-                        
-                        if (machine.isBursting) {
-                            machine.burstTimer -= dt; // frame-rate independent
-                            
-                            // Fade out burst over last 0.5 seconds
-                            if (machine.burstTimer < 0.5) {
-                                emitter.emitRate = burstRate * this.fogIntensity * (machine.burstTimer / 0.5);
-                            } else {
-                                // A cue may add or remove several transparent effects during this burst.
-                                emitter.emitRate = burstRate * this.fogIntensity;
-                            }
-                            
-                            if (machine.burstTimer <= 0) {
-                                machine.isBursting = false;
-                                emitter.emitRate = continuousRate * 0.55 * this.fogIntensity;
-                                ledMat.emissiveColor = this.cachedColors.fogReady; // Green (ready)
-                            }
-                        } else {
-                            // Keep a steady plume streaming from the nozzles between peak bursts while SMOKE is on
-                            emitter.emitRate = continuousRate * 0.55 * this.fogIntensity;
-                        }
+                        machine.isBursting = bursting;
+                        emitter.emitRate = intensity * (continuousRate * 0.55 + (burstRate - continuousRate * 0.55) * burstFade);
+                        ledMat.emissiveColor = bursting ? this.cachedColors.fogActive : this.cachedColors.fogReady;
                         
                     } else if (this.fogBurstMode === 'continuous') {
                         // Continuous low output
-                        emitter.emitRate = continuousRate * this.fogIntensity;
+                        emitter.emitRate = continuousRate * intensity;
                         ledMat.emissiveColor = this.cachedColors.fogContinuous; // Orange (continuous)
                         machine.isBursting = false;
                         
                     } else if (this.fogBurstMode === 'burst') {
                         // Manual burst mode - awaiting trigger
+                        if (this._fogPreviousMode !== 'burst') machine.isBursting = false;
                         if (!machine.isBursting) {
                             emitter.emitRate = 0;
                             ledMat.emissiveColor = this.cachedColors.fogStandby; // Blue (standby)
@@ -452,6 +412,7 @@ class VRClubAnimationCore extends VRClubEffects {
                 if (this.haze && !this.haze.isStarted()) this.haze.start();
             }
         }
+        this._fogPreviousMode = this.fogBurstMode;
     }
 
     /**
@@ -463,12 +424,14 @@ class VRClubAnimationCore extends VRClubEffects {
      * fog density, the haze particles' alpha, the lasers' and the sheet's scatter and the beams' visibility. Smoke off
      * used to trim the fog to 45% and keep the ambient hazer and the beam scatter running, so nothing seemed to change.
      */
-    _tintClubAir(dt) {
+    _tintClubAir(dt, burst = 0) {
         const scene = this.scene;
         if (!scene) return;
         scene.fogEnabled = true;
         const step60 = dt > 0 ? dt : 1 / 60;
-        const goal = this.smokeActive === false ? 0 : 1;
+        const intensity = Number.isFinite(this.fogIntensity) ? Math.min(2, Math.max(0, this.fogIntensity)) : 2;
+        const base = intensity / 2;
+        const goal = this.smokeActive === false ? 0 : base + (1 - base) * burst * 0.25;
         if (!Number.isFinite(this._smokeLevel)) this._smokeLevel = goal;
         this._smokeLevel += (goal - this._smokeLevel) * (1 - Math.exp(-step60 / 1.6));
         if (Math.abs(goal - this._smokeLevel) < 0.002) this._smokeLevel = goal;
@@ -478,7 +441,8 @@ class VRClubAnimationCore extends VRClubEffects {
         // Outdoors the air is thin: the club's haze is a room effect, and the street needs to see down the block.
         const outdoors = this._exterior || 0;
         if (typeof designed === 'number') {
-            const target = designed * (0.1 + 0.9 * smoke) * (1 - 0.62 * outdoors);
+            const immersion = this.reducedShowSmoke ? 0 : Math.min(1, Math.max(0, this.fogImmersion || 0));
+            const target = designed * (0.1 + 0.9 * smoke) * (1 + 2 * immersion * (1 - outdoors)) * (1 - 0.62 * outdoors);
             const current = scene.fogDensity;
             if (!(current > 0)) {
                 scene.fogDensity = target;
@@ -883,6 +847,15 @@ class VRClubAnimationCore extends VRClubEffects {
         const isDust = mode === 'dust';
         const dim = Number.isFinite(this.masterIntensity) ? Math.max(0, Math.min(1, this.masterIntensity)) : 1;
         const maxQ = isPlume ? 5.5 : 1.0;
+        let strobeFiring = false;
+        if (dim > 0.01 && this.strobesActive && !this.photosensitiveSafeMode && this.strobes) {
+            for (let i = 0; i < this.strobes.length; i++) {
+                if (this.strobes[i] && this.strobes[i].flashDuration > 0) {
+                    strobeFiring = true;
+                    break;
+                }
+            }
+        }
 
         for (let i = 0; i < particles.length; i++) {
             const p = particles[i];
@@ -928,14 +901,14 @@ class VRClubAnimationCore extends VRClubEffects {
                 ? (this._sampleAirSheets || VRClubAnimationCore.prototype._sampleAirSheets).call(this, pos, p.size || 1, isPlume, dim, cp, sheets, nSheets)
                 : 0;
             let localR = 0, localG = 0, localB = 0, localLit = 0;
-            if (ledActive && !isDust) {
+            if (ledActive) {
                 (this._sampleAirLedWall || VRClubAnimationCore.prototype._sampleAirLedWall).call(this, pos, ledSample);
                 localR += ledSample.r;
                 localG += ledSample.g;
                 localB += ledSample.b;
                 localLit += ledSample.lit;
             }
-            if (!isDust && dim > 0.01) {
+            if (dim > 0.01) {
                 // Revolving facet waves from the spinning mirror ball at (0, 6.5, -12)
                 if (this.mirrorBallActive && this.mirrorBallSpotlightColor) {
                     const mc = this.mirrorBallSpotlightColor;
@@ -947,12 +920,20 @@ class VRClubAnimationCore extends VRClubEffects {
                     const mw = (0.55 * dim * sparkle) / (1 + mDistSq * 0.04);
                     localR += mc.r * mw; localG += mc.g * mw; localB += mc.b * mw; localLit += mw;
                 }
-                const strobeSample = this._airStrobeSample || (this._airStrobeSample = { r: 0, g: 0, b: 0, lit: 0 });
-                (this._sampleAirStrobes || VRClubAnimationCore.prototype._sampleAirStrobes).call(this, pos, dim, cp, strobeSample);
-                localR += strobeSample.r;
-                localG += strobeSample.g;
-                localB += strobeSample.b;
-                localLit += strobeSample.lit;
+                if (strobeFiring) {
+                    const strobeSample = this._airStrobeSample || (this._airStrobeSample = { r: 0, g: 0, b: 0, lit: 0 });
+                    (this._sampleAirStrobes || VRClubAnimationCore.prototype._sampleAirStrobes).call(this, pos, dim, cp, strobeSample);
+                    localR += strobeSample.r;
+                    localG += strobeSample.g;
+                    localB += strobeSample.b;
+                    localLit += strobeSample.lit;
+                }
+            }
+            if (isDust) {
+                localR *= 0.4;
+                localG *= 0.4;
+                localB *= 0.4;
+                localLit *= 0.4;
             }
             const c = p.color;
             if (isPlume) {
@@ -1033,7 +1014,7 @@ class VRClubAnimationCore extends VRClubEffects {
         if (!this.laserSheetSource) return;
         // The laser speed slider scales the sweep, capped: above ~1.4 the crossing of the
         // two planes outruns the eye, and a legacy phase sets 2.0.
-        const speed = Math.min(1.4, Math.max(0.2, this.laserSpeed || 1.0));
+        const speed = Math.min(1.4, Math.max(0.2, (this.laserSpeed || 1.0) * (this.laserSheetSpeed || 1)));
         const phaseRate = 0.32 * Math.sqrt(speed);
         const lastTime = this._laserSheetLastPoseTime;
         if (!Number.isFinite(this._laserSheetScanTime) || !Number.isFinite(lastTime) || time < lastTime) {
@@ -1090,8 +1071,9 @@ class VRClubAnimationCore extends VRClubEffects {
     /** Scanning laser sheet: tilt sweep, smoke UV flow, audio-pulsed intensity. */
     updateLaserSheet(ctx) {
         const { time, audio: audioData } = ctx;
-        const speedMultiplierLaser = this.laserSpeed || 1.0;
-        const master = this.masterIntensity == null ? 1 : Math.min(1, Math.max(0, this.masterIntensity));
+        const speedMultiplierLaser = Math.min(1.4, Math.max(0.2, (this.laserSpeed || 1) * (this.laserSheetSpeed || 1)));
+        const master = (this.masterIntensity == null ? 1 : Math.min(1, Math.max(0, this.masterIntensity))) *
+            (Number.isFinite(this.laserSheetBrightness) ? Math.min(1, Math.max(0, this.laserSheetBrightness)) : 1);
 
         // ANIMATE LASER SHEET (Hyperrealism)
         if (this.laserSheet && this.laserSheetActive) {

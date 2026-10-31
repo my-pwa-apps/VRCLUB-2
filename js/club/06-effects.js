@@ -122,8 +122,8 @@ class VRClubEffects extends VRClubFixtures {
             const gCtx = gradCanvas.getContext('2d');
             
             const beamGrad = gCtx.createLinearGradient(0, 0, 0, gradH);
-            beamGrad.addColorStop(0.0, 'rgba(255,255,255,0)');
-            beamGrad.addColorStop(0.18, 'rgba(255,255,255,0.08)');
+            beamGrad.addColorStop(0.0, 'rgba(255,255,255,0.35)');
+            beamGrad.addColorStop(0.18, 'rgba(255,255,255,0.25)');
             beamGrad.addColorStop(0.55, 'rgba(255,255,255,0.42)');
             beamGrad.addColorStop(1.0, 'rgba(255,255,255,1)');
             
@@ -181,7 +181,7 @@ class VRClubEffects extends VRClubFixtures {
             // Higher tessellation creates smoother cone edges for hyperrealistic look
             const beam = BABYLON.MeshBuilder.CreateCylinder("spotBeam" + i, {
                 diameterTop: 2.0,      // Wide end at surface - 2.0m diameter
-                diameterBottom: 0.12,  // Narrower lens opening for tighter source point
+                diameterBottom: 0.25,  // Fits the 0.34 m lens even at maximum tilt stretch
                 height: 1,             // Will be scaled to actual beam length
                 tessellation: 12,      // Higher tessellation for smoother cone (was 8)
                 cap: BABYLON.Mesh.NO_CAP
@@ -314,9 +314,6 @@ class VRClubEffects extends VRClubFixtures {
             // Use default rendering group (0) so pool renders with floor
             lightPool.renderingGroupId = 0;
             
-            // Store reference for gobo texture (null - not using procedural texture anymore)
-            const goboTexture = null;
-            
             // HYPERREALISTIC SOFT OUTER GLOW - Very soft ambient light spread
             // Creates the "light spill" effect around the main pool
             const lightPoolGlow = BABYLON.MeshBuilder.CreateDisc("lightPoolGlow" + i, {
@@ -344,28 +341,72 @@ class VRClubEffects extends VRClubFixtures {
             const lightPoolCore = null;
             const poolCoreMat = null;
             
-            // === GOBO PROJECTION DISC ===
-            // Creates pattern shapes on floor when gobo is enabled
-            const goboProjection = BABYLON.MeshBuilder.CreateDisc("goboProjection" + i, {
-                radius: 1.0,
-                tessellation: 64
-            }, this.scene);
-            goboProjection.rotation.x = Math.PI / 2;
-            goboProjection.position = new BABYLON.Vector3(pos.x, 0.02, pos.z - 5);
-            goboProjection.isPickable = false;
-            
-            const goboMat = new BABYLON.StandardMaterial("goboMat" + i, this.scene);
-            goboMat.diffuseColor = new BABYLON.Color3(0, 0, 0);
-            goboMat.specularColor = new BABYLON.Color3(0, 0, 0);
-            goboMat.emissiveColor = this.currentSpotColor.clone();
-            goboMat.alpha = 0.9;
-            goboMat.alphaMode = BABYLON.Engine.ALPHA_ADD;
-            goboMat.disableLighting = true;
-            goboMat.backFaceCulling = false;
-            goboMat.disableDepthWrite = true;
-            goboProjection.material = goboMat;
-            goboProjection.renderingGroupId = 1;
-            goboProjection.setEnabled(false); // Hidden by default
+            // Crossed ribbons form one fan in the same local space as the ordinary cone.
+            const prism = new BABYLON.Mesh("spotPrism" + i, this.scene);
+            const positions = [], uvs = [], indices = [], colors = [], rayCenters = [];
+            for (let ray = 0; ray < 13; ray++) {
+                const ring = ray === 0 ? 0 : (ray <= 4 ? 0.38 : 0.8);
+                const count = ray <= 4 ? 4 : 8;
+                const angle = ray === 0 ? 0 : ((ray <= 4 ? ray - 1 : ray - 5) * Math.PI * 2 / count);
+                const x = ring * Math.cos(angle), z = ring * Math.sin(angle);
+                rayCenters.push([x, z]);
+                for (let plane = 0; plane < 2; plane++) {
+                    const wx = plane === 0 ? 0.045 : 0;
+                    const wz = plane === 1 ? 0.045 : 0;
+                    const base = positions.length / 3;
+                    positions.push(x * 0.14 - wx * 0.33, -0.5, z * 0.14 - wz * 0.33,
+                        x * 0.14 + wx * 0.33, -0.5, z * 0.14 + wz * 0.33,
+                        x + wx, 0.5, z + wz, x - wx, 0.5, z - wz);
+                    uvs.push(0, 0, 1, 0, 1, 1, 0, 1);
+                    for (let vertex = 0; vertex < 4; vertex++) colors.push(1, 1, 1, 1);
+                    indices.push(base, base + 1, base + 2, base, base + 2, base + 3);
+                }
+            }
+            // Feather each shaft into its neighbours without another mesh or material.
+            for (const [x, z] of rayCenters) {
+                for (let plane = 0; plane < 2; plane++) {
+                    const base = positions.length / 3;
+                    for (let column = 0; column < 5; column++) {
+                        const across = (column - 2) / 2;
+                        const dx = plane === 0 ? across * 0.45 : 0;
+                        const dz = plane === 1 ? across * 0.45 : 0;
+                        const alpha = 0.6 * (1 - Math.abs(across));
+                        positions.push(x * 0.14 + dx * 0.035, -0.5, z * 0.14 + dz * 0.035,
+                            x + dx, 0.5, z + dz);
+                        uvs.push(column / 4, 0, column / 4, 1);
+                        colors.push(1, 1, 1, alpha, 1, 1, 1, alpha);
+                    }
+                    for (let column = 0; column < 4; column++) {
+                        const v = base + column * 2;
+                        indices.push(v, v + 2, v + 3, v, v + 3, v + 1);
+                    }
+                }
+            }
+            const prismData = new BABYLON.VertexData();
+            prismData.positions = positions;
+            prismData.uvs = uvs;
+            prismData.indices = indices;
+            prismData.colors = colors;
+            prismData.normals = [];
+            BABYLON.VertexData.ComputeNormals(positions, indices, prismData.normals);
+            prismData.applyToMesh(prism);
+            prism.hasVertexAlpha = true;
+            const prismMat = new BABYLON.StandardMaterial("spotPrismMat" + i, this.scene);
+            prismMat.diffuseColor = BABYLON.Color3.Black();
+            prismMat.specularColor = BABYLON.Color3.Black();
+            prismMat.emissiveColor = this.currentSpotColor.clone();
+            prismMat.opacityTexture = this._beamGradientTexture;
+            prismMat.alpha = 0;
+            prismMat.alphaMode = BABYLON.Engine.ALPHA_ADD;
+            prismMat.backFaceCulling = false;
+            prismMat.disableLighting = true;
+            prismMat.disableDepthWrite = true;
+            prismMat.clipPlane4 = beamMat.clipPlane4;
+            prism.material = prismMat;
+            prism.rotationQuaternion = BABYLON.Quaternion.Identity();
+            prism.isPickable = false;
+            prism.isVisible = false;
+            prism.renderingGroupId = beam.renderingGroupId;
             
             // === HYPERREALISTIC POOL LIGHT ===
             // DISABLED: Pool lights (PointLights) caused shader uniform buffer overflow
@@ -390,10 +431,8 @@ class VRClubEffects extends VRClubFixtures {
                 poolCoreMat: poolCoreMat,
                 lightPoolGlow: lightPoolGlow,
                 poolGlowMat: poolGlowMat,
-                goboTexture: goboTexture, // Store for animation updates
-                goboProjection: goboProjection,
-                goboMat: goboMat,
-                goboLocalRotation: i * (Math.PI / 3), // Offset each spotlight's gobo rotation
+                prism: prism,
+                prismMat: prismMat,
                 fixture: fixtureData ? fixtureData.fixture : null,
                 head: head,
                 yoke: yoke,

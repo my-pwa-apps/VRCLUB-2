@@ -1277,6 +1277,41 @@ class LEDPatternMethods {
     }
 
 
+    patternAestheticShapes(color, time) {
+        const panels = this.ledPanels;
+        if (!panels?.length) return;
+        const cols = this.ledCols || 21, rows = this.ledRows || 10;
+        const beat = this.spotRigBeat ? this.spotRigBeat(time)
+            : (this.vjDirector?.beatNumber || 0) + ((this.barPhase || 0) * 4 % 1);
+        const stride = (this.vjBPM || this.bpm || 120) > 150 ? 2 : 1;
+        const step = Math.floor(beat / stride);
+        const program = ((Math.floor(beat / 16) % 8) + 8) % 8;
+        let state = this._aestheticLed;
+        if (!state || state.level.length !== panels.length) {
+            state = this._aestheticLed = { level: new Float32Array(panels.length), time, program, step };
+        }
+        const dt = Math.min(0.1, Math.max(0, time - state.time));
+        state.time = time; state.program = program; state.step = step;
+        const ease = 1 - Math.exp(-dt / (this.photosensitiveSafeMode ? 0.45 : 0.22));
+        const cx = (cols - 1) / 2, cy = (rows - 1) / 2;
+        for (let i = 0; i < panels.length; i++) {
+            const panel = panels[i], x = panel.col - cx, y = panel.row - cy;
+            const radius = 2 + step % 4 * 1.5;
+            let shape;
+            if (program === 0) shape = Math.max(0, 1 - Math.abs(Math.hypot(x * 0.8, y) - radius));
+            else if (program === 1) shape = Math.max(0, 1 - Math.abs(Math.max(Math.abs(x * 0.7), Math.abs(y)) - radius * 0.65));
+            else if (program === 2) shape = (panel.col + step) % 5 < 2 ? 0.8 : 0;
+            else if (program === 3) shape = Math.max(0, 1 - Math.abs(Math.abs(x) * 0.5 + Math.abs(y) - radius));
+            else if (program === 4) shape = (Math.floor(panel.col / 3) + Math.floor(panel.row / 2) + step) % 3 === 0 ? 0.8 : 0;
+            else if (program === 5) shape = Math.max(0, 1 - Math.abs(y - Math.sin(x * 0.45 + step * 0.5) * 2.5));
+            else if (program === 6) shape = Math.max(0, 1 - Math.abs(Math.abs(y) - (step % 4 + 0.5)));
+            else shape = Math.max(0, 1 - Math.abs(Math.abs(x * 0.6) - Math.abs(y) - step % 3));
+            const target = 0.1 + shape * (this.photosensitiveSafeMode ? 0.3 : 0.55);
+            state.level[i] += (target - state.level[i]) * ease;
+            this.updateLEDPanel(panel, color, state.level[i]);
+        }
+    }
+
     // ──────────────────────────────────────────────────────────────────────
     // WAREHOUSE SHAPES
     //
@@ -1299,6 +1334,10 @@ class LEDPatternMethods {
     //    changes dip through black over ~0.25 s instead of cutting.
     // ──────────────────────────────────────────────────────────────────────
     patternWarehouse(color, time, audioData) {
+        if (this.showDirector?.program === 'aesthetic' && this.showDirector.isDriving()) {
+            this.patternAestheticShapes(color, time);
+            return;
+        }
         const panels = this.ledPanels;
         if (!panels || panels.length === 0) return;
         const cols = this.ledCols || 21;

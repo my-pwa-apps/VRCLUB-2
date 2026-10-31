@@ -84,6 +84,7 @@ class VJDirector {
         // === MACROS ===
         this.masterIntensity = 1.0;
         this.targetMasterIntensity = 1.0;
+        this.showMasterIntensity = 1.0;
         this.blackoutUntil = 0;         // ms timestamp; while > now → masterIntensity hard-zero
         this.manualSceneUntil = 0;      // While > now, auto-scene picker is suppressed
 
@@ -184,7 +185,7 @@ class VJDirector {
         //    tracking, BPM and the palette engine below all keep running; only
         //    the LOOK decision is handed over.)
         const showDriving = !!(this.club.showDirector && this.club.showDirector.isDriving());
-        if (now > this.manualSceneUntil && !showDriving && !this.remoteDriven) {
+        if (now > this.manualSceneUntil && !showDriving && !this.remoteDriven && !this.club.vjManualMode) {
             this._updateAutoScene(audioData);
         }
 
@@ -994,6 +995,7 @@ class VJDirector {
     triggerDrop() {
         const now = performance.now();
         this._enterScene('drop', now);
+        if (this.club.photosensitiveSafeMode) this.club.strobesActive = false;
         // Suppress auto-scene picker for ~6 s so the drop sticks
         this.manualSceneUntil = now + 6000;
     }
@@ -1039,6 +1041,7 @@ class VJDirector {
     /** 0..1 master fader. */
     setMasterIntensity(v) {
         this.targetMasterIntensity = Math.max(0, Math.min(1, v));
+        this.showMasterIntensity = this.targetMasterIntensity;
     }
 
     /** Manual BPM override (e.g. from a numeric input). */

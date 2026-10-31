@@ -1,4 +1,5 @@
 import { test, expect } from '@playwright/test';
+import path from 'node:path';
 import { useQuestHarness } from './support.mjs';
 
 useQuestHarness();
@@ -353,6 +354,9 @@ test('guided mixer setup tests privately in the club and publishes the same inpu
             window.__inputOnsets = club.vjDirector.realOnsetCount;
         });
         await expect(page.locator('#audioSourceLive')).toBeVisible();
+        await page.locator('#liveInputPerformDJ').click();
+        await page.locator('#liveInputPerformDJ').click();
+        expect(await page.evaluate(() => window.vrClub.performingAsDJ)).toBeFalsy();
         await page.locator('#liveInputTest').click();
         await expect(page.locator('#liveInputStatus')).toContainText('Only you');
         await expect(page.locator('#audioTransportSection')).toBeHidden();
@@ -363,11 +367,29 @@ test('guided mixer setup tests privately in the club and publishes the same inpu
         expect(await page.evaluate(() => ({ monitor: window.vrClub.liveInput.remote.monitor.gain.value,
             publishing: !!window.vrClub.liveInput.publisher, following: window.vrClub.multiplayer.connected })))
             .toEqual({ monitor: 0, publishing: false, following: false });
+        expect(await page.evaluate(() => window.vrClub.performingAsDJ)).toBe(true);
+        await page.locator('#liveInputPerformDJ').click();
+        expect(await page.evaluate(() => window.vrClub.performingAsDJ)).toBe(false);
+        await page.locator('#liveInputPerformDJ').click();
+        expect(await page.evaluate(() => window.vrClub.performingAsDJ)).toBe(true);
         await page.locator('#liveInputMonitor').click();
         await expect(page.locator('#liveInputMonitor')).toHaveAttribute('aria-pressed', 'true');
         await page.locator('#liveInputMonitor').click();
+        await page.evaluate(() => window.vrClub.moveCameraToPreset('danceFloor'));
         await page.locator('#liveInputGo').click();
         await expect(page.locator('#liveInputStatus')).toContainText('Live - guests', { timeout: 45000 });
+        const view = await page.evaluate(() => {
+            const club = window.vrClub;
+            const direction = club.camera.getDirection(BABYLON.Axis.Z);
+            return { x: club.camera.position.x, y: club.camera.position.y, z: club.camera.position.z,
+                forwardZ: direction.z, level: club._walkLevel, performing: club.performingAsDJ };
+        });
+        expect(view.x).toBeCloseTo(0);
+        expect(view.y).toBeCloseTo(2.2);
+        expect(view.z).toBeCloseTo(-19.4);
+        expect(view.forwardZ).toBeGreaterThan(0.9);
+        expect(view.level).toBe(0.5);
+        expect(view.performing).toBe(true);
         await expect(page.locator('#liveInputInvite')).toBeEnabled();
         expect(roomRequests).toHaveLength(1);
         expect(bridge.replies.some(reply => reply.slot === 'musicPub' && reply.action === 'publish')).toBe(true);
@@ -378,6 +400,7 @@ test('guided mixer setup tests privately in the club and publishes the same inpu
         expect(await page.evaluate(() => window.__capturedStream.getTracks().every(track => track.readyState === 'live'))).toBe(true);
         await page.locator('#liveInputStop').click();
         expect(await page.evaluate(() => window.__capturedStream.getTracks().every(track => track.readyState === 'ended'))).toBe(true);
+        expect(await page.evaluate(() => window.vrClub.performingAsDJ)).toBe(false);
         expect(bridge.failures).toEqual([]);
     } finally {
         await page.evaluate(() => {
@@ -385,8 +408,105 @@ test('guided mixer setup tests privately in the club and publishes the same inpu
             window.vrClub?.liveInput?.stop();
             window.vrClub?.multiplayer?.disconnect();
         });
+
         await bridge.dispose();
         await page.evaluate(() => { window.__inputSource?.stop(); return window.__inputContext?.close(); });
         await unusedListener.close();
     }
+});
+
+test('a custom avatar is saved locally, survives reload and can be removed', async ({ page }) => {
+    test.setTimeout(900_000);
+    const enter = async () => {
+        await page.locator('#enterClubBtn').click();
+        await page.waitForFunction(() => window.vrClub?.ready, null, { timeout: 180000 });
+    };
+    await page.goto('/?liveInput=1');
+    await enter();
+    const avatar = process.env.VRCLUB_TEST_PERSONAL_AVATAR ||
+        path.join(process.cwd(), 'js', 'models', 'avatars', 'club-dancer-female.glb');
+    await page.locator('#customAvatarGlbInput').setInputFiles(avatar);
+    await expect.poll(() => page.evaluate(() => window.vrClub.getCustomAvatarName()), { timeout: 60000 })
+        .toBe(path.basename(avatar));
+    await expect.poll(() => page.evaluate(() => window.vrClub._customAvatarPersisted), { timeout: 60000 }).toBe(true);
+    await expect(page.locator('#customAvatarStatus')).toContainText('Only you see this model');
+    await expect(page.locator('#customAvatarStatus')).toContainText('Clothing must be included');
+    await expect.poll(() => page.evaluate(() => {
+        const club = window.vrClub;
+        const sources = club._customAvatarContainer.materials.filter(mat => mat.albedoTexture);
+        return sources.length === 0 || (sources.every(mat => mat.albedoTexture.isReady()) &&
+            club._localRig.meshes.some(mesh => sources.includes(mesh.material)));
+    }), { timeout: 60000 }).toBe(true);
+    const mirrorHead = await page.evaluate(() => {
+        const club = window.vrClub, rig = club._localRig, tex = club.restroomMirrorTexture;
+        if (rig.headMeshes.length) return null;
+        const head = rig.entry.skeletons.flatMap(s => s.bones).find(b => b.getTransformNode() === rig.bone.Head);
+        const scale = () => {
+            const m = head.getAbsoluteTransform().m;
+            return Math.hypot(m[0], m[1], m[2]);
+        };
+        rig.setHeadVisible(false);
+        club._syncRestroomMirrorRenderList();
+        const own = scale();
+        tex.onBeforeRenderObservable.notifyObservers(tex);
+        const reflection = scale();
+        tex.onAfterRenderObservable.notifyObservers(tex);
+        return { own, reflection, after: scale() };
+    });
+    if (mirrorHead) {
+        expect(mirrorHead.reflection).toBeGreaterThan(mirrorHead.own * 1000);
+        expect(mirrorHead.after).toBeLessThan(mirrorHead.reflection / 1000);
+    }
+    await page.evaluate(() => window.vrClub.setLocalCharacter('m9'));
+    expect(await page.evaluate(() => window.vrClub.isCustomAvatarSelected())).toBe(false);
+    await expect(page.locator('#customAvatarStatus')).toContainText('Saved');
+    await page.evaluate(() => document.getElementById('toggleCustomAvatarBtn').click());
+    expect(await page.evaluate(() => window.vrClub.isCustomAvatarSelected())).toBe(true);
+    expect(await page.evaluate(() => window.vrClub._vrQuickMenuPageDefinitions('me')
+        .some(button => button.action === 'customAvatar'))).toBe(true);
+    await page.evaluate(() => document.getElementById('toggleCustomAvatarBtn').click());
+    expect(await page.evaluate(() => window.vrClub.isCustomAvatarSelected())).toBe(false);
+    await page.reload();
+    await enter();
+    await expect.poll(() => page.evaluate(() => window.vrClub.getCustomAvatarName()), { timeout: 60000 })
+        .toBe(path.basename(avatar));
+    expect(await page.evaluate(() => window.vrClub.isCustomAvatarSelected())).toBe(false);
+    await page.evaluate(() => document.getElementById('toggleCustomAvatarBtn').click());
+    expect(await page.evaluate(() => window.vrClub.isCustomAvatarSelected())).toBe(true);
+    const failed = await page.evaluate(async () => {
+        const club = window.vrClub, cache = club._customAvatarCache(), run = cache._run;
+        cache._run = (mode, work) => mode === 'readwrite'
+            ? Promise.reject(new Error('simulated storage failure')) : run.call(cache, mode, work);
+        try {
+            const data = await (await fetch('./js/models/avatars/club-dancer-male.glb')).arrayBuffer();
+            return await club.loadCustomAvatarGlb(data, 'unsaved.glb');
+        } finally { cache._run = run; }
+    });
+    expect(failed.persisted).toBe(false);
+    await page.reload();
+    await enter();
+    await expect.poll(() => page.evaluate(() => window.vrClub.getCustomAvatarName()), { timeout: 60000 })
+        .toBe(path.basename(avatar));
+    await page.evaluate(() => window.vrClub.chooseDJ('personal'));
+    expect(await page.evaluate(() => {
+        const club = window.vrClub;
+        const sources = club._customAvatarContainer.materials.filter(mat => mat.albedoTexture);
+        return sources.length === 0 || club._djRig.meshes.some(mesh => sources.includes(mesh.material));
+    })).toBe(true);
+    expect(await page.evaluate(() => ({
+        dj: window.vrClub._djId,
+        mode: window.vrClub._djRig?.rigMode,
+        count: window.vrClub.npcAvatars.filter(npc => npc.name === 'djPerformer').length,
+        options: window.vrClub._vrQuickMenuPageDefinitions('dj').map(button => button.dj)
+    }))).toEqual({ dj: 'personal', mode: 'full', count: 1, options: ['male', 'female', 'personal', undefined, undefined] });
+    await expect(page.evaluate(() => window.vrClub.clearCustomAvatarGlb())).rejects.toThrow(/another resident DJ/);
+    await page.reload();
+    await enter();
+    await expect.poll(() => page.evaluate(() => window.vrClub._djId), { timeout: 60000 }).toBe('personal');
+    await page.evaluate(() => window.vrClub.chooseDJ('male'));
+    await page.evaluate(() => window.vrClub.clearCustomAvatarGlb());
+    await page.reload();
+    await enter();
+    await page.waitForTimeout(1000);
+    expect(await page.evaluate(() => window.vrClub.getCustomAvatarName())).toBeNull();
 });

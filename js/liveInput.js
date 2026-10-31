@@ -91,7 +91,7 @@ class LiveInput {
             if (settings.echoCancellation || settings.noiseSuppression || settings.autoGainControl) {
                 this.format += ' Your browser still has voice processing on; this can change how music sounds.';
             }
-            this._startMeters();
+            this._startMeters(settings.channelCount);
             if (this.performAsDJ) this.club.setPerformingAsDJ?.(true, { moveCamera: true });
             this.status = 'Only you - the crowd and lights follow your input. Guests cannot hear this test.';
         } catch (error) {
@@ -102,7 +102,7 @@ class LiveInput {
         }
     }
 
-    _startMeters() {
+    _startMeters(channelCount) {
         const context = this.club.audioContext;
         this.splitter = context.createChannelSplitter(2);
         this.remote.source.connect(this.splitter);
@@ -119,7 +119,9 @@ class LiveInput {
                 clipping ||= peak >= 0.995;
             });
             this.signal = clipping ? 'Too loud - lower the mixer output.'
-                : Math.max(...this.levels) > 0.001 ? 'Audio detected. Both bars should move for a stereo set.'
+                : Math.max(...this.levels) > 0.001 ? channelCount === 1
+                    ? 'Audio detected from your mono input.'
+                    : 'Audio detected. Both bars should move for a stereo set.'
                     : 'No sound yet. Play music and check the mixer output and chosen input.';
             this._changed();
         }, 150);
@@ -207,6 +209,7 @@ class LiveInput {
             await publisher.publish(this.stream);
             if (revision !== this.revision || this.publisher !== publisher) return;
             this.live = true;
+            if (this.performAsDJ) this.club._showPerformingDJView?.();
             this.status = 'Live - guests joining your audience link hear this input automatically.';
             this._changed();
         } catch (error) {

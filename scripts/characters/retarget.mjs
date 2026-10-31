@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import { createRequire } from 'node:module';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { armFrameRotation, armPronation } from '../arm-frame.mjs';
 
 const root = dirname(fileURLToPath(import.meta.url));
 const repo = resolve(root, '..', '..');
@@ -171,6 +172,14 @@ export function retarget(source, target, clip, options = {}) {
                 p: rotate(inverse(parent.q), p.subtract(parent.p)).divide(parent.s) });
             world = pose(target, null, 0, changes);
         };
+        const setArm = (upper, lower, hand, solved) => {
+            const restUpper = tb(lower).p.subtract(tb(upper).p), restLower = tb(hand).p.subtract(tb(lower).p);
+            const restHinge = B.Vector3.Cross(restUpper, restLower);
+            const upperAxis = solved.joint.subtract(at(upper).p), lowerAxis = solved.end.subtract(solved.joint);
+            const hinge = B.Vector3.Cross(upperAxis, lowerAxis);
+            setRotation(upper, Q(armFrameRotation(restUpper.asArray(), restHinge.asArray(), upperAxis.asArray(), hinge.asArray())).multiply(tb(upper).q));
+            setRotation(lower, Q(armFrameRotation(restLower.asArray(), restHinge.asArray(), lowerAxis.asArray(), hinge.asArray())).multiply(tb(lower).q));
+        };
         for (const [from, to] of jointMap.filter(([, to]) => /pelvis|spine|neck|head|clavicle/.test(to))) {
             setRotation(to, delta(sn(from).q, sb(from).q).multiply(tb(to).q));
         }
@@ -246,9 +255,17 @@ export function retarget(source, target, clip, options = {}) {
             const l1 = length(tb(upper).p, tb(lower).p), l2 = length(tb(lower).p, tb(hand).p);
             const solved = twoBone(at(upper).p, wristTarget, l1, l2,
                 sn(`LowerArm.${suffix}`).p.subtract(sn(`UpperArm.${suffix}`).p));
-            setRotation(upper, swing(tb(lower).p.subtract(tb(upper).p), solved.joint.subtract(at(upper).p)).multiply(tb(upper).q));
-            setRotation(lower, swing(tb(hand).p.subtract(tb(lower).p), solved.end.subtract(at(lower).p)).multiply(tb(lower).q));
+            setArm(upper, lower, hand, solved);
             setRotation(hand, align.multiply(tb(hand).q));
+            if (clip.name.startsWith('Groove_')) {
+                const lowerDelta = delta(at(lower).q, tb(lower).q);
+                const relative = inverse(lowerDelta).multiply(delta(at(hand).q, tb(hand).q));
+                const roll = armPronation(relative.asArray(), tb(hand).p.subtract(tb(lower).p).asArray());
+                const wristQ = at(hand).q.clone();
+                const axis = at(hand).p.subtract(at(lower).p).normalize();
+                setRotation(lower, B.Quaternion.RotationAxis(axis, roll).multiply(at(lower).q));
+                setRotation(hand, wristQ);
+            }
             handRotations.set(side, at(hand).q.clone());
             metrics.maxHandError = Math.max(metrics.maxHandError, length(at(hand).p, wristTarget));
             metrics.maxLimbLengthError = Math.max(metrics.maxLimbLengthError,
@@ -326,8 +343,7 @@ export function retarget(source, target, clip, options = {}) {
                 const l1 = length(tb(upper).p, tb(lower).p), l2 = length(tb(lower).p, tb(hand).p);
                 const solved = twoBone(at(upper).p, wristTarget, l1, l2,
                     sn(`LowerArm.${suffix}`).p.subtract(sn(`UpperArm.${suffix}`).p));
-                setRotation(upper, swing(tb(lower).p.subtract(tb(upper).p), solved.joint.subtract(at(upper).p)).multiply(tb(upper).q));
-                setRotation(lower, swing(tb(hand).p.subtract(tb(lower).p), solved.end.subtract(at(lower).p)).multiply(tb(lower).q));
+                setArm(upper, lower, hand, solved);
                 setRotation(hand, handRotations.get(side));
                 applyFingers();
                 metrics.maxHandError = Math.max(metrics.maxHandError, length(at(hand).p, wristTarget));

@@ -445,7 +445,7 @@ class VRClubAnimationFixtures extends VRClubAnimationCore {
         spot._rigMotion = this[spot._rigKeys[2]] || 0;
     }
 
-    /** Moving-head spotlights: pan/tilt, beams, floor pools, gobos and fixtures. */
+    /** Moving-head spotlights: pan/tilt, beams, floor pools and fixtures. */
     updateSpotlights(ctx) {
         const { time, dtScale, audio: audioData } = ctx;
         const master = this.masterIntensity == null ? 1 : Math.min(1, Math.max(0, this.masterIntensity));
@@ -491,6 +491,9 @@ class VRClubAnimationFixtures extends VRClubAnimationCore {
         // The beams dip toward the floor on each kick and swing back out between them: the heads move WITH the beat,
         // not only on a smooth sweep. Motion, not light, so it carries no flash.
         const kickTilt = 1 - Math.min(0.2, (this.kickPulse || 0) * 0.22);
+        const motionSpeed = Math.min(1.4, Math.max(0, this.spotlightSpeed ?? 1));
+        const motionAudio = Math.min(1.35, Math.max(0.75, audioSpeedMultiplier));
+        this._spotMotionPhase = (this._spotMotionPhase || 0) + dtScale / 60 * 0.8 * motionSpeed * motionAudio;
         
         if (this.spotlights && this.lightsActive) {
             
@@ -499,18 +502,26 @@ class VRClubAnimationFixtures extends VRClubAnimationCore {
                 const speedMultiplier = this.spotlightSpeed || 1.0;
                 
                 const dirOut = this._solveSpotDirection(i, globalPhase, audioSpeedMultiplier, speedMultiplier,
-                    spot._dirOut || (spot._dirOut = { x: 0, z: 0 }));
-                const dirX = dirOut.x * kickTilt;
-                const dirZ = dirOut.z * kickTilt;
+                    spot._dirOut || (spot._dirOut = { x: 0, z: 0 }), this._spotMotionPhase);
+                const motion = spot._rigMotion || 0;
+                const pattern = motion ? (motion >= 5 ? motion : motion === 1 ? 4 : motion - 1) : this.spotlightPattern;
+                const aim = this._limitSpotAim(spot, dirOut.x * kickTilt, dirOut.z * kickTilt, dtScale, pattern === 0 || pattern === 4);
+                const dirX = aim.x;
+                const dirZ = aim.z;
                 
                 // Set direction (pointing from truss DOWN to dance floor)
                 // Direction should always have strong downward component (negative Y)
                 // PERFORMANCE: Reuse Vector3 from pool instead of creating new one
                 this.vecPool.direction.set(dirX, -1.5, dirZ).normalize();
-                spot.light.direction.copyFrom(this.vecPool.direction);
-                
-                // Local reference for moving head animation (avoid repeated property access)
                 const direction = this.vecPool.direction;
+                const limited = pattern === 0 || pattern === 4;
+                this._animateMovingHead(spot, direction, dtScale, limited);
+                if (spot.yoke && spot.head) {
+                    const horizontal = -Math.sin(spot.head.rotation.x);
+                    direction.set(Math.sin(spot.yoke.rotation.y) * horizontal, -Math.cos(spot.head.rotation.x),
+                        Math.cos(spot.yoke.rotation.y) * horizontal);
+                }
+                spot.light.direction.copyFrom(direction);
                 
                 // Dynamic beam angle (simulates zoom adjustment) - subtle variation
                 const baseAngle = Math.PI / 6; // 30 degrees base
@@ -522,21 +533,19 @@ class VRClubAnimationFixtures extends VRClubAnimationCore {
                 // We rotate the Yoke (Pan) and Head (Tilt) separately for mechanical realism
                 // Using smooth interpolation to simulate realistic servo motor movement
                 
-                this._animateMovingHead(spot, direction, dtScale);
-                
                 // PROFESSIONAL VOLUMETRIC BEAM - Hyperrealistic light cone
                 // The beam must VISUALLY CONNECT to the floor light pool for realism
                 if (spot.beam) {
                     const g = this._updateSpotBeamGeometry(spot, i, direction, time, dtScale, speedMultiplier);
                     const st = this._updateSpotBeamAppearance(spot, i, time, globalPhase, audioSpeedMultiplier, g);
                     this._updateSpotLightPool(spot, i, direction, time, g, st);
-                    this._updateSpotGoboProjection(spot, g, st);
                 }
                 
                 // CRITICAL: Hide beams when lights are off (no beams without light source!)
                 if (!this.lightsActive) {
                     spot.beamVisible = false; // CRITICAL: Update beamVisible for fixture sync
                     if (spot.beam) spot.beam.visibility = 0;
+                    if (spot.prism) spot.prism.visibility = 0;
                     if (spot.beamGlow) spot.beamGlow.visibility = 0;
                     if (spot.lightPoolGlow) spot.lightPoolGlow.visibility = 0;
                     if (spot.poolLight) spot.poolLight.setEnabled(false);
@@ -600,6 +609,7 @@ class VRClubAnimationFixtures extends VRClubAnimationCore {
             this.spotlights.forEach(spot => {
                 spot.light.intensity = 0;
                 if (spot.beam) spot.beam.visibility = 0;
+                if (spot.prism) spot.prism.visibility = 0;
                 if (spot.beamGlow) spot.beamGlow.visibility = 0;
                 if (spot.lightPoolCore) spot.lightPoolCore.visibility = 0;
                 if (spot.lightPool) spot.lightPool.visibility = 0;
@@ -695,7 +705,23 @@ class VRClubAnimationFixtures extends VRClubAnimationCore {
     }
 
     /** Pan/tilt target for one spotlight from the active VJ pattern (writes out.x / out.z). */
-    _solveSpotDirection(i, globalPhase, audioSpeedMultiplier, speedMultiplier, out) {
+    _limitSpotAim(spot, x, z, dtScale, limited) {
+        const aim = spot._limitedAim || (spot._limitedAim = { x, z });
+        if (limited) {
+            const dx = x - aim.x, dz = z - aim.z;
+            const distance = Math.hypot(dx, dz);
+            const step = 0.30 * dtScale / 60;
+            const amount = distance > step ? step / distance : 1;
+            aim.x += dx * amount;
+            aim.z += dz * amount;
+        } else {
+            aim.x = x;
+            aim.z = z;
+        }
+        return aim;
+    }
+
+    _solveSpotDirection(i, globalPhase, audioSpeedMultiplier, speedMultiplier, out, motionPhase) {
         out.x = undefined;
         out.z = undefined;
         const motion = this.spotlights?.[i]?._rigMotion || 0;
@@ -720,7 +746,7 @@ class VRClubAnimationFixtures extends VRClubAnimationCore {
                 out.z = -0.10 + 0.18 * swing;
             }
         } else if (pattern === 4) {
-            const phase = globalPhase * speedMultiplier * audioSpeedMultiplier * 0.32;
+            const phase = (motionPhase ?? globalPhase * speedMultiplier * audioSpeedMultiplier) * 0.32;
             out.x = Math.sin(phase * (0.65 + i * 0.073) + i * 1.71) * 0.58;
             out.z = Math.cos(phase * (0.47 + i * 0.061) + i * 2.13) * 0.40;
         } else if (pattern === 1) {
@@ -729,6 +755,15 @@ class VRClubAnimationFixtures extends VRClubAnimationCore {
             out.z = 0;
             
         } else if (pattern === 2) {
+            if (this.showDirector?.program === 'aesthetic' && this.showDirector.isDriving()) {
+                const beat = this.showDirector.aestheticSpotBeat(this.spotlights?.[i]?._rigBeat || 0);
+                const speed = Math.min(1.4, Math.max(0.25, this.spotlightSpeed ?? 0.5));
+                // A complete inward-and-back arc begins and ends vertically, never outside the truss.
+                const swing = Math.sin(beat * speed * Math.PI / 16) ** 2;
+                out.x = (i < 3 ? 1 : -1) * 0.9 * swing;
+                out.z = 0;
+                return out;
+            }
             if (this.spotSequence === 5) {
                 const phase = (this.spotlights?.[i]?._rigBeat || 0) * Math.PI / 24;
                 out.x = (i < 3 ? 1 : -1) * (0.32 + 0.22 * Math.sin(phase));
@@ -790,7 +825,7 @@ class VRClubAnimationFixtures extends VRClubAnimationCore {
             // RANDOM is really an automatic sequence of flowing paths. Real yokes take
             // several seconds to cross the room; the previous phase rate made them dart
             // between targets and read as weightless, especially at high show energy.
-            const sweepPhase = globalPhase * audioSpeedMultiplier * speedMultiplier * 0.45;
+            const sweepPhase = (motionPhase ?? globalPhase * audioSpeedMultiplier * speedMultiplier) * 0.45;
             
             // Slow pattern selector that cycles through patterns smoothly
             // Each pattern lasts ~10 seconds with smooth transitions
@@ -882,11 +917,12 @@ class VRClubAnimationFixtures extends VRClubAnimationCore {
     }
 
     /** Servo-smoothed yoke (pan) and head (tilt) motion toward the beam direction. */
-    _animateMovingHead(spot, direction, dtScale) {
+    _animateMovingHead(spot, direction, dtScale, limited = false) {
         if (spot.yoke && spot.head) {
             // 1. PAN (Yoke Rotation around Y)
             // Calculate target angle on XZ plane. atan2(x, z) gives angle from Z axis.
-            const targetPanAngle = Math.atan2(direction.x, direction.z);
+            const targetPanAngle = limited && Math.hypot(direction.x, direction.z) < 0.03
+                ? spot.yoke.rotation.y : Math.atan2(direction.x, direction.z);
             
             // SMOOTH INTERPOLATION: Simulate realistic servo motor speed (~60°/s)
             // This prevents jarring instant movements and adds mechanical realism.
@@ -901,7 +937,9 @@ class VRClubAnimationFixtures extends VRClubAnimationCore {
             if (panDiff > Math.PI) panDiff -= Math.PI * 2;
             if (panDiff < -Math.PI) panDiff += Math.PI * 2;
             
-            spot.yoke.rotation.y += panDiff * panLerpSpeed;
+            const panStep = panDiff * panLerpSpeed;
+            const panLimit = 0.75 * dtScale / 60;
+            spot.yoke.rotation.y += limited ? Math.max(-panLimit, Math.min(panLimit, panStep)) : panStep;
 
             // 2. TILT (Head Rotation around X)
             // Calculate target angle from vertical (down).
@@ -913,7 +951,9 @@ class VRClubAnimationFixtures extends VRClubAnimationCore {
             // SMOOTH INTERPOLATION for tilt (same realistic servo simulation),
             // likewise compounded over dtScale so tilt speed is device-independent.
             const tiltLerpSpeed = 1 - Math.pow(1 - 0.12, dtScale);
-            spot.head.rotation.x += (targetTiltAngle - spot.head.rotation.x) * tiltLerpSpeed;
+            const tiltStep = (targetTiltAngle - spot.head.rotation.x) * tiltLerpSpeed;
+            const tiltLimit = 0.5 * dtScale / 60;
+            spot.head.rotation.x += limited ? Math.max(-tiltLimit, Math.min(tiltLimit, tiltStep)) : tiltStep;
             
             // Lens and bezel are children of the head and move automatically.
         } else if (spot.fixture) {
@@ -973,6 +1013,7 @@ class VRClubAnimationFixtures extends VRClubAnimationCore {
         if (!spot._emissionPoint) {
             spot._emissionPoint = new BABYLON.Vector3();
             spot._lensOffset = new BABYLON.Vector3(0, -0.28, 0);
+            spot._lensFaceOffset = new BABYLON.Vector3(0, -0.011, 0);
             spot._transformedLensOffset = new BABYLON.Vector3();
             spot._surfaceIntersection = new BABYLON.Vector3();
             spot._scaledDirection = new BABYLON.Vector3();
@@ -980,8 +1021,11 @@ class VRClubAnimationFixtures extends VRClubAnimationCore {
         }
         const emissionPoint = spot._emissionPoint;
         if (spot.lens) {
-            // Use lens mesh's actual world position (correct for any tilt angle)
-            emissionPoint.copyFrom(spot.lens.getAbsolutePosition());
+            // Rotations changed earlier in this frame, before Babylon's scene render updates its world matrices.
+            if (spot.yoke) spot.yoke.computeWorldMatrix(true);
+            if (spot.head) spot.head.computeWorldMatrix(true);
+            const lensWorld = spot.lens.computeWorldMatrix(true);
+            BABYLON.Vector3.TransformCoordinatesToRef(spot._lensFaceOffset, lensWorld, emissionPoint);
         } else if (spot.head) {
             // Fallback: Get head's world position and transform lens offset by rotation
             const headPos = spot.head.getAbsolutePosition();
@@ -1181,15 +1225,13 @@ class VRClubAnimationFixtures extends VRClubAnimationCore {
         // QC O5: pool the rotation axis + per-spot rotation quaternion so we
         // don't allocate ~480 objects/sec across the 6 spotlights.
         this.vecPool.up.set(0, 1, 0);
-        // Clamped: see the matching note on the laser beam path. An unclamped
-        // acos of a float32 dot product returns NaN, which permanently
-        // poisons this spot's POOLED quaternion and deletes the beam.
+        // atan2 retains precision near vertical without an out-of-range acos.
         const spotDot = Math.min(1, Math.max(-1, BABYLON.Vector3.Dot(direction, this.vecPool.up)));
-        const angle = Math.acos(spotDot);
         BABYLON.Vector3.CrossToRef(this.vecPool.up, direction, this.vecPool.spotAxis);
         const axisLen = this.vecPool.spotAxis.length();
+        const angle = Math.atan2(axisLen, spotDot);
 
-        if (axisLen > 0.001) {
+        if (axisLen > 1e-8) {
             this.vecPool.spotAxis.scaleInPlace(1 / axisLen); // normalize in place
             if (!spot._rotQuat) spot._rotQuat = new BABYLON.Quaternion();
             BABYLON.Quaternion.RotationAxisToRef(this.vecPool.spotAxis, angle, spot._rotQuat);
@@ -1233,9 +1275,9 @@ class VRClubAnimationFixtures extends VRClubAnimationCore {
                 spot._clipPlanes.floor.d = (surfaceIntersection.y || 0) + EPS;
             }
             spot.beamMat.clipPlane4 = spot._clipPlanes[hitSurface] || spot._clipPlanes.floor;
+            if (spot.prismMat) spot.prismMat.clipPlane4 = spot.beamMat.clipPlane4;
         }
         
-        // ANIMATE GOBO ROTATION (Hyperrealism)
         if (spot.lightPool) {
             spot.lightPool.rotation.z += 0.01 * speedMultiplier * dtScale;
         }
@@ -1289,11 +1331,22 @@ class VRClubAnimationFixtures extends VRClubAnimationCore {
 
         // Physics-based surface brightness (Lambert x inverse-square). Starts at 1.0
         // here and is refined by _updateSpotLightPool() (st.physicsIntensity), which
-        // the gobo pass reads. Stays 1.0 on frames where the beam misses a surface.
+        // the pool pass refines. Stays 1.0 on frames where the beam misses a surface.
         const physicsIntensity = typeof this._fixturePhotometricGain === 'function'
             ? this._fixturePhotometricGain(beamLength, g.cosTheta) : 1;
 
-        spot.beam.visibility = beamVisible ? 1.0 : 0;
+        const prismActive = !!this.spotPrismActive && !!spot.prism;
+        // A faint version of the ordinary cone fills the gaps without obscuring the prism rays.
+        spot.beam.visibility = beamVisible ? (prismActive ? 0.25 : 1.0) : 0;
+        if (spot.prism) {
+            spot.prism.isVisible = prismActive;
+            spot.prism.visibility = beamVisible ? 1.0 : 0;
+            if (prismActive) {
+                spot.prism.position.copyFrom(spot.beam.position);
+                spot.prism.rotationQuaternion.copyFrom(spot.beam.rotationQuaternion);
+                spot.prism.scaling.copyFrom(spot.beam.scaling);
+            }
+        }
         
         // Update beamGlow - Match main beam world-space positioning
         if (spot.beamGlow) {
@@ -1349,6 +1402,10 @@ class VRClubAnimationFixtures extends VRClubAnimationCore {
             ? Math.min(0.99, hazeVisibility * 0.55 * narrowGain * Math.sqrt(physicsIntensity) *
                 (1 + (this.kickPulse || 0) * 0.25))
             : 0;
+        if (spot.prismMat) {
+            spotColor.scaleToRef(master * 2, spot.prismMat.emissiveColor);
+            spot.prismMat.alpha = Math.min(0.99, spot.beamMat.alpha * 2.5);
+        }
         
         const st = spot._beamState || (spot._beamState = {});
         st.beamVisible = beamVisible;

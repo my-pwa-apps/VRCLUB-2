@@ -1562,6 +1562,8 @@ class VRClubAudioCrowd extends VRClubUI {
             this.showErrorMessage('The relay needs an update before you can choose an exact character in a room.');
             return false;
         }
+        const hadCustomAvatar = this.isCustomAvatarSelected?.() === true;
+        if (hadCustomAvatar && !this.setCustomAvatarSelected(false)) return false;
         try {
             if (next) localStorage.setItem('vrclub.myCharacter', next);
             else localStorage.removeItem('vrclub.myCharacter');
@@ -1569,6 +1571,7 @@ class VRClubAudioCrowd extends VRClubUI {
         } catch (error) {
             log.warn('Your character could not be saved:', error);
             this.showErrorMessage('Your character could not be saved on this device.');
+            if (hadCustomAvatar) this.setCustomAvatarSelected(true);
             return false;
         }
         this._personalAppearanceLoaded = true;
@@ -1577,7 +1580,10 @@ class VRClubAudioCrowd extends VRClubUI {
             mp.client.preferredAvatar = next;
             mp.client.setPreferredAppearance?.(null);
         }
-        if (mp && mp.connected && mp.selectAvatar(next) === false) return false;
+        if (mp && mp.connected && mp.selectAvatar(next) === false) {
+            if (hadCustomAvatar) this.setCustomAvatarSelected(true);
+            return false;
+        }
         if (next) this.setLocalAvatarStyle(next[0] === 'm' ? 'male' : 'female');
         this._mirrorSignature = -1;
         if (typeof this._refreshVRQuickMenu === 'function') this._refreshVRQuickMenu();
@@ -1674,13 +1680,16 @@ class VRClubAudioCrowd extends VRClubUI {
     /** Local DJ preference, independent of music and the room host. */
     _initialDJId() {
         try {
-            if (localStorage.getItem('vrclub.questDJ') === 'female') return 'female';
+            const saved = localStorage.getItem('vrclub.questDJ');
+            if (saved === 'personal' && this.hasCustomAvatarGlb()) return 'personal';
+            if (saved === 'female') return 'female';
         } catch (_) { /* storage blocked */ }
         return 'male';
     }
 
     async chooseDJ(id) {
-        if (!VRClubAudioCrowd.djLook(id)) throw new Error('Choose Male DJ or Female DJ.');
+        if (id === 'personal' && !this.hasCustomAvatarGlb()) throw new Error('Upload your personal avatar before choosing it as the DJ.');
+        if (id !== 'personal' && !VRClubAudioCrowd.djLook(id)) throw new Error('Choose Male DJ or Female DJ.');
         if (!await this.setDJ(id) && this.isPeopleVisible('dj')) throw new Error('The DJ could not load. Try again later.');
         this._djWanted = id;
         try { localStorage.setItem('vrclub.questDJ', id); }
@@ -1696,6 +1705,7 @@ class VRClubAudioCrowd extends VRClubUI {
      * the guest's saved `vrclub.questDJ` default is left untouched, and uncertain sets leave the current DJ alone).
      */
     syncDJFromSet(info) {
+        if (this._djWanted === 'personal') return null;
         const infer = typeof window !== 'undefined' && window.LEDPatterns && typeof window.LEDPatterns.inferSetDjGender === 'function'
             ? window.LEDPatterns.inferSetDjGender
             : null;
@@ -1775,76 +1785,191 @@ class VRClubAudioCrowd extends VRClubUI {
     }
 
     setDJ(id) {
-        if (!VRClubAudioCrowd.djLook(id)) return Promise.resolve(false);
+        if (id === 'personal' ? !this.hasCustomAvatarGlb() : !VRClubAudioCrowd.djLook(id)) return Promise.resolve(false);
         // A selection during startup waits for init, which places the initial DJ itself.
         this._djQueue = (this._djQueue || Promise.resolve(this.initPromise).catch(() => {}))
             .then(() => (this._disposed ? false : this._applyDJ(id)))
-            .catch(() => false);
+            .catch(error => {
+                log.warn('Could not change the resident DJ:', error);
+                this.showErrorMessage('The resident DJ could not be changed. Try again.');
+                return false;
+            });
         return this._djQueue;
     }
 
     async _applyDJ(id) {
         const style = this.getCharacterStyle();
-        const look = this._characterDJLook(id, style);
+        const look = id === 'personal' ? { height: 1.7 / 0.93, personal: true } : this._characterDJLook(id, style);
         if (!look) return false;
+        const previousWanted = this._djWanted;
         this._djWanted = id;
         // Sent home: remember the local choice and fetch nothing until the DJ is asked back.
         if (!this.isPeopleVisible('dj')) return false;
         if (this._djId === id && this._djCharacterStyle === style) return true;
         this._djContainers = this._djContainers || {};
         const key = `${style}:${id}`;
-        if (!this._djContainers[key]) this._djContainers[key] = await this._loadCharacterContainer(look, style);
-        const container = this._djContainers[key];
+        if (id !== 'personal' && !this._djContainers[key]) this._djContainers[key] = await this._loadCharacterContainer(look, style);
+        const container = id === 'personal' ? this._customAvatarContainer : this._djContainers[key];
         if (style !== this.getCharacterStyle()) return false;
         if (!container || this._disposed) return false;
 
+        const previousNPC = this.npcAvatars.find(npc => npc.name === 'djPerformer');
+        const personalEntry = id === 'personal' ? this._spawnPerformingDJ(container, look) : null;
+        if (id === 'personal' && !personalEntry) {
+            this._djWanted = previousWanted;
+            this.showErrorMessage('Your avatar cannot be posed as a resident DJ. Choose a compatible humanoid model.');
+            return false;
+        }
         // The previous DJ leaves: skeleton, clip, collider and all.
-        const previous = this.npcAvatars.findIndex(npc => npc.name === 'djPerformer');
+        const previous = previousNPC ? this.npcAvatars.indexOf(previousNPC) : -1;
         if (previous >= 0) {
             const npc = this.npcAvatars[previous];
             if (npc.collider) { try { npc.collider.dispose(); } catch (_) { /* ignore */ } }
             if (this._djEntry) { try { this._djEntry.dispose(); } catch (_) { /* ignore */ } }
             this.npcAvatars.splice(previous, 1);
         }
-        this._djRig = null;
-        this._djPerformer = null;
-        this._djEntry = this._spawnPerformingDJ(container, look)
+        if (id !== 'personal') {
+            this._djRig = null;
+            this._djPerformer = null;
+        }
+        this._djEntry = personalEntry || this._spawnPerformingDJ(container, look)
             || this._spawnAvatar(container, 'djPerformer', new BABYLON.Vector3(0, 0.5, -19.4), 0, look.height, 0.55, { clip: 'Idle_Loop' });
         this._djId = id;
         this._djCharacterStyle = style;
+        if (this.performingAsDJ) this._applyDJVisibility();
         if (this._refreshContactShadows) this._refreshContactShadows();
         if (this._refreshShadowCasters) this._refreshShadowCasters();
         return true;
     }
 
     _avatarContainerFor(style) {
-        if (this._customAvatarContainer) return this._customAvatarContainer;
+        if (this.isCustomAvatarSelected()) return this._customAvatarContainer;
         const list = this._crowdSourceContainers;
         if (!list) return null;
         return (style === 'male' ? list[1] : list[0]) || list[0] || list[1] || null;
     }
 
     static CUSTOM_AVATAR_CACHE_KEY = 'local://custom-avatar.glb';
-    static CUSTOM_AVATAR_STORAGE_KEY = 'vrclub.customAvatarName';
     static CUSTOM_AVATAR_MAX_BYTES = 30 * 1024 * 1024;
 
     hasCustomAvatarGlb() {
         return !!(this._customAvatarContainer && !this._disposed);
     }
 
-    getCustomAvatarName() {
-        if (this._customAvatarName) return this._customAvatarName;
-        try {
-            return (typeof localStorage !== 'undefined' && localStorage.getItem(VRClubAudioCrowd.CUSTOM_AVATAR_STORAGE_KEY)) || null;
-        } catch (_) {
-            return null;
+    isCustomAvatarSelected() {
+        return this.hasCustomAvatarGlb() && this._customAvatarSelected !== false;
+    }
+
+    setCustomAvatarSelected(selected) {
+        if (!this.hasCustomAvatarGlb()) {
+            this.showErrorMessage('Upload a personal avatar first.');
+            return false;
         }
+        selected = !!selected;
+        if (selected === this.isCustomAvatarSelected()) return true;
+        const list = this._crowdSourceContainers;
+        const style = this.getLocalAvatarStyle();
+        const source = selected ? this._customAvatarContainer
+            : list && ((style === 'male' ? list[1] : list[0]) || list[0] || list[1]);
+        if (!source) {
+            this.showErrorMessage('Your club body is not ready yet. Try again.');
+            return false;
+        }
+        let rig;
+        try {
+            rig = new AvatarRig(this, source, {
+                eyeHeight: this._bodyEyeHeight(), hideHead: !this.performingAsDJ, allowFallback: selected
+            });
+            if (selected && rig.ok) window.CustomAvatarAppearance.apply(rig, this.getCustomAvatarAppearance());
+        } catch (error) {
+            rig?.dispose();
+            log.warn('Could not create the selected character:', error);
+            this.showErrorMessage('That character could not be loaded.');
+            return false;
+        }
+        if (!rig.ok) {
+            rig.dispose();
+            this.showErrorMessage('That character could not be loaded.');
+            return false;
+        }
+        try {
+            localStorage.setItem('vrclub.customAvatarSelected', selected ? '1' : '0');
+        } catch (error) {
+            rig.dispose();
+            log.warn('Your personal avatar selection could not be saved:', error);
+            this.showErrorMessage('Your character selection could not be saved on this device.');
+            return false;
+        }
+        if (this._localRig) this._localRig.dispose();
+        this._localRig = rig;
+        this._customAvatarSelected = selected;
+        this._uploadedAvatarSharing().sync();
+        this._syncMirrorDouble();
+        if (typeof this._syncRestroomMirrorRenderList === 'function') this._syncRestroomMirrorRenderList();
+        if (typeof window.dispatchEvent === 'function' && typeof CustomEvent === 'function') {
+            window.dispatchEvent(new CustomEvent('customavatarchange'));
+        }
+        if (typeof this._refreshVRQuickMenu === 'function') this._refreshVRQuickMenu();
+        return true;
+    }
+
+    getCustomAvatarName() {
+        return this._customAvatarName || null;
+    }
+
+    getCustomAvatarAppearance() {
+        if (!this._customAppearance) {
+            let saved;
+            try {
+                saved = localStorage.getItem('vrclub.customAvatarAppearance');
+                this._customAppearance = saved ? window.CustomAvatarAppearance.sanitize(JSON.parse(saved))
+                    : window.CustomAvatarAppearance.defaults();
+            } catch (error) {
+                log.warn('Could not read uploaded-avatar clothing:', error);
+                this.showErrorMessage('Saved uploaded-avatar clothing could not be read. Original clothing is retained.');
+                this._customAppearance = window.CustomAvatarAppearance.defaults();
+            }
+        }
+        return this._customAppearance;
+    }
+
+    setCustomAvatarAppearance(value) {
+        const next = window.CustomAvatarAppearance.sanitize(value);
+        const previous = this.getCustomAvatarAppearance();
+        const rigs = [this.isCustomAvatarSelected() ? this._localRig : null,
+            this._djId === 'personal' ? this._djRig : null].filter(Boolean);
+        try {
+            for (const rig of rigs) window.CustomAvatarAppearance.apply(rig, next);
+            localStorage.setItem('vrclub.customAvatarAppearance', JSON.stringify(next));
+        } catch (error) {
+            for (const rig of rigs) window.CustomAvatarAppearance.apply(rig, previous);
+            throw error;
+        }
+        this._customAppearance = next;
+        this._uploadedAvatarSharing().sync();
+        window.dispatchEvent(new CustomEvent('customavatarchange'));
+        this._refreshVRQuickMenu?.();
+        return next;
+    }
+
+    _uploadedAvatarSharing() {
+        if (!this._avatarSharing) this._avatarSharing = new window.UploadedAvatarSharing(this);
+        return this._avatarSharing;
+    }
+
+    setCustomAvatarSharing(enabled) {
+        this._uploadedAvatarSharing().setEnabled(enabled);
+    }
+
+    customAvatarSharingStatus() {
+        return this._uploadedAvatarSharing().status();
     }
 
     _customAvatarCache() {
-        if (this.modelLoader && this.modelLoader.assetCache) return this.modelLoader.assetCache;
         if (!this._fallbackAvatarCache && typeof IndexedDBAssetCache !== 'undefined') {
-            this._fallbackAvatarCache = new IndexedDBAssetCache('VRClubModelCache', 'models');
+            this._fallbackAvatarCache = new IndexedDBAssetCache({
+                dbName: 'VRClubCustomAvatar', storeName: 'avatars', maxAgeMs: 0
+            });
         }
         return this._fallbackAvatarCache || null;
     }
@@ -1858,6 +1983,10 @@ class VRClubAudioCrowd extends VRClubUI {
         if (this._disposed || !this.scene || typeof BABYLON === 'undefined' || !BABYLON.SceneLoader) {
             throw new Error('Scene is not ready yet.');
         }
+        if (this._customAvatarContainer && (this._djWanted === 'personal' || this._djId === 'personal')) {
+            throw new Error('Choose another resident DJ before replacing your personal avatar. If the DJ is away, bring them back first.');
+        }
+        const revision = this._customAvatarRevision = (this._customAvatarRevision || 0) + 1;
         let buffer = null;
         const label = String(name || (input && input.name) || 'Custom avatar.glb').trim() || 'Custom avatar.glb';
         if (input instanceof ArrayBuffer) {
@@ -1885,9 +2014,9 @@ class VRClubAudioCrowd extends VRClubUI {
         } finally {
             try { URL.revokeObjectURL(blobUrl); } catch (_) { /* ignore */ }
         }
-        if (!container || this._disposed) {
+        if (!container || this._disposed || revision !== this._customAvatarRevision) {
             if (container) { try { container.dispose(); } catch (_) { /* ignore */ } }
-            throw new Error('Could not load this .glb file.');
+            throw new Error('Avatar loading was cancelled or replaced.');
         }
 
         if (this._prepareAvatarMaterials && container.materials) {
@@ -1907,17 +2036,36 @@ class VRClubAudioCrowd extends VRClubUI {
         }
         if (this._restoreLightBudgets) this._restoreLightBudgets();
 
-        const rig = new AvatarRig(this, container, {
-            eyeHeight: this._bodyEyeHeight(),
-            hideHead: !this.performingAsDJ,
-            allowFallback: true
-        });
+        let rig;
+        try {
+            rig = new AvatarRig(this, container, {
+                eyeHeight: this._bodyEyeHeight(),
+                hideHead: !this.performingAsDJ,
+                allowFallback: true
+            });
+        } catch (error) {
+            container.dispose();
+            throw error;
+        }
         if (!rig.ok) {
+            rig.dispose();
             try { container.dispose(); } catch (_) { /* ignore */ }
             throw new Error('Could not bind this .glb model as an avatar.');
         }
+        try { window.CustomAvatarAppearance.apply(rig, this.getCustomAvatarAppearance()); }
+        catch (error) { rig.dispose(); container.dispose(); throw error; }
 
-        if (this._localRig) {
+        let selected = true;
+        let selectionPersisted = true;
+        if (options.persist === false) {
+            try { selected = localStorage.getItem('vrclub.customAvatarSelected') !== '0'; }
+            catch (error) {
+                selectionPersisted = false;
+                log.warn('Could not read your personal avatar selection:', error);
+                this.showErrorMessage('Your personal avatar selection could not be read on this device.');
+            }
+        }
+        if (selected && this._localRig) {
             try { this._localRig.dispose(); } catch (_) { /* ignore */ }
             this._localRig = null;
         }
@@ -1925,20 +2073,41 @@ class VRClubAudioCrowd extends VRClubUI {
             try { this._customAvatarContainer.dispose(); } catch (_) { /* ignore */ }
         }
         this._customAvatarContainer = container;
+        this._customAvatarBytes = buffer;
         this._customAvatarName = label;
-        this._localRig = rig;
+        this._customAvatarSelected = selected;
+        if (selected) this._localRig = rig;
+        else rig.dispose();
 
+        let persisted = options.persist === false;
         if (options.persist !== false) {
-            try {
-                if (typeof localStorage !== 'undefined') {
-                    localStorage.setItem(VRClubAudioCrowd.CUSTOM_AVATAR_STORAGE_KEY, label);
-                }
-            } catch (_) { /* ignore */ }
+            try { localStorage.setItem('vrclub.customAvatarSelected', '1'); }
+            catch (error) {
+                selectionPersisted = false;
+                log.warn('Could not save your personal avatar selection:', error);
+                this.showErrorMessage('Your personal avatar selection could not be saved on this device.');
+            }
             const cache = this._customAvatarCache();
-            if (cache && typeof cache.put === 'function') {
-                try { await cache.put(VRClubAudioCrowd.CUSTOM_AVATAR_CACHE_KEY, buffer, { name: label }); } catch (_) { /* ignore */ }
+            if (cache) {
+                await cache.init();
+                if (this._disposed) cache.close();
+                if (this._disposed || revision !== this._customAvatarRevision) throw new Error('Avatar loading was cancelled or replaced.');
+                if (cache.db && !cache.disabled) {
+                    try {
+                        await cache._run('readwrite', store => store.put({
+                            url: VRClubAudioCrowd.CUSTOM_AVATAR_CACHE_KEY, payload: buffer,
+                            meta: { name: label }, timestamp: Date.now()
+                        }));
+                        persisted = true;
+                    } catch (error) {
+                        log.warn('Could not save custom avatar:', error);
+                    }
+                }
             }
         }
+        if (this._disposed || revision !== this._customAvatarRevision) throw new Error('Avatar loading was cancelled or replaced.');
+        this._customAvatarPersisted = persisted;
+        this._uploadedAvatarSharing().sync();
 
         if (typeof this._syncMirrorDouble === 'function') this._syncMirrorDouble();
         if (typeof this._syncRestroomMirrorRenderList === 'function') this._syncRestroomMirrorRenderList();
@@ -1947,24 +2116,33 @@ class VRClubAudioCrowd extends VRClubUI {
                 detail: { active: true, name: label, rigMode: rig.rigMode }
             }));
         }
-        return { ok: true, name: label, rigMode: rig.rigMode };
+        return { ok: true, name: label, rigMode: rig.rigMode, persisted, selectionPersisted };
     }
 
     async clearCustomAvatarGlb() {
-        this._customAvatarName = null;
-        try {
-            if (typeof localStorage !== 'undefined') {
-                localStorage.removeItem(VRClubAudioCrowd.CUSTOM_AVATAR_STORAGE_KEY);
-            }
-        } catch (_) { /* ignore */ }
+        if (this._djWanted === 'personal' || this._djId === 'personal') {
+            throw new Error('Choose another resident DJ before removing your personal avatar. If the DJ is away, bring them back first.');
+        }
+        const revision = this._customAvatarRevision = (this._customAvatarRevision || 0) + 1;
         const cache = this._customAvatarCache();
         if (cache) {
-            try {
-                if (typeof cache.delete === 'function') await cache.delete(VRClubAudioCrowd.CUSTOM_AVATAR_CACHE_KEY);
-                else if (typeof cache.put === 'function') await cache.put(VRClubAudioCrowd.CUSTOM_AVATAR_CACHE_KEY, null);
-            } catch (_) { /* ignore */ }
+            await cache.init();
+            if (this._disposed) cache.close();
+            if (this._disposed || revision !== this._customAvatarRevision) throw new Error('Avatar removal was cancelled or replaced.');
+            if (cache.db && !cache.disabled) {
+                await cache._run('readwrite', store => store.delete(VRClubAudioCrowd.CUSTOM_AVATAR_CACHE_KEY));
+            } else {
+                throw new Error('Browser storage is unavailable. The saved avatar could not be removed.');
+            }
         }
-        if (this._localRig) {
+        if (this._disposed || revision !== this._customAvatarRevision) throw new Error('Avatar removal was cancelled or replaced.');
+        const wasSelected = this.isCustomAvatarSelected();
+        this._customAvatarName = null;
+        this._customAvatarPersisted = false;
+        this._customAvatarSelected = false;
+        this._customAvatarBytes = null;
+        this._uploadedAvatarSharing().sync();
+        if (wasSelected && this._localRig) {
             try { this._localRig.dispose(); } catch (_) { /* ignore */ }
             this._localRig = null;
         }
@@ -1972,7 +2150,7 @@ class VRClubAudioCrowd extends VRClubUI {
             try { this._customAvatarContainer.dispose(); } catch (_) { /* ignore */ }
             this._customAvatarContainer = null;
         }
-        this._spawnLocalPlayerBody();
+        if (wasSelected) this._spawnLocalPlayerBody();
         if (typeof this._syncMirrorDouble === 'function') this._syncMirrorDouble();
         if (typeof this._syncRestroomMirrorRenderList === 'function') this._syncRestroomMirrorRenderList();
         if (typeof window !== 'undefined' && typeof window.dispatchEvent === 'function' && typeof CustomEvent === 'function') {
@@ -1984,17 +2162,27 @@ class VRClubAudioCrowd extends VRClubUI {
     }
 
     async _restoreCustomAvatarGlb() {
-        const savedName = this.getCustomAvatarName();
-        if (!savedName) return false;
         const cache = this._customAvatarCache();
-        if (!cache || typeof cache.get !== 'function') return false;
+        if (!cache) return false;
+        const revision = this._customAvatarRevision || 0;
         try {
-            const payload = await cache.get(VRClubAudioCrowd.CUSTOM_AVATAR_CACHE_KEY);
-            if (!payload) return false;
-            await this.loadCustomAvatarGlb(payload, savedName, { persist: false });
+            await cache.init();
+            if (this._disposed) { cache.close(); return false; }
+            if (!cache.db || cache.disabled) return false;
+            const record = await cache._run('readonly', store => store.get(VRClubAudioCrowd.CUSTOM_AVATAR_CACHE_KEY));
+            if (!record || this.hasCustomAvatarGlb() || this._disposed ||
+                revision !== (this._customAvatarRevision || 0)) return false;
+            await this.loadCustomAvatarGlb(record.payload, record.meta?.name, { persist: false });
+            if (localStorage.getItem('vrclub.questDJ') === 'personal' && !await this.setDJ('personal') && this.isPeopleVisible('dj')) {
+                this.showErrorMessage('Your personal DJ could not be restored. Choose another DJ or try again.');
+            }
+            if (typeof window.dispatchEvent === 'function' && typeof CustomEvent === 'function') {
+                window.dispatchEvent(new CustomEvent('customavatarchange'));
+            }
             return true;
         } catch (err) {
             log.warn('⚠️ Could not restore saved custom .glb avatar:', err);
+            this.showErrorMessage('Could not restore your saved avatar. Choose the file again.');
             return false;
         }
     }
@@ -2025,8 +2213,9 @@ class VRClubAudioCrowd extends VRClubUI {
         if (typeof AvatarRig === 'undefined' || typeof DJPerformer === 'undefined') return null;
         // Eyes ~93% of the standing height (the height includes hair and headphones).
         const eyeHeight = look.height * 0.93;
-        const rig = new AvatarRig(this, container, { eyeHeight });
+        const rig = new AvatarRig(this, container, { eyeHeight, allowCustomSkeleton: !!look.personal });
         if (!rig.ok) { rig.dispose(); return null; }
+        if (look.personal) window.CustomAvatarAppearance.apply(rig, this.getCustomAvatarAppearance());
         rig.root.name = 'djPerformer';
         const desk = this._djDesk();
         // Close behind the table: the arms (~0.49 m shoulder to wrist) reach the controller's near half only when the
@@ -2155,11 +2344,7 @@ class VRClubAudioCrowd extends VRClubUI {
             }
             if (typeof this._syncMirrorDouble === 'function') this._syncMirrorDouble();
             this._applyDJVisibility();
-            if (options.moveCamera !== false && !this.isInVRMode && this.camera && typeof this.camera.setTarget === 'function') {
-                this.camera.position.set(0, 1.7, -14.8);
-                this.camera.setTarget(new BABYLON.Vector3(0, 1.85, -19.0));
-                this._walkLevel = 0;
-            }
+            if (options.moveCamera !== false) this._showPerformingDJView();
         } else {
             this._selfDJPose = null;
             if (this._localRig && typeof this._localRig.setHeadVisible === 'function') {
@@ -2171,6 +2356,10 @@ class VRClubAudioCrowd extends VRClubUI {
             this._applyDJVisibility();
         }
         return next;
+    }
+
+    _showPerformingDJView() {
+        if (this.performingAsDJ && !this.isInVRMode && this.camera) this.moveCameraToPreset('djBooth');
     }
 
     _playerCamera() {
@@ -2190,8 +2379,9 @@ class VRClubAudioCrowd extends VRClubUI {
         const rig = new AvatarRig(this, container, {
             eyeHeight: this._bodyEyeHeight(),
             hideHead: true,
-            allowFallback: !!this._customAvatarContainer
+            allowFallback: this.isCustomAvatarSelected()
         });
+        if (rig.ok && this.isCustomAvatarSelected()) window.CustomAvatarAppearance.apply(rig, this.getCustomAvatarAppearance());
         this._localRig = rig.ok ? rig : null;
     }
 

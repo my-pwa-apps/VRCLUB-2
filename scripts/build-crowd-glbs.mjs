@@ -3,7 +3,7 @@
 //
 //   node scripts/build-crowd-glbs.mjs --women "<dir of the Modular Women glTFs>" --men "<dir of the Modular Men glTFs>"
 //   npm run optimize:avatars -- club-crowd-f1.glb ...        (the script runs it for you with --optimize)
-//   node scripts/build-crowd-glbs.mjs --refresh-static --optimize   # rebake shipped procedural guest-only clips
+//   node scripts/build-crowd-glbs.mjs --refresh-static --optimize   # rebake dance and procedural clips
 //   node scripts/build-crowd-glbs.mjs --refresh-static --seated-only  # refresh only the two generic seated clips
 //
 // What it does, per person in CAST below:
@@ -28,6 +28,7 @@ import { fileURLToPath } from 'node:url';
 import { NodeIO } from '@gltf-transform/core';
 import { ALL_EXTENSIONS } from '@gltf-transform/extensions';
 import { prune } from '@gltf-transform/functions';
+import { armFrameRotation, armPronation } from './arm-frame.mjs';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
 const argument = name => {
@@ -41,11 +42,13 @@ const refreshStatic = process.argv.includes('--refresh-static');
 const seatedOnly = process.argv.includes('--seated-only');
 const variantsOnly = process.argv.includes('--variants');
 const refreshWardrobe = process.argv.includes('--refresh-wardrobe');
-if ((!dirs.women || !dirs.men) && !refreshStatic && !variantsOnly && !refreshWardrobe) {
+const restoreHair = process.argv.includes('--restore-hair');
+if ((!dirs.women || !dirs.men) && !refreshStatic && !variantsOnly && !refreshWardrobe && !restoreHair) {
     console.error('usage: node scripts/build-crowd-glbs.mjs --women "<dir>" --men "<dir>" [--out <dir>] [--only id,id] [--optimize]');
     console.error('   or: node scripts/build-crowd-glbs.mjs --refresh-static [--out <dir>]');
     console.error('   or: node scripts/build-crowd-glbs.mjs --variants [--only id,id] [--optimize]   (no packs needed)');
     console.error('   or: node scripts/build-crowd-glbs.mjs --refresh-wardrobe [--only id,id] [--optimize]   (bald cast and variants, no packs needed)');
+    console.error('   or: node scripts/build-crowd-glbs.mjs --restore-hair [--optimize]   (restore m4 from the shipped m3 hair)');
     process.exit(1);
 }
 
@@ -77,7 +80,7 @@ const CAST = [
     { id: 'm1', base: 'men', file: 'Casual_2', skin: 'deep', mirror: true, colors: { Hair: BLACK_HAIR, Eyebrows: BLACK_HAIR, LightBrown: '#1b1b20', LightBlue: '#2a3342' } },
     { id: 'm2', base: 'men', file: 'Casual_2', skin: 'fair', colors: { Hair: SILVER, Eyebrows: '#9c9ca3', LightBrown: '#6f7f93' } },
     { id: 'm3', base: 'men', file: 'Casual_Hoodie', skin: 'tan', mirror: true, colors: { Hair: '#2a1b10', Purple: '#1f5b3b' } },
-    { id: 'm4', base: 'men', file: 'Casual_Hoodie', skin: 'brown', guest: true, bald: true, colors: { Hair: BLACK_HAIR, Eyebrows: BLACK_HAIR, Purple: '#a43c2a' } },
+    { id: 'm4', base: 'men', file: 'Casual_Hoodie', skin: 'brown', guest: true, colors: { Hair: BLACK_HAIR, Eyebrows: BLACK_HAIR, Purple: '#a43c2a' } },
     { id: 'm5', base: 'men', file: 'Punk', skin: 'light', colors: { Red: '#2f6dff', Red_Dark: '#1e40a2' } },
     { id: 'm6', base: 'men', file: 'Suit', skin: 'tan', guest: true, drink: true, smoke: true, colors: { Hair: '#b9bac2', Eyebrows: '#9c9ca3', Suit: '#2a303b' } },
     { id: 'm7', base: 'men', file: 'Suit', skin: 'deep', mirror: true, bald: true, colors: { Hair: BLACK_HAIR, Eyebrows: BLACK_HAIR, Suit: '#4b202c' } },
@@ -358,7 +361,15 @@ function retarget(src, tgt, clip, mirror = false) {
             } else if (swing) {
                 const direction = srcDirection(swing[0], swing[1]);
                 const rest = vnorm(vsub(tgtBind(swing[3]).p, bind.p));
-                lq = qmul(qinv(parentNow.q), qmul(qswing(rest, direction), bind.q));
+                let rotation = qswing(rest, direction);
+                if (clip.name === 'Dance_Loop' && /^(UpperArm|LowerArm)\./.test(name)) {
+                    const side = name.slice(-1), sourceSide = side === 'L' ? 'l' : 'r';
+                    const restUpper = vsub(tgtBind(`LowerArm.${side}`).p, tgtBind(`UpperArm.${side}`).p);
+                    const restLower = vsub(tgtBind(`Wrist.${side}`).p, tgtBind(`LowerArm.${side}`).p);
+                    const hinge = vcross(srcDirection(`upperarm_${sourceSide}`, `lowerarm_${sourceSide}`), srcDirection(`lowerarm_${sourceSide}`, `hand_${sourceSide}`));
+                    rotation = armFrameRotation(rest, vcross(restUpper, restLower), direction, hinge);
+                }
+                lq = qmul(qinv(parentNow.q), qmul(rotation, bind.q));
                 push(name, 'rotation', lq);
             }
             now.set(joint, { q: qmul(parentNow.q, lq), p: vadd(parentNow.p, qrot(parentNow.q, lt)) });
@@ -508,17 +519,21 @@ const GROOVES = [
         name: 'Groove_Pump', beats: 8,
         pose: b => {
             const p = dip(b), pa = dip(b - 0.1), ph = dip(b - 0.14), s = Math.sin(Math.PI * b / 4);
-            const la = b < 3.25 ? 0 : b < 3.75 ? smooth((b - 3.25) / 0.5) : b < 7.25 ? 1 : b < 7.75 ? 1 - smooth((b - 7.25) / 0.5) : 0;
+            const raised = beat => {
+                const phase = (beat - 2.25 + 8) % 8;
+                return phase < 1.5 ? smooth(phase / 1.5) : phase < 5 ? 1
+                    : phase < 6.5 ? 1 - smooth((phase - 5) / 1.5) : 0;
+            };
+            const la = raised(b), ra = raised((b + 4) % 8);
             const arm = (sign, amt) => ({
                 at: lerp3([0.05 * sign, -0.28 + 0.04 * pa, 0.2], [0.17 * sign, 0.2 + 0.12 * pa, 0.14], amt),
                 pole: lerp3([0.5 * sign, -0.4, -0.7], [sign, -0.2, -0.4], amt),
-                fingers: lerp3([0.05 * sign, -0.7, 0.6], [0, 1, 0.2], amt)
             });
             return {
                 hip: [0.02 * s, -(0.03 + 0.05 * p), 0.01 * p], hipRot: [0.04 + 0.04 * p, 0.1 * (1 - 2 * la) + 0.08 * s, 0.03 * s],
                 spine: [0.02 * dip(b - 0.06), -0.05 * s, 0.03 * (1 - 2 * la)], head: [-0.06 + 0.12 * ph, 0.1 + 0.05 * s, 0.03],
-                hands: { R: arm(1, 1 - la), L: arm(-1, la) },
-                shrug: { R: 0.18 * (1 - la), L: 0.18 * la }
+                hands: { R: arm(1, ra), L: arm(-1, la) },
+                shrug: { R: 0.18 * ra, L: 0.18 * la }
             };
         }
     },
@@ -989,6 +1004,7 @@ function synthesize(tgt, groove, mirror) {
     tgt.joints.forEach(visit);
     const length = (a, b) => Math.hypot(...vsub(bindOf(b).p, bindOf(a).p));
     const restDir = (a, b) => vnorm(vsub(bindOf(b).p, bindOf(a).p));
+    const restHinge = side => vcross(restDir(`UpperArm.${side}`, `LowerArm.${side}`), restDir(`LowerArm.${side}`, `Wrist.${side}`));
     const SPINE = { Abdomen: 0.3, Torso: 0.65, Chest: 1 };
     // What a pose needs to know about this body: how far each shoulder joint is from the midline.
     const rig = { shoulder: Math.abs(bindOf('UpperArm.L').p[0] - bindOf('UpperArm.R').p[0]) / 2 };
@@ -1030,15 +1046,22 @@ function synthesize(tgt, groove, mirror) {
                 const hand = pose.hands[side];
                 const target = vadd(position, qrot(chestQ, bodyToWorld(hand.at)));
                 const pole = qrot(chestQ, bodyToWorld(hand.pole));
-                ik[side] = { arm: twoBone(position, target, length(`UpperArm.${side}`, `LowerArm.${side}`), length(`LowerArm.${side}`, `Wrist.${side}`), pole), hand };
-                world = qmul(qswing(restDir(`UpperArm.${side}`, `LowerArm.${side}`), vnorm(vsub(ik[side].arm.joint, position))), bind.q);
+                const arm = twoBone(position, target, length(`UpperArm.${side}`, `LowerArm.${side}`), length(`LowerArm.${side}`, `Wrist.${side}`), pole);
+                const hinge = vcross(vsub(arm.joint, position), vsub(arm.end, arm.joint));
+                ik[side] = { arm, hand, hinge };
+                world = qmul(armFrameRotation(restDir(`UpperArm.${side}`, `LowerArm.${side}`), restHinge(side), vsub(arm.joint, position), hinge), bind.q);
             } else if (limb === 'LowerArm') {
-                const { arm } = ik[side];
-                world = qmul(qswing(restDir(`LowerArm.${side}`, `Wrist.${side}`), vnorm(vsub(arm.end, position))), bind.q);
+                const { arm, hinge } = ik[side];
+                world = qmul(armFrameRotation(restDir(`LowerArm.${side}`, `Wrist.${side}`), restHinge(side), vsub(arm.end, position), hinge), bind.q);
             } else if (limb === 'Wrist') {
                 const { arm, hand } = ik[side];
                 const fingers = hand.fingers ? vnorm(qrot(chestQ, bodyToWorld(hand.fingers))) : vnorm(vsub(arm.end, arm.joint));
-                let swing = qswing(restDir(`Wrist.${side}`, `Middle1.${side}`), fingers);
+                const restFingers = restDir(`Wrist.${side}`, `Middle1.${side}`);
+                let swing = qswing(restFingers, fingers);
+                if (groove.name.startsWith('Groove_') && !hand.thumb) {
+                    const lowerDelta = qmul(parentNow.q, qinv(bindOf(`LowerArm.${side}`).q));
+                    swing = qmul(qswing(qrot(lowerDelta, restFingers), fingers), lowerDelta);
+                }
                 if (hand.thumb) {
                     // Roll about the fingers until the index side faces `thumb`: this is what turns a palm toward the
                     // face (a smoker's hand) instead of leaving it wherever the shortest swing happened to put it.
@@ -1048,6 +1071,21 @@ function synthesize(tgt, groove, mirror) {
                     swing = qmul(qAxis(fingers, Math.atan2(vdot(vcross(indexSide, wanted), fingers), vdot(indexSide, wanted))), swing);
                 }
                 world = qmul(swing, bind.q);
+                if (groove.name.startsWith('Groove_')) {
+                    const lowerName = `LowerArm.${side}`;
+                    const lower = now.get(T(lowerName));
+                    const lowerDelta = qmul(lower.q, qinv(bindOf(lowerName).q));
+                    const relative = qmul(qinv(lowerDelta), qmul(world, qinv(bind.q)));
+                    const roll = armPronation(relative, restDir(lowerName, name));
+                    lower.q = qmul(qAxis(vnorm(vsub(arm.end, arm.joint)), roll), lower.q);
+                    const lowerParent = now.get(tgt.parentOf(T(lowerName)));
+                    const values = tracks.get(lowerName).rotation;
+                    let local = qmul(qinv(lowerParent.q), lower.q);
+                    const last = values.at(-2);
+                    if (last && vdot(last, local) + last[3] * local[3] < 0) local = local.map(v => -v);
+                    values[values.length - 1] = local;
+                    previous.set(lowerName, local);
+                }
             } else if (finger) {
                 const hand = finger && ik[finger[3]] && ik[finger[3]].hand;
                 if (hand && hand.grip) {
@@ -1206,8 +1244,7 @@ async function refreshStaticClips() {
         ['f7', [RAILING_POSE]],
         ['m6', [DRINK_POSE, SMOKE_POSE, MINGLER_RAILING_POSE]]
     ]);
-    // The grooves that can be re-authored on the shipped skeletons without the asset packs. The rest of the repertoire
-    // (Dance_Loop and the older grooves) is untouched; a dancer's mirror flag is honoured so neighbours are not in step.
+    // Re-author procedural grooves and Dance_Loop from local sources without the packs, preserving each mirror flag.
     const refreshedGrooves = GROOVES.filter(groove => REFRESHED_GROOVES.includes(groove.name));
     const people = seatedOnly ? [...CAST, ...VARIANTS] : CAST;
     const specs = people.filter(person => person.id !== 'bouncer').map(person => ({
@@ -1225,9 +1262,16 @@ async function refreshStaticClips() {
         const path = join(outDir, spec.name);
         const document = await io.read(path);
         const poseNames = new Set(spec.poses.map(item => item.pose.name));
+        if (!seatedOnly) poseNames.add('Dance_Loop');
         for (const animation of document.getRoot().listAnimations()) if (poseNames.has(animation.getName())) animation.dispose();
         const tgt = readSkeleton(document);
-        addAnimations(document, tgt, spec.poses.map(item => synthesize(tgt, item.pose, item.mirror)));
+        const results = spec.poses.map(item => synthesize(tgt, item.pose, item.mirror));
+        if (!seatedOnly) {
+            const person = CAST.find(person => person.id === spec.id);
+            const { sk, clips } = await source(person.base);
+            results.push(retarget(sk, tgt, clips.find(clip => clip.name === 'Dance_Loop'), !!person.mirror));
+        }
+        addAnimations(document, tgt, results);
         await document.transform(prune());
         await io.write(path, document);
         console.log(`${spec.name}: refreshed ${spec.poses.map(item => item.pose.name).join(', ')}`);
@@ -1261,37 +1305,70 @@ const VARIANT_SKIN = { pale: '#f3dccb', olive: '#c9a07a', golden: '#d2a26b', umb
  * whose colours fall into a few flat clusters (skin, hair, a top and trousers, shoes), told apart here by where on the
  * body they sit. The body, the skeleton and every clip are copied as they are, so a variant plays exactly like its base.
  */
+function repairBaldScalp(document, person) {
+    const skin = hexToLinear(SKIN[person.skin]);
+    for (const mesh of document.getRoot().listMeshes()) for (const primitive of mesh.listPrimitives()) {
+        const pos = primitive.getAttribute('POSITION'), color = primitive.getAttribute('COLOR_0'), indices = primitive.getIndices();
+        const nearSkin = i => color.getElement(i, []).slice(0, 3).every((v, j) => Math.abs(v - skin[j]) < 0.006);
+        const used = new Set(indices.getArray());
+        let peak = -1;
+        for (const i of used) if (nearSkin(i) && (peak < 0 || pos.getElement(i, [])[1] > pos.getElement(peak, [])[1])) peak = i;
+        if (peak < 0) throw new Error(`${person.id}: no referenced scalp skin`);
+        const point = pos.getElement(peak, []), neighbors = new Set();
+        for (let i = 0; i < indices.getCount(); i += 3) {
+            const tri = [indices.getScalar(i), indices.getScalar(i + 1), indices.getScalar(i + 2)];
+            if (tri.includes(peak)) for (const index of tri) if (index !== peak && nearSkin(index)) neighbors.add(index);
+        }
+        if (!neighbors.size) throw new Error(`${person.id}: scalp peak has no skin neighbors`);
+        const nextHeight = Math.max(...[...neighbors].map(i => pos.getElement(i, [])[1]));
+        if (point[1] > nextHeight + 0.012) {
+            point[1] = nextHeight + 0.005;
+            pos.setElement(peak, point);
+        }
+    }
+}
+
+function crownHairTriangles(primitive, hair) {
+    const p = primitive.getAttribute('POSITION'), c = primitive.getAttribute('COLOR_0'), indices = primitive.getIndices();
+    const parents = new Map(), heights = new Map(), candidates = [];
+    const near = (a, b) => a.every((x, i) => Math.abs(x - b[i]) < 0.006);
+    const key = index => p.getElement(index, []).map(x => x.toFixed(5)).join(',');
+    const find = k => {
+        if (!parents.has(k)) parents.set(k, k);
+        if (parents.get(k) !== k) parents.set(k, find(parents.get(k)));
+        return parents.get(k);
+    };
+    let top = -Infinity;
+    for (let i = 0; i < indices.getCount(); i++) top = Math.max(top, p.getElement(indices.getScalar(i), [])[1]);
+    for (let i = 0; i < indices.getCount(); i += 3) {
+        const tri = [indices.getScalar(i), indices.getScalar(i + 1), indices.getScalar(i + 2)];
+        if (!tri.every(index => near(c.getElement(index, []).slice(0, 3), hair))) continue;
+        const keys = tri.map(key), root = find(keys[0]);
+        for (const k of keys.slice(1)) parents.set(find(k), root);
+        candidates.push([i, keys[0], Math.max(...tri.map(index => p.getElement(index, [])[1]))]);
+    }
+    for (const [, k, y] of candidates) heights.set(find(k), Math.max(heights.get(find(k)) || -Infinity, y));
+    return new Set(candidates.filter(([, k]) => heights.get(find(k)) > top - 0.025).map(([i]) => i));
+}
+
 function makeBald(document, person) {
-    if (document.getRoot().getExtras().bald) return;
+    if (document.getRoot().getExtras().bald) {
+        repairBaldScalp(document, person);
+        return;
+    }
     const hair = hexToLinear(person.colors.Hair), skin = hexToLinear(SKIN[person.skin]);
     let removed = 0;
     for (const mesh of document.getRoot().listMeshes()) for (const primitive of mesh.listPrimitives()) {
         const p = primitive.getAttribute('POSITION'), c = primitive.getAttribute('COLOR_0'), indices = primitive.getIndices();
-        const parents = new Map(), heights = new Map(), candidates = [];
         const near = (a, b) => a.every((x, i) => Math.abs(x - b[i]) < 0.006);
         let top = -Infinity, scalp = -Infinity;
-        const key = index => p.getElement(index, []).map(x => x.toFixed(5)).join(',');
-        const find = k => {
-            if (!parents.has(k)) parents.set(k, k);
-            if (parents.get(k) !== k) parents.set(k, find(parents.get(k)));
-            return parents.get(k);
-        };
         for (let i = 0; i < p.getCount(); i++) {
             const y = p.getElement(i, [])[1];
             top = Math.max(top, y);
             if (near(c.getElement(i, []).slice(0, 3), skin)) scalp = Math.max(scalp, y);
         }
         if (scalp < top - 0.06) throw new Error(`${person.id}: the scalp must exist under the removable hair`);
-        for (let i = 0; i < indices.getCount(); i += 3) {
-            const tri = [indices.getScalar(i), indices.getScalar(i + 1), indices.getScalar(i + 2)];
-            if (!tri.every(index => near(c.getElement(index, []).slice(0, 3), hair))) continue;
-            const keys = tri.map(key);
-            const root = find(keys[0]);
-            for (const k of keys.slice(1)) parents.set(find(k), root);
-            candidates.push([i, keys[0], Math.max(...tri.map(index => p.getElement(index, [])[1]))]);
-        }
-        for (const [, k, y] of candidates) heights.set(find(k), Math.max(heights.get(find(k)) || -Infinity, y));
-        const cut = new Set(candidates.filter(([, k]) => heights.get(find(k)) > top - 0.025).map(([i]) => i));
+        const cut = crownHairTriangles(primitive, hair);
         const kept = [];
         for (let i = 0; i < indices.getCount(); i += 3) {
             if (cut.has(i)) { removed++; continue; }
@@ -1301,6 +1378,52 @@ function makeBald(document, person) {
     }
     if (removed < 100) throw new Error(`${person.id}: no connected scalp-hair shell was removed`);
     document.getRoot().setExtras({ ...document.getRoot().getExtras(), bald: true, removedHairTriangles: removed });
+}
+
+async function restoreM4Hair() {
+    const file = join(outDir, 'club-crowd-m4.glb');
+    const document = await io.read(file);
+    if (!document.getRoot().getExtras().bald) return 'club-crowd-m4.glb';
+    const donor = await io.read(join(outDir, 'club-crowd-m3.glb'));
+    const targetSkin = document.getRoot().listSkins()[0], donorSkin = donor.getRoot().listSkins()[0];
+    if (JSON.stringify(targetSkin.listJoints().map(j => j.getName())) !== JSON.stringify(donorSkin.listJoints().map(j => j.getName())) ||
+        JSON.stringify([...targetSkin.getInverseBindMatrices().getArray()]) !== JSON.stringify([...donorSkin.getInverseBindMatrices().getArray()])) {
+        throw new Error('m3 and m4 hair must use the same bind skeleton');
+    }
+    const target = document.getRoot().listMeshes()[0].listPrimitives()[0];
+    const source = donor.getRoot().listMeshes()[0].listPrimitives()[0];
+    const selected = crownHairTriangles(source, hexToLinear(CAST.find(person => person.id === 'm3').colors.Hair));
+    if (selected.size < 100) throw new Error('m3 has no complete crown-hair geometry');
+    const sourceIndices = source.getIndices(), indices = target.getIndices(), vertices = new Map(), addedIndices = [];
+    const start = target.getAttribute('POSITION').getCount();
+    for (const offset of selected) for (let j = 0; j < 3; j++) {
+        const index = sourceIndices.getScalar(offset + j);
+        if (!vertices.has(index)) vertices.set(index, start + vertices.size);
+        addedIndices.push(vertices.get(index));
+    }
+    for (const semantic of target.listSemantics()) {
+        const dest = target.getAttribute(semantic), src = source.getAttribute(semantic);
+        if (!src || dest.getElementSize() !== src.getElementSize() || dest.getNormalized() !== src.getNormalized() ||
+            dest.getArray().constructor !== src.getArray().constructor) throw new Error(`m3/m4 ${semantic} formats differ`);
+        const size = dest.getElementSize(), old = dest.getArray(), from = src.getArray();
+        const array = new old.constructor(old.length + vertices.size * size);
+        array.set(old);
+        for (const [sourceIndex, targetIndex] of vertices) {
+            const values = semantic === 'COLOR_0' ? hexToLinear(BLACK_HAIR).map(v => Math.round(v * 255)) :
+                from.subarray(sourceIndex * size, (sourceIndex + 1) * size);
+            array.set(values, targetIndex * size);
+        }
+        dest.setArray(array);
+    }
+    const merged = new Uint32Array(indices.getCount() + addedIndices.length);
+    merged.set(indices.getArray()); merged.set(addedIndices, indices.getCount());
+    indices.setArray(merged);
+    const extras = { ...document.getRoot().getExtras() };
+    delete extras.bald; delete extras.removedHairTriangles;
+    document.getRoot().setExtras(extras);
+    await io.write(file, document);
+    console.log(`club-crowd-m4.glb: restored ${selected.size} crown-hair triangles from m3`);
+    return 'club-crowd-m4.glb';
 }
 
 async function buildVariant(variant, preserveIdentity = false) {
@@ -1378,7 +1501,9 @@ async function buildVariant(variant, preserveIdentity = false) {
 }
 
 const built = [];
-if (refreshWardrobe) {
+if (restoreHair) {
+    built.push(await restoreM4Hair());
+} else if (refreshWardrobe) {
     const wanted = only ? only.split(',') : [...CAST.filter(person => person.bald).map(person => person.id), ...VARIANTS.map(variant => variant.id)];
     for (const id of wanted) {
         if (CAST.find(person => person.id === id)?.bald) {

@@ -4,6 +4,10 @@
   "main": "src/dev-index.js",
   "compatibility_date": "2026-10-10",
   "workers_dev": true,
+  "r2_buckets": [{
+    "binding": "AVATAR_ASSETS",
+    "bucket_name": "nocturne-dev-avatars"
+  }],
   "d1_databases": [{
     "binding": "DB",
     "database_name": "nocturne-dev-rooms",

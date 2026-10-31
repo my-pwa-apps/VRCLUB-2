@@ -70,7 +70,8 @@ function loadClassic(relativePath, globals = {}) {
     window.location = { href: 'https://vrclub.example/', protocol: 'https:' };
     vm.runInContext(readFileSync(join(ROOT, relativePath), 'utf8'), context, { filename: relativePath });
     if (relativePath === 'js/club/11-audio-crowd.js') {
-        for (const file of ['js/characterCatalog.js', 'js/characterStyles.js']) {
+        for (const file of ['js/characterCatalog.js', 'js/characterStyles.js',
+            'js/customAvatarAppearance.js', 'js/uploadedAvatarSharing.js']) {
             vm.runInContext(readFileSync(join(ROOT, file), 'utf8'), context, { filename: file });
         }
         Object.assign(window.VRClubAudioCrowd.prototype, window.CharacterStyles);
@@ -464,6 +465,7 @@ test('the audio menu exposes labelled levels and a clipboard paste action', asyn
         'pasteStreamBtn', 'playStreamBtn', 'playStreamBtnLabel', 'saveStreamBtn', 'audioLinkNote', 'audioFileInput', 'audioFileName',
         'audioStatus', 'audioMenuTitle', 'audioNowPlaying', 'audioVolume',
         'audioVolumeValue', 'crowdAmbience', 'crowdAmbienceValue', 'savedSets',
+        'musicRecovery', 'musicRecoveryMessage', 'retrySavedSets', 'resetSavedSets',
         'setName', 'playSavedSetBtn', 'removeSavedSetBtn', 'djStyle'
     ].map(id => [id, makeEl()]));
     elements.audioToggle.attributes['aria-expanded'] = 'false';
@@ -2844,6 +2846,170 @@ test('equipment accent priorities only reorder the imported meshes they can ligh
 // Show / VJ directors
 // ---------------------------------------------------------------------------
 
+test('aesthetic show holds single colours, long phrases and one-beat row sequences without altering NOCTURNE', async () => {
+    const { sanitizeShow } = await import('../worker/src/relay.js');
+    const { window } = loadClassic('js/showDirector.js');
+    const club = { vjManualMode: false, photosensitiveSafeMode: false, vjDirector: { paletteMode: 'analogous' } };
+    const show = new window.ShowDirector(club);
+    const original = JSON.stringify(show.movements);
+    show.setProgram('aesthetic');
+    assert.equal(show.program, 'aesthetic');
+    for (const movement of Object.values(show.movements)) {
+        for (const cue of movement.cues) {
+            const look = show.looks[cue.look];
+            assert.ok(cue.bars >= 8);
+            assert.equal(look.colorLock, true);
+            assert.equal(look.ledHarmony, 'match');
+            assert.ok(Number.isFinite(look.hue));
+            if (look.strobesActive) assert.equal(look.strobeSync, 'bar');
+        }
+    }
+    assert.equal(show.looks.aestheticRows.spotSequence, 2);
+    assert.equal(show.looks.aestheticFill.spotSequence, 4);
+    assert.equal(show.looks.aestheticRows.spotSequenceRate, 1);
+    assert.equal(show.looks.aestheticFill.spotSequenceRate, 1);
+    for (const movement of Object.values(show.movements)) {
+        for (const cue of movement.cues) {
+            const look = show.looks[cue.look];
+            if (look.lightsActive) assert.ok([1, 2].includes(look.spotlightPattern), `${cue.look} left downlight/mirror sweep`);
+        }
+    }
+    for (const name of ['aestheticSweepRows', 'aestheticSweepFill']) {
+        assert.equal(show.looks[name].spotlightPattern, 2);
+        assert.equal(show.looks[name].spotSequenceRate, 1);
+        assert.ok(Object.values(show.movements).some(movement => movement.cues.some(cue => cue.look === name)));
+    }
+    assert.notEqual(show.looks.aestheticSweepRows.spotlightSpeed, show.looks.aestheticSweepFill.spotlightSpeed);
+    assert.ok(show.looks.aestheticFill.spotPrismActive && show.looks.aestheticSweepRows.spotPrismActive);
+    assert.equal(show.looks.aestheticRows.ledPattern, 19);
+    assert.equal(show.looks.aestheticStill.ledPattern, 5);
+    show._applyLook(show.looks.aestheticSheet);
+    assert.equal(club.fogImmersion, 1);
+    show._applyLook(show.looks.aestheticRows);
+    assert.equal(club.fogImmersion, 0);
+    club.photosensitiveSafeMode = true;
+    show._applyLook(show.looks.aestheticPeak);
+    assert.equal(club.strobesActive, false);
+    show.setFollower(true);
+    assert.equal(show.applyRemote(sanitizeShow({ m: 'show', mv: 'pulse', cue: 1, cb: 0, bib: 0,
+        fx: { showProgram: 'aesthetic' } })), true);
+    assert.equal(show._cue.look, 'aestheticFill');
+    show.setProgram('nocturne');
+    assert.equal(JSON.stringify(show.movements), original);
+    assert.equal(club.fogImmersion, 0);
+});
+
+test('aesthetic mirror sweeps start down, reach inward and return down at varied musical speeds, including late followers', () => {
+    const { club } = spotRigHarness();
+    const { ShowDirector } = loadClassic('js/showDirector.js').window;
+    const show = club.showDirector = new ShowDirector(club);
+    show.setProgram('aesthetic');
+    let at = 0;
+    club.spotRigBeat = () => at;
+    const pose = (head, beat, time = 0) => {
+        at = beat;
+        show._cueBarsElapsed = Math.floor(beat / 4);
+        show._beatInBar = Math.floor(beat) % 4;
+        club._updateSpotRig(club.spotlights[head], head, time, 1);
+        return club._solveSpotDirection(head, time, 1.35, 1, {});
+    };
+    for (const name of ['aestheticSweepRows', 'aestheticSweepFill']) {
+        show._applyCue({ look: name, bars: 16 });
+        const cycle = 16 / club.spotlightSpeed;
+        for (let head = 0; head < 6; head++) {
+            const start = pose(head, 0);
+            assert.ok(Math.abs(start.x) < 1e-12 && start.z === 0);
+            const middle = pose(head, cycle / 2);
+            assert.ok(Math.abs(middle.x) > 0.89);
+            assert.equal(middle.z, 0);
+            assert.ok(Math.abs(pose(head, cycle).x) < 1e-12);
+            for (const beat of [0.5, 4, 8, 12, 16, 24, 32]) {
+                const target = pose(head, beat);
+                assert.ok(head < 3 ? target.x >= 0 : target.x <= 0, 'beam swept outside the dance floor');
+                assert.equal(target.x, -pose((head + 3) % 6, beat).x);
+                assert.deepEqual(pose(head, beat, 9999), target, 'wall clock changed the musical sweep');
+            }
+        }
+        let last = pose(0, 0);
+        for (let frame = 1; frame <= cycle * 20; frame++) {
+            const next = pose(0, frame * 3 / 60);
+            const dot = (last.x * next.x + 2.25) / (Math.hypot(last.x, 1.5) * Math.hypot(next.x, 1.5));
+            assert.ok(Math.acos(Math.max(-1, Math.min(1, dot))) * 60 < 0.4, 'aesthetic sweep races at 180 BPM');
+            last = next;
+        }
+    }
+    const follower = new ShowDirector(club);
+    follower.setProgram('aesthetic');
+    follower.setFollower(true);
+    follower.applyRemote({ m: 'show', mv: 'ascent', cue: 1, cb: 3, bib: 2, fx: { showProgram: 'aesthetic' } }, true);
+    assert.equal(follower.aestheticSpotBeat(102.25), 14.25, 'late follower restarted the sweep instead of using cue position');
+    show._applyLook(show.looks.aestheticRows);
+    assert.equal(club.spotPrismActive, false, 'multi-beam filter leaked into a plain downlight passage');
+});
+
+test('aesthetic LED abstracts vary on beats, preserve the handed subtle colour and never request warehouse flashes', () => {
+    const BABYLON = makeBabylonStub();
+    const { LEDPatterns } = loadClassic('js/ledPatterns.js', { BABYLON }).window;
+    for (const bpm of [120, 180]) {
+        for (const safe of [false, true]) {
+            const panels = Array.from({ length: 210 }, (_, index) => ({ col: index % 21, row: Math.floor(index / 21) }));
+            const color = new BABYLON.Color3(0.18, 0.42, 0.55);
+            const levels = new Float32Array(210), programs = new Set();
+            let beat = 0, flashes = 0, maxStep = 0, peak = 0, previousMean = 0;
+            const club = Object.assign({}, LEDPatterns, {
+                ledPanels: panels, ledCols: 21, ledRows: 10, vjBPM: bpm, photosensitiveSafeMode: safe,
+                showDirector: { program: 'aesthetic', isDriving: () => true },
+                spotRigBeat: () => beat, _tryClubFlash: () => { flashes++; return true; },
+                updateLEDPanel(panel, received, level) {
+                    assert.equal(received, color, 'abstract wall synthesized a competing hue or white flash');
+                    levels[panel.row * 21 + panel.col] = level;
+                }
+            });
+            for (let frame = 0; frame < 128 * 60 * 60 / bpm; frame++) {
+                beat = frame / 60 * bpm / 60;
+                club.patternWarehouse(color, frame / 60, { hasAudio: true, bass: 1 });
+                programs.add(club._aestheticLed.program);
+                assert.equal(club._aestheticLed.step, Math.floor(beat / (bpm > 150 ? 2 : 1)));
+                let mean = 0;
+                for (const level of levels) {
+                    assert.ok(Number.isFinite(level) && level >= 0);
+                    peak = Math.max(peak, level);
+                    mean += level / 210;
+                }
+                maxStep = Math.max(maxStep, Math.abs(mean - previousMean));
+                previousMean = mean;
+            }
+            assert.equal(programs.size, 8, 'abstract repertoire did not vary across phrases');
+            assert.equal(flashes, 0, 'aesthetic wall borrowed the Warehouse flash source');
+            assert.ok(peak <= (safe ? 0.40001 : 0.65001));
+            assert.ok(maxStep < 0.025, `abrupt wall-level step: ${maxStep}`);
+            assert.ok(previousMean > 0.1, 'abstract wall lost its quiet presence');
+        }
+    }
+});
+
+test('show style and sheet controls are host-owned while reduced show smoke remains personal', () => {
+    const { window } = loadClassic('js/club/10-ui.js', { VRClubAnimationFinish: class {} });
+    const UI = window.VRClubUI;
+    const club = Object.assign(Object.create(UI.prototype), {
+        guardHostControl: () => false,
+        laserSheetSpeed: 1, laserSheetBrightness: 1, reducedShowSmoke: false
+    });
+    assert.equal(club.toggleLightControl('cycleShowProgram'), false);
+    assert.equal(club.toggleLightControl('cycleSheetSpeed'), false);
+    assert.equal(club.toggleLightControl('cycleSheetBrightness'), false);
+    assert.equal(club.toggleLightControl('toggleReducedShowSmoke'), true);
+    assert.equal(club.reducedShowSmoke, true);
+    assert.equal(club._isHostOwnedVRButton({ control: 'toggleReducedShowSmoke', action: 'cycle' }), false);
+    club.guardHostControl = () => true;
+    club.takeLightControl = () => {};
+    club.toggleLightControl('cycleSheetSpeed');
+    assert.equal(club.laserSheetSpeed, 1.5);
+    assert.equal(club.laserSpeed, undefined);
+    club.toggleLightControl('cycleSheetBrightness');
+    assert.equal(club.laserSheetBrightness, 0);
+});
+
 test('ShowDirector resolves ramps and selects every calibrated energy band', () => {
     const { window } = loadClassic('js/showDirector.js');
     const club = {
@@ -4883,7 +5049,7 @@ test('Quest effect cadence and fog output follow the graphics tier without chang
         cachedColors: { fogActive: {}, fogReady: {}, fogContinuous: {}, fogStandby: {}, fogOff: {} },
         _tintClubAir() {}
     };
-    core.updateFogMachines.call(fogClub, { time: 10, dt: 1 / 90 });
+    core.updateFogMachines.call(fogClub, { time: 8, dt: 1 / 90 });
     assert.ok(Math.abs(machine.emitter.emitRate - 150 * 0.55 * 0.58) < 1e-9,
         'Quest fog bursts ignore tier and simultaneous-effect load');
 
@@ -5819,6 +5985,44 @@ test('social wheel maps stick directions, paginates, and restores turning only a
     assert.equal(club._socialWheelItems().at(-2).target, 'chat', 'recipient selection returns to the chat phrases');
 });
 
+test('VR controller pointers appear independently for controls or trigger use and hide when idle', () => {
+    const { window } = loadClassic('js/club/02-lifecycle.js', { VRClubCore: class {}, BABYLON: {} });
+    const club = Object.create(window.VRClubLifecycle.prototype);
+    const menu = {}, button = { parent: menu }, desk = {}, seat = { metadata: { vrclubSeats: [{}] } };
+    const target = { left: null, right: null };
+    const left = { uniqueId: 'left', pointer: {}, inputSource: { gamepad: { buttons: [{ value: 0 }] } } };
+    const right = { uniqueId: 'right', pointer: {}, inputSource: { gamepad: { buttons: [{ value: 0 }] } } };
+    const visual = controller => ({ laser: { parent: controller.pointer, isDisposed: () => false }, cursor: {} });
+    club._xrControllers = [left, right];
+    club._xrPointerVisuals = [visual(left), visual(right)];
+    club.vrHelper = { pointerSelection: { getMeshUnderPointer: id => target[id] } };
+    club._vrQuickMenuRoot = menu;
+    club._vjDesk = { panels: [{ mesh: desk }] };
+    club.isInVRMode = true;
+    const states = () => club._xrPointerVisuals.map(v => [v.laser.visibility, v.cursor.visibility]);
+    club._updateXRPointerVisibility();
+    assert.deepEqual(states(), [[0, 0], [0, 0]]);
+    target.left = button;
+    club._updateXRPointerVisibility();
+    assert.deepEqual(states(), [[1, 1], [0, 0]]);
+    target.left = null;
+    right.inputSource.gamepad.buttons[0].value = 0.3;
+    club._updateXRPointerVisibility();
+    assert.deepEqual(states(), [[0, 0], [1, 1]]);
+    right.inputSource.gamepad.buttons[0].value = 0;
+    for (const mesh of [desk, seat, { metadata: { vrclubDoor: 0 } }]) {
+        target.right = mesh;
+        club._updateXRPointerVisibility();
+        assert.deepEqual(states(), [[0, 0], [1, 1]]);
+    }
+    target.right = { name: 'floor' };
+    club._updateXRPointerVisibility();
+    assert.deepEqual(states(), [[0, 0], [0, 0]], 'ordinary room geometry is not an interaction');
+    club._xrPointerVisuals[0].laser.isDisposed = () => true;
+    club._updateXRPointerVisibility();
+    assert.equal(club._xrPointerVisuals.length, 1, 'disconnected controller visuals are retired');
+});
+
 test('VR entry starts on the opposite pavement facing the club, preserves tracked height and discards old motion', () => {
     const B = require('../js/vendor/babylon.js');
     const layout = loadClassic('js/cityDistrict.js').window.CityLayout;
@@ -6048,6 +6252,7 @@ test('VR viewpoints preserve seated eye height and orientation without moving th
     const move = window.VRClubUI.prototype.moveCameraToPreset;
     move.call(club, 'djBooth');
     assert.equal(xrCamera.position.y, 1.65);
+    assert.equal(club._walkLevel, 0.5, 'the booth preset records the riser height');
     move.call(club, 'danceFloor');
     assert.equal(xrCamera.position.y, 1.15);
     assert.equal(xrCamera.position.x, -2.8);
@@ -6480,6 +6685,78 @@ test('MY CHARACTER: a saved online choice asks the relay, and storage and old-re
     assert.equal(club.getLocalCharacter(), null);
 });
 
+test('uploaded avatar selection is local, persistent and independent of the personal DJ', async () => {
+    const store = new Map(), errors = [], rigs = [];
+    let fail = false, rigFails = false, removed = false;
+    const localStorage = {
+        getItem: key => store.get(key) ?? null,
+        setItem(key, value) { if (fail) throw new Error('storage blocked'); store.set(key, value); },
+        removeItem: key => store.delete(key)
+    };
+    class AvatarRig {
+        constructor(club, source) {
+            if (rigFails) throw new Error('rig failure');
+            this.source = source; this.ok = true; rigs.push(this);
+        }
+        dispose() { this.disposed = true; }
+    }
+    const { window } = loadClassic('js/club/11-audio-crowd.js', {
+        VRClubUI: class {}, BABYLON: {}, localStorage, AvatarRig, log: { warn() {} },
+        CustomEvent: class { constructor(type) { this.type = type; } }
+    });
+    window.dispatchEvent = () => {};
+    const club = Object.create(window.VRClubAudioCrowd.prototype);
+    const personal = { dispose() { this.disposed = true; } }, standard = {};
+    club._customAvatarContainer = personal;
+    club._crowdSourceContainers = [standard, standard];
+    club._localRig = { dispose() { this.disposed = true; } };
+    club._bodyEyeHeight = () => 1.7;
+    club._syncMirrorDouble = () => {};
+    club.showErrorMessage = text => errors.push(text);
+    assert.equal(club.isCustomAvatarSelected(), true);
+    assert.equal(club.setCustomAvatarSelected(false), true);
+    assert.equal(store.get('vrclub.customAvatarSelected'), '0');
+    assert.equal(club._localRig.source, standard);
+    assert.equal(club._customAvatarContainer, personal);
+    assert.equal(club._avatarContainerFor('female'), standard);
+    fail = true;
+    assert.equal(club.setCustomAvatarSelected(true), false);
+    assert.equal(club.isCustomAvatarSelected(), false);
+    assert.equal(club._localRig.source, standard);
+    assert.equal(rigs.at(-1).disposed, true);
+    assert.match(errors.at(-1), /could not be saved/);
+    fail = false;
+    rigFails = true;
+    assert.equal(club.setCustomAvatarSelected(true), false);
+    assert.equal(club._localRig.source, standard);
+    assert.match(errors.at(-1), /could not be loaded/);
+    rigFails = false;
+    assert.equal(club.setCustomAvatarSelected(true), true);
+    assert.equal(store.get('vrclub.customAvatarSelected'), '1');
+    assert.equal(club._localRig.source, personal);
+    assert.equal(club._avatarContainerFor('female'), personal);
+    const venue = loadClassic('js/venueDressing.js', { BABYLON: {}, log: { info() {}, warn() {}, error() {} } }).window.VenueDressing;
+    club._mirrorAvatarId = venue._mirrorAvatarId;
+    club.getLocalCharacter = () => 'm9';
+    assert.equal(club._mirrorAvatarId(), null, 'the uploaded rig provides the mirror body');
+    club._djId = 'personal';
+    assert.equal(club.setCustomAvatarSelected(false), true);
+    assert.equal(club._mirrorAvatarId(), 'm9', 'the club character returns to the mirror');
+    assert.equal(club._customAvatarContainer, personal);
+    await assert.rejects(club.clearCustomAvatarGlb(), /another resident DJ/);
+    club._djId = 'male';
+    club._customAvatarCache = () => ({ init: async () => {}, db: true,
+        _run: async () => { removed = true; } });
+    const currentRig = club._localRig;
+    await club.clearCustomAvatarGlb();
+    assert.equal(removed, true);
+    assert.equal(club._localRig, currentRig);
+    assert.equal(currentRig.disposed, undefined);
+    assert.equal(personal.disposed, true);
+    assert.equal(club.setCustomAvatarSelected(true), false);
+    assert.match(errors.at(-1), /Upload a personal avatar/);
+});
+
 test('a drag belongs to the pointer that started it: the other hand cannot steer or end it', () => {
     const { window } = loadClassic('js/club/10-ui.js', { VRClubAnimationFinish: class {}, BABYLON: {}, log: { info() {}, warn() {}, error() {} } });
     const club = Object.create(window.VRClubUI.prototype);
@@ -6836,6 +7113,51 @@ test('beams light the smoke they cross and dust is only seen inside them', () =>
     proto._lightAirParticles.call(club, [vr], 'dust');
     assert.equal(vr.color.a, 0.5, 'VR must not alter particles');
     assert.equal(spot._mediumDensity, null, 'VR must hand the beams back to neutral');
+});
+
+test('small dust catches the LED wall, mirror ball, strobes and laser sheets on desktop', () => {
+    const { window } = loadClassic('js/club/07-animation-core.js', { VRClubEffects: class {} });
+    const proto = window.VRClubAnimationCore.prototype;
+    const vec = (x, y, z) => ({ x, y, z });
+    let frame = 0;
+    const club = {
+        scene: { getFrameId: () => frame, activeCamera: { globalPosition: vec(0, 1.7, -4) } },
+        masterIntensity: 1,
+        spotlights: [],
+        _gatherAirBeams: proto._gatherAirBeams,
+        _gatherAirLedWall: proto._gatherAirLedWall,
+        _gatherAirSheets: proto._gatherAirSheets
+    };
+    const sample = position => {
+        frame++;
+        const p = { position, size: 0.008, color: { r: 0.6, g: 0.6, b: 0.6, a: 0.5 } };
+        proto._lightAirParticles.call(club, [p], 'dust');
+        return p.color;
+    };
+    const position = vec(0, 3, -12);
+    const dark = sample(position);
+    club.ledWallActive = true;
+    club.ledShowColor = { r: 0, g: 1, b: 0 };
+    const led = sample(position);
+    assert.ok(led.a > dark.a && led.g > led.r, 'the wall colours and lights the dust');
+    club.ledWallActive = false;
+    club.mirrorBallActive = true;
+    club.mirrorBallSpotlightColor = { r: 1, g: 0, b: 0 };
+    const mirror = sample(position);
+    assert.ok(mirror.a > dark.a && mirror.r > mirror.g, 'mirror-ball reflections catch the dust');
+    club.mirrorBallActive = false;
+    club.strobesActive = true;
+    club.strobes = [{ flashDuration: 0.032, currentIntensity: 80, mesh: { position: vec(5, 7.6, -8) } }];
+    const flash = sample(position);
+    assert.ok(flash.a > dark.a, 'an actual strobe burst catches the dust');
+    club.photosensitiveSafeMode = true;
+    assert.equal(sample(position).a, dark.a, 'safe mode suppresses strobe illumination');
+    club.strobesActive = false;
+    club.laserSheetActive = true;
+    club.laserSheetSource = { position: vec(0, 3, -18), rotation: vec(0, 0, 0) };
+    club._laserColor = () => ({ r: 0, g: 1, b: 0 });
+    const sheet = sample(position);
+    assert.ok(sheet.a > dark.a && sheet.g > sheet.r, 'dust crossing a laser sheet takes its colour');
 });
 
 test('shipped club air keeps fog on and tints toward the look without changing haze alpha', () => {
@@ -7601,6 +7923,7 @@ test('master dimming scales moving heads, ceiling lasers and the laser sheet con
             },
             _updateSpotBeamAppearance: fixtures._updateSpotBeamAppearance,
             _updateSpotRig: fixtures._updateSpotRig,
+            _limitSpotAim: fixtures._limitSpotAim,
             spotRigBeat: fixtures.spotRigBeat,
             _updateSpotLightPool() {},
             _updateSpotGoboProjection() {},
@@ -7908,7 +8231,7 @@ test('shared VJ actions exist on VRClub so the DOM and 3D surfaces cannot diverg
     for (const method of ['cycleSpotColor()', 'cycleMirrorBallColor()', 'applyFixtureExclusivity(', 'resetVJControls()']) {
         assert.ok(ui.includes(method), `VRClubUI is missing shared action ${method}`);
     }
-    for (const call of ['cycleSpotColor()', 'cycleMirrorBallColor()', 'applyFixtureExclusivity(']) {
+    for (const call of ['cycleSpotColor()', 'cycleMirrorBallColor()', 'toggleLightControl(']) {
         assert.ok(domUi.includes(call), `ui-init.js must delegate to VRClub.${call}, not reimplement it`);
     }
 });
@@ -7927,7 +8250,7 @@ test('VJ panel toggles are allow-listed rather than written by DOM attribute nam
     // Every boolean toggle in the DOM must appear in the allow-list, or it silently
     // stops working.
     const booleanControls = [...html.matchAll(/aria-pressed="[^"]*"\s+data-control="([^"]+)"/g)].map(m => m[1]);
-    const missing = booleanControls.filter(c => !listed.has(c) && c !== 'toggleShow' && c !== 'goboActive');
+    const missing = booleanControls.filter(c => !listed.has(c) && c !== 'toggleShow');
     assert.deepEqual(missing, [], `data-control toggles missing from TOGGLE_CONTROLS: ${missing.join(', ')}`);
 });
 
@@ -9958,6 +10281,33 @@ test('the VR Music page: its seek row is free, every button is wired, and the ac
     assert.equal(club._vrQuickMenuButtonValue({ action: 'playPause' }, club._isVRQuickMenuButtonActive({ action: 'playPause' })), 'PLAYING');
 });
 
+test('VR saved-set recovery is personal and requires confirmation before erasing', () => {
+    const { window } = loadClassic('js/club/10-ui.js', { VRClubAnimationFinish: class {}, BABYLON: {} });
+    const club = Object.create(window.VRClubUI.prototype);
+    const messages = [];
+    let resets = 0;
+    Object.assign(club, {
+        musicLibrary: { readError: 'unreadable', retrySavedSets: () => false, resetUnreadableSets: () => { resets++; } },
+        _vrQuickMenuPage: 'musicSources',
+        _showVRQuickMenuPage() {},
+        showErrorMessage: message => messages.push(message),
+        isFollowingHost: () => true
+    });
+    const definitions = club._vrQuickMenuPageDefinitions('musicSources');
+    assert.ok(definitions.length <= 12);
+    const retry = definitions.find(button => button?.action === 'retrySavedSets');
+    const reset = definitions.find(button => button?.action === 'resetSavedSets');
+    assert.ok(retry && reset);
+    assert.equal(club._isHostOwnedVRButton(reset), false);
+    club._activateVRQuickMenuButton(retry);
+    assert.match(messages.at(-1), /not changed/);
+    club._activateVRQuickMenuButton(reset);
+    assert.equal(resets, 0);
+    assert.match(messages.at(-1), /permanently erase/);
+    club._activateVRQuickMenuButton(reset);
+    assert.equal(resets, 1);
+});
+
 test('a local folder filters audio, plays in natural filename order, wraps, and can shuffle without losing the current track', async () => {
     const randomMath = Object.create(Math);
     randomMath.random = () => 0;
@@ -10073,7 +10423,10 @@ test('generic DJs: one load per DJ, a clean swap, queued switches and safe ids',
         initPromise: new Promise(resolve => { initDone = resolve; }),
         async _loadAvatarSource(url, garment, hairColour) { loads.push([url, garment, hairColour]); return { url }; },
         _spawnAvatar(container, name, position, facing, height, speed, options) {
-            const npc = { name, collider: { dispose: () => disposed.push(`collider:${container.url}`) } };
+            const root = { enabled: true, isEnabled() { return this.enabled; }, setEnabled(value) { this.enabled = value; } };
+            const collider = { enabled: true, setEnabled(value) { this.enabled = value; },
+                dispose: () => disposed.push(`collider:${container.url}`) };
+            const npc = { name, root, collider };
             club.npcAvatars.push(npc);
             spawned.push({ url: container.url, height, speed, clip: options.clip, y: position.y, z: position.z });
             return { dispose: () => disposed.push(`entry:${container.url}`) };
@@ -10109,6 +10462,17 @@ test('generic DJs: one load per DJ, a clean swap, queued switches and safe ids',
     assert.deepEqual(loads.map(load => load[0]), [Crowd.DJ_LOOKS.female.url, Crowd.DJ_LOOKS.male.url]);
     assert.equal(loads[0][1], Crowd.DJ_LOOKS.female.garment);
     assert.equal(loads[0][2], Crowd.DJ_LOOKS.female.hair);
+
+    club.performingAsDJ = true;
+    assert.equal(await club.setDJ('male'), true);
+    const resident = club.npcAvatars.find(npc => npc.name === 'djPerformer');
+    assert.equal(resident.root.enabled, false, 'a newly selected resident stays hidden during a performance');
+    assert.equal(resident.collider.enabled, false);
+    club.performingAsDJ = false;
+    club._applyDJVisibility();
+    assert.equal(resident.root.enabled, true);
+    assert.equal(resident.collider.enabled, true);
+    await club.setDJ('female');
 
     // Refused ids leave the DJ alone; a failed load keeps the current one; a disposed club does nothing.
     assert.equal(await club.setDJ('__proto__'), false);
@@ -10168,6 +10532,51 @@ test('a generic DJ choice persists while the DJ is hidden and applies when they 
     club.setDJ = async () => false;
     await assert.rejects(club.chooseDJ('male'), /could not load/);
     assert.equal(store.get('vrclub.questDJ'), 'female');
+});
+
+test('a personal DJ uses only the locally loaded avatar and keeps the previous DJ on a rig failure', async () => {
+    const saved = new Map();
+    const storage = { getItem: key => saved.get(key) ?? null, setItem: (key, value) => saved.set(key, value) };
+    const { window } = loadClassic('js/club/11-audio-crowd.js', {
+        BABYLON: makeBabylonStub(), VRClubUI: class {}, localStorage: storage
+    });
+    const club = Object.create(window.VRClubAudioCrowd.prototype);
+    let refused = false, disposed = 0;
+    const container = { personal: true };
+    Object.assign(club, {
+        initPromise: Promise.resolve(), npcAvatars: [], _customAvatarContainer: container,
+        _djWanted: 'male', _djId: 'male', _djCharacterStyle: 'quaternius',
+        getCharacterStyle: () => 'quaternius', isPeopleVisible: () => true,
+        showErrorMessage() {}, _refreshContactShadows() {}, _refreshShadowCasters() {},
+        _spawnPerformingDJ(source, look) {
+            assert.equal(source, container);
+            assert.equal(look.personal, true);
+            if (refused) return null;
+            const npc = { name: 'djPerformer', collider: { dispose() {} } };
+            this.npcAvatars.push(npc);
+            return { dispose() { disposed++; } };
+        }
+    });
+    const old = { name: 'djPerformer', collider: { dispose() { disposed++; } } };
+    club.npcAvatars.push(old);
+    club._djEntry = { dispose() { disposed++; } };
+    assert.equal(await club.chooseDJ('personal'), true);
+    assert.equal(saved.get('vrclub.questDJ'), 'personal');
+    assert.equal(club._initialDJId(), 'personal');
+    assert.equal(club.npcAvatars.length, 1);
+    assert.notEqual(club.npcAvatars[0], old);
+    assert.equal(disposed, 2);
+    await assert.rejects(club.clearCustomAvatarGlb(), /another resident DJ/);
+    club._djId = 'male';
+    club._djWanted = 'male';
+    refused = true;
+    const current = club.npcAvatars[0];
+    assert.equal(await club.setDJ('personal'), false);
+    assert.equal(club._djWanted, 'male');
+    assert.equal(club.npcAvatars[0], current);
+    club._customAvatarContainer = null;
+    assert.equal(await club.setDJ('personal'), false);
+    assert.equal(club._initialDJId(), 'male');
 });
 
 test('avatar materials take their hair and jacket tints only where they belong', () => {
@@ -10375,6 +10784,43 @@ test('a following VJDirector leaves scene choice to the host', () => {
     vj.remoteDriven = true;
     vj.update(2, { hasAudio: false });
     assert.equal(picked, 1, 'a guest\'s own auto-scene picker must stand down');
+    vj.remoteDriven = false;
+    club.vjManualMode = true;
+    vj.update(3, { hasAudio: false });
+    assert.equal(picked, 1, 'the auto-scene picker must not overwrite a held manual look');
+    club.vjManualMode = false;
+    vj.update(4, { hasAudio: false });
+    assert.equal(picked, 2, 'the legacy picker resumes after manual control');
+});
+
+test('show master and peak retain show ownership and Safe Mode', () => {
+    const BABYLON = makeBabylonStub();
+    const { window } = loadClassic('js/vjDirector.js', { BABYLON });
+    const showWindow = loadClassic('js/showDirector.js').window;
+    const club = { vjBPM: 120, vjManualMode: false, photosensitiveSafeMode: true };
+    const vj = club.vjDirector = new window.VJDirector(club);
+    const show = club.showDirector = new showWindow.ShowDirector(club);
+    const frame = () => show._applyContinuous(vj, { hasAudio: false });
+    vj.setMasterIntensity(1);
+    frame();
+    assert.ok(club.masterIntensity > 0);
+    vj.setMasterIntensity(0);
+    frame();
+    assert.equal(club.masterIntensity, 0, 'zero on the master must black out the automatic show');
+    vj.setMasterIntensity(1);
+    frame();
+    assert.equal(club.masterIntensity, show._intensity, 'restoring the master must restore the composed show level');
+    assert.ok(club.masterIntensity > 0);
+    show._applyLook(show.looks.liquidPlane);
+    show.triggerShowPeak();
+    assert.equal(show._cue.look, 'releaseHit');
+    assert.equal(club.laserSheetActive, false, 'the peak must replace the prior aerial look');
+    assert.equal(club.strobesActive, false, 'Safe Mode overrides the peak');
+    show.setFollower(true);
+    show.triggerShowPeak();
+    assert.equal(show._cue.look, 'releaseHit', 'a follower must not trigger the peak');
+    vj.triggerDrop();
+    assert.equal(club.strobesActive, false, 'Safe Mode also overrides the manual peak');
 });
 
 test('VR menu: the safety guide precedes online options and the room-code keypad types six digits', async () => {
@@ -10914,15 +11360,16 @@ test('the VJ desk: every button fits its panel, nothing overlaps, and every ligh
         }
     }
     const steps = ['changeColor', 'changeLaserColor', 'matchAllColors', 'changeMirrorBallColor',
-        'cycleSpotMode', 'cyclePattern', 'cycleGoboPattern', 'goboActive', 'cycleLedPattern', 'cycleStrobePattern'];
+        'cycleSpotMode', 'cyclePattern', 'cycleLedPattern', 'cycleStrobePattern', 'cycleFogAmount', 'cycleFogMode',
+        'cycleSheetSpeed', 'cycleSheetBrightness', 'toggleReducedShowSmoke'];
     for (const b of VJDeskLayout.buttons.lights.filter(item => item.kind === 'light')) {
         assert.ok(VRClubUI.LIGHT_TOGGLES.has(b.control) || steps.includes(b.control), `${b.id} -> ${b.control} is not a light control`);
     }
     const labels = VJDeskLayout.buttons.lights.map(button => button.label);
     assert.ok(labels.includes('SPOT AIM PATH'), 'the desk calls a movement path a shape or pattern');
-    assert.ok(labels.includes('PROJECT GOBO') && labels.includes('GOBO IMAGE'), 'the desk does not explain what the gobo controls do');
+    assert.ok(labels.includes('SPOT BEAM FILTER'));
     assert.ok(labels.includes('MIRROR BEAMS'), 'the physical desk cannot switch from mirror rays to surface spots only');
-    assert.ok(labels.every(label => !/GOBO SHAPE|SPOT PATTERN/.test(label)), 'the desk still has an ambiguous shape/pattern label');
+    assert.ok(labels.every(label => !/GOBO|SPOT PATTERN/.test(label)));
     const onPage = page => VJDeskLayout.buttons.transport.filter(button => button.page === page).map(button => button.label);
     assert.deepEqual([...onPage('player')], ['PREVIOUS', 'PLAY / PAUSE', 'STOP', 'NEXT', 'SET POSITION']);
     assert.deepEqual([...onPage('fx')], ['LOW PASS', 'HIGH PASS', 'ECHO', 'FLANGER', 'REVERB', 'PHASER', 'NOISE SWEEP', 'GATER', 'XFADE', 'CLEAR FX']);
@@ -10934,6 +11381,28 @@ test('the VJ desk: every button fits its panel, nothing overlaps, and every ligh
     const listed = (source.match(/const TOGGLE_CONTROLS = Object\.freeze\(new Set\(\[([\s\S]*?)\]\)\)/)[1])
         .split(',').map(s => s.trim().replace(/['\s]/g, '')).filter(Boolean);
     assert.deepEqual([...listed].sort(), [...VRClubUI.LIGHT_TOGGLES].sort());
+});
+
+test('peak controls use the show release or an exclusive manual look and respect host ownership', () => {
+    const { club, calls } = deskHarness();
+    club.showDirector.triggerShowPeak = () => calls.push('showPeak');
+    assert.equal(club.triggerShowPeak(), true);
+    assert.ok(calls.includes('showPeak'));
+    club.vjManualMode = true;
+    club.laserSheetActive = true;
+    club.mirrorBallActive = true;
+    club.vjDirector.triggerDrop = () => { club.lasersActive = true; calls.push('vjDrop'); };
+    assert.equal(club.triggerShowPeak(), true);
+    assert.ok(calls.includes('vjDrop'));
+    assert.equal(club.laserSheetActive, false);
+    assert.equal(club.mirrorBallActive, false);
+    club.guardHostControl = () => false;
+    assert.equal(club.triggerShowPeak(), false);
+    const before = calls.length;
+    club._refreshVRQuickMenu = () => {};
+    club._activateVRQuickMenuButton({ action: 'showPeak' });
+    assert.equal(calls.length, before, 'a guest must not trigger the peak');
+    assert.equal(club._isHostOwnedVRButton({ action: 'showPeak' }), true);
 });
 
 test('spot rig: the desk and VR pages delegate the same edits, stay within twelve slots and navigate without taking control', () => {
@@ -10955,7 +11424,16 @@ test('spot rig: the desk and VR pages delegate the same edits, stay within twelv
         assert.ok(page.some(item => item.control === control));
     }
     press('spotTarget');
-    assert.equal(club.spotRigControlValue('cycleSpotTarget'), 'FRONT ROW');
+    assert.equal(club._vjDeskLightsPage, 'rigGroups');
+    const choices = VRClubUI.SPOT_GROUPS.map(group => button(`spotPick${group.name.replaceAll(' ', '')}`));
+    for (const [index, choice] of choices.entries()) {
+        press(choice.id);
+        assert.equal(club._spotEditTarget, index);
+        assert.equal(club._vjDeskLightsPage, 'rig');
+        press('spotTarget');
+    }
+    press('spotPickENTRANCEROW');
+    assert.equal(club.spotRigControlValue('cycleSpotTarget'), 'ENTRANCE ROW');
     press('spotGroupOn');
     assert.equal(club.spotHead0Enabled, false);
     assert.equal(club.spotHead3Enabled, false);
@@ -10972,9 +11450,21 @@ test('spot rig: the desk and VR pages delegate the same edits, stay within twelv
     assert.equal(club._vjDeskLightsPage, 'fixtures');
     assert.equal(club._vjDeskButtonOnPage(button('spots')), true);
     club.guardHostControl = () => false;
-    const targetBefore = club._spotEditTarget;
+    club._showVRQuickMenuPage = pageName => { club._vrQuickMenuPage = pageName; };
     club._activateVRQuickMenuButton(page.find(item => item.control === 'cycleSpotTarget'));
-    assert.equal(club._spotEditTarget, targetBefore + 1, 'the actual VR activation handler gated personal group navigation');
+    assert.equal(club._vrQuickMenuPage, 'spotGroups');
+    const groups = club._vrQuickMenuPageDefinitions('spotGroups');
+    const heads = club._vrQuickMenuPageDefinitions('spotHeads');
+    assert.ok(groups.length <= 12);
+    assert.ok(heads.length <= 12);
+    for (const choice of [...groups, ...heads].filter(item => item.action === 'spotGroup')) {
+        club._activateVRQuickMenuButton(choice);
+        assert.equal(club._spotEditTarget, choice.group, 'personal group selection must work for guests');
+    }
+    assert.equal(club._spotEditTarget, 11);
+    assert.equal(club._vrQuickMenuPage, 'spotRig');
+    assert.equal(club.selectSpotRigGroup(12), false);
+    assert.equal(club._spotEditTarget, 11);
 });
 
 test('the VJ desk: touching a light hands you the lights, AUTO SHOW hands them back, and the header says who has them', () => {
@@ -10998,6 +11488,11 @@ test('the VJ desk: touching a light hands you the lights, AUTO SHOW hands them b
     club.mirrorBallRaysActive = true;
     press('mirrorRays');
     assert.equal(club.mirrorBallRaysActive, false, 'MIRROR BEAMS leaves the reflected surface spots on their own');
+    club.spotPrismActive = false;
+    press('prism');
+    assert.equal(club.spotPrismActive, true);
+    press('prism');
+    assert.equal(club.spotPrismActive, false);
 
     calls.length = 0;
     assert.deepEqual(calls, []);
@@ -11039,6 +11534,10 @@ test('the VJ desk in someone else\'s room: the lights and music are the host\'s,
     assert.equal(club.lightsActive, true, 'a guest must not change the host\'s lights');
     assert.match(toasts.at(-1), /Only the host \(Bo\)/);
     assert.equal(club._vjDeskButtonState(button('spots')).value, 'HOST ONLY');
+    club.spotPrismActive = false;
+    press('prism');
+    assert.equal(club.spotPrismActive, false, 'a guest must not change the host\'s spot filter');
+    assert.equal(club._vjDeskButtonState(button('prism')).value, 'HOST ONLY');
     assert.equal(club._vjDeskStatus().title, 'BO HAS THE LIGHTS');
     press('dj');
     assert.equal(people.dj, false, 'who is in your club is your own choice');
@@ -11709,7 +12208,7 @@ test('VR menu: who is in the club has its own CROWD page on HOME, not the bottom
     assert.ok(club._vrQuickMenuPageDefinitions('comfort').some(item => item && item.action === 'quality'), 'QUALITY moved off HOME, not away');
 });
 
-test('all VJ surfaces distinguish spotlight aim paths from projected gobo images', () => {
+test('all VJ surfaces offer the multi-beam filter without projected shapes', () => {
     const { window } = loadClassic('js/club/10-ui.js', { VRClubAnimationFinish: class {}, BABYLON: {} });
     const club = Object.create(window.VRClubUI.prototype);
     const lighting = club._vrQuickMenuPageDefinitions('lights');
@@ -11720,8 +12219,8 @@ test('all VJ surfaces distinguish spotlight aim paths from projected gobo images
     assert.ok(rig.length <= 12);
     assert.ok(lighting.some(button => button && button.label === 'MATCH ALL COLOURS'));
     assert.ok(!lighting.some(button => button && /^LED /.test(button.label)), 'LED effects leaked onto the Lights page');
-    assert.ok(effects.some(button => button && button.label === 'PROJECTED GOBO' && button.control === 'goboActive'));
-    assert.ok(effects.some(button => button && button.label === 'GOBO IMAGE' && button.control === 'cycleGoboPattern'));
+    assert.ok(effects.some(button => button && button.label === 'MULTI-BEAM FILTER' && button.control === 'spotPrismActive'));
+    assert.ok(!effects.some(button => button && /GOBO/.test(button.label)));
     assert.ok(effects.some(button => button && button.label === 'LED WALL'));
     assert.ok(!effects.some(button => button && button.control === 'photosensitiveSafeMode'), 'Safe Mode is duplicated outside Comfort');
     assert.ok(lighting.length <= 12 && effects.length <= 12, 'clarified controls overflow the VR menu');
@@ -11735,9 +12234,29 @@ test('all VJ surfaces distinguish spotlight aim paths from projected gobo images
 
     const html = readFileSync(join(ROOT, 'index.html'), 'utf8');
     assert.match(html, /data-control="cyclePattern">AIM PATH: RANDOM</);
-    assert.match(html, /data-control="goboActive">PROJECT GOBO</);
-    assert.match(html, /data-control="cycleGoboPattern">IMAGE: OPEN</);
+    assert.match(html, /data-control="spotPrismActive">MULTI-BEAM FILTER</);
+    assert.doesNotMatch(html, /goboActive|cycleGoboPattern|goboSpeed|reverseGoboSpin/);
     assert.doesNotMatch(html, />PATTERN: RANDOM|>GOBO: CIRCLE|>GOBO ON\/OFF/);
+});
+
+test('multi-beam filter uses the shared host-gated light toggle and resets off', () => {
+    const { window } = loadClassic('js/club/10-ui.js', {
+        VRClubAnimationFinish: class {}, BABYLON: {}, performance: { now: () => 1000 },
+        log: { info() {} }
+    });
+    const club = Object.create(window.VRClubUI.prototype);
+    let allowed = false;
+    club.spotPrismActive = false;
+    club.guardHostControl = () => allowed;
+    assert.equal(club.toggleLightControl('spotPrismActive'), false);
+    assert.equal(club.spotPrismActive, false);
+    allowed = true;
+    assert.equal(club.toggleLightControl('spotPrismActive'), true);
+    assert.equal(club.spotPrismActive, true);
+    assert.equal(club.vjManualMode, true);
+    club.resetSpotRig = () => {};
+    club.resetVJControls();
+    assert.equal(club.spotPrismActive, false);
 });
 
 test('VR menu: SAFETY has a NAME TAGS switch that reads and flips the shared setting', () => {
@@ -13634,6 +14153,69 @@ test('the lights follow the hold policy from every surface: choices are saved, t
     assert.equal(held, false);
 });
 
+test('smoke controls use shared host authority and the automatic show resets its atmosphere and prism', () => {
+    const { club, VRClubUI } = spotRigHarness();
+    club.smokeActive = false;
+    club.fogIntensity = 1;
+    club.fogBurstMode = 'auto';
+    assert.equal(club.toggleLightControl('cycleFogAmount'), true);
+    assert.equal(club.fogIntensity, 1.5);
+    assert.equal(club.smokeControlValue('cycleFogAmount'), 'HIGH');
+    assert.equal(club.smokeActive, false, 'changing settings does not silently turn on smoke');
+    assert.equal(club.toggleLightControl('cycleFogMode'), true);
+    assert.equal(club.smokeControlValue('cycleFogMode'), 'STEADY');
+    assert.equal(club.takes, 2);
+    club.follower = true;
+    assert.equal(club.toggleLightControl('cycleFogAmount'), false);
+    assert.equal(club.fogIntensity, 1.5);
+    const html = readFileSync(join(ROOT, 'index.html'), 'utf8');
+    assert.match(html, /data-control="cycleFogAmount"/);
+    assert.match(html, /data-control="cycleFogMode"/);
+    assert.ok(VRClubUI.prototype._vrQuickMenuButtonValue.call(
+        Object.assign(club, { multiplayer: { following: true } }), { action: 'cycle', control: 'cycleFogMode' }, false) === 'HOST ONLY');
+
+    const ShowDirector = loadClassic('js/showDirector.js').window.ShowDirector;
+    const showClub = { vjManualMode: false, photosensitiveSafeMode: false };
+    const show = new ShowDirector(showClub);
+    assert.ok(show.movements.ascent.cues.some(cue => cue.look === 'rowBuild' && cue.bars === 16),
+        'ASCENT must schedule the filter look for 16 bars');
+    show._applyLook(show.looks.rowBuild);
+    assert.equal(showClub.spotPrismActive, true);
+    show._applyLook(show.looks.detonation);
+    assert.equal(showClub.spotPrismActive, false);
+    assert.equal(showClub.fogBurstMode, 'auto');
+    show._applyLook(show.looks.theWave);
+    assert.equal(showClub.smokeActive, false);
+    assert.equal(showClub.fogBurstMode, 'continuous');
+});
+
+test('smoke output follows the shared beat, drives both machines, and respects intensity and tier', () => {
+    const proto = loadClassic('js/club/07-animation-core.js', { VRClubEffects: class {} }).window.VRClubAnimationCore.prototype;
+    const machine = () => ({ emitter: { emitRate: 0 }, ledMat: {}, isBursting: false });
+    const club = {
+        scene: {}, smokeActive: true, fogBurstMode: 'auto', fogIntensity: 1,
+        fogMachines: [machine(), machine()], cachedColors: { fogActive: {}, fogReady: {}, fogContinuous: {}, fogOff: {} },
+        spotRigBeat: () => club.beat, _tintClubAir(dt, burst) { this.burst = burst; }
+    };
+    const step = beat => { club.beat = beat; proto.updateFogMachines.call(club, { time: 100, dt: 1 / 60 }); };
+    step(16);
+    assert.equal(club.fogMachines[0].emitter.emitRate, 150);
+    assert.equal(club.fogMachines[1].emitter.emitRate, 150);
+    assert.equal(club.burst, 1);
+    step(20);
+    assert.equal(club.fogMachines[0].emitter.emitRate, 44);
+    assert.equal(club.fogMachines[1].emitter.emitRate, 44);
+    club.fogIntensity = 0.5;
+    club.fogBurstMode = 'continuous';
+    step(32);
+    assert.equal(club.fogMachines[0].emitter.emitRate, 40);
+    assert.equal(club.fogMachines[1].emitter.emitRate, 40);
+    assert.equal(club.burst, 0);
+    club.smokeActive = false;
+    step(33);
+    assert.ok(club.fogMachines.every(m => m.emitter.emitRate === 0 && !m.isBursting));
+});
+
 test('smoke off is clear air and smoke on is haze: the level eases and scales fog, haze, lasers and beams', () => {
     const BABYLON = makeBabylonStub();
     const { window } = loadClassic('js/club/07-animation-core.js', { BABYLON, VRClubEffects: class {} });
@@ -13667,6 +14249,12 @@ test('smoke off is clear air and smoke on is haze: the level eases and scales fo
     toggled.smokeActive = true;
     settle(toggled, 10);
     assert.equal(toggled._smokeLevel, 1);
+    toggled.fogIntensity = 0.5;
+    settle(toggled, 10);
+    assert.ok(Math.abs(toggled._smokeLevel - 0.25) < 0.01, 'low output must produce lighter room haze');
+    const before = toggled._smokeLevel;
+    proto._tintClubAir.call(toggled, 1 / 60, 1);
+    assert.ok(toggled._smokeLevel > before && toggled._smokeLevel < before + 0.01, 'a burst builds haze gradually');
 });
 
 test('lasers, the laser sheet and the beams scatter less in clear air than in a hazy room', () => {
@@ -13686,10 +14274,11 @@ test('the lights panel offers a strobe pattern, show sections and the hold choic
     const ui = readFileSync(join(ROOT, 'js/ui-init.js'), 'utf8');
     const hand = /const HAND_CONTROLS = Object\.freeze\(new Set\(\[([^\]]*)\]\)\);/.exec(ui);
     assert.ok(hand, 'HAND_CONTROLS is defined');
-    for (const control of ['changeColor', 'changeMirrorBallColor', 'cycleSpotMode', 'cyclePattern', 'goboActive', 'cycleGoboPattern', 'reverseGoboSpin', 'cycleStrobePattern']) {
+    for (const control of ['changeColor', 'changeMirrorBallColor', 'cycleSpotMode', 'cyclePattern', 'cycleStrobePattern']) {
         assert.ok(hand[1].includes(`'${control}'`), `${control} no longer takes the lights from the automatic show`);
     }
     assert.match(ui, /if \(HAND_CONTROLS\.has\(control\)\) vrClubInstance\.takeLightControl\(\);/);
+    assert.match(ui, /vrClubInstance\.toggleLightControl\(control\)/);
     // Guests keep their own hold choice live in someone else's room, like their comfort settings.
     assert.match(ui, /\[data-hold\], #vjHoldTiming/);
 });
@@ -13746,7 +14335,7 @@ test('the VJ desk: stages are absent, strobe patterns work and the personal hold
     club.lightHold = { mode: 'resume', delay: 60, shuffle: 15 };
     club.showDirector.isHeld = () => false;
     club.resumeAutoShow = () => { calls.push('resume'); club.vjManualMode = false; };
-    assert.ok(VJDeskLayout.buttons.show.every(b => b.kind === 'auto' || b.kind === 'dj' || b.kind.startsWith('preset')));
+    assert.ok(VJDeskLayout.buttons.show.every(b => b.kind === 'auto' || b.kind === 'dj' || b.kind.startsWith('preset') || b.control === 'cycleShowProgram'));
     assert.equal(button('brightness').page, 'settings');
     assert.equal(button('speed').page, 'settings');
     assert.equal(button('safeMode').panel, 'lights');
@@ -14048,4 +14637,3 @@ test('Unity-ported fog machines face inward into the dance floor, wrap plume bea
     listeners.error();
     assert.ok(diagnostics.some(d => d.includes('error code 3')));
 });
-

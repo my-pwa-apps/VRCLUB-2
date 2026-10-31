@@ -2,6 +2,20 @@
 
 Every binary shipped in this repository, with its licence and provenance.
 
+## Optional ADE development-review artwork
+
+`branding/ade/ade26-30y-black.png` is the owner-supplied ADE26 30Y logo,
+imported without changes from local `adefixes` (`36def1f`) as a 512 px raster.
+It is **not MIT, CC0 or CC BY**; no general redistribution permission was found.
+The original supplied-source links, source/raster checksums and modifications
+are preserved in `branding/ade/notice.txt`. Obtain written permission and brand
+guidance before public publication or store distribution.
+
+Only `--branding=ade` / `VRCLUB_BRANDING=ade` builds include the logo and notice,
+for independent development review. Default builds exclude them. The logo
+appears on yellow venue signs, the DJ fascia and entrance flags, with an About
+disclosure; the unused ADE campaign image and pitch services are not imported.
+
 ## Quest distribution profile
 
 The `Quest` branch builds a user-music-first candidate. No podcast catalogue is loaded,
@@ -80,7 +94,12 @@ decimation below 10,000 triangles, 1024 px body/512 px hair WebP atlases,
 53-joint skinning, and offline world-space retargeting of the club's existing
 CC0 Quaternius dances, locomotion, gestures, seating and social clips. Hand
 contacts are fitted to anatomy and role props; knee planes follow each person's
-own anatomy. Non-skin metacarpal helpers support the existing tracked-arm driver.
+own anatomy. Shared offline `scripts/arm-frame.mjs` aligns each arm's limb axis
+and elbow hinge plane together, rather than swinging upper/lower arms independently.
+Its shared `armPronation()` transfers 70% of palm roll into the forearm, capped
+at 75 degrees, preserving exact world palm targets rather than concentrating
+all roll in the wrist.
+Non-skin metacarpal helpers support the existing tracked-arm driver.
 Standing idles preserve the source's measured hip-to-neck direction rather than
 amplifying its short upper-spine segment on a differently proportioned body;
 bar, rail, dance and work poses retain their intentional bends. Regenerate both
@@ -326,12 +345,13 @@ font download or faux-language marks are used. The ink is clipped to the
 actual garment triangles and retains interpolated torso skin weights,
 merged into that same accessory draw: no texture download or per-frame
 projection. Only head accessories collapse with the first-person head.
-Idris/the bouncer, Ellis and Ren have bald heads; the lightweight bouncer,
-m4 and m7 expose their existing scalp by removing connected crown-hair
-geometry, retaining eyebrows/side hair, skin, rig and animation. Their vm4/vm5
-variants inherit the changed silhouette. Reproduce with
-`node scripts/build-crowd-glbs.mjs --refresh-wardrobe --only bouncer,m4,m7 --optimize`
-then `node scripts/build-crowd-glbs.mjs --variants --only vm4,vm5 --optimize`.
+Detailed Idris/the bouncer, Ellis and Ren have bald heads. The lightweight bouncer
+and m7 expose their existing scalp by removing connected crown-hair geometry,
+retaining eyebrows/side hair, skin, rig and animation; vm4 inherits m7's silhouette.
+Lightweight m4 and its vm5 variant retain their full original hair. The pack-free
+`node scripts/build-crowd-glbs.mjs --restore-hair --optimize` restores m4's crown
+from the matching m3 rig, followed by
+`node scripts/build-crowd-glbs.mjs --variants --only vm5 --optimize`.
 The queue caller's original generic phone is one opaque, vertex-coloured mesh
 fitted to the raised palm and parented to the wrist, with no per-frame updater.
 It is created/disposed with that caller in either character style and uses
@@ -499,6 +519,30 @@ Seventeen people, plus the bouncer at the street door, built by `scripts/build-c
 packs (the "Individual Characters" glTF downloads), recoloured into a varied cast and carrying the club's own dance
 and idle clips retargeted onto their rig. The eleven floor dancers also carry eight dance moves (`Groove_*`) that the
 script authors procedurally onto the rig itself (no third-party animation; see `js/crowdDance.js`). The scripts and tests treat them as `club-crowd-<id>.glb`:
+
+Dance authoring and detailed retargeting share `scripts/arm-frame.mjs`: both the
+limb axis and elbow hinge plane are aligned. The shipped `Groove_Bounce` exposed
+a ~54-degree hinge mismatch in the previous independent swing-only rotations.
+`test/rig.test.mjs` now enforces >0.98 hinge alignment on both arms across
+lightweight/detailed grooves and `Dance_Loop`. `--refresh-static` reauthors
+`Dance_Loop` too from the local guest sources. Rebuild lightweight people and
+variants, then run `node scripts\characters\build.mjs --refresh-dance` and
+`node scripts\characters\build.mjs --wardrobe --refresh-dance` after arm-frame
+changes. These selective builds refresh only dance clips in the existing
+detailed/wardrobe GLBs, preserving artwork, hair, accessories and nondance clips.
+Selective refresh prunes only unused accessors/buffers; anatomical helper nodes,
+all normals, UVs and wardrobe masks remain intact. A pruning regression was
+found and fixed using the full suite.
+`armPronation()` distributes 70% of palm roll into the forearm (75-degree cap);
+the real-rig tests retain upper-arm hinge alignment >0.98 and bound forearm
+rotation below 76 degrees and wrist roll below 61 degrees. This removes the
+previous detailed ArmsWide wrist roll of up to 134 degrees without moving its
+world-space palm target.
+Default groove hands inherit forearm roll while explicit palm targets remain
+honored. Pump alternates overlapping, eased 1.5-beat raises and returns rather
+than quarter-second swaps: one hand stays up on every beat without the previous
+44–59-degree arm snaps. The real-rig test also caps rotation per 50 ms at <0.65 rad.
+No runtime IK or per-frame allocations are introduced; headset appearance remains unverified.
 
 | File | Base character | Look | Clips |
 |------|----------------|------|-------|

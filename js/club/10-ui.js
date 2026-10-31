@@ -322,13 +322,13 @@ class VRClubUI extends VRClubAnimationFinish {
             this.lasersActive = false;
             this.laserSheetActive = false;
             this.lightsActive = false;
-            return 'Mirror ball takes the room \u2014 lasers, laser sheet and gobos off';
+            return 'Mirror ball takes the room \u2014 lasers, laser sheet and spots off';
         }
         if (control === 'laserSheetActive' && this.laserSheetActive) {
             this.lasersActive = false;
             this.mirrorBallActive = false;
             this.lightsActive = false;
-            return 'Laser sheet takes the room \u2014 lasers, mirror ball and gobos off';
+            return 'Laser sheet takes the room \u2014 lasers, mirror ball and spots off';
         }
         if (control === 'lasersActive' && this.lasersActive) {
             this.mirrorBallActive = false;
@@ -350,26 +350,26 @@ class VRClubUI extends VRClubAnimationFinish {
 
     static get SPOT_GROUPS() {
         return this._spotGroups || (this._spotGroups = Object.freeze([
-            ['ALL SIX', [0, 1, 2, 3, 4, 5]], ['FRONT ROW', [0, 3]], ['MIDDLE ROW', [1, 4]], ['REAR ROW', [2, 5]],
-            ['LEFT COLUMN', [0, 1, 2]], ['RIGHT COLUMN', [3, 4, 5]],
-            ['FRONT LEFT', [0]], ['MIDDLE LEFT', [1]], ['REAR LEFT', [2]],
-            ['FRONT RIGHT', [3]], ['MIDDLE RIGHT', [4]], ['REAR RIGHT', [5]]
+            ['ALL SIX', [0, 1, 2, 3, 4, 5]], ['ENTRANCE ROW', [0, 3]], ['MIDDLE ROW', [1, 4]], ['DJ ROW', [2, 5]],
+            ['LEFT SIDE', [0, 1, 2]], ['RIGHT SIDE', [3, 4, 5]],
+            ['ENTRANCE LEFT', [0]], ['MIDDLE LEFT', [1]], ['DJ LEFT', [2]],
+            ['ENTRANCE RIGHT', [3]], ['MIDDLE RIGHT', [4]], ['DJ RIGHT', [5]]
         ].map(([name, heads]) => Object.freeze({ name, heads: Object.freeze(heads) }))));
     }
 
     static get SPOT_MOTIONS() {
-        return this._spotMotions || (this._spotMotions = Object.freeze(['FOLLOW RIG', 'INDEPENDENT', 'STATIC DOWN', 'MIRROR SWEEP', 'CROSSED BEAMS', 'ROW WAVE', 'ROW FANS', 'ROW CALL / RESPONSE']));
+        return this._spotMotions || (this._spotMotions = Object.freeze(['USE MAIN AIM PATH', 'INDEPENDENT', 'STATIC DOWN', 'MIRROR SWEEP', 'CROSSED BEAMS', 'ROW WAVE', 'ROW FANS', 'ROW CALL / RESPONSE']));
     }
 
     static get SPOT_SEQUENCES() {
-        return this._spotSequences || (this._spotSequences = Object.freeze(['STEADY', 'HEAD CHASE', 'ROW CHASE', 'COLUMN CHASE', 'ROW FILL', 'COLUMN FILL', 'HEAD FILL']));
+        return this._spotSequences || (this._spotSequences = Object.freeze(['ALL TOGETHER', 'ONE SPOT AT A TIME', 'ONE ROW AT A TIME', 'ONE SIDE AT A TIME', 'ADD ROWS', 'ADD SIDES', 'ADD SPOTS']));
     }
 
     static get SPOT_RIG_CONTROLS() {
         return this._spotRigControls || (this._spotRigControls = Object.freeze({
-            cycleSpotTarget: 'EDIT GROUP', toggleSpotGroup: 'GROUP ON/OFF', cycleSpotGroupColor: 'GROUP COLOUR',
-            cycleSpotGroupMotion: 'GROUP MOVEMENT', cycleSpotSequence: 'SEQUENCE', cycleSpotSequenceRate: 'STEP EVERY',
-            resetSpotRig: 'RESET SPOT RIG'
+            cycleSpotTarget: 'CHOOSE SPOTS', toggleSpotGroup: 'SELECTED ON/OFF', cycleSpotGroupColor: 'SELECTED COLOUR',
+            cycleSpotGroupMotion: 'SELECTED AIM PATH', cycleSpotSequence: 'ORDER: ALL SPOTS', cycleSpotSequenceRate: 'ORDER STEP EVERY',
+            resetSpotRig: 'RESET ALL SPOTS'
         }));
     }
 
@@ -381,6 +381,15 @@ class VRClubUI extends VRClubAnimationFinish {
             this[`spotHead${i}Color`] = -1;
             this[`spotHead${i}Motion`] = 0;
         }
+    }
+
+    selectSpotRigGroup(target) {
+        if (!Number.isInteger(target) || !VRClubUI.SPOT_GROUPS[target]) {
+            this.showErrorMessage('That spotlight selection is unavailable.');
+            return false;
+        }
+        this._spotEditTarget = target;
+        return true;
     }
 
     /** One validated edit path for heads, rows and columns on every control surface. */
@@ -414,7 +423,7 @@ class VRClubUI extends VRClubAnimationFinish {
         if (control === 'cycleSpotTarget') return group.name;
         if (control === 'cycleSpotSequence') return VRClubUI.SPOT_SEQUENCES[this.spotSequence || 0];
         if (control === 'cycleSpotSequenceRate') return `${this.spotSequenceRate || 2} BEAT${this.spotSequenceRate === 1 ? '' : 'S'}`;
-        if (control === 'resetSpotRig') return 'ALL ON / FOLLOW RIG';
+        if (control === 'resetSpotRig') return 'ALL ON / MAIN SETTINGS';
         const value = common(control === 'toggleSpotGroup' ? 'Enabled' : control === 'cycleSpotGroupColor' ? 'Color' : 'Motion');
         if (value === null) return 'MIXED';
         if (control === 'toggleSpotGroup') return value ? 'ON' : 'OFF';
@@ -424,7 +433,7 @@ class VRClubUI extends VRClubAnimationFinish {
 
     _stepSpotRigControl(control) {
         if (control === 'cycleSpotTarget') {
-            this._spotEditTarget = ((this._spotEditTarget || 0) + 1) % VRClubUI.SPOT_GROUPS.length;
+            this.selectSpotRigGroup(((this._spotEditTarget || 0) + 1) % VRClubUI.SPOT_GROUPS.length);
             return;
         }
         const target = this._spotEditTarget || 0, first = VRClubUI.SPOT_GROUPS[target].heads[0];
@@ -448,7 +457,7 @@ class VRClubUI extends VRClubAnimationFinish {
     static get LIGHT_TOGGLES() {
         return this._lightToggles || (this._lightToggles = Object.freeze(new Set([
             'lightsActive', 'lasersActive', 'laserSheetActive', 'mirrorBallActive', 'ledWallActive', 'ledMonochrome',
-            'strobesActive', 'smokeActive', 'spotStrobeActive', 'mirrorBallRaysActive'
+            'strobesActive', 'smokeActive', 'spotStrobeActive', 'mirrorBallRaysActive', 'spotPrismActive'
         ])));
     }
 
@@ -586,6 +595,28 @@ class VRClubUI extends VRClubAnimationFinish {
         return VRClubAnimationFinish.STROBE_PATTERN_NAMES[this.strobePattern] || 'ALL AT ONCE';
     }
 
+    smokeControlValue(control) {
+        if (control === 'cycleFogMode') return this.fogBurstMode === 'auto' ? 'STEADY + BURSTS'
+            : this.fogBurstMode === 'burst' ? 'BURST STANDBY' : 'STEADY';
+        const amount = Number.isFinite(this.fogIntensity) ? this.fogIntensity : 1;
+        return amount <= 0.5 ? 'LOW' : amount <= 1 ? 'MEDIUM' : amount <= 1.5 ? 'HIGH' : 'MAXIMUM';
+    }
+
+    aestheticControlValue(control) {
+        if (control === 'cycleShowProgram') return this.showDirector?.program === 'aesthetic' ? 'AESTHETIC' : 'NOCTURNE';
+        if (control === 'toggleReducedShowSmoke') return this.reducedShowSmoke ? 'NORMAL HAZE ONLY' : 'DENSE PASSAGES ALLOWED';
+        if (control === 'cycleSheetSpeed') return `${Math.round((this.laserSheetSpeed ?? 1) * 100)}%`;
+        return `${Math.round((this.laserSheetBrightness ?? 1) * 100)}%`;
+    }
+
+    cycleShowProgram() {
+        if (!this.guardHostControl('lights')) return false;
+        const program = this.showDirector.program === 'aesthetic' ? 'nocturne' : 'aesthetic';
+        this.showDirector.setProgram(program);
+        this.resumeAutoShow();
+        return true;
+    }
+
     /** One movement speed (0.1..2) for every fixture, as the speed faders set it. */
     setLightSpeed(value) {
         const speed = Math.max(0.1, Math.min(2, Number(value) || 1));
@@ -603,6 +634,11 @@ class VRClubUI extends VRClubAnimationFinish {
      * @returns {boolean} true when something changed
      */
     toggleLightControl(control) {
+        if (control === 'toggleReducedShowSmoke') {
+            this.reducedShowSmoke = !this.reducedShowSmoke;
+            return true;
+        }
+        if (control === 'cycleShowProgram') return this.cycleShowProgram();
         if (control === 'cycleSpotTarget') {
             this._stepSpotRigControl(control);
             return true;
@@ -613,6 +649,16 @@ class VRClubUI extends VRClubAnimationFinish {
             return true;
         }
         switch (control) {
+            case 'cycleSheetSpeed': {
+                const levels = [0.25, 0.5, 1, 1.5, 2];
+                this.laserSheetSpeed = levels.find(value => value > (this.laserSheetSpeed ?? 1) + 0.01) ?? levels[0];
+                break;
+            }
+            case 'cycleSheetBrightness': {
+                const levels = [0, 0.25, 0.5, 0.75, 1];
+                this.laserSheetBrightness = levels.find(value => value > (this.laserSheetBrightness ?? 1) + 0.01) ?? levels[0];
+                break;
+            }
             case 'changeColor': this.cycleSpotColor(); break;
             case 'changeLaserColor': this.cycleLaserColor(); break;
             case 'matchAllColors': this.matchAllLightColors(); break;
@@ -620,8 +666,13 @@ class VRClubUI extends VRClubAnimationFinish {
             case 'cycleSpotMode': this.spotlightMode = (this.spotlightMode + 1) % VRClubUI.SPOT_MODE_NAMES.length; break;
             case 'cyclePattern': this.spotlightPattern = (this.spotlightPattern + 1) % VRClubUI.SPOT_PATTERN_NAMES.length; break;
             case 'cycleStrobePattern': this.cycleStrobePattern(); break;
-            case 'cycleGoboPattern': if (typeof this.nextGoboPattern === 'function') this.nextGoboPattern(); break;
-            case 'goboActive': if (typeof this.toggleGobo === 'function') this.toggleGobo(); break;
+            case 'cycleFogMode': this.fogBurstMode = this.fogBurstMode === 'continuous' ? 'auto' : 'continuous'; break;
+            case 'cycleFogAmount': {
+                const levels = [0.5, 1, 1.5, 2];
+                const amount = Number.isFinite(this.fogIntensity) ? this.fogIntensity : 1;
+                this.fogIntensity = levels.find(level => level > amount + 0.01) ?? levels[0];
+                break;
+            }
             case 'cycleLedPattern': {
                 const count = this._ledPatternPlaylist ? this._ledPatternPlaylist.length : 20;
                 this.ledPattern = ((this.ledPattern || 0) + 1) % count;
@@ -706,13 +757,14 @@ class VRClubUI extends VRClubAnimationFinish {
             mirrorBallRaysActive: true,
             laserSheetActive: false,
             smokeActive: false,
+            fogIntensity: 1,
+            fogBurstMode: 'auto',
             spotStrobeActive: true,
             strobePattern: 'all',
             spotlightMode: 0,
             spotlightPattern: 0,
             colorLockActive: false,
-            goboPatternIndex: 0,
-            goboRotationSpeed: 1.0,
+            spotPrismActive: false,
             spotlightSpeed: 1.0,
             laserSpeed: 1.0,
             mirrorBallSpeed: 1.0,
@@ -730,11 +782,21 @@ class VRClubUI extends VRClubAnimationFinish {
     resetVJControls() {
         Object.assign(this, VRClubUI.VJ_DEFAULTS);
         this.resetSpotRig();
-        if (this.goboEnabled && typeof this.toggleGobo === 'function') this.toggleGobo();
         if (this.vjDirector && typeof this.vjDirector.setMasterIntensity === 'function') {
             this.vjDirector.setMasterIntensity(1);
         }
         log.info('\u21ba VJ controls reset to defaults');
+    }
+
+    triggerShowPeak() {
+        if (!this.guardHostControl('lights')) return false;
+        if (this.showDirector && this.showDirector.isDriving()) this.showDirector.triggerShowPeak();
+        else if (this.vjDirector) {
+            this.vjDirector.triggerDrop();
+            this.applyFixtureExclusivity('lasersActive');
+        }
+        else return false;
+        return true;
     }
 
     /**
@@ -842,7 +904,9 @@ class VRClubUI extends VRClubAnimationFinish {
 
     _isVRQuickMenuButtonActive(button) {
         if (button.op) return this._vrNetActive(button);
-        if (button.action === 'pickCharacter') return this.getLocalCharacter() === button.character;
+        if (button.action === 'spotGroup') return (this._spotEditTarget || 0) === button.group;
+        if (button.action === 'pickCharacter') return !this.isCustomAvatarSelected?.() && this.getLocalCharacter() === button.character;
+        if (button.action === 'customAvatar') return !!this.isCustomAvatarSelected?.();
         if (button.action === 'people') {
             return VRClubCore.peopleCategories(button.people).every(name => this.isPeopleVisible(name));
         }
@@ -864,14 +928,18 @@ class VRClubUI extends VRClubAnimationFinish {
 
     /** Buttons that change the room's music or lights: in someone else's room they belong to the host. */
     _isHostOwnedVRButton(button) {
-        if (button.control === 'cycleSpotTarget') return false;
+        if (['cycleSpotTarget', 'toggleReducedShowSmoke'].includes(button.control)) return false;
         if (button.action === 'characterStyle') return true;
         if (VR_MUSIC_ACTIONS.has(button.action) ||
-            ['autoShow', 'holdLook', 'reset', 'cycle', 'nextSection', 'showDrop', 'showSection'].includes(button.action)) return true;
+            ['autoShow', 'holdLook', 'reset', 'cycle', 'nextSection', 'showDrop', 'showPeak', 'showSection'].includes(button.action)) return true;
         return !!button.control && !button.action && !['vrComfortMode', 'vrSeatedMode', 'autoQuality', 'photosensitiveSafeMode'].includes(button.control);
     }
 
     _vrQuickMenuButtonValue(button, active) {
+        if (['cycleShowProgram', 'cycleSheetSpeed', 'cycleSheetBrightness', 'toggleReducedShowSmoke'].includes(button.control)) {
+            return this.aestheticControlValue(button.control);
+        }
+        if (button.action === 'spotGroup') return active ? 'SELECTED' : 'TAP TO EDIT';
         if (this.liveInput?.active && VR_MUSIC_ACTIONS.has(button.action)) {
             return button.action === 'stop' ? 'STOP INPUT' : button.action === 'musicSetup' ? 'LIVE INPUT SETUP' : 'MIXER INPUT';
         }
@@ -917,7 +985,10 @@ class VRClubUI extends VRClubAnimationFinish {
                 : this.playerEyeHeight ? `EYES ${this.playerEyeHeight.toFixed(2)} M` : 'STAND TALL, TAP';
         }
         if (button.action === 'pickCharacter') return button.detail || '';
+        if (button.action === 'customAvatar') return active ? 'IN USE: TAP FOR CLUB CHARACTER' : 'TAP TO USE YOUR MODEL';
+        if (button.action === 'customSharing') return this.customAvatarSharingStatus().enabled ? 'SHARING ENABLED' : 'SHARING OFF';
         if (button.action === 'page' && button.target === 'character') {
+            if (this.isCustomAvatarSelected?.()) return 'UPLOADED AVATAR';
             const id = this.getLocalCharacter();
             return id ? String(this.characterLabel(id)).toUpperCase().slice(0, 28) : (this.getLocalAvatarStyle() === 'male' ? 'DEFAULT MAN' : 'DEFAULT WOMAN');
         }
@@ -945,12 +1016,11 @@ class VRClubUI extends VRClubAnimationFinish {
         if (button.action === 'cycle' && button.control === 'cyclePattern') {
             return VRClubUI.SPOT_PATTERN_NAMES[this.spotlightPattern || 0] || '';
         }
-        if (button.action === 'cycle' && button.control === 'cycleGoboPattern') {
-            const name = (this.goboPatterns && this.goboPatterns[this.goboPatternIndex || 0]) || 'circle';
-            return name === 'circle' ? 'OPEN' : String(name).toUpperCase();
-        }
         if (button.action === 'cycle' && button.control === 'cycleStrobePattern') {
             return VRClubAnimationFinish.STROBE_PATTERN_NAMES[this.strobePattern] || 'ALL AT ONCE';
+        }
+        if (button.control === 'cycleFogMode' || button.control === 'cycleFogAmount') {
+            return this.smokeControlValue(button.control);
         }
         if (button.action === 'holdMode') return VRClubUI.LIGHT_HOLD_NAMES[this.lightHold.mode];
         if (button.action === 'holdTiming') {
@@ -1053,13 +1123,24 @@ class VRClubUI extends VRClubAnimationFinish {
                 { label: 'MIRROR COLOUR', control: 'changeMirrorBallColor', action: 'cycle' },
                 { label: 'MATCH ALL COLOURS', control: 'matchAllColors', action: 'cycle' },
                 { label: 'SPOT RIG', target: 'spotRig', action: 'page' },
+                { label: 'SHEET SETTINGS', target: 'sheetSettings', action: 'page' },
                 common.back,
                 common.close
             ],
             spotRig: [
-                ...Object.entries(VRClubUI.SPOT_RIG_CONTROLS).map(([control, label]) => ({ label, control, action: 'cycle' })),
+                { label: 'CHOOSE SPOTS', control: 'cycleSpotTarget', action: 'page', target: 'spotGroups' },
+                ...Object.entries(VRClubUI.SPOT_RIG_CONTROLS).filter(([control]) => control !== 'cycleSpotTarget')
+                    .map(([control, label]) => ({ label, control, action: 'cycle' })),
                 { label: 'SPOT MODE', control: 'cycleSpotMode', action: 'cycle' },
                 { label: 'SPOT AIM PATH', control: 'cyclePattern', action: 'cycle' },
+                common.back, common.close
+            ],
+            spotGroups: [
+                ...VRClubUI.SPOT_GROUPS.slice(0, 6).map(({ name: label }, group) => ({ label, group, action: 'spotGroup' })),
+                { label: 'INDIVIDUAL SPOTS', action: 'page', target: 'spotHeads' }, common.back, common.close
+            ],
+            spotHeads: [
+                ...VRClubUI.SPOT_GROUPS.slice(6).map(({ name: label }, index) => ({ label, group: index + 6, action: 'spotGroup' })),
                 common.back, common.close
             ],
             effects: [
@@ -1071,10 +1152,22 @@ class VRClubUI extends VRClubAnimationFinish {
                 { label: 'LED NEXT', control: 'cycleLedPattern', action: 'cycle' },
                 { label: 'LED MONO', control: 'ledMonochrome' },
                 { label: 'MIRROR BEAMS', control: 'mirrorBallRaysActive' },
-                { label: 'PROJECTED GOBO', control: 'goboActive' },
-                { label: 'GOBO IMAGE', control: 'cycleGoboPattern', action: 'cycle' },
+                { label: 'MULTI-BEAM FILTER', control: 'spotPrismActive' },
+                { label: 'SMOKE SETTINGS', action: 'page', target: 'smokeSettings' },
                 common.back,
                 common.close
+            ],
+            smokeSettings: [
+                { label: 'SMOKE', control: 'smokeActive' },
+                { label: 'SMOKE AMOUNT', control: 'cycleFogAmount', action: 'cycle' },
+                { label: 'SMOKE OUTPUT', control: 'cycleFogMode', action: 'cycle' },
+                { label: 'DENSE SHOW SMOKE FOR ME', control: 'toggleReducedShowSmoke', action: 'cycle' },
+                common.back, common.close
+            ],
+            sheetSettings: [
+                { label: 'SHEET SPEED', control: 'cycleSheetSpeed', action: 'cycle' },
+                { label: 'SHEET BRIGHTNESS', control: 'cycleSheetBrightness', action: 'cycle' },
+                common.back, common.close
             ],
             // Comfort is how you move and what you see; who you are (character, height, seating) lives on ME. The home page
             // has no free slot in a room (twelve is the most a page holds), so ME is reached from here.
@@ -1091,12 +1184,19 @@ class VRClubUI extends VRClubAnimationFinish {
             me: [
                 { label: 'MY CHARACTER', action: 'page', target: 'character' },
                 { label: 'EDIT MY CHARACTER', action: 'page', target: 'appearanceEditor' },
+                ...(this.hasCustomAvatarGlb?.() ? [{ label: 'UPLOADED AVATAR', action: 'customAvatar' }] : []),
+                ...(this.hasCustomAvatarGlb?.() ? [{ label: 'SHARE UPLOADED MODEL', action: 'page', target: 'uploadedSharing' }] : []),
                 { label: 'MEASURE EYE HEIGHT', action: 'measureHeight' },
                 { label: 'SEATED MODE', control: 'vrSeatedMode' },
                 common.back,
                 common.close
             ],
             character: this._vrCharacterPageDefinitions(common),
+            uploadedSharing: [
+                { label: 'SHARE MODEL WITH ROOM', action: 'customSharing', enabled: true },
+                { label: 'STOP SHARING MODEL', action: 'customSharing', enabled: false },
+                common.back, common.close
+            ],
             // Who is in the club: a personal choice, like Safe Mode, so it is never the host's.
             crowd: [
                 { label: 'DANCERS', action: 'people', people: 'dancers' },
@@ -1122,7 +1222,9 @@ class VRClubUI extends VRClubAnimationFinish {
             ],
             show: [
                 { label: 'AUTO SHOW', action: 'autoShow' },
+                { label: 'SHOW STYLE', control: 'cycleShowProgram', action: 'cycle' },
                 { label: 'COUNTDOWN / DROP', action: 'showDrop' },
+                { label: 'PEAK NOW', action: 'showPeak' },
                 { label: 'NEXT SECTION', action: 'nextSection' },
                 { label: 'HOLD THIS LOOK', action: 'holdLook' },
                 { label: 'CHOOSE SECTION', action: 'page', target: 'showSections' },
@@ -1164,6 +1266,8 @@ class VRClubUI extends VRClubAnimationFinish {
                 this._immersive && this._immersive.mode !== 'manual'
                     ? { label: 'ADD FROM PHONE', action: 'page', target: 'musicPhone' }
                     : { label: 'ADD URL / FILE / FOLDER', action: 'musicSetup' },
+                ...(this.musicLibrary?.readError ? [{ label: 'RETRY SAVED SETS', action: 'retrySavedSets' }] : []),
+                ...(this.musicLibrary?.readError === 'unreadable' ? [{ label: 'RESET SAVED SETS', action: 'resetSavedSets' }] : []),
                 common.back,
                 common.close
             ],
@@ -1175,6 +1279,7 @@ class VRClubUI extends VRClubAnimationFinish {
             dj: [
                 { label: 'MALE DJ', action: 'dj', dj: 'male' },
                 { label: 'FEMALE DJ', action: 'dj', dj: 'female' },
+                ...(this.hasCustomAvatarGlb?.() ? [{ label: 'MY UPLOADED AVATAR', action: 'dj', dj: 'personal' }] : []),
                 common.back,
                 common.close
             ]
@@ -1251,7 +1356,8 @@ class VRClubUI extends VRClubAnimationFinish {
             context.textAlign = 'left';
             context.textBaseline = 'middle';
             const titles = { home: 'VR CLUB', onlineSafety: 'BEFORE YOU GO ONLINE', room: 'JOIN ROOM', look: 'RANDOM LOOK', gestures: 'REACT', chat: 'CHAT', crowd: 'WHO IS HERE',
-                me: 'ME', character: 'YOUR CHARACTER',
+                sheetSettings: 'LASER SHEET SETTINGS',
+                me: 'ME', character: 'YOUR CHARACTER', uploadedSharing: 'SHARE YOUR UPLOADED MODEL',
                 appearanceEditor: 'PERSONAL WARDROBE', appearanceBase: 'BASE CHARACTER', appearanceHair: 'HAIR STYLE',
                 appearanceOutfit: 'OUTFIT STYLE', appearanceSkin: 'SKIN COLOR', appearanceHairColor: 'HAIR COLOR',
                 appearanceTop: 'TOP COLOR', appearanceBottom: 'BOTTOM COLOR',
@@ -1269,14 +1375,19 @@ class VRClubUI extends VRClubAnimationFinish {
             // What each page is for, in plain words: the first thing a new visitor reads.
             const about = {
                 lights: 'FIXTURES, COLOURS AND SPOT MOVEMENT',
-                spotRig: 'EDIT A GROUP; CHASE CARRIES SPOT COLOUR',
-                effects: 'LED WALL, STROBES, SMOKE, BEAMS AND GOBOS',
+                spotRig: 'SELECTED SPOTS ABOVE; ORDER AFFECTS ALL SIX',
+                spotGroups: 'ENTRANCE TO DJ; LEFT AND RIGHT FACE THE DJ',
+                spotHeads: 'ENTRANCE TO DJ; LEFT AND RIGHT FACE THE DJ',
+                effects: 'LED WALL, STROBES, SMOKE AND BEAMS',
+                smokeSettings: 'CHOOSE THE AMOUNT AND HOW SMOKE IS RELEASED',
+                sheetSettings: 'CHANGE ONLY THE SHEET SPEED AND BRIGHTNESS',
                 show: 'THE AUTOMATIC SHOW THAT FOLLOWS THE MUSIC',
                 showSections: 'JUMP TO A MOVEMENT AND KEEP IT BY YOUR HOLD RULE',
                 comfort: 'HOW YOU MOVE, WHAT YOU SEE AND FEEL',
                 me: 'YOUR CHARACTER, YOUR HEIGHT AND SITTING',
                 character: 'YOUR BODY, MIRROR AND ONLINE APPEARANCE',
-                appearanceEditor: 'YOUR DETAILED PERSONAL AVATAR; NO PHOTO OR ACCOUNT UPLOAD',
+                appearanceEditor: this.isCustomAvatarSelected?.() ? 'FIT CLOTHING TO YOUR UPLOADED BODY; APPLY TO SAVE' : 'CUSTOMIZE YOUR CLUB CHARACTER',
+                uploadedSharing: 'ROOM GUESTS RECEIVE YOUR MODEL AND MAY KEEP A COPY',
                 appearanceBase: 'CHOOSE YOUR PERSONAL AVATAR BASE',
                 appearanceHair: 'CHOOSE YOUR PERSONAL HAIR STYLE',
                 appearanceOutfit: 'CHOOSE YOUR PERSONAL OUTFIT',
@@ -2026,12 +2137,37 @@ class VRClubUI extends VRClubAnimationFinish {
 
     _activateVRQuickMenuButton(button) {
         if (!button) return;
+        if (button.action === 'spotGroup') {
+            if (this.selectSpotRigGroup(button.group)) this._showVRQuickMenuPage('spotRig');
+            return;
+        }
         if (button.action === 'close') {
             this.toggleVRQuickMenu(false);
             return;
         }
         if (['welcomeSafe', 'welcomeFull', 'accessNewCode', 'accessExit', 'musicSync'].includes(button.action)) {
             if (this._immersive) this._immersive.handleMenuAction(button.action);
+            return;
+        }
+        if (button.action === 'retrySavedSets') {
+            this._vrArmed = null;
+            if (this.musicLibrary?.retrySavedSets()) this.showErrorMessage('Saved sets loaded.');
+            else this.showErrorMessage('Saved sets still cannot be read. The stored list was not changed.');
+            this._showVRQuickMenuPage(this._vrQuickMenuPage);
+            return;
+        }
+        if (button.action === 'resetSavedSets') {
+            if (!this._vrArmed || this._vrArmed.key !== 'resetSavedSets' || this._vrArmed.until < Date.now()) {
+                this._vrArmed = { key: 'resetSavedSets', until: Date.now() + 4000 };
+                this.showErrorMessage('Press RESET SAVED SETS again within four seconds to permanently erase the unreadable list.');
+                return;
+            }
+            this._vrArmed = null;
+            try {
+                this.musicLibrary.resetUnreadableSets();
+                this.showErrorMessage('Unreadable saved list reset on this device.');
+            } catch (error) { this.showErrorMessage(error.message); }
+            this._showVRQuickMenuPage(this._vrQuickMenuPage);
             return;
         }
         if (button.action === 'page') {
@@ -2157,8 +2293,13 @@ class VRClubUI extends VRClubAnimationFinish {
         if (button.action === 'showDrop') {
             if (!this.guardHostControl('lights')) return;
             if (this.showDirector && this.showDirector.isDriving()) this.showDirector.triggerShowDrop();
-            else if (this.vjDirector) this.vjDirector.triggerDrop();
+            else this.triggerShowPeak();
             this.showErrorMessage(this.showDirector && this.showDirector.isDriving() ? 'Countdown started' : 'Peak look triggered');
+            this._refreshVRQuickMenu();
+            return;
+        }
+        if (button.action === 'showPeak') {
+            if (this.triggerShowPeak()) this.showErrorMessage('Peak look triggered');
             this._refreshVRQuickMenu();
             return;
         }
@@ -2197,6 +2338,18 @@ class VRClubUI extends VRClubAnimationFinish {
             if (id === false) return;
             this.showErrorMessage(id ? `Your character: ${button.label.toLowerCase()}, ${button.detail.toLowerCase()}`
                 : this.multiplayer?.connected ? 'Choosing a random room character\u2026' : 'Your character: your own body');
+            return;
+        }
+        if (button.action === 'customAvatar') {
+            if (this.setCustomAvatarSelected(!this.isCustomAvatarSelected())) this._refreshVRQuickMenu();
+            return;
+        }
+        if (button.action === 'customSharing') {
+            try {
+                this.setCustomAvatarSharing(button.enabled);
+                this.showErrorMessage(this.customAvatarSharingStatus().message);
+            } catch (error) { this.showErrorMessage(error.message); }
+            this._refreshVRQuickMenu();
             return;
         }
         if (button.action === 'characterPage') {
@@ -3557,7 +3710,7 @@ class VRClubUI extends VRClubAnimationFinish {
             danceFloor: { label: 'Dance Floor', pos: new BABYLON.Vector3(-2.8, 1.7, -9.2), target: new BABYLON.Vector3(0, 2.6, -18.5) },
             // Eye height for someone standing on the 0.5 m riser, inside the 1 m
             // gap between the LED wall (z=-20) and the deck plinth (z=-19), facing out.
-            djBooth: { label: 'DJ Booth', pos: new BABYLON.Vector3(0, 2.2, -19.4), target: new BABYLON.Vector3(0, 1.7, -10) },
+            djBooth: { label: 'DJ Booth', pos: new BABYLON.Vector3(0, 2.2, -19.4), target: new BABYLON.Vector3(0, 1.7, -10), level: 0.5 },
             lightingGallery: { label: 'Lighting Gallery', pos: new BABYLON.Vector3(10, 5.2, -6.5), target: new BABYLON.Vector3(0, 2.4, -15.5) },
             // Standing on the steel mezzanine (deck at y 3), looking across the dance floor to the booth.
             balcony: { label: 'Balcony', pos: new BABYLON.Vector3(-10.9, 4.7, -12.4), target: new BABYLON.Vector3(1, 2.7, -16), level: 3.0 },
@@ -3615,372 +3768,6 @@ class VRClubUI extends VRClubAnimationFinish {
         setTimeout(() => feedback.remove(), 1500);
     }
 
-    // ========== GOBO FILTER CONTROL METHODS ==========
-    
-    /**
-     * Toggle gobo filters on/off
-     */
-    toggleGobo() {
-        this.goboEnabled = !this.goboEnabled;
-        
-        // Apply or remove gobo textures
-        if (this.spotlights) {
-            this.spotlights.forEach((spot, i) => {
-                if (spot.goboProjection) {
-                    const showGobo = this.goboEnabled && this.lightsActive;
-                    spot.goboProjection.setEnabled(showGobo);
-                    spot.goboProjection.visibility = showGobo ? 1.0 : 0;
-                    if (this.goboEnabled) {
-                        this._applyGoboTexture(spot, i);
-                        // Hide regular pool when gobo is on (gobo replaces it)
-                        if (spot.lightPool) spot.lightPool.visibility = 0;
-                    } else {
-                        // Clear projectionTexture when gobos disabled
-                        if (spot.light.projectionTexture) {
-                            spot.light.projectionTexture.dispose();
-                            spot.light.projectionTexture = null;
-                        }
-                        // Show regular pool when gobo disabled
-                        if (spot.lightPool && this.lightsActive) spot.lightPool.visibility = 1.0;
-                    }
-                }
-            });
-        }
-        
-        log.info(`🎭 Gobo filters ${this.goboEnabled ? 'enabled' : 'disabled'}`);
-        return this.goboEnabled;
-    }
-    
-    /**
-     * Set gobo enabled state
-     */
-    setGoboEnabled(enabled) {
-        this.goboEnabled = enabled;
-        
-        if (this.spotlights) {
-            this.spotlights.forEach((spot, i) => {
-                if (spot.goboProjection) {
-                    const showGobo = enabled && this.lightsActive;
-                    spot.goboProjection.setEnabled(showGobo);
-                    spot.goboProjection.visibility = showGobo ? 1.0 : 0;
-                    if (enabled) {
-                        this._applyGoboTexture(spot, i);
-                        // Hide regular pool
-                        if (spot.lightPool) spot.lightPool.visibility = 0;
-                    } else {
-                        // Clear projectionTexture when gobos disabled
-                        if (spot.light.projectionTexture) {
-                            spot.light.projectionTexture.dispose();
-                            spot.light.projectionTexture = null;
-                        }
-                        // Show regular pool when gobo disabled
-                        if (spot.lightPool && this.lightsActive) spot.lightPool.visibility = 1.0;
-                    }
-                }
-            });
-        }
-    }
-    
-    /**
-     * Cycle to next gobo pattern
-     */
-    nextGoboPattern() {
-        this.goboPatternIndex = (this.goboPatternIndex + 1) % this.goboPatterns.length;
-        
-        // Regenerate textures for all spotlights
-        if (this.spotlights) {
-            this.spotlights.forEach((spot, i) => {
-                this._applyGoboTexture(spot, i);
-            });
-        }
-        
-        const patternName = this.goboPatterns[this.goboPatternIndex];
-        log.info(`🎭 Gobo pattern: ${patternName}`);
-        return patternName;
-    }
-    
-    /**
-     * Set gobo pattern by index or name
-     */
-    setGoboPattern(pattern) {
-        if (typeof pattern === 'string') {
-            const idx = this.goboPatterns.indexOf(pattern);
-            if (idx >= 0) {
-                this.goboPatternIndex = idx;
-            }
-        } else {
-            this.goboPatternIndex = pattern % this.goboPatterns.length;
-        }
-        
-        // Regenerate textures
-        if (this.spotlights) {
-            this.spotlights.forEach((spot, i) => {
-                this._applyGoboTexture(spot, i);
-            });
-        }
-    }
-    
-    /**
-     * Get current gobo pattern name
-     */
-    getGoboPattern() {
-        return this.goboPatterns[this.goboPatternIndex];
-    }
-    
-    /**
-     * Set gobo rotation speed
-     */
-    setGoboRotationSpeed(speed) {
-        this.goboRotationSpeed = speed;
-    }
-    
-    /**
-     * Apply gobo texture to a spotlight's projection disc
-     */
-    _applyGoboTexture(spot, index) {
-        if (!spot.goboProjection || !spot.goboMat) return;
-        
-        const patternName = this.goboPatterns[this.goboPatternIndex];
-        
-        // Dispose old texture if exists
-        if (spot.goboMat.emissiveTexture) {
-            spot.goboMat.emissiveTexture.dispose();
-            spot.goboMat.emissiveTexture = null;
-        }
-        
-        // Dispose old projection texture on the SpotLight
-        if (spot.light.projectionTexture) {
-            spot.light.projectionTexture.dispose();
-            spot.light.projectionTexture = null;
-        }
-        
-        // Circle pattern = no texture (plain disc / plain light)
-        if (patternName === 'circle') {
-            return;
-        }
-        
-        // Create procedural gobo texture for disc mesh overlay
-        const texture = this._createGoboTexture(patternName, index);
-        if (texture) {
-            spot.goboMat.emissiveTexture = texture;
-            
-            // UPGRADE: Create a second gobo texture for SpotLight.projectionTexture
-            // This makes the SpotLight physically project the gobo pattern onto ALL surfaces
-            // (floors, walls, objects, NPCs) with proper PBR lighting math
-            const projTexture = this._createGoboTexture(patternName, index + '_proj');
-            if (projTexture) {
-                spot.light.projectionTexture = projTexture;
-            }
-        }
-    }
-    
-    /**
-     * Create procedural gobo texture
-     */
-    _createGoboTexture(patternName, index) {
-        const size = 256;
-        const texture = new BABYLON.DynamicTexture("goboTex" + index + "_" + patternName, size, this.scene, true);
-        const ctx = texture.getContext();
-        
-        // Clear with black (transparent areas)
-        ctx.fillStyle = 'black';
-        ctx.fillRect(0, 0, size, size);
-        
-        const cx = size / 2;
-        const cy = size / 2;
-        const radius = size / 2 - 10;
-        
-        // Circular mask
-        ctx.save();
-        ctx.beginPath();
-        ctx.arc(cx, cy, radius, 0, Math.PI * 2);
-        ctx.clip();
-        
-        // Draw pattern in white
-        ctx.fillStyle = 'white';
-        ctx.strokeStyle = 'white';
-        
-        switch (patternName) {
-            case 'star':
-                this._drawStar(ctx, cx, cy, radius * 0.9, 6);
-                break;
-            case 'triangles':
-                this._drawTriangles(ctx, cx, cy, radius);
-                break;
-            case 'squares':
-                this._drawSquares(ctx, cx, cy, radius);
-                break;
-            case 'rings':
-                this._drawRings(ctx, cx, cy, radius);
-                break;
-            case 'spiral':
-                this._drawSpiral(ctx, cx, cy, radius);
-                break;
-            case 'dots':
-                this._drawDots(ctx, cx, cy, radius);
-                break;
-            case 'slats':
-                this._drawSlats(ctx, cx, cy, radius);
-                break;
-            case 'cross':
-                this._drawCross(ctx, cx, cy, radius);
-                break;
-            case 'flower':
-                this._drawFlower(ctx, cx, cy, radius);
-                break;
-        }
-        
-        ctx.restore();
-        texture.update();
-        
-        texture.hasAlpha = true;
-        texture.wrapU = BABYLON.Texture.CLAMP_ADDRESSMODE;
-        texture.wrapV = BABYLON.Texture.CLAMP_ADDRESSMODE;
-        
-        return texture;
-    }
-    
-    // Gobo pattern drawing functions
-    _drawStar(ctx, cx, cy, radius, points) {
-        const innerRadius = radius * 0.4;
-        ctx.beginPath();
-        for (let i = 0; i < points * 2; i++) {
-            const r = i % 2 === 0 ? radius : innerRadius;
-            const angle = (i * Math.PI / points) - Math.PI / 2;
-            const x = cx + r * Math.cos(angle);
-            const y = cy + r * Math.sin(angle);
-            if (i === 0) ctx.moveTo(x, y);
-            else ctx.lineTo(x, y);
-        }
-        ctx.closePath();
-        ctx.fill();
-    }
-    
-    _drawTriangles(ctx, cx, cy, radius) {
-        const triangleSize = radius * 0.4;
-        const positions = [
-            [0, -0.5], [-0.4, 0.3], [0.4, 0.3],
-            [-0.3, -0.2], [0.3, -0.2], [0, 0.4]
-        ];
-        positions.forEach(([ox, oy]) => {
-            const x = cx + ox * radius;
-            const y = cy + oy * radius;
-            ctx.beginPath();
-            ctx.moveTo(x, y - triangleSize * 0.5);
-            ctx.lineTo(x - triangleSize * 0.4, y + triangleSize * 0.3);
-            ctx.lineTo(x + triangleSize * 0.4, y + triangleSize * 0.3);
-            ctx.closePath();
-            ctx.fill();
-        });
-    }
-    
-    _drawSquares(ctx, cx, cy, radius) {
-        const gridSize = 5;
-        const cellSize = (radius * 2) / gridSize;
-        const startX = cx - radius;
-        const startY = cy - radius;
-        for (let row = 0; row < gridSize; row++) {
-            for (let col = 0; col < gridSize; col++) {
-                if ((row + col) % 2 === 0) {
-                    ctx.fillRect(startX + col * cellSize + 2, startY + row * cellSize + 2, cellSize - 4, cellSize - 4);
-                }
-            }
-        }
-    }
-    
-    _drawRings(ctx, cx, cy, radius) {
-        const ringCount = 4;
-        const ringWidth = radius / (ringCount * 2);
-        ctx.lineWidth = ringWidth;
-        for (let i = 1; i <= ringCount; i++) {
-            ctx.beginPath();
-            ctx.arc(cx, cy, i * (radius / ringCount) - ringWidth / 2, 0, Math.PI * 2);
-            ctx.stroke();
-        }
-    }
-    
-    _drawSpiral(ctx, cx, cy, radius) {
-        const arms = 4;
-        const rotations = 1.5;
-        ctx.lineWidth = radius * 0.15;
-        ctx.lineCap = 'round';
-        for (let arm = 0; arm < arms; arm++) {
-            const startAngle = (arm * Math.PI * 2) / arms;
-            ctx.beginPath();
-            for (let t = 0; t <= 1; t += 0.01) {
-                const angle = startAngle + t * Math.PI * 2 * rotations;
-                const r = t * radius;
-                const x = cx + r * Math.cos(angle);
-                const y = cy + r * Math.sin(angle);
-                if (t === 0) ctx.moveTo(x, y);
-                else ctx.lineTo(x, y);
-            }
-            ctx.stroke();
-        }
-    }
-    
-    _drawDots(ctx, cx, cy, radius) {
-        const dotRadius = radius * 0.08;
-        const rings = 3;
-        for (let ring = 1; ring <= rings; ring++) {
-            const ringRadius = (ring / rings) * radius * 0.85;
-            const dotCount = ring * 6;
-            for (let i = 0; i < dotCount; i++) {
-                const angle = (i / dotCount) * Math.PI * 2;
-                const x = cx + ringRadius * Math.cos(angle);
-                const y = cy + ringRadius * Math.sin(angle);
-                ctx.beginPath();
-                ctx.arc(x, y, dotRadius, 0, Math.PI * 2);
-                ctx.fill();
-            }
-        }
-        // Center dot
-        ctx.beginPath();
-        ctx.arc(cx, cy, dotRadius * 1.5, 0, Math.PI * 2);
-        ctx.fill();
-    }
-    
-    _drawSlats(ctx, cx, cy, radius) {
-        const slatCount = 7;
-        const slatHeight = radius * 0.12;
-        const gap = (radius * 2) / (slatCount + 1);
-        const startY = cy - radius;
-        for (let i = 1; i <= slatCount; i++) {
-            const y = startY + i * gap;
-            ctx.fillRect(cx - radius, y - slatHeight / 2, radius * 2, slatHeight);
-        }
-    }
-    
-    _drawCross(ctx, cx, cy, radius) {
-        const armWidth = radius * 0.35;
-        const armLength = radius * 0.9;
-        ctx.fillRect(cx - armWidth / 2, cy - armLength, armWidth, armLength * 2);
-        ctx.fillRect(cx - armLength, cy - armWidth / 2, armLength * 2, armWidth);
-    }
-    
-    _drawFlower(ctx, cx, cy, radius) {
-        const petalCount = 8;
-        const petalLength = radius * 0.7;
-        const petalWidth = radius * 0.35;
-        for (let i = 0; i < petalCount; i++) {
-            const angle = (i / petalCount) * Math.PI * 2;
-            ctx.save();
-            ctx.translate(cx, cy);
-            ctx.rotate(angle);
-            ctx.beginPath();
-            ctx.ellipse(0, -petalLength / 2, petalWidth / 2, petalLength / 2, 0, 0, Math.PI * 2);
-            ctx.fill();
-            ctx.restore();
-        }
-        // Center circle
-        ctx.beginPath();
-        ctx.arc(cx, cy, radius * 0.25, 0, Math.PI * 2);
-        ctx.fill();
-    }
-    
-    /**
-     * Centralized audio context initialization - prevents multiple AudioContext creation
-     * Call this before connecting any audio source to the analyser
-     */
+
 }
 window.VRClubUI = VRClubUI;

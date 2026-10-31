@@ -7,7 +7,7 @@
 import { createServer } from 'node:http';
 import { createReadStream } from 'node:fs';
 import { stat, realpath } from 'node:fs/promises';
-import { join, normalize, extname, sep } from 'node:path';
+import { join, normalize, extname, relative, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { createBrotliCompress, createGzip, constants as zlibConstants } from 'node:zlib';
 import { pipeline } from 'node:stream';
@@ -45,10 +45,10 @@ const MIME = {
  * Paths that must never be served, regardless of ROOT.
  *
  * Without `--dist` this server's ROOT is the repository itself, so a forgotten
- * flag would otherwise expose `.git/config` (remote URLs, sometimes credentials),
- * `.env`, `node_modules/` and the whole source tree.
+ * flag would otherwise expose local credentials and Worker development state.
+ * Hidden paths are private except for the public Digital Asset Links directory.
  */
-const DENY = /(^|[\\/])(\.git|\.env|\.github|node_modules|scripts|test|quest-package|invitations\.(json|sql)|package(-lock)?\.json|backup_aframe)([\\/]|$)|\.(keystore|jks|apk|aab)$/i;
+const DENY = /(^|[\\/])(?:\.(?!well-known(?:[\\/]|$))[^\\/]+|node_modules|scripts|test|worker|quest-package|invitations\.(json|sql)|package(-lock)?\.json|backup_aframe)([\\/]|$)|\.(keystore|jks|apk|aab)$/i;
 
 /** Content types worth compressing. Images, GLB and audio are already compressed. */
 const COMPRESSIBLE = /^(text\/|application\/(json|javascript|xml)|image\/svg)/;
@@ -95,7 +95,7 @@ const server = createServer(async (req, res) => {
         // normalize() alone cannot see through a symlink whose target lives outside
         // ROOT, so re-assert the prefix against the fully resolved real path.
         const realPath = await realpath(filePath);
-        if (!isInsideRoot(realPath)) {
+        if (!isInsideRoot(realPath) || DENY.test(relative(ROOT, realPath))) {
             res.writeHead(404, { 'Content-Type': 'text/plain; charset=utf-8' }).end('Not Found');
             return;
         }

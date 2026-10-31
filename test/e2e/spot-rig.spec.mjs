@@ -4,6 +4,95 @@ import { enterClub, enterVR, exitVR, expectHealthyRuntime, useQuestHarness } fro
 
 useQuestHarness();
 
+test('smoke settings agree on desktop, the desk and the VR menu', async ({ page }) => {
+    test.setTimeout(900_000);
+    await enterClub(page);
+    const result = await page.evaluate(async () => {
+        const club = window.vrClub;
+        await club.modelLoadPromise;
+        club.engine.stopRenderLoop();
+        club.vjManualMode = true;
+        club.fogIntensity = 1;
+        club.fogBurstMode = 'auto';
+        document.getElementById('vjMenu').classList.remove('hidden');
+        const amount = document.querySelector('[data-control="cycleFogAmount"]');
+        const mode = document.querySelector('[data-control="cycleFogMode"]');
+        amount.click();
+        mode.click();
+        const deskAmount = window.VJDeskLayout.buttons.lights.find(button => button.id === 'fogAmount');
+        const deskMode = window.VJDeskLayout.buttons.lights.find(button => button.id === 'fogMode');
+        const vr = club._vrQuickMenuPageDefinitions('smokeSettings');
+        const vrAmount = vr.find(button => button.control === 'cycleFogAmount');
+        const vrMode = vr.find(button => button.control === 'cycleFogMode');
+        return {
+            intensity: club.fogIntensity, mode: club.fogBurstMode,
+            domAmount: amount.textContent, domMode: mode.textContent,
+            deskAmount: club._vjDeskButtonState(deskAmount).value, deskMode: club._vjDeskButtonState(deskMode).value,
+            vrAmount: club._vrQuickMenuButtonValue(vrAmount, false), vrMode: club._vrQuickMenuButtonValue(vrMode, false),
+            slots: vr.length
+        };
+    });
+    expect(result).toEqual({ intensity: 1.5, mode: 'continuous', domAmount: 'SMOKE AMOUNT: HIGH',
+        domMode: 'SMOKE OUTPUT: STEADY', deskAmount: 'HIGH', deskMode: 'STEADY',
+        vrAmount: 'HIGH', vrMode: 'STEADY', slots: 5 });
+});
+
+test('random and independent heads move at bounded speeds through live speed and pattern changes', async ({ page }) => {
+    test.setTimeout(900_000);
+    await enterClub(page);
+    const measurements = await page.evaluate(async () => {
+        const club = window.vrClub;
+        await club.modelLoadPromise;
+        club.engine.stopRenderLoop();
+        club.vjManualMode = true;
+        club.lightsActive = true;
+        club.spotlightMode = 1;
+        const results = [];
+        for (const hz of [45, 72, 120]) {
+            club.resetSpotRig();
+            club.spotlightPattern = 1;
+            let time = 10000;
+            const step = (speed, energy) => {
+                time += 1 / hz;
+                club.spotlightSpeed = speed;
+                club.updateSpotlights({ time, dt: 1 / hz, dtScale: 60 / hz,
+                    audio: { hasAudio: true, energy, average: energy, bass: energy, mid: energy, treble: energy } });
+            };
+            step(1, 0.1);
+            for (const pattern of [0, 4]) {
+                club.spotlightPattern = pattern;
+                if (pattern === 4) {
+                    club.spotlightPattern = 1;
+                    club.setSpotGroup(0, { motion: 1 });
+                }
+                let maxPan = 0, maxTilt = 0, maxBeam = 0, travel = 0;
+                let old = club.spotlights.map(s => ({ pan: s.yoke.rotation.y, tilt: s.head.rotation.x,
+                    dir: s._photoDir.clone() }));
+                for (let frame = 0; frame < hz * 8; frame++) {
+                    step(frame < hz * 4 ? 0.2 : 2, frame < hz * 4 ? 0 : 1);
+                    club.spotlights.forEach((s, i) => {
+                        maxPan = Math.max(maxPan, Math.abs(s.yoke.rotation.y - old[i].pan) * hz);
+                        maxTilt = Math.max(maxTilt, Math.abs(s.head.rotation.x - old[i].tilt) * hz);
+                        const dot = Math.max(-1, Math.min(1, window.BABYLON.Vector3.Dot(s._photoDir, old[i].dir)));
+                        const angle = Math.acos(dot);
+                        maxBeam = Math.max(maxBeam, angle * hz);
+                        travel += angle;
+                        old[i] = { pan: s.yoke.rotation.y, tilt: s.head.rotation.x, dir: s._photoDir.clone() };
+                    });
+                }
+                results.push({ hz, pattern, maxPan, maxTilt, maxBeam, travel });
+            }
+        }
+        return results;
+    });
+    for (const result of measurements) {
+        expect(result.maxPan, JSON.stringify(result)).toBeLessThan(0.751);
+        expect(result.maxTilt, JSON.stringify(result)).toBeLessThan(0.501);
+        expect(result.maxBeam, JSON.stringify(result)).toBeLessThan(0.91);
+        expect(result.travel, JSON.stringify(result)).toBeGreaterThan(0.1);
+    }
+});
+
 test('spot rig: individual colours, dark heads, shading slots, musical rows and blackout agree in the real scene', async ({ page }) => {
     test.setTimeout(900_000);
     await enterClub(page);
@@ -18,7 +107,7 @@ test('spot rig: individual colours, dark heads, shading slots, musical rows and 
         club.spotlightMode = 1;
         club.spotStrobeActive = false;
         club.masterIntensity = 1;
-        club.setGoboEnabled(true);
+        club.spotPrismActive = false;
         const colour = value => [value.r, value.g, value.b];
         const paletteBefore = club.spotColorList.map(colour);
         let enableCalls = 0;
@@ -39,10 +128,12 @@ test('spot rig: individual colours, dark heads, shading slots, musical rows and 
             beam: colour(spot.beamMat.emissiveColor), beamVisible: spot.beam.visibility,
             poolVisible: spot.lightPool?.visibility || 0,
             glowVisible: spot.beamGlow?.visibility || 0,
-            goboVisible: spot.goboProjection?.isEnabled() ? spot.goboProjection.visibility : 0
+            prismVisible: spot.prism?.isVisible ? spot.prism.visibility : 0
         }));
 
-        document.querySelector('[data-control="cycleSpotTarget"]').click();
+        const selection = document.getElementById('spotRigSelection');
+        selection.value = '1';
+        selection.dispatchEvent(new Event('change', { bubbles: true }));
         document.querySelector('[data-control="toggleSpotGroup"]').click();
         const fromDOM = { target: club._spotEditTarget, front: [club.spotHead0Enabled, club.spotHead3Enabled], middle: club.spotHead1Enabled };
         club.resetSpotRig();
@@ -61,7 +152,7 @@ test('spot rig: individual colours, dark heads, shading slots, musical rows and 
         const distinct = { blue: colour(club.spotlights[4]._rigColor), green: colour(club.spotlights[5]._rigColor) };
 
         club.setSpotGroup(0, { enabled: true, motion: 1 });
-        update(1);
+        update(240);
         const independent = club.spotlights.map(spot => [spot._photoDir.x, spot._photoDir.z]);
         club.setSpotGroup(0, { motion: 2 });
         club.spotSequence = 2;
@@ -101,7 +192,7 @@ test('spot rig: individual colours, dark heads, shading slots, musical rows and 
             expect(spot.beamVisible).toBe(0);
             expect(spot.poolVisible).toBe(0);
             expect(spot.glowVisible).toBe(0);
-            expect(spot.goboVisible).toBe(0);
+            expect(spot.prismVisible).toBe(0);
         }
     }
     expect(result.slots.slice(0, 2).map(slot => slot.source).sort()).toEqual([4, 5]);
@@ -135,6 +226,7 @@ test('spot rig: the in-headset page edits a real row and renders its lights dark
     const menu = await page.evaluate(() => {
         const club = window.vrClub;
         club.vjManualMode = true;
+        club.lightHold = { ...club.lightHold, mode: 'keep' };
         club.resetSpotRig();
         club.lightsActive = true;
         club.spotlightMode = 1;
@@ -143,6 +235,7 @@ test('spot rig: the in-headset page edits a real row and renders its lights dark
         club._activateVRQuickMenuButton(club._vrQuickMenuButtons.find(button => button.target === 'spotRig'));
         const count = club._vrQuickMenuButtons.filter(button => button.mesh.isEnabled()).length;
         club._activateVRQuickMenuButton(club._vrQuickMenuButtons.find(button => button.control === 'cycleSpotTarget'));
+        club._activateVRQuickMenuButton(club._vrQuickMenuButtons.find(button => button.action === 'spotGroup' && button.group === 1));
         club._activateVRQuickMenuButton(club._vrQuickMenuButtons.find(button => button.control === 'toggleSpotGroup'));
         return { count, page: club._vrQuickMenuPage, target: club._spotEditTarget, front: [club.spotHead0Enabled, club.spotHead3Enabled],
             middle: club.spotHead1Enabled, value: club.spotRigControlValue('toggleSpotGroup') };
@@ -174,7 +267,7 @@ test('spot rig: the in-headset page edits a real row and renders its lights dark
         club.toggleVRQuickMenu(false);
         return { count, held, kept, value, released, manual: club.vjManualMode };
     });
-    expect(hold).toEqual({ count: 10, held: true, kept: true, value: 'HELD: PRESS TO RELEASE', released: true, manual: false });
+    expect(hold).toEqual({ count: 11, held: true, kept: true, value: 'HELD: PRESS TO RELEASE', released: true, manual: false });
     await exitVR(page);
     await expectHealthyRuntime(page);
 });
@@ -206,7 +299,7 @@ test('row choreography: the automatic running order renders delayed pairs, a whi
                 seen.add(show._cue.look);
             }
         };
-        const drawAt = (beat, frames = 90) => {
+        const drawAt = (beat, frames = 240) => {
             club.vjDirector.beatNumber = Math.floor(beat);
             club.barPhase = (beat % 4) / 4;
             for (let frame = 0; frame < frames; frame++) club.updateSpotlights({
@@ -266,7 +359,8 @@ test('row choreography: the automatic running order renders delayed pairs, a whi
                 expected: hue(source), incident: club.mirrorBallBeams.map(beam => hue(beam.material.emissiveColor)),
                 reflected: hue(club.mirrorReflectionBatch.rayMat.emissiveColor),
                 spots: hue(club.mirrorReflectionBatch.spotMat.emissiveColor),
-                housings: club.mirrorBallHousings.map(housing => hue(housing.material.emissiveColor))
+                lenses: club.mirrorBallHousings.map(housing => hue(housing.lensMaterial.emissiveColor)),
+                housings: club.mirrorBallHousings.map(housing => housing.material.emissiveColor.asArray())
             });
         }
         club.vjManualMode = false;
@@ -282,19 +376,22 @@ test('row choreography: the automatic running order renders delayed pairs, a whi
     expect(result.sweepCue).toBe('columnFillSweep');
     expect(result.seen).toContain('theWave');
     expect(result.seen).toContain('deepBlue');
+    const expectDirection = (actual, expected) => {
+        for (let axis = 0; axis < 3; axis++) expect(actual[axis]).toBeCloseTo(expected[axis], 7);
+    };
     for (let axis = 0; axis < 3; axis++) expect(result.wave[0].direction[axis]).toBeCloseTo(result.waveLater[1].direction[axis], 7);
     for (let row = 0; row < 3; row++) {
         expect(result.wave[row].direction[0]).toBeCloseTo(-result.wave[row + 3].direction[0], 7);
         expect(result.wave[row].direction[2]).toBeCloseTo(result.wave[row + 3].direction[2], 7);
     }
     for (const head of [1, 4]) {
-        expect(result.answer[head].direction).toEqual([0, -1, 0]);
-        expect(result.hold[head].direction).toEqual([0, -1, 0]);
-        expect(result.rearAnswer[head].direction).toEqual([0, -1, 0]);
+        expectDirection(result.answer[head].direction, [0, -1, 0]);
+        expectDirection(result.hold[head].direction, [0, -1, 0]);
+        expectDirection(result.rearAnswer[head].direction, [0, -1, 0]);
         expect(result.answer[head].colour).toEqual([1, 1, 1]);
     }
     expect(result.answer[0].direction).not.toEqual(result.hold[0].direction);
-    expect(result.answer[0].direction).toEqual(result.rearAnswer[2].direction);
+    expectDirection(result.answer[0].direction, result.rearAnswer[2].direction);
     for (let step = 0; step < 4; step++) {
         for (let head = 0; head < 6; head++) {
             if (step < 3 && head % 3 <= step) expect(result.fill[step][head].level).toBeGreaterThan(0.99);
@@ -307,16 +404,17 @@ test('row choreography: the automatic running order renders delayed pairs, a whi
                     if (lit) expect(look[step][head].level).toBeGreaterThan(0.99);
                     else expect(look[step][head].level).toBe(0);
                 }
-                expect(result.columnFill[step][head].direction).toEqual([0, -1, 0]);
+                expectDirection(result.columnFill[step][head].direction, [0, -1, 0]);
                 const first = head < 3 ? 0 : 3;
-                expect(result.columnSweep[step][head].direction).toEqual(result.columnSweep[step][first].direction);
+                expectDirection(result.columnSweep[step][head].direction, result.columnSweep[step][first].direction);
             }
         }
         expect(result.columnSweep[0][0].direction).not.toEqual(result.columnSweep[3][0].direction);
         for (const colours of result.mirrorColours) {
-            for (const actual of [...colours.incident, ...colours.housings, colours.reflected, colours.spots]) {
+            for (const actual of [...colours.incident, ...colours.lenses, colours.reflected, colours.spots]) {
                 for (let axis = 0; axis < 3; axis++) expect(actual[axis]).toBeCloseTo(colours.expected[axis], 7);
             }
+            for (const housing of colours.housings) expect(housing).toEqual([0, 0, 0]);
         }
     }
     expect(result.safeStrobes).toBe(false);

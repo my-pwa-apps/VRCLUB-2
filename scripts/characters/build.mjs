@@ -8,8 +8,10 @@ import { addRoleHeadphones } from './headphones.mjs';
 
 const repo = resolve(dirname(fileURLToPath(import.meta.url)), '..', '..');
 const wardrobe = process.argv.includes('--wardrobe');
+const refreshDance = process.argv.includes('--refresh-dance');
 const require = createRequire(join(repo, 'package.json'));
-const { NodeIO } = require('@gltf-transform/core');
+const { NodeIO, PropertyType } = require('@gltf-transform/core');
+const { prune } = require('@gltf-transform/functions');
 const B = require(join(repo, 'js', 'vendor', 'babylon.js'));
 const sharp = require('sharp');
 const io = new NodeIO();
@@ -39,9 +41,9 @@ const playerClips = ['Idle', 'Walk', 'Run', 'Wave', 'Yes', 'Dance_Loop', 'Seated
 const sources = {};
 for (const id of ['f1', 'f6', 'f7', 'm6']) sources[id] = await io.read(join(repo, 'js', 'models', 'avatars', `club-crowd-${id}.glb`));
 const catalogFile = join(repo, 'js', wardrobe ? 'wardrobeCatalog.js' : 'characterCatalog.js');
-const priorCatalog = only.size ? JSON.parse((await readFile(catalogFile, 'utf8')).split(' = ')[1].trim().replace(/;$/, '')) : null;
+const priorCatalog = only.size || refreshDance ? JSON.parse((await readFile(catalogFile, 'utf8')).split(' = ')[1].trim().replace(/;$/, '')) : null;
 const people = priorCatalog ? (wardrobe ? Object.fromEntries(Object.entries(players).map(([key, id]) => [id, priorCatalog[key]])) : priorCatalog.people) : {};
-const report = only.size && !wardrobe ? JSON.parse(await readFile(join(base, 'build-report.json'), 'utf8')) : [];
+const report = (only.size || refreshDance) && !wardrobe ? JSON.parse(await readFile(join(base, 'build-report.json'), 'utf8')) : [];
 
 function placement(doc, height) {
     let min = Infinity, max = -Infinity;
@@ -80,22 +82,26 @@ function eyePoint(doc, sk, wardrobeEyes = false, atlas = [0.5, 0.5, 1, 1]) {
     return point;
 }
 
-function modularNames(doc, sk) {
+function modularNames(doc, sk, reverse = false) {
     const names = new Map([['pelvis', 'Body'], ['spine_01', 'Abdomen'], ['spine_02', 'Torso'],
         ['spine_03', 'Chest'], ['neck_01', 'Neck'], ['head', 'Head']]);
     for (const [side, suffix] of [['l', 'L'], ['r', 'R']]) {
         for (const [a, b] of [['clavicle', 'Shoulder'], ['upperarm', 'UpperArm'], ['lowerarm', 'LowerArm'],
             ['hand', 'Wrist'], ['thigh', 'UpperLeg'], ['calf', 'LowerLeg'], ['foot', 'Foot'], ['ball', 'PT']]) names.set(`${a}_${side}`, `${b}.${suffix}`);
         for (const digit of ['Index', 'Middle', 'Ring', 'Pinky', 'Thumb']) {
-            if (digit !== 'Thumb') {
-                const first = sk.named.get(`${digit.toLowerCase()}_01_${side}`);
-                sk.named.get(`hand_${side}`).addChild(doc.createNode(`${digit}1.${suffix}`)
-                    .setTranslation(B.Vector3.FromArray(first.getTranslation()).scale(0.23).asArray()));
+            if (digit !== 'Thumb' && !reverse) {
+                const helpers = doc.getRoot().listNodes().filter(node => node.getName() === `${digit}1.${suffix}`);
+                for (const duplicate of helpers.slice(1)) duplicate.dispose();
+                if (!helpers.length) {
+                    const first = sk.named.get(`${digit.toLowerCase()}_01_${side}`);
+                    sk.named.get(`hand_${side}`).addChild(doc.createNode(`${digit}1.${suffix}`)
+                        .setTranslation(B.Vector3.FromArray(first.getTranslation()).scale(0.23).asArray()));
+                }
             }
             for (let part = 1; part <= 3; part++) names.set(`${digit.toLowerCase()}_0${part}_${side}`, `${digit}${digit === 'Thumb' ? part : part + 1}.${suffix}`);
         }
     }
-    for (const [a, b] of names) sk.named.get(a).setName(b);
+    for (const [a, b] of names) sk.named.get(reverse ? b : a).setName(reverse ? a : b);
 }
 
 assert.equal(Object.keys(npcs).length, 34);
@@ -107,6 +113,36 @@ for (const [sourceId, id] of Object.entries(wardrobe ? players : npcs)) {
     const licences = [...new Set(recipe.sources.map(source => assetLicences.get(source) || 'CC0-1.0'))];
     assert.ok(licences.every(licence => ['CC0-1.0', 'CC-BY-4.0'].includes(licence)));
     assert.equal(recipe.license, licences.join(' AND '), `Unverified licences for ${id}`);
+    if (refreshDance) {
+        const path = join(output, `${id}.glb`);
+        const doc = await io.read(path);
+        const animations = doc.getRoot().listAnimations().filter(a => a.getName() === 'Dance_Loop' || a.getName().startsWith('Groove_'));
+        if (!animations.length) continue;
+        modularNames(doc, skeleton(doc), true);
+        const target = skeleton(doc);
+        for (const animation of animations) {
+            const name = animation.getName();
+            const from = dancers.has(sourceId) && !wardrobe || name.startsWith('Groove_') ? 'f1' : 'm6';
+            const source = sources[from];
+            const clip = source.getRoot().listAnimations().find(a => a.getName() === name);
+            assert.ok(clip, `Missing ${from}/${name}`);
+            const result = retarget(skeleton(source), target, sampler(clip));
+            assert.ok(result.metrics.maxAnkleError < 0.005, `${id}/${name}: ankle reach`);
+            assert.ok(result.metrics.maxHandError < 0.025, `${id}/${name}: hand reach`);
+            animation.listChannels().forEach(channel => channel.dispose());
+            animation.listSamplers().forEach(sampler => sampler.dispose());
+            animation.dispose();
+            addAnimation(doc, target, result);
+        }
+        modularNames(doc, target);
+        await doc.transform(prune({ propertyTypes: [PropertyType.ACCESSOR, PropertyType.BUFFER], keepAttributes: true }));
+        const bytes = await io.writeBinary(doc);
+        await writeFile(path, bytes);
+        const entry = report.find(item => item.id === id);
+        if (entry) { entry.bytes = bytes.byteLength; entry.clips = doc.getRoot().listAnimations().map(a => a.getName()); }
+        console.log(`${id}: refreshed ${animations.length} dance clips, ${bytes.byteLength} bytes`);
+        continue;
+    }
     const doc = await io.read(join(base, wardrobe ? 'wardrobe' : 'base', `${id}.glb`));
     assert.equal(recipe.expression?.style, 'source-neutral', `Regenerate ${id} without forced facial shaping`);
     assert.deepEqual(recipe.expression.targets, {}, `Custom expression targets are not supported for ${id}`);

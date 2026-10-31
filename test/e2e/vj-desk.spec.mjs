@@ -3,6 +3,106 @@ import { enterClub, expectHealthyRuntime, useQuestHarness } from './support.mjs'
 
 useQuestHarness();
 
+test('aesthetic show and independent sheet controls use shared desktop, VR and desk actions', async ({ page }) => {
+    test.setTimeout(600_000);
+    await enterClub(page);
+    const result = await page.evaluate(async () => {
+        const club = window.vrClub;
+        await club.modelLoadPromise;
+        const out = {};
+        out.default = club.showDirector.program;
+        document.querySelector('[data-control="cycleShowProgram"]').click();
+        out.program = club.showDirector.program;
+        out.manual = club.vjManualMode;
+        out.pages = {
+            show: club._vrQuickMenuPageDefinitions('show').some(b => b.control === 'cycleShowProgram'),
+            sheet: club._vrQuickMenuPageDefinitions('sheetSettings').map(b => b.control).filter(Boolean)
+        };
+        club.showDirector.forceMovement('pulse');
+        out.row = { sequence: club.spotSequence, rate: club.spotSequenceRate, locked: club.colorLockActive };
+        club.showDirector._applyCue({ look: 'aestheticSheet', bars: 16 });
+        for (let i = 0; i < 1200; i++) club._tintClubAir(1 / 60);
+        out.dense = club.scene.fogDensity;
+        club.toggleLightControl('toggleReducedShowSmoke');
+        for (let i = 0; i < 1200; i++) club._tintClubAir(1 / 60);
+        out.reduced = club.scene.fogDensity;
+        const sheetSpeed = club.laserSheetSpeed;
+        const sourceSpeed = club.laserSpeed;
+        club.toggleLightControl('cycleSheetSpeed');
+        out.sheetSpeed = { before: sheetSpeed, after: club.laserSheetSpeed, sourceBefore: sourceSpeed, sourceAfter: club.laserSpeed };
+        club.toggleLightControl('cycleSheetBrightness');
+        club.updateLaserSheet({ time: 1, audio: { average: 0.5 } });
+        out.darkSheet = club.laserSheet.material.alpha;
+        const buttons = window.VJDeskLayout.buttons;
+        out.desk = {
+            program: club._vjDeskButtonState(buttons.show.find(b => b.id === 'program')).value,
+            speed: club._vjDeskButtonState(buttons.lights.find(b => b.id === 'sheetSpeed')).value,
+            brightness: club._vjDeskButtonState(buttons.lights.find(b => b.id === 'sheetBrightness')).value
+        };
+        club.photosensitiveSafeMode = true;
+        club.showDirector._applyLook(club.showDirector.looks.aestheticPeak);
+        out.safeStrobes = club.strobesActive;
+        club.engine.stopRenderLoop();
+        club.photosensitiveSafeMode = false;
+        club.resumeAutoShow();
+        const show = club.showDirector;
+        show._applyCue({ look: 'aestheticSweepRows', bars: 16 });
+        club.masterIntensity = 1;
+        club.kickPulse = 0;
+        let time = 100;
+        const sample = (beat) => {
+            show._cueBarsElapsed = Math.floor(beat / 4);
+            show._beatInBar = beat % 4;
+            club.vjDirector.beatNumber = beat;
+            club.barPhase = 0;
+            for (let frame = 0; frame < 120; frame++) {
+                time += 1 / 60;
+                club.updateSpotlights({ time, dtScale: 1, audio: { hasAudio: false, bass: 0, treble: 0 } });
+                club.updateLEDWall(time, { hasAudio: false, bass: 0, treble: 0 });
+            }
+            club._flushLedWall();
+            club.scene.render();
+            return {
+                directions: club.spotlights.map(spot => {
+                    const horizontal = -Math.sin(spot.head.rotation.x);
+                    return { x: Math.sin(spot.yoke.rotation.y) * horizontal,
+                        y: -Math.cos(spot.head.rotation.x), z: Math.cos(spot.yoke.rotation.y) * horizontal };
+                }),
+                prism: club.spotlights.some(spot => spot.prism?.isEnabled() && spot.prism.visibility > 0),
+                wall: club.ledPanels.map(panel => panel.material.emissiveColor.asArray())
+            };
+        };
+        out.choreography = { down: sample(0), inward: sample(16), returned: sample(32), color: club.ledShowColor.asArray() };
+        return out;
+    });
+    expect(result.default).toBe('nocturne');
+    expect(result.program).toBe('aesthetic');
+    expect(result.manual).toBe(false);
+    expect(result.pages.show).toBe(true);
+    expect(result.pages.sheet).toEqual(['cycleSheetSpeed', 'cycleSheetBrightness']);
+    expect(result.row).toEqual({ sequence: 2, rate: 1, locked: true });
+    expect(result.dense / result.reduced).toBeCloseTo(3, 1);
+    expect(Math.exp(-Math.pow(result.dense * 20, 2)), 'dense EXP2 fog suppresses distant surface detail').toBeLessThan(0.1);
+    expect(result.sheetSpeed.after).toBeGreaterThan(result.sheetSpeed.before);
+    expect(result.sheetSpeed.sourceAfter).toBe(result.sheetSpeed.sourceBefore);
+    expect(result.darkSheet).toBe(0);
+    expect(result.desk).toEqual({ program: 'AESTHETIC', speed: '150%', brightness: '0%' });
+    expect(result.safeStrobes).toBe(false);
+    for (const sample of [result.choreography.down, result.choreography.returned]) {
+        expect(sample.directions.every(direction => direction.y < -0.999 && Math.abs(direction.x) < 0.02), JSON.stringify(sample.directions)).toBe(true);
+    }
+    expect(result.choreography.inward.directions.every(direction => Math.abs(direction.x) > 0.4 && Math.abs(direction.z) < 0.02)).toBe(true);
+    expect(result.choreography.inward.prism).toBe(true);
+    expect(result.choreography.inward.wall.some(color => Math.max(...color) > 0.01)).toBe(true);
+    expect(result.choreography.down.wall).not.toEqual(result.choreography.inward.wall);
+    for (const color of result.choreography.inward.wall) {
+        for (let channel = 1; channel < 3; channel++) {
+            expect(Math.abs(color[channel] * result.choreography.color[0] - color[0] * result.choreography.color[channel])).toBeLessThan(0.0001);
+        }
+    }
+    await expectHealthyRuntime(page);
+});
+
 /**
  * The VJ desk at the DJ table, in the real club: from where the person who replaces the DJ stands, a ray at the middle
  * of every button lands on that button (the panel's geometry, its orientation and the pick-to-pixel mapping agree),
@@ -67,6 +167,13 @@ test('the VJ desk: every button is where it is drawn, and presses hand the light
         const lightsBefore = club.lightsActive;
         press('spots');
         const afterSpots = { lights: club.lightsActive, manual: club.vjManualMode, title: club._vjDeskStatus().title };
+        club.spotPrismActive = false;
+        press('prism');
+        const filterOn = club.spotPrismActive;
+        const filterOnLabel = club._vjDeskButtonState(buttons.lights.find(b => b.id === 'prism')).value;
+        press('prism');
+        const filterOff = !club.spotPrismActive;
+        const filterOffLabel = club._vjDeskButtonState(buttons.lights.find(b => b.id === 'prism')).value;
         const signatureBefore = club._vjDesk.panels[1].signature;
         club.updateVJDesk({ dt: 1 });
         const redrawn = club._vjDesk.panels[1].signature !== signatureBefore;
@@ -179,7 +286,7 @@ test('the VJ desk: every button is where it is drawn, and presses hand the light
         }, { emissive: 0, ambient: 0, metallic: 0, normalMap: false, texture: false });
         return {
             misses, facingDot: BABYLON.Vector3.Dot(facing, toEye), up: facing.y,
-            lightsBefore, afterSpots, redrawn, afterAuto, djBefore, djAfter, djBack: club.isPeopleVisible('dj'),
+            lightsBefore, afterSpots, filterOn, filterOff, filterOnLabel, filterOffLabel, redrawn, afterAuto, djBefore, djAfter, djBack: club.isPeopleVisible('dj'),
             playerHiddenWithDJ, playerHiddenOnReturn, fxPage, pageOnReturn, effectsChanged, effectsOnReturn,
             mirrorRaysBefore, mirrorRaysAfter, mirrorRaysBack: club.mirrorBallRaysActive,             autoOff, autoOn,
             clearance: {
@@ -293,6 +400,10 @@ test('the VJ desk: every button is where it is drawn, and presses hand the light
     expect(result.afterSpots.lights).toBe(!result.lightsBefore);
     expect(result.afterSpots.manual).toBe(true);
     expect(result.afterSpots.title).toBe('YOU ARE THE VJ');
+    expect(result.filterOn).toBe(true);
+    expect(result.filterOff).toBe(true);
+    expect(result.filterOnLabel).toBe('ON');
+    expect(result.filterOffLabel).toBe('OFF');
     expect(result.redrawn, 'the LIGHTS panel did not redraw after a change').toBe(true);
     expect(result.afterAuto).toEqual({ manual: false, title: 'AUTOMATIC SHOW' });
     expect(result.autoOff).toBe(true);

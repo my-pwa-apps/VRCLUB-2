@@ -103,6 +103,53 @@ test('recall restores independent heads, colours, timing, brightness and sheet s
     assert.equal(follower.club.strobeSync, 'bar');
 });
 
+test('prism presets round-trip and legacy gobo presets load without reviving projected shapes', () => {
+    const h = harness();
+    h.club.spotPrismActive = true;
+    h.presets.save(0);
+    h.club.spotPrismActive = false;
+    assert.equal(h.presets.recall(0), true);
+    assert.equal(h.club.spotPrismActive, true);
+
+    const old = JSON.parse(h.presets.export());
+    delete old.slots[0].fx.spotPrismActive;
+    delete old.slots[0].fx.fogBurstMode;
+    Object.assign(old.slots[0].fx, { goboEnabled: true, goboPatternIndex: 9, goboRotationSpeed: -1 });
+    h.presets.import(JSON.stringify(old));
+    assert.equal(h.presets.slots[0].fx.spotPrismActive, false);
+    assert.equal('goboEnabled' in h.presets.slots[0].fx, false);
+    h.club.goboEnabled = false;
+    h.club.setGoboEnabled = () => { throw new Error('Legacy gobo must not be enabled'); };
+    assert.equal(h.presets.recall(0), true);
+    assert.equal(h.club.spotPrismActive, false);
+    assert.equal(h.club.goboEnabled, false);
+    const invalid = JSON.parse(JSON.stringify(old));
+    invalid.slots[0].fx.goboPatternIndex = 99;
+    assert.throws(() => h.presets.import(JSON.stringify(invalid)));
+});
+
+test('smoke mode is saved and shared, and older presets migrate without losing their other settings', () => {
+    const h = harness();
+    h.club.fogBurstMode = 'continuous';
+    h.club.fogIntensity = 1.5;
+    h.presets.save(0);
+    h.club.fogBurstMode = 'auto';
+    h.club.fogIntensity = 0.5;
+    h.presets.recall(0);
+    assert.equal(h.club.fogBurstMode, 'continuous');
+    assert.equal(h.club.fogIntensity, 1.5);
+    const follower = harness();
+    follower.club.multiplayer._applyFixtures(h.club.multiplayer._captureFixtures());
+    assert.equal(follower.club.fogBurstMode, 'continuous');
+    const old = JSON.parse(h.presets.export());
+    delete old.slots[0].fx.fogBurstMode;
+    h.presets.import(JSON.stringify(old));
+    assert.equal(h.presets.slots[0].fx.fogBurstMode, 'auto');
+    assert.equal(h.presets.slots[0].fx.fogIntensity, 1.5);
+    old.slots[0].fx.fogBurstMode = 'unknown';
+    assert.throws(() => h.presets.import(JSON.stringify(old)));
+});
+
 test('preset recall preserves personal Safe Mode and host authority; saving a guest view remains personal', () => {
     const { club, presets, follow, changes } = harness();
     presets.save(0);

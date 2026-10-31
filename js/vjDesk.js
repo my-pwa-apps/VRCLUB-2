@@ -3,7 +3,7 @@
 // the DJ. Mixed into VRClub.prototype by club_hyperrealistic.js.
 //
 //   left  SHOW    automatic show on/off, DJ presence and twelve personal lighting presets
-//   right LIGHTS  every fixture on or off, plus spotlight movement, aim path, projected gobo image and wall picture
+// right LIGHTS every fixture on or off, plus spotlight movement, aim path, multi-beam filter and wall picture
 //   centre PLAYER previous, play/pause, stop and next symbols above a seek strip in front of the mixer
 //
 // Every button says what it is and what it is doing now, on the panel itself (a headset shows no tooltip), and the
@@ -52,7 +52,7 @@ function vjDeskLayout() {
     };
     const rowHeights = [112, 100, 100, 100];
     const show = grid(3, rowHeights);
-    const showActions = grid(2, rowHeights);
+    const showActions = grid(3, rowHeights);
     const lights = grid(4, [82, 82, 82, 82, 82, 82]);
     const light = (id, label, control, col, row, colour, extra = {}) =>
         ({ id, panel: 'lights', kind: 'light', label, control, colour, rect: lights(col, row), ...extra });
@@ -89,6 +89,7 @@ function vjDeskLayout() {
         show: Object.freeze([
             { id: 'auto', panel: 'show', kind: 'auto', label: 'AUTO SHOW', rect: showActions(0, 0), colour: '#19c37d' },
             { id: 'dj', panel: 'show', kind: 'dj', label: 'SEND DJ HOME', rect: showActions(1, 0), colour: '#7aa7ff' },
+            { id: 'program', panel: 'show', kind: 'light', control: 'cycleShowProgram', label: 'SHOW STYLE', rect: showActions(2, 0), colour: '#b48cff' },
             { id: 'presetSelect', panel: 'show', kind: 'presetSelect', label: 'CHOOSE PRESET', rect: show(0, 1, 3), colour: '#b48cff' },
             { id: 'presetPrevious', panel: 'show', kind: 'presetPrevious', label: 'PREVIOUS SLOT', rect: show(0, 2), colour: '#b48cff' },
             { id: 'presetRecall', panel: 'show', kind: 'presetRecall', label: 'RECALL PRESET', rect: show(1, 2), colour: '#19c37d' },
@@ -109,32 +110,48 @@ function vjDeskLayout() {
             light('colour', 'SPOT COLOUR', 'changeColor', 0, 2, '#ff8a1f', { step: true }),
             light('moves', 'SPOT MOVES', 'cycleSpotMode', 1, 2, '#ff8a1f', { step: true }),
             light('aim', 'SPOT AIM PATH', 'cyclePattern', 2, 2, '#ff8a1f', { step: true }),
-            light('gobo', 'PROJECT GOBO', 'goboActive', 3, 2, '#39e0c8'),
+            light('prism', 'SPOT BEAM FILTER', 'spotPrismActive', 3, 2, '#39e0c8'),
             light('picture', 'WALL PICTURE', 'cycleLedPattern', 0, 3, '#3aa0ff', { step: true }),
             light('mono', 'LED MONO', 'ledMonochrome', 1, 3, '#d0d0d0'),
             light('mirrorRays', 'MIRROR BEAMS', 'mirrorBallRaysActive', 2, 3, '#ffd23a'),
-            light('goboShape', 'GOBO IMAGE', 'cycleGoboPattern', 3, 3, '#39e0c8', { step: true }),
             { id: 'strobePattern', panel: 'lights', kind: 'light', label: 'STROBE PATTERN', control: 'cycleStrobePattern', colour: '#f2f4ff', rect: lights(0, 4, 2), step: true },
             { id: 'spotRigPage', panel: 'lights', kind: 'lightsPage', targetPage: 'rig', label: 'SPOT RIG', colour: '#ff8a1f', rect: lights(2, 4, 2) },
             { id: 'laserColour', panel: 'lights', kind: 'light', label: 'LASER COLOUR', control: 'changeLaserColor', colour: '#38e870', rect: lights(0, 5), step: true },
             { id: 'mirrorColour', panel: 'lights', kind: 'light', label: 'MIRROR COLOUR', control: 'changeMirrorBallColor', colour: '#ffd23a', rect: lights(1, 5), step: true },
             { id: 'matchColours', panel: 'lights', kind: 'light', label: 'MATCH ALL COLOURS', control: 'matchAllColors', colour: '#ffffff', rect: lights(2, 5), step: true },
-            { id: 'lightSettings', panel: 'lights', kind: 'lightsPage', targetPage: 'settings', label: 'SETTINGS', colour: '#ffffff', rect: lights(3, 5) }
+            { id: 'lightSettings', panel: 'lights', kind: 'lightsPage', targetPage: 'settings', label: 'SETTINGS', colour: '#ffffff', rect: lights(3, 5) },
+            { id: 'sheetSettings', panel: 'lights', kind: 'lightsPage', targetPage: 'sheet', label: 'SHEET SETTINGS', colour: '#38e870', rect: lights(3, 3) }
         ].map(button => Object.freeze({ ...button, page: 'fixtures' })).concat([
-            { id: 'spotTarget', panel: 'lights', page: 'rig', kind: 'spotRig', label: 'EDIT GROUP', control: 'cycleSpotTarget', colour: '#ff8a1f', rect: lights(0, 0, 4) },
-            { id: 'spotGroupOn', panel: 'lights', page: 'rig', kind: 'spotRig', label: 'GROUP ON/OFF', control: 'toggleSpotGroup', colour: '#ff8a1f', rect: lights(0, 1, 2) },
-            { id: 'spotGroupColour', panel: 'lights', page: 'rig', kind: 'spotRig', label: 'GROUP COLOUR (STEADY)', control: 'cycleSpotGroupColor', colour: '#ff8a1f', rect: lights(2, 1, 2) },
-            { id: 'spotGroupMotion', panel: 'lights', page: 'rig', kind: 'spotRig', label: 'GROUP MOVEMENT', control: 'cycleSpotGroupMotion', colour: '#ff8a1f', rect: lights(0, 2, 4) },
-            { id: 'spotSequence', panel: 'lights', page: 'rig', kind: 'spotRig', label: 'SEQUENCE (CARRIES SPOT COLOUR)', control: 'cycleSpotSequence', colour: '#ff8a1f', rect: lights(0, 3, 4) },
-            { id: 'spotRate', panel: 'lights', page: 'rig', kind: 'spotRig', label: 'STEP EVERY', control: 'cycleSpotSequenceRate', colour: '#ff8a1f', rect: lights(0, 4, 2) },
-            { id: 'spotReset', panel: 'lights', page: 'rig', kind: 'spotRig', label: 'RESET SPOT RIG', control: 'resetSpotRig', colour: '#ff8a1f', rect: lights(2, 4, 2) },
+            { id: 'sheetSpeed', panel: 'lights', page: 'sheet', kind: 'light', control: 'cycleSheetSpeed', label: 'SHEET SPEED', colour: '#38e870', rect: lights(0, 0, 4) },
+            { id: 'sheetBrightness', panel: 'lights', page: 'sheet', kind: 'light', control: 'cycleSheetBrightness', label: 'SHEET BRIGHTNESS', colour: '#38e870', rect: lights(0, 1, 4) },
+            { id: 'denseSmoke', panel: 'lights', page: 'sheet', kind: 'light', control: 'toggleReducedShowSmoke', label: 'DENSE SHOW SMOKE FOR ME', colour: '#b9b9ff', rect: lights(0, 2, 4) },
+            { id: 'sheetBack', panel: 'lights', page: 'sheet', kind: 'lightsPage', targetPage: 'fixtures', label: 'BACK TO ALL LIGHTS', colour: '#ffffff', rect: lights(0, 5, 4) },
+            { id: 'spotTarget', panel: 'lights', page: 'rig', kind: 'lightsPage', targetPage: 'rigGroups', control: 'cycleSpotTarget', label: 'CHOOSE SPOTS', colour: '#ff8a1f', rect: lights(0, 0, 4) },
+            { id: 'spotGroupOn', panel: 'lights', page: 'rig', kind: 'spotRig', label: 'SELECTED ON/OFF', control: 'toggleSpotGroup', colour: '#ff8a1f', rect: lights(0, 1, 2) },
+            { id: 'spotGroupColour', panel: 'lights', page: 'rig', kind: 'spotRig', label: 'SELECTED COLOUR', control: 'cycleSpotGroupColor', colour: '#ff8a1f', rect: lights(2, 1, 2) },
+            { id: 'spotGroupMotion', panel: 'lights', page: 'rig', kind: 'spotRig', label: 'SELECTED AIM PATH', control: 'cycleSpotGroupMotion', colour: '#ff8a1f', rect: lights(0, 2, 4) },
+            { id: 'spotSequence', panel: 'lights', page: 'rig', kind: 'spotRig', label: 'LIGHT ORDER: ALL SIX SPOTS', control: 'cycleSpotSequence', colour: '#ff8a1f', rect: lights(0, 3, 4) },
+            { id: 'spotRate', panel: 'lights', page: 'rig', kind: 'spotRig', label: 'ORDER STEP EVERY', control: 'cycleSpotSequenceRate', colour: '#ff8a1f', rect: lights(0, 4, 2) },
+            { id: 'spotReset', panel: 'lights', page: 'rig', kind: 'spotRig', label: 'RESET ALL SPOTS', control: 'resetSpotRig', colour: '#ff8a1f', rect: lights(2, 4, 2) },
             { id: 'spotRigBack', panel: 'lights', page: 'rig', kind: 'lightsPage', targetPage: 'fixtures', label: 'BACK TO ALL LIGHTS', colour: '#ffffff', rect: lights(0, 5, 4) },
+            ...[
+                ['ALL SIX', 0, 0, 2], ['LEFT SIDE', 2, 0], ['RIGHT SIDE', 3, 0],
+                ['ENTRANCE ROW', 0, 1], ['MIDDLE ROW', 1, 1], ['DJ ROW', 2, 1],
+                ['ENTRANCE LEFT', 0, 2], ['MIDDLE LEFT', 1, 2], ['DJ LEFT', 2, 2],
+                ['ENTRANCE RIGHT', 0, 3], ['MIDDLE RIGHT', 1, 3], ['DJ RIGHT', 2, 3]
+            ].map(([label, col, row, span]) => ({
+                id: `spotPick${label.replaceAll(' ', '')}`, panel: 'lights', page: 'rigGroups',
+                kind: 'spotGroup', label, colour: '#ff8a1f', rect: lights(col, row, span || 1)
+            })),
+            { id: 'spotGroupsBack', panel: 'lights', page: 'rigGroups', kind: 'lightsPage', targetPage: 'rig', label: 'BACK TO SPOT SETTINGS', colour: '#ffffff', rect: lights(0, 5, 4) },
             { id: 'brightness', panel: 'lights', page: 'settings', kind: 'fader', fader: 'brightness', label: 'BRIGHTNESS', rect: lights(0, 0, 4), colour: '#ffffff' },
             { id: 'speed', panel: 'lights', page: 'settings', kind: 'fader', fader: 'speed', label: 'MOVEMENT SPEED', rect: lights(0, 1, 4), colour: '#39d0ff' },
             { id: 'safeMode', panel: 'lights', page: 'settings', kind: 'safeMode', label: 'SAFE MODE', rect: lights(0, 2, 2), colour: '#39d0ff' },
             { id: 'reset', panel: 'lights', page: 'settings', kind: 'reset', label: 'RESET LIGHTS', rect: lights(2, 2, 2), colour: '#9aa3b5' },
             { id: 'holdMode', panel: 'lights', page: 'settings', kind: 'holdMode', label: 'AFTER MY CHANGE', rect: lights(0, 3, 2), colour: '#19c37d' },
             { id: 'holdTiming', panel: 'lights', page: 'settings', kind: 'holdTiming', label: 'RETURN / SHUFFLE TIMING', rect: lights(2, 3, 2), colour: '#19c37d' },
+            { id: 'fogAmount', panel: 'lights', page: 'settings', kind: 'light', label: 'SMOKE AMOUNT', control: 'cycleFogAmount', rect: lights(0, 4, 2), colour: '#b9b9ff', step: true },
+            { id: 'fogMode', panel: 'lights', page: 'settings', kind: 'light', label: 'SMOKE OUTPUT', control: 'cycleFogMode', rect: lights(2, 4, 2), colour: '#b9b9ff', step: true },
             { id: 'settingsBack', panel: 'lights', page: 'settings', kind: 'lightsPage', targetPage: 'fixtures', label: 'BACK TO ALL LIGHTS', colour: '#ffffff', rect: lights(0, 5, 4) }
         ])),
         transport: Object.freeze([
@@ -813,6 +830,12 @@ const VJDesk = {
             if (this._vjDesk) this._vjDesk.dirty = true;
             return;
         }
+        if (button.kind === 'spotGroup') {
+            const group = VRClubUI.SPOT_GROUPS.findIndex(item => item.name === button.label);
+            if (this.selectSpotRigGroup(group)) this._vjDeskLightsPage = 'rig';
+            if (this._vjDesk) this._vjDesk.dirty = true;
+            return;
+        }
         if (button.kind.startsWith('preset')) { this._runVJDeskPreset(button); return; }
         if (button.kind === 'spotRig') {
             this.toggleLightControl(button.control);
@@ -847,12 +870,18 @@ const VJDesk = {
             toast(`After my change: ${this.lightHoldSummary()}`);
             return;
         }
+        if (button.control === 'toggleReducedShowSmoke') {
+            this.toggleLightControl(button.control);
+            return;
+        }
         if (!this.guardHostControl('lights')) return;
         const show = this.showDirector;
         switch (button.kind) {
             case 'auto':
                 if (!this.vjManualMode && show?.enabled !== false) {
-                    if (Number.isFinite(this.masterIntensity)) this.vjDirector?.setMasterIntensity(this.masterIntensity);
+                    if (Number.isFinite(this.masterIntensity) && this.vjDirector) {
+                        this.vjDirector.targetMasterIntensity = this.masterIntensity;
+                    }
                     this.takeLightControl();
                     toast(`Auto show off: the current lighting keeps moving. ${this.lightHoldSummary()}`);
                 } else {
@@ -1220,7 +1249,7 @@ const VJDesk = {
             return '';
         }
         if (button.kind === 'dj' && this._roomDJVisible === false) return 'HOST SENT DJ HOME';
-        if (button.kind === 'lightsPage' || button.control === 'cycleSpotTarget') return '';
+        if (button.kind === 'lightsPage' || button.kind === 'spotGroup' || ['cycleSpotTarget', 'toggleReducedShowSmoke'].includes(button.control)) return '';
         if (button.kind === 'dj' || button.kind === 'holdMode' || button.kind === 'safeMode') return '';
         if (button.kind === 'playerPage') return '';
         if (button.kind === 'holdTiming') return this.lightHold && this.lightHold.mode === 'keep' ? 'NOT USED WHEN KEPT' : '';
@@ -1251,7 +1280,8 @@ const VJDesk = {
         const onOff = on => { out.active = !!on; out.value = on ? 'ON' : 'OFF'; };
         const vj = this.vjDirector;
         switch (button.kind) {
-            case 'lightsPage': out.value = button.targetPage === 'rig' ? 'HEADS / ROWS / COLUMNS' : button.targetPage === 'settings' ? 'BRIGHTNESS / SPEED / SAFETY' : 'FIXTURES / COLOURS'; break;
+            case 'lightsPage': out.value = button.targetPage === 'rigGroups' ? this.spotRigControlValue('cycleSpotTarget') : button.targetPage === 'rig' ? 'SPOTS / ROWS / SIDES' : button.targetPage === 'settings' ? 'BRIGHTNESS / SPEED / SAFETY' : 'FIXTURES / COLOURS'; break;
+            case 'spotGroup': out.active = this.spotRigControlValue('cycleSpotTarget') === button.label; out.value = out.active ? 'SELECTED' : 'TAP TO EDIT'; break;
             case 'spotRig': out.value = this.spotRigControlValue(button.control); out.active = !out.disabled; break;
             case 'auto':
                 out.active = !this.vjManualMode && this.showDirector?.enabled !== false;
@@ -1371,17 +1401,14 @@ const VJDesk = {
                     case 'cycleSpotMode': out.value = VRClubUI.SPOT_MODE_NAMES[this.spotlightMode || 0] || ''; break;
                     case 'cyclePattern': out.value = VRClubUI.SPOT_PATTERN_NAMES[this.spotlightPattern || 0] || ''; break;
                     case 'cycleStrobePattern': out.value = typeof this.strobePatternName === 'function' ? this.strobePatternName() : 'ALL AT ONCE'; break;
-                    case 'cycleGoboPattern': {
-                        const name = (this.goboPatterns && this.goboPatterns[this.goboPatternIndex || 0]) || 'circle';
-                        out.value = name === 'circle' ? 'OPEN' : String(name).toUpperCase();
-                        break;
-                    }
+                    case 'cycleFogAmount': case 'cycleFogMode': out.value = this.smokeControlValue(button.control); break;
+                    case 'cycleShowProgram': case 'cycleSheetSpeed': case 'cycleSheetBrightness': case 'toggleReducedShowSmoke':
+                        out.value = this.aestheticControlValue(button.control); break;
                     case 'cycleLedPattern': {
                         const count = this._ledPatternPlaylist ? this._ledPatternPlaylist.length : 20;
                         out.value = `${((this.ledPattern || 0) % count) + 1} OF ${count}`;
                         break;
                     }
-                    case 'goboActive': onOff(this.goboEnabled); break;
                     default: onOff(this[button.control]);
                 }
                 break;
@@ -1431,10 +1458,12 @@ const VJDesk = {
         ctx.fillStyle = toneColour;
         ctx.font = 'bold 50px sans-serif';
         const headerWidth = panel.id === 'transport' ? W - 340 : W - 120;
-        ctx.fillText(status ? status.title : this._vjDeskLightsPage === 'rig' ? 'SPOT RIG' : this._vjDeskLightsPage === 'settings' ? 'LIGHT SETTINGS' : 'LIGHTS', 68, 50, headerWidth);
+        ctx.fillText(status ? status.title : this._vjDeskLightsPage === 'sheet' ? 'LASER SHEET SETTINGS' : this._vjDeskLightsPage === 'rigGroups' ? 'CHOOSE SPOTS' : this._vjDeskLightsPage === 'rig' ? 'SPOT RIG' : this._vjDeskLightsPage === 'settings' ? 'LIGHT SETTINGS' : 'LIGHTS', 68, 50, headerWidth);
         ctx.fillStyle = '#c3cad6';
         ctx.font = 'bold 28px sans-serif';
-        ctx.fillText(status ? status.detail : this._vjDeskLightsPage === 'rig' ? 'CHOOSE A GROUP, THEN SET ITS COLOUR, MOVEMENT OR SEQUENCE'
+        ctx.fillText(status ? status.detail : this._vjDeskLightsPage === 'rigGroups' ? 'ENTRANCE TO DJ; LEFT / RIGHT WHEN FACING THE DJ'
+            : this._vjDeskLightsPage === 'rig' ? 'SELECTED SPOTS ABOVE; LIGHT ORDER AFFECTS ALL SIX'
+            : this._vjDeskLightsPage === 'sheet' ? 'SHEET SPEED AND BRIGHTNESS; DENSE SMOKE IS A PERSONAL CHOICE'
             : this._vjDeskLightsPage === 'settings' ? 'YOUR RETURN-TO-AUTO PREFERENCE ALSO APPLIES TO RECALLED PRESETS'
                 : 'SWITCH FIXTURES ON / OFF. COLOUR AND PICTURE BUTTONS STEP TO THE NEXT OPTION', 68, 98, headerWidth);
 

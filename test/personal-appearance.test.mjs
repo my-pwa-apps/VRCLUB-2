@@ -1,6 +1,8 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { readFileSync } from 'node:fs';
+import { existsSync, readFileSync, unlinkSync } from 'node:fs';
+import { execFileSync } from 'node:child_process';
+import { randomUUID } from 'node:crypto';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import vm from 'node:vm';
@@ -114,6 +116,25 @@ test('footwear saves and restores only the complete acknowledged v3 wardrobe', a
     assert.deepEqual(JSON.parse(store.get(A.STORAGE_KEY)), next);
     club._personalAppearanceLoaded = false;
     assert.equal(club.getPersonalAppearance().legwear, 'sheer-black');
+});
+
+test('wardrobe selection sets aside the uploaded body and restores it on failure', async () => {
+    const box = context(), A = box.AvatarAppearance, store = new Map();
+    box.localStorage = { getItem: key => store.get(key) ?? null,
+        setItem: (key, value) => store.set(key, value), removeItem: key => store.delete(key) };
+    let selected = true, failPublish = true;
+    const club = { ...box.PersonalAppearance, _loadWardrobeSource: async () => ({}),
+        getLocalCharacter: () => 'f1', _syncMirrorDouble() {}, setLocalAvatarStyle() {},
+        showErrorMessage() {}, _scheduleWardrobeCleanup() {},
+        isCustomAvatarSelected: () => selected,
+        setCustomAvatarSelected(value) { selected = value; return true; },
+        async _publishAppearance() { if (failPublish) throw new Error('not confirmed'); } };
+    assert.equal(await club.savePersonalAppearance(A.defaults('f1')), false);
+    assert.equal(selected, true);
+    assert.equal(store.has(A.STORAGE_KEY), false);
+    failPublish = false;
+    assert.equal(await club.savePersonalAppearance(A.defaults('f1')), true);
+    assert.equal(selected, false);
 });
 
 test('editor upgrades isolated v1 and v2 drafts and offers all footwear on bounded VR subpages', () => {
@@ -597,10 +618,12 @@ test('the queue phone stays in the raised palm near the ear for both real charac
     }
 });
 
-test('lightweight bald people retain a solid scalp without adding any mesh or material', async () => {
+test('lightweight bald people retain a solid, rounded scalp without adding any mesh or material', async () => {
     const { NodeIO } = await import('@gltf-transform/core');
     const io = new NodeIO(), box = context(true), B = box.BABYLON;
-    for (const id of ['bouncer', 'm4', 'm7']) {
+    const skins = { bouncer: [0.0902, 0.0314, 0.0157], m7: [0.1451, 0.0549, 0.0275],
+        vm4: [0.5569, 0.2706, 0.1216] };
+    for (const [id, skinColor] of Object.entries(skins)) {
         const document = await io.read(join(root, `js/models/avatars/club-crowd-${id}.glb`));
         assert.equal(document.getRoot().getExtras().bald, true);
         assert.ok(document.getRoot().getExtras().removedHairTriangles >= 100);
@@ -611,6 +634,20 @@ test('lightweight bald people retain a solid scalp without adding any mesh or ma
         const head = B.Matrix.FromArray(skin.getInverseBindMatrices().getElement(index, [])).invert().getTranslation();
         const primitive = document.getRoot().listMeshes()[0].listPrimitives()[0];
         const position = primitive.getAttribute('POSITION'), indices = primitive.getIndices();
+        const colors = primitive.getAttribute('COLOR_0');
+        const isSkin = i => colors.getElement(i, []).slice(0, 3).every((v, j) => Math.abs(v - skinColor[j]) < 0.006);
+        const used = new Set(indices.getArray());
+        const peak = [...used].filter(isSkin).reduce((a, b) =>
+            position.getElement(a, [])[1] > position.getElement(b, [])[1] ? a : b);
+        const neighbors = new Set();
+        for (let i = 0; i < indices.getCount(); i += 3) {
+            const triangle = [0, 1, 2].map(j => indices.getScalar(i + j));
+            if (triangle.includes(peak)) triangle.filter(n => n !== peak && isSkin(n)).forEach(n => neighbors.add(n));
+        }
+        assert.ok(neighbors.size, `${id}: scalp has no connected skin`);
+        const peakY = position.getElement(peak, [])[1];
+        const neighborY = Math.max(...[...neighbors].map(n => position.getElement(n, [])[1]));
+        assert.ok(peakY - neighborY <= 0.012, `${id}: scalp spike rises ${(peakY - neighborY).toFixed(3)} m above its neighbors`);
         const origin = new B.Vector3(head.x, head.y + 0.5, head.z);
         const ray = new B.Ray(origin, B.Vector3.Down(), 1);
         let hit = null;
@@ -620,6 +657,54 @@ test('lightweight bald people retain a solid scalp without adding any mesh or ma
             if (info && (!hit || info.distance < hit.distance)) hit = info;
         }
         assert.ok(hit && origin.y - hit.distance > head.y + 0.08, `${id}: removing hair opened the scalp`);
+    }
+});
+
+test('lightweight m4 and vm5 retain a full crown of hair', async () => {
+    const { NodeIO } = await import('@gltf-transform/core');
+    const io = new NodeIO(), B = context(true).BABYLON;
+    for (const [id, hair] of Object.entries({ m4: [0.0078, 0.0039, 0.0039], vm5: [0.0667, 0.0275, 0.0078] })) {
+        const document = await io.read(join(root, `js/models/avatars/club-crowd-${id}.glb`));
+        assert.notEqual(document.getRoot().getExtras().bald, true, `${id}: incorrectly marked bald`);
+        const primitive = document.getRoot().listMeshes()[0].listPrimitives()[0];
+        const pos = primitive.getAttribute('POSITION'), color = primitive.getAttribute('COLOR_0'), indices = primitive.getIndices();
+        let covered = 0;
+        for (const x of [-0.035, 0, 0.035]) for (const z of [0.03, 0.06, 0.09]) {
+            const ray = new B.Ray(new B.Vector3(x, 2.2, z), B.Vector3.Down(), 0.6);
+            let hit = false;
+            for (let i = 0; i < indices.getCount(); i += 3) {
+                const tri = [0, 1, 2].map(j => indices.getScalar(i + j));
+                if (!tri.every(n => color.getElement(n, []).slice(0, 3).every((v, j) => Math.abs(v - hair[j]) < 0.006))) continue;
+                if (ray.intersectsTriangle(...tri.map(n => B.Vector3.FromArray(pos.getElement(n, []))))) { hit = true; break; }
+            }
+            if (hit) covered++;
+        }
+        assert.ok(covered >= 7, `${id}: hair covers only ${covered} of 9 crown samples`);
+    }
+});
+
+test('avatar optimization ignores unused vertices when preserving height', async () => {
+    const { Document, NodeIO } = await import('@gltf-transform/core');
+    const io = new NodeIO(), doc = new Document(), buffer = doc.createBuffer();
+    const position = doc.createAccessor('position').setType('VEC3').setBuffer(buffer)
+        .setArray(new Float32Array([0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 5, 0]));
+    const indices = doc.createAccessor('indices').setType('SCALAR').setBuffer(buffer)
+        .setArray(new Uint16Array([0, 1, 2]));
+    const primitive = doc.createPrimitive().setAttribute('POSITION', position).setIndices(indices);
+    doc.createScene().addChild(doc.createNode().setMesh(doc.createMesh().addPrimitive(primitive)));
+    const name = `optimizer-test-${randomUUID()}.glb`;
+    const file = join(root, 'js', 'models', 'avatars', name);
+    const output = file.replace(/\.glb$/, '.optimized.glb');
+    try {
+        await io.write(file, doc);
+        execFileSync(process.execPath, [join(root, 'scripts', 'optimize-avatars.mjs'), name], { cwd: root });
+        const result = await io.read(file);
+        const positions = result.getRoot().listMeshes()[0].listPrimitives()[0].getAttribute('POSITION');
+        const ys = Array.from({ length: positions.getCount() }, (_, i) => positions.getElement(i, [])[1]);
+        assert.ok(Math.max(...ys) <= 1.001, 'an unreferenced vertex must not stretch visible geometry');
+    } finally {
+        if (existsSync(file)) unlinkSync(file);
+        if (existsSync(output)) unlinkSync(output);
     }
 });
 

@@ -569,6 +569,8 @@ class AvatarRig {
     _measure(eyeHeight) {
         const b = this.bone, root = this.root, v = this._v;
         const head = b.Head;
+        // Calibration measures the bind facing, never the player's current turn.
+        root.rotation.set(0, 0, 0);
         const lowestY = bounds => {
             if (this.rigMode === 'upper-body') {
                 return Math.min(
@@ -1055,6 +1057,7 @@ class AvatarRig {
             const rest = this._headRestScale || (this._headRestScale = this.bone.Head.scaling.clone());
             this.bone.Head.scaling.set(rest.x * s, rest.y * s, rest.z * s);
             this.Ls[this.ix.Head].copyFrom(this.bone.Head.scaling);
+            for (const skeleton of this.entry.skeletons) skeleton.prepare(true);
         }
     }
 
@@ -1084,6 +1087,7 @@ class AvatarRig {
         if (this.disposed) return;
         this.disposed = true;
         this.ok = false;
+        window.CustomAvatarAppearance?.dispose(this);
         if (this._synthNodes) {
             for (let i = 0; i < this._synthNodes.length; i++) {
                 try { this._synthNodes[i].dispose(); } catch (_) { /* ignore */ }

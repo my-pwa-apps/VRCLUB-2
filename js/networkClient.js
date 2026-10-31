@@ -18,6 +18,17 @@
  * spatialised audio, but this class itself only deals with the network.
  */
 class NetworkClient {
+    static sanitizeUploadedAvatar(value) {
+        if (value === null || value === undefined) return null;
+        if (!value || typeof value !== 'object' || !/^[0-9a-f]{64}$/.test(value.hash) ||
+            !Number.isInteger(value.bytes) || value.bytes < 28 || value.bytes > 8 * 1024 * 1024) return undefined;
+        try {
+            return { hash: value.hash, bytes: value.bytes, appearance: window.CustomAvatarAppearance.sanitize(value.appearance) };
+        } catch (error) {
+            console.warn('Invalid uploaded avatar metadata:', error);
+            return undefined;
+        }
+    }
     static ICE_SERVERS = [
         { urls: 'stun:stun.l.google.com:19302' },
         { urls: 'stun:stun.cloudflare.com:3478' }
@@ -257,6 +268,9 @@ class NetworkClient {
     }
 
     disconnect() {
+        this.avatarAssetToken = null;
+        this.uploadedAvatarsSupported = false;
+        this.selfUploadedAvatar = null;
         this._cancelEventRequests();
         this._closedByUser = true;
         this._openRevision = (this._openRevision || 0) + 1;
@@ -367,6 +381,9 @@ class NetworkClient {
     }
 
     _onSocketClosed(evt) {
+        this.avatarAssetToken = null;
+        this.uploadedAvatarsSupported = false;
+        this.selfUploadedAvatar = null;
         this._cancelEventRequests();
         this.ws = null;
         this.appearanceSelectionSupported = false;
@@ -460,6 +477,9 @@ class NetworkClient {
                 this.appearanceSelectionSupported = msg.appearanceSelection === true;
                 this.appearanceAccessoriesSupported = msg.appearanceAccessories === true;
                 this.appearanceFootwearSupported = msg.appearanceFootwear === true;
+                this.uploadedAvatarsSupported = msg.uploadedAvatars === true;
+                this.avatarAssetToken = this.uploadedAvatarsSupported && typeof msg.avatarAssetToken === 'string'
+                    && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/.test(msg.avatarAssetToken) ? msg.avatarAssetToken : null;
                 this.selfAppearance = NetworkClient.sanitizeAppearance(msg.appearance, this.avatar) || null;
                 this.hostId = msg.hostId;
                 this.capacity = Number.isInteger(msg.capacity) && msg.capacity >= 8 && msg.capacity <= 32 ? msg.capacity : 8;
@@ -606,6 +626,16 @@ class NetworkClient {
                 if (this.peers.has(msg.id) && NetworkClient.GESTURES.includes(msg.gesture)) this.onGesture(msg.id, msg.gesture);
                 break;
 
+            case 'uploaded-avatar': {
+                const model = NetworkClient.sanitizeUploadedAvatar(msg.model);
+                if (model === undefined) break;
+                if (msg.id === this.selfId) this.selfUploadedAvatar = model;
+                else if (this.peers.has(msg.id)) {
+                    this.peers.get(msg.id).uploadedAvatar = model;
+                    this.onPeerUploadedAvatar?.(msg.id, model);
+                }
+                break;
+            }
             case 'avatar':
                 if (!NetworkClient.isAvatar(msg.avatar)) break;
                 const appearance = NetworkClient.sanitizeAppearance(msg.appearance, msg.avatar);
@@ -672,10 +702,12 @@ class NetworkClient {
         if (pid && this.blockedPids.has(pid)) return;
         this.peers.set(peer.id, { name: peer.name, pid, avatar: typeof peer.avatar === 'string' ? peer.avatar : null,
             appearance: NetworkClient.sanitizeAppearance(peer.appearance, peer.avatar) || null,
+            uploadedAvatar: NetworkClient.sanitizeUploadedAvatar(peer.uploadedAvatar) || null,
             simulated: peer.simulated === true, state: peer.state || null, pc: null });
         this.onPeerJoin(peer.id, peer.name, { pid, avatar: this.peers.get(peer.id).avatar,
             appearance: this.peers.get(peer.id).appearance, simulated: peer.simulated === true });
         this.onPeerAppearance(peer.id, this.peers.get(peer.id).appearance);
+        this.onPeerUploadedAvatar?.(peer.id, this.peers.get(peer.id).uploadedAvatar);
         if (peer.state) this.onPeerState(peer.id, peer.state);
         this._maybeInitiateVoice(peer.id);
         if (this.sfu) this.sfu.sync();

@@ -27,7 +27,7 @@ const scriptSrcs = [...html.matchAll(/<script[^>]*\ssrc="([^"]+)"/g)]
 /** Path portion of a script src, minus the ?v= cache-busting token. */
 const srcPath = (src) => src.split('?')[0];
 
-test('Quest and SideQuest exclude ADE pitch features and preserve distribution targets', () => {
+test('default sources exclude ADE pitch features and preserve distribution targets', () => {
     assert.doesNotMatch(html, /liveEventConcept|event-concept-|concept-assets\/ade/);
     for (const relative of [
         'js/liveEventConcept.js', 'concept-assets/ade', 'design/ade-brandpack',
@@ -125,6 +125,8 @@ test('script load order honours the dependency contract', () => {
     assert.ok(idx('js/assetCache.js') < idx('js/modelLoader.js'), 'assetCache must precede modelLoader');
     assert.ok(idx('js/audioUtils.js') > -1 && idx('js/audioUtils.js') < idx('js/club_hyperrealistic.js'),
         'audioUtils must load before club_hyperrealistic.js');
+    assert.ok(idx('js/venueBranding.js') > -1 && idx('js/venueBranding.js') < idx('js/club/02-lifecycle.js'),
+        'opt-in venue branding must load before lifecycle');
 
     const clubLayers = Array.from({ length: 11 }, (_, index) =>
         `js/club/${String(index + 1).padStart(2, '0')}-${[
@@ -172,6 +174,7 @@ test('every class used across files is exported onto window', () => {
         'js/ledPatterns.js': ['LEDPatterns'],
         'js/barProps.js': ['BarProps'],
         'js/nocturneLogo.js': ['NocturneLogo'],
+        'js/venueBranding.js': ['VenueBranding'],
         'js/restroomArt.js': ['RestroomArt'],
         'js/venueDressing.js': ['VenueDressing'],
         'js/mezzanine.js': ['Mezzanine'],

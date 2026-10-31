@@ -1392,7 +1392,7 @@ const VenueDressing = {
 
     /** Who the mirror shows: the relay's assignment in a room, otherwise the character the player chose (null = their own body). */
     _mirrorAvatarId() {
-        if (typeof this.hasCustomAvatarGlb === 'function' && this.hasCustomAvatarGlb()) return null;
+        if (typeof this.isCustomAvatarSelected === 'function' && this.isCustomAvatarSelected()) return null;
         const mp = this.multiplayer;
         if (mp && mp.connected) return mp.selfAvatar || null;
         const selected = typeof this.getLocalCharacter === 'function' ? this.getLocalCharacter() : null;

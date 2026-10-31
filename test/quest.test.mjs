@@ -12,9 +12,9 @@ const audioUtilsSource = readFileSync(path.join(root, 'js', 'audioUtils.js'), 'u
 
 function libraryFixture(raw = null, feed = '', playbackRaw = null) {
     const messages = [], plays = [];
-    const store = new Map(raw ? [['vrclub.questMusic', raw]] : []);
+    const store = new Map(raw !== null ? [['vrclub.questMusic', raw]] : []);
     if (playbackRaw) store.set('vrclub.questMusicPlayback', playbackRaw);
-    const storage = { getItem: key => store.get(key) || null, setItem: (key, value) => store.set(key, value) };
+    const storage = { getItem: key => store.has(key) ? store.get(key) : null, setItem: (key, value) => store.set(key, value) };
     const fetches = [];
     const context = vm.createContext({
         URL,
@@ -316,6 +316,82 @@ test('restarting the same saved stream resumes its last finite playback position
     );
     await different.library.play();
     assert.equal(different.plays[0][2].resumeAt, 0, 'a different selected source inherited another set’s clock');
+});
+
+test('a corrupt playback checkpoint never hides or overwrites the saved music library', async () => {
+    const saved = JSON.stringify({ items: [
+        { url: 'https://audio.example/one.mp3', name: 'One' },
+        { url: 'https://audio.example/two.mp3', name: 'Two' }
+    ], selected: 1 });
+    for (const playback of ['{invalid', JSON.stringify({ savedUrl: 'https://audio.example/two.mp3', position: -1, updatedAt: 1 })]) {
+        const f = libraryFixture(saved, '', playback);
+        assert.deepEqual(Array.from(f.library.items, item => item.name), ['One', 'Two']);
+        assert.equal(f.library.current().name, 'Two');
+        assert.equal(f.store.get('vrclub.questMusic'), saved);
+        assert.ok(f.messages.some(message => typeof message === 'string' && /playback position/i.test(message)));
+        await f.library.play();
+        assert.equal(f.plays[0][2].resumeAt, 0);
+        f.library.save('https://audio.example/three.mp3', 'Three');
+        assert.deepEqual(JSON.parse(f.store.get('vrclub.questMusic')).items.map(item => item.name), ['One', 'Two', 'Three']);
+    }
+});
+
+test('unreadable saved sets are preserved until retry or an explicit reset', () => {
+    for (const raw of ['', '{invalid', '{"items":[{"url":"https://audio.example/good.mp3"},null]}']) {
+        const f = libraryFixture(raw);
+        assert.equal(f.library.readError, 'unreadable');
+        assert.throws(() => f.library.save('https://audio.example/new.mp3'), /retry or reset/);
+        assert.throws(() => f.library.replaceAll([]), /retry or reset/);
+        assert.throws(() => f.library.replaceAll([{ url: 'https://audio.example/new.mp3' }]), /retry or reset/);
+        assert.equal(f.store.get('vrclub.questMusic'), raw);
+        assert.equal(f.library.retrySavedSets(), false);
+        assert.equal(f.store.get('vrclub.questMusic'), raw);
+    }
+    const missing = libraryFixture();
+    assert.equal(missing.library.readError, null);
+    missing.library.save('https://audio.example/new.mp3');
+    assert.equal(missing.library.items.length, 1);
+});
+
+test('saved-set retry handles unavailable storage and another tab without overwriting it', () => {
+    const f = libraryFixture();
+    const saved = JSON.stringify({ items: [{ url: 'https://audio.example/repaired.mp3', name: 'Repaired' }], selected: 0 });
+    const denied = { getItem() { throw new Error('denied'); }, setItem() { assert.fail('must not write'); } };
+    const unavailable = new f.library.constructor(f.club, denied);
+    assert.equal(unavailable.readError, 'unavailable');
+    assert.throws(() => unavailable.replaceAll([]), /retry or reset/);
+    assert.throws(() => unavailable.resetUnreadableSets(), /Retry access/);
+    denied.getItem = key => key === 'vrclub.questMusic' ? saved : null;
+    assert.equal(unavailable.retrySavedSets(), true);
+    assert.equal(unavailable.current().name, 'Repaired');
+
+    const bad = libraryFixture('{invalid');
+    bad.store.set('vrclub.questMusic', saved);
+    assert.throws(() => bad.library.resetUnreadableSets(), /changed in another tab/);
+    assert.equal(bad.store.get('vrclub.questMusic'), saved);
+    assert.equal(bad.library.retrySavedSets(), true);
+    assert.equal(bad.library.current().name, 'Repaired');
+});
+
+test('failed resets preserve unreadable bytes; successful resets cannot resume an old checkpoint', async () => {
+    const checkpoint = JSON.stringify({ savedUrl: 'https://audio.example/old.mp3', position: 100, updatedAt: Date.now() + 100000 });
+    const f = libraryFixture('{invalid', '', checkpoint);
+    f.storage.setItem = () => { throw new Error('quota'); };
+    assert.throws(() => f.library.resetUnreadableSets(), /Could not reset/);
+    assert.equal(f.store.get('vrclub.questMusic'), '{invalid');
+    assert.equal(f.library.readError, 'unreadable');
+    f.storage.setItem = (key, value) => f.store.set(key, value);
+    f.library.resetUnreadableSets();
+    f.library.save('https://audio.example/old.mp3', 'Old');
+    const restored = libraryFixture(f.store.get('vrclub.questMusic'), '', checkpoint);
+    await restored.library.play();
+    assert.equal(restored.plays[0][2].resumeAt, 0);
+    await f.library.play();
+    f.club.getPlaybackInfo = () => ({ seekable: true, position: 120, duration: 3600, playing: true });
+    assert.equal(f.library.capturePlayback(), true);
+    const fresh = libraryFixture(f.store.get('vrclub.questMusic'), '', f.store.get('vrclub.questMusicPlayback'));
+    await fresh.library.play();
+    assert.equal(fresh.plays[0][2].resumeAt, 120);
 });
 
 test('Miss Melera SoundCloud links resolve to the main-branch relay audio stream', async () => {

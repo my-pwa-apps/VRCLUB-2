@@ -199,9 +199,9 @@ window.CharacterStyles = {
             containers[index] = container;
         }
         const djId = this._djWanted || this._djId || this._initialDJId();
-        const djLook = this._characterDJLook(djId, style);
+        const djLook = djId === 'personal' ? { height: 1.7 / 0.93, personal: true } : this._characterDJLook(djId, style);
         const dj = actors.find(npc => npc.name === 'djPerformer');
-        const djContainer = dj && await this._loadCharacterContainer(djLook, style);
+        const djContainer = dj && (djId === 'personal' ? this._customAvatarContainer : await this._loadCharacterContainer(djLook, style));
         if (dj && !djContainer) throw new Error('Could not load the selected DJ.');
         const me = this._mirrorAvatarId() || (this.getLocalAvatarStyle() === 'male' ? 'm1' : 'f1');
         const playerIds = new Set([me]);

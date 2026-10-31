@@ -8,7 +8,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync, readdirSync } from 'node:fs';
-import { join, dirname } from 'node:path';
+import { join, dirname, isAbsolute } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { performance } from 'node:perf_hooks';
 import { TextDecoder, TextEncoder } from 'node:util';
@@ -47,7 +47,7 @@ async function loadContainer(glb) {
     const B = box.BABYLON;
     const engine = new B.NullEngine();
     const scene = new B.Scene(engine);
-    const bytes = readFileSync(join(ROOT, 'js/models/avatars', glb));
+    const bytes = readFileSync(isAbsolute(glb) ? glb : join(ROOT, 'js/models/avatars', glb));
     const container = await B.SceneLoader.LoadAssetContainerAsync(
         '', `data:application/octet-stream;base64,${bytes.toString('base64')}`, scene, null, '.glb');
     return { B, scene, engine, container, box };
@@ -69,6 +69,60 @@ const limbLengths = rig => ({
     calf: dist(pos(rig, 'calf_l'), pos(rig, 'foot_l')),
     upper: dist(pos(rig, 'upperarm_l'), pos(rig, 'lowerarm_l')),
     lower: dist(pos(rig, 'lowerarm_l'), pos(rig, 'hand_l'))
+});
+
+test('single-mesh avatar head is re-skinned immediately for mirror and first-person passes', async () => {
+    const { rig, scene, engine } = await loadRig('club-crowd-m1.glb', {
+        eyeHeight: 1.7, hideHead: true, allowCustomSkeleton: true
+    });
+    assert.ok(rig.ok);
+    assert.equal(rig.headMeshes.length, 0);
+    const skeleton = rig.entry.skeletons[0];
+    const head = skeleton.bones.find(bone => bone.getTransformNode() === rig.bone.Head);
+    assert.ok(head);
+    const scale = () => {
+        const m = head.getAbsoluteTransform().m;
+        return Math.hypot(m[0], m[1], m[2]);
+    };
+    skeleton.prepare(true);
+    const hidden = scale();
+    rig.setHeadVisible(true);
+    const revealed = scale();
+    rig.setHeadVisible(false);
+    const restored = scale();
+    assert.ok(revealed > hidden * 1000, `mirror head was not revealed: ${hidden} -> ${revealed}`);
+    assert.ok(restored < revealed / 1000, `first-person head was not hidden again: ${revealed} -> ${restored}`);
+    rig.dispose();
+    scene.dispose();
+    engine.dispose();
+});
+
+test('eye-height refitting preserves avatar facing after turning, including a hidden mirror head', async () => {
+    const files = ['club-dancer-male.glb', 'club-crowd-m1.glb'];
+    if (process.env.VRCLUB_TEST_PERSONAL_AVATAR) files.push(process.env.VRCLUB_TEST_PERSONAL_AVATAR);
+    for (const file of files) {
+        for (const yaw of [Math.PI / 2, Math.PI, -Math.PI / 2]) {
+            const { rig, scene, engine } = await loadRig(file, {
+                eyeHeight: 1.7, hideHead: true, allowCustomSkeleton: true
+            });
+            assert.ok(rig.ok);
+            const yaw0 = rig.yaw0, yawDir = rig.yawDir, sideL = rig.sideL;
+            const pose = { ...makePose(), bodyYaw: yaw, headYaw: yaw };
+            rig.update(DT, pose);
+            const rotation = rig.root.rotation.y;
+            rig.setEyeHeight(1.8);
+            assert.ok(Math.abs(rig.yaw0 - yaw0) < 1e-5, `${file}: refitting changed bind facing at ${yaw}`);
+            assert.equal(rig.yawDir, yawDir, `${file}: refitting reversed turn direction`);
+            assert.equal(rig.sideL, sideL, `${file}: refitting swapped physical sides`);
+            pose.eyeY = 1.8;
+            rig.update(DT, pose);
+            assert.ok(Math.abs(rig.root.rotation.y - rotation) < 1e-5, `${file}: calibration turned the body away from the mirror`);
+            assert.equal(rig._headVisible, false);
+            rig.dispose();
+            scene.dispose();
+            engine.dispose();
+        }
+    }
 });
 
 test('every network avatar follows real left/right dance and wave targets after animation without stretching limbs', async () => {
@@ -837,6 +891,75 @@ test('crowd animation reuses interpolation results without changing the real ske
 
 // The grooves are authored procedurally onto the modular rig (scripts/build-crowd-glbs.mjs) at 120 BPM with a beat on
 // every 0.5 s: measure them on the real skeleton, at the frames where the beats fall.
+test('dance arms keep their elbow hinge aligned instead of corkscrewing the upper arm and forearm', async () => {
+    for (const file of ['club-crowd-f1.glb', 'club-crowd-m1.glb', 'club-crowd-f2.glb', 'club-crowd-m7.glb',
+        join(ROOT, 'js', 'models', 'characters', 'nia.glb'), join(ROOT, 'js', 'models', 'characters', 'tao.glb')]) {
+        const { scene, engine, container, B } = await loadContainer(file);
+        container.animationGroups.forEach(group => group.stop());
+        const nodes = container.transformNodes;
+        const node = name => nodes.find(n => n.name === name);
+        const position = name => {
+            const n = node(name);
+            n.computeWorldMatrix(true);
+            return n.getAbsolutePosition().clone();
+        };
+        const rotation = name => {
+            const n = node(name);
+            n.computeWorldMatrix(true);
+            const q = new B.Quaternion();
+            n.getWorldMatrix().decompose(undefined, q);
+            return q;
+        };
+        const rotate = (v, q) => v.applyRotationQuaternion(q);
+        const rest = {};
+        for (const side of ['L', 'R']) {
+            const upper = `UpperArm.${side}`, lower = `LowerArm.${side}`, wrist = `Wrist.${side}`;
+            const axis = position(lower).subtract(position(upper)).normalize();
+            const hinge = B.Vector3.Cross(axis, position(wrist).subtract(position(lower)).normalize()).normalize();
+            rest[side] = { hinge, axis: position(wrist).subtract(position(lower)).normalize(),
+                upper: rotation(upper), lower: rotation(lower), wrist: rotation(wrist) };
+        }
+        for (const group of container.animationGroups.filter(g => g.name.startsWith('Groove_') || g.name === 'Dance_Loop')) {
+            const previousRotations = new Map();
+            group.start(false);
+            group.pause();
+            for (let frame = group.from; frame <= group.to; frame += 3) {
+                group.goToFrame(frame);
+                for (const side of ['L', 'R']) {
+                    const upper = `UpperArm.${side}`, lower = `LowerArm.${side}`, wrist = `Wrist.${side}`;
+                    const a = position(lower).subtract(position(upper)).normalize();
+                    const b = position(wrist).subtract(position(lower)).normalize();
+                    const hinge = B.Vector3.Cross(a, b).normalize();
+                    for (const part of ['upper', 'lower']) {
+                        const current = rotation(part === 'upper' ? upper : lower);
+                        const key = `${side}.${part}`, previous = previousRotations.get(key);
+                        if (previous) {
+                            const turn = 2 * Math.acos(Math.min(1, Math.abs(B.Quaternion.Dot(previous, current))));
+                            assert.ok(turn < 0.65, `${file} ${group.name} ${key} frame ${frame}: arm snaps ${(turn * 180 / Math.PI).toFixed(1)} degrees`);
+                        }
+                        previousRotations.set(key, current);
+                        const q = current.multiply(B.Quaternion.Inverse(rest[side][part]));
+                        const alignment = B.Vector3.Dot(rotate(rest[side].hinge, q), hinge);
+                        const minimum = part === 'lower' && group.name.startsWith('Groove_') ? Math.cos(76 * Math.PI / 180) : 0.98;
+                        assert.ok(alignment > minimum, `${file} ${group.name} ${side} ${part} frame ${frame}: elbow hinge twisted (${alignment.toFixed(3)})`);
+                    }
+                    const lowerDelta = rotation(lower).multiply(B.Quaternion.Inverse(rest[side].lower));
+                    const wristDelta = rotation(wrist).multiply(B.Quaternion.Inverse(rest[side].wrist));
+                    const relative = B.Quaternion.Inverse(lowerDelta).multiply(wristDelta);
+                    const angle = 2 * Math.atan2(relative.x * rest[side].axis.x + relative.y * rest[side].axis.y + relative.z * rest[side].axis.z, relative.w);
+                    const roll = Math.abs(Math.atan2(Math.sin(angle), Math.cos(angle)));
+                    if (group.name.startsWith('Groove_')) {
+                        assert.ok(roll < 61 * Math.PI / 180, `${file} ${group.name} ${side} frame ${frame}: wrist takes all palm roll (${(roll * 180 / Math.PI).toFixed(1)} degrees)`);
+                    }
+                }
+            }
+            group.stop();
+        }
+        scene.dispose();
+        engine.dispose();
+    }
+});
+
 test('the crowd grooves: on the beat where it matters, feet planted, hands where they should be, seamless loops', async () => {
     const GROOVES = {
         Groove_Bounce: 8, Groove_SideTap: 8, Groove_Clap: 2, Groove_ClapUp: 2, Groove_Pump: 8, Groove_Twist: 4, Groove_HandsUp: 4,

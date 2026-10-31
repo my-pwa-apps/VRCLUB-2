@@ -1,9 +1,17 @@
 [
   {
     "id": "nia",
-    "bytes": 1986608,
+    "bytes": 3739244,
     "clips": [
-      "Dance_Loop",
+      "Idle",
+      "Walk",
+      "Run",
+      "Wave",
+      "Yes",
+      "Seated_Loop",
+      "Seated_Low_Loop",
+      "Idle_Talking_Loop",
+      "Idle_Loop",
       "Groove_Bounce",
       "Groove_SideTap",
       "Groove_Clap",
@@ -14,22 +22,22 @@
       "Groove_ArmsWide",
       "Groove_ArmsUp",
       "Groove_Sway",
-      "Idle",
-      "Walk",
-      "Run",
-      "Wave",
-      "Yes",
-      "Seated_Loop",
-      "Seated_Low_Loop",
-      "Idle_Talking_Loop",
-      "Idle_Loop"
+      "Dance_Loop"
     ]
   },
   {
     "id": "luca",
-    "bytes": 1947216,
+    "bytes": 3365960,
     "clips": [
-      "Dance_Loop",
+      "Idle",
+      "Walk",
+      "Run",
+      "Wave",
+      "Yes",
+      "Seated_Loop",
+      "Seated_Low_Loop",
+      "Idle_Talking_Loop",
+      "Idle_Loop",
       "Groove_Bounce",
       "Groove_SideTap",
       "Groove_Clap",
@@ -40,22 +48,15 @@
       "Groove_ArmsWide",
       "Groove_ArmsUp",
       "Groove_Sway",
-      "Idle",
-      "Walk",
-      "Run",
-      "Wave",
-      "Yes",
-      "Seated_Loop",
-      "Seated_Low_Loop",
-      "Idle_Talking_Loop",
-      "Idle_Loop"
+      "Dance_Loop"
     ]
   },
   {
     "id": "robin",
-    "bytes": 1242444,
+    "bytes": 2665528,
     "clips": [
-      "Dance_Loop",
+      "Idle_Loop",
+      "Idle_Talking_Loop",
       "Groove_Bounce",
       "Groove_SideTap",
       "Groove_Clap",
@@ -66,15 +67,22 @@
       "Groove_ArmsWide",
       "Groove_ArmsUp",
       "Groove_Sway",
-      "Idle_Loop",
-      "Idle_Talking_Loop"
+      "Dance_Loop"
     ]
   },
   {
     "id": "tao",
-    "bytes": 2136396,
+    "bytes": 3898896,
     "clips": [
-      "Dance_Loop",
+      "Idle",
+      "Walk",
+      "Run",
+      "Wave",
+      "Yes",
+      "Seated_Loop",
+      "Seated_Low_Loop",
+      "Idle_Talking_Loop",
+      "Idle_Loop",
       "Groove_Bounce",
       "Groove_SideTap",
       "Groove_Clap",
@@ -85,22 +93,22 @@
       "Groove_ArmsWide",
       "Groove_ArmsUp",
       "Groove_Sway",
-      "Idle",
-      "Walk",
-      "Run",
-      "Wave",
-      "Yes",
-      "Seated_Loop",
-      "Seated_Low_Loop",
-      "Idle_Talking_Loop",
-      "Idle_Loop"
+      "Dance_Loop"
     ]
   },
   {
     "id": "sofia",
-    "bytes": 1960756,
+    "bytes": 3392824,
     "clips": [
-      "Dance_Loop",
+      "Idle",
+      "Walk",
+      "Run",
+      "Wave",
+      "Yes",
+      "Seated_Loop",
+      "Seated_Low_Loop",
+      "Idle_Talking_Loop",
+      "Idle_Loop",
       "Groove_Bounce",
       "Groove_SideTap",
       "Groove_Clap",
@@ -111,22 +119,22 @@
       "Groove_ArmsWide",
       "Groove_ArmsUp",
       "Groove_Sway",
-      "Idle",
-      "Walk",
-      "Run",
-      "Wave",
-      "Yes",
-      "Seated_Loop",
-      "Seated_Low_Loop",
-      "Idle_Talking_Loop",
-      "Idle_Loop"
+      "Dance_Loop"
     ]
   },
   {
     "id": "asha",
-    "bytes": 1899984,
+    "bytes": 3318148,
     "clips": [
-      "Dance_Loop",
+      "Idle",
+      "Walk",
+      "Run",
+      "Wave",
+      "Yes",
+      "Seated_Loop",
+      "Seated_Low_Loop",
+      "Idle_Talking_Loop",
+      "Idle_Loop",
       "Groove_Bounce",
       "Groove_SideTap",
       "Groove_Clap",
@@ -137,22 +145,22 @@
       "Groove_ArmsWide",
       "Groove_ArmsUp",
       "Groove_Sway",
-      "Idle",
-      "Walk",
-      "Run",
-      "Wave",
-      "Yes",
-      "Seated_Loop",
-      "Seated_Low_Loop",
-      "Idle_Talking_Loop",
-      "Idle_Loop"
+      "Dance_Loop"
     ]
   },
   {
     "id": "diego",
-    "bytes": 2014688,
+    "bytes": 3436332,
     "clips": [
-      "Dance_Loop",
+      "Idle",
+      "Walk",
+      "Run",
+      "Wave",
+      "Yes",
+      "Seated_Loop",
+      "Seated_Low_Loop",
+      "Idle_Talking_Loop",
+      "Idle_Loop",
       "Groove_Bounce",
       "Groove_SideTap",
       "Groove_Clap",
@@ -163,22 +171,22 @@
       "Groove_ArmsWide",
       "Groove_ArmsUp",
       "Groove_Sway",
-      "Idle",
-      "Walk",
-      "Run",
-      "Wave",
-      "Yes",
-      "Seated_Loop",
-      "Seated_Low_Loop",
-      "Idle_Talking_Loop",
-      "Idle_Loop"
+      "Dance_Loop"
     ]
   },
   {
     "id": "iris",
-    "bytes": 1871160,
+    "bytes": 3295516,
     "clips": [
-      "Dance_Loop",
+      "Idle",
+      "Walk",
+      "Run",
+      "Wave",
+      "Yes",
+      "Seated_Loop",
+      "Seated_Low_Loop",
+      "Idle_Talking_Loop",
+      "Idle_Loop",
       "Groove_Bounce",
       "Groove_SideTap",
       "Groove_Clap",
@@ -189,22 +197,15 @@
       "Groove_ArmsWide",
       "Groove_ArmsUp",
       "Groove_Sway",
-      "Idle",
-      "Walk",
-      "Run",
-      "Wave",
-      "Yes",
-      "Seated_Loop",
-      "Seated_Low_Loop",
-      "Idle_Talking_Loop",
-      "Idle_Loop"
+      "Dance_Loop"
     ]
   },
   {
     "id": "eden",
-    "bytes": 1118852,
+    "bytes": 2544016,
     "clips": [
-      "Dance_Loop",
+      "Idle_Loop",
+      "Idle_Talking_Loop",
       "Groove_Bounce",
       "Groove_SideTap",
       "Groove_Clap",
@@ -215,15 +216,22 @@
       "Groove_ArmsWide",
       "Groove_ArmsUp",
       "Groove_Sway",
-      "Idle_Loop",
-      "Idle_Talking_Loop"
+      "Dance_Loop"
     ]
   },
   {
     "id": "ren",
-    "bytes": 2105412,
+    "bytes": 3531236,
     "clips": [
-      "Dance_Loop",
+      "Idle",
+      "Walk",
+      "Run",
+      "Wave",
+      "Yes",
+      "Seated_Loop",
+      "Seated_Low_Loop",
+      "Idle_Talking_Loop",
+      "Idle_Loop",
       "Groove_Bounce",
       "Groove_SideTap",
       "Groove_Clap",
@@ -234,22 +242,22 @@
       "Groove_ArmsWide",
       "Groove_ArmsUp",
       "Groove_Sway",
-      "Idle",
-      "Walk",
-      "Run",
-      "Wave",
-      "Yes",
-      "Seated_Loop",
-      "Seated_Low_Loop",
-      "Idle_Talking_Loop",
-      "Idle_Loop"
+      "Dance_Loop"
     ]
   },
   {
     "id": "felix",
-    "bytes": 2098988,
+    "bytes": 3522576,
     "clips": [
-      "Dance_Loop",
+      "Idle",
+      "Walk",
+      "Run",
+      "Wave",
+      "Yes",
+      "Seated_Loop",
+      "Seated_Low_Loop",
+      "Idle_Talking_Loop",
+      "Idle_Loop",
       "Groove_Bounce",
       "Groove_SideTap",
       "Groove_Clap",
@@ -260,22 +268,15 @@
       "Groove_ArmsWide",
       "Groove_ArmsUp",
       "Groove_Sway",
-      "Idle",
-      "Walk",
-      "Run",
-      "Wave",
-      "Yes",
-      "Seated_Loop",
-      "Seated_Low_Loop",
-      "Idle_Talking_Loop",
-      "Idle_Loop"
+      "Dance_Loop"
     ]
   },
   {
     "id": "kai",
-    "bytes": 1254752,
+    "bytes": 2681276,
     "clips": [
-      "Dance_Loop",
+      "Idle_Loop",
+      "Idle_Talking_Loop",
       "Groove_Bounce",
       "Groove_SideTap",
       "Groove_Clap",
@@ -286,15 +287,15 @@
       "Groove_ArmsWide",
       "Groove_ArmsUp",
       "Groove_Sway",
-      "Idle_Loop",
-      "Idle_Talking_Loop"
+      "Dance_Loop"
     ]
   },
   {
     "id": "jonas",
-    "bytes": 1249332,
+    "bytes": 2668900,
     "clips": [
-      "Dance_Loop",
+      "Idle_Loop",
+      "Idle_Talking_Loop",
       "Groove_Bounce",
       "Groove_SideTap",
       "Groove_Clap",
@@ -305,14 +306,15 @@
       "Groove_ArmsWide",
       "Groove_ArmsUp",
       "Groove_Sway",
-      "Idle_Loop",
-      "Idle_Talking_Loop"
+      "Dance_Loop"
     ]
   },
   {
     "id": "mara",
-    "bytes": 1109096,
+    "bytes": 2546328,
     "clips": [
+      "Idle_Loop",
+      "Idle_Talking_Loop",
       "Dance_Loop",
       "Groove_Bounce",
       "Groove_SideTap",
@@ -323,111 +325,109 @@
       "Groove_HandsUp",
       "Groove_ArmsWide",
       "Groove_ArmsUp",
-      "Groove_Sway",
-      "Idle_Loop",
-      "Idle_Talking_Loop"
+      "Groove_Sway"
     ]
   },
   {
     "id": "ellis",
-    "bytes": 1593396,
+    "bytes": 1766604,
     "clips": [
       "Idle",
       "Walk",
       "Run",
       "Wave",
       "Yes",
-      "Dance_Loop",
       "Seated_Loop",
       "Seated_Low_Loop",
       "Idle_Talking_Loop",
-      "Idle_Loop"
+      "Idle_Loop",
+      "Dance_Loop"
     ]
   },
   {
     "id": "amara",
-    "bytes": 2105944,
+    "bytes": 2291068,
     "clips": [
       "Idle",
       "Walk",
       "Run",
       "Wave",
       "Yes",
-      "Dance_Loop",
       "Seated_Loop",
       "Seated_Low_Loop",
       "Idle_Talking_Loop",
       "Idle_Loop",
       "Seated_Bar_Idle_Loop",
-      "Seated_Bar_Drink_Loop"
+      "Seated_Bar_Drink_Loop",
+      "Dance_Loop"
     ]
   },
   {
     "id": "malik",
-    "bytes": 2535728,
+    "bytes": 2715964,
     "clips": [
       "Idle",
       "Walk",
       "Run",
       "Wave",
       "Yes",
-      "Dance_Loop",
       "Seated_Loop",
       "Seated_Low_Loop",
       "Idle_Talking_Loop",
       "Idle_Loop",
       "Drink_Loop",
       "Smoke_Loop",
-      "Idle_Railing_Loop"
+      "Idle_Railing_Loop",
+      "Dance_Loop"
     ]
   },
   {
     "id": "mei",
-    "bytes": 1947296,
+    "bytes": 2122440,
     "clips": [
       "Idle",
       "Walk",
       "Run",
       "Wave",
       "Yes",
-      "Dance_Loop",
       "Seated_Loop",
       "Seated_Low_Loop",
       "Idle_Talking_Loop",
       "Idle_Loop",
-      "Idle_Railing_Loop"
+      "Idle_Railing_Loop",
+      "Dance_Loop"
     ]
   },
   {
     "id": "rosa",
-    "bytes": 1586608,
+    "bytes": 1766400,
     "clips": [
       "Idle",
       "Walk",
       "Run",
       "Wave",
       "Yes",
-      "Dance_Loop",
       "Seated_Loop",
       "Seated_Low_Loop",
       "Idle_Talking_Loop",
-      "Idle_Loop"
+      "Idle_Loop",
+      "Dance_Loop"
     ]
   },
   {
     "id": "samir",
-    "bytes": 1872108,
+    "bytes": 2056924,
     "clips": [
       "Idle",
       "Walk",
       "Run",
       "Wave",
       "Yes",
-      "Dance_Loop",
       "Seated_Loop",
       "Seated_Low_Loop",
       "Idle_Talking_Loop",
-      "Idle_Loop"
+      "Idle_Loop",
+      "Dance_Loop"
     ]
   },
   {
@@ -448,18 +448,18 @@
   },
   {
     "id": "leila",
-    "bytes": 1598428,
+    "bytes": 1770548,
     "clips": [
       "Idle",
       "Walk",
       "Run",
       "Wave",
       "Yes",
-      "Dance_Loop",
       "Seated_Loop",
       "Seated_Low_Loop",
       "Idle_Talking_Loop",
-      "Idle_Loop"
+      "Idle_Loop",
+      "Dance_Loop"
     ]
   },
   {
@@ -533,18 +533,18 @@
   },
   {
     "id": "idris",
-    "bytes": 1744280,
+    "bytes": 1936516,
     "clips": [
       "Idle",
       "Walk",
       "Run",
       "Wave",
       "Yes",
-      "Dance_Loop",
       "Seated_Loop",
       "Seated_Low_Loop",
       "Idle_Talking_Loop",
-      "Idle_Loop"
+      "Idle_Loop",
+      "Dance_Loop"
     ]
   },
   {

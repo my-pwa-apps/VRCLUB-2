@@ -223,8 +223,10 @@ for (const file of files) {
         for (const primitive of mesh.listPrimitives()) {
             const pos = primitive.getAttribute('POSITION');
             const v = [0, 0, 0];
-            for (let i = 0; i < pos.getCount(); i++) {
-                pos.getElement(i, v);
+            const indices = primitive.getIndices();
+            const count = indices ? indices.getCount() : pos.getCount();
+            for (let i = 0; i < count; i++) {
+                pos.getElement(indices ? indices.getScalar(i) : i, v);
                 if (v[1] < minY) minY = v[1];
                 if (v[1] > maxY) maxY = v[1];
             }
@@ -262,10 +264,13 @@ for (const file of files) {
         for (const primitive of mesh.listPrimitives()) {
             const pos = primitive.getAttribute('POSITION');
             const v = [0, 0, 0];
-            for (let i = 0; i < pos.getCount(); i++) {
-                pos.getElement(i, v);
-                if (v[1] < minAfter) { minAfter = v[1]; minIdx = i; minPos = pos; }
-                if (v[1] > maxAfter) { maxAfter = v[1]; maxIdx = i; maxPos = pos; }
+            const indices = primitive.getIndices();
+            const count = indices ? indices.getCount() : pos.getCount();
+            for (let i = 0; i < count; i++) {
+                const index = indices ? indices.getScalar(i) : i;
+                pos.getElement(index, v);
+                if (v[1] < minAfter) { minAfter = v[1]; minIdx = index; minPos = pos; }
+                if (v[1] > maxAfter) { maxAfter = v[1]; maxIdx = index; maxPos = pos; }
             }
         }
     }

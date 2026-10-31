@@ -76,9 +76,21 @@ test('local test analyses a real input without opening a room or publishing and 
     assert.equal(h.input.remote.monitor.gain.value, 0);
 });
 
+test('mono mixer input reports detected audio without asking for two moving bars', async t => {
+    const h = setup(t);
+    h.track.getSettings = () => ({ channelCount: 1 });
+    await h.input.start();
+    h.timers.get(1)();
+    assert.match(h.input.format, /Mono input/);
+    assert.equal(h.input.signal, 'Audio detected from your mono input.');
+});
+
 test('Go live explicitly creates a private session and publishes the already tested input once', async t => {
     const h = setup(t);
+    let views = 0;
+    h.club._showPerformingDJView = () => { views++; };
     await h.input.start();
+    assert.equal(views, 0);
     await h.input.goLive('My set');
     assert.equal(h.mp.connected, true);
     assert.equal(h.input.live, true);
@@ -86,10 +98,22 @@ test('Go live explicitly creates a private session and publishes the already tes
     assert.equal(h.publications[0].stream, h.stream);
     assert.equal(h.requests.length, 1);
     assert.equal(h.input.retainsInputFor(h.mp.liveEvent), true);
+    assert.equal(views, 1, 'successful Go live restores the DJ booth view');
     h.input.stopBroadcast();
     assert.equal(h.publications[0].closed, true);
     assert.equal(h.track.stopped, undefined);
     assert.equal(h.input.stream, h.stream);
+});
+
+test('Go live leaves the camera alone when performing as DJ is off', async t => {
+    const h = setup(t);
+    let views = 0;
+    h.club._showPerformingDJView = () => { views++; };
+    h.input.setPerformAsDJ(false);
+    await h.input.start();
+    await h.input.goLive();
+    assert.equal(h.input.live, true);
+    assert.equal(views, 0);
 });
 
 test('private testing withdraws an existing room music publication before connecting the mixer', async t => {
@@ -230,12 +254,18 @@ test('Live input Perform as DJ mode hides the NPC DJ, drives the player avatar w
         _unanalysedDanceMusic: () => null,
         _playerCamera() { return this.camera; },
         _bodyEyeHeight: () => 1.7,
-        _shownBodyEye: () => 1.7
+        _shownBodyEye: () => 1.7,
+        moveCameraToPreset(preset) { this.preset = preset; }
     });
     club.setPerformingAsDJ(true);
     assert.equal(club.performingAsDJ, true);
     assert.equal(npcRoot.enabled, false, 'resident NPC DJ is hidden while the player performs at the decks');
-    assert.equal(club.camera.position.z, -14.8, 'desktop camera moves in front of the booth to watch the performance');
+    assert.equal(club.preset, 'djBooth', 'desktop camera faces the dance floor from the booth');
+    club.preset = null;
+    club.isInVRMode = true;
+    club._showPerformingDJView();
+    assert.equal(club.preset, null, 'performing does not move the headset camera');
+    club.isInVRMode = false;
     club._updateDJ(1 / 60, { hasAudio: true, energy: 0.75 });
     assert.ok(club._selfDJPose && club._selfDJPose.left && club._selfDJPose.right, 'DJPerformer generates booth hand targets');
     club.updateNetworkPresence({ time: 1, dt: 1 / 60 });
@@ -332,5 +362,3 @@ test('AvatarRig resolves Ready Player Me / Tribe XR / Mixamo full-body and half-
         assert.ok(resolvedHalf.nodes[bone], `Ready Player Me half-body resolves or synthesizes ${bone}`);
     }
 });
-
-

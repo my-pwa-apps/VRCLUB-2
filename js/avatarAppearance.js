@@ -303,10 +303,15 @@ window.PersonalAppearance = {
         const client = this.multiplayer?.client;
         const shared = client?.selfAppearance || null, avatar = client?.avatar;
         let published = false;
+        let customDeselected = false;
         try {
             const appearance = AvatarAppearance.sanitize(draft);
             await this._loadWardrobeSource(appearance.base);
             if (this._disposed) return false;
+            if (this.isCustomAvatarSelected?.()) {
+                if (!this.setCustomAvatarSelected(false)) throw new Error('Your uploaded avatar could not be set aside.');
+                customDeselected = true;
+            }
             await this._publishAppearance(appearance, appearance.base);
             published = !!this.multiplayer?.connected;
             localStorage.setItem(AvatarAppearance.STORAGE_KEY, JSON.stringify(appearance));
@@ -325,6 +330,9 @@ window.PersonalAppearance = {
                     log.warn('The room appearance could not be restored:', rollbackError);
                     message += ` The room appearance could not be restored: ${rollbackError.message}`;
                 }
+            }
+            if (customDeselected && !this.setCustomAvatarSelected(true)) {
+                message += ' Your uploaded avatar could not be restored; select it again.';
             }
             this._personalAppearanceError = message;
             log.warn('Your wardrobe could not be saved:', error);

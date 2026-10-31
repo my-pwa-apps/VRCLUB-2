@@ -149,6 +149,7 @@ class AvatarEditor {
     }
 
     open() {
+        if (this.club?.isCustomAvatarSelected?.()) return this.openCustom();
         if (this.disposed || !this.club || !this.club.getAppearanceDraft) return false;
         if (this.dialog) {
             this.dialog.querySelector('[data-avatar-close]')?.focus();
@@ -174,6 +175,88 @@ class AvatarEditor {
         this._wireDesktop(dialog);
         ui.close.focus();
         this._createDesktopPreview();
+        return true;
+    }
+
+    openCustom() {
+        if (this.disposed || !this.club?.getCustomAvatarAppearance || !window.CustomAvatarAppearance) return false;
+        if (this.dialog) return true;
+        try {
+            this.draft = window.CustomAvatarAppearance.sanitize(this.club.getCustomAvatarAppearance());
+        } catch (error) {
+            this.club.showErrorMessage?.(error.message); return false;
+        }
+        this._customEditing = true;
+        this._restoreFocus = document.activeElement;
+        const dialog = document.createElement('section');
+        dialog.className = 'avatar-editor';
+        dialog.setAttribute('role', 'dialog');
+        dialog.setAttribute('aria-modal', 'true');
+        dialog.setAttribute('aria-label', 'Uploaded avatar wardrobe');
+        const panel = document.createElement('div');
+        panel.className = 'avatar-editor__panel';
+        const header = document.createElement('header');
+        header.className = 'avatar-editor__header';
+        const title = document.createElement('h2');
+        title.textContent = 'Uploaded avatar wardrobe';
+        const close = document.createElement('button');
+        close.type = 'button'; close.textContent = 'Close'; close.dataset.avatarClose = '';
+        close.addEventListener('click', () => this.close());
+        header.append(title, close);
+        const note = document.createElement('p');
+        note.className = 'avatar-editor__privacy';
+        note.textContent = 'Keep your uploaded face. Fit a casual short-sleeved top or smart long-sleeved top and trousers to its original surfaces. Original restores the file’s clothing; colours affect fitted clothing only. Unsupported fits leave the current look unchanged. Apply and save updates your body and mirror.';
+        const form = document.createElement('form');
+        form.className = 'avatar-editor__form';
+        const choices = { outfit: ['original', 'casual', 'smart'], glasses: ['none', 'round', 'square'], hat: ['none', 'cap', 'beanie'] };
+        for (const field of ['outfit', 'top', 'bottom', 'glasses', 'hat']) {
+            const label = document.createElement('label');
+            label.textContent = { outfit: 'Outfit', top: 'Top colour', bottom: 'Trouser colour', glasses: 'Glasses', hat: 'Headwear' }[field];
+            const input = document.createElement(choices[field] ? 'select' : 'input');
+            input.name = field;
+            if (choices[field]) for (const value of choices[field]) {
+                const option = document.createElement('option');
+                option.value = value; option.textContent = value[0].toUpperCase() + value.slice(1);
+                input.appendChild(option);
+            } else input.type = 'color';
+            input.value = this.draft[field];
+            input.addEventListener('input', () => { this.draft[field] = input.value; });
+            label.append(input); form.append(label);
+        }
+        const status = document.createElement('p');
+        status.setAttribute('role', 'status');
+        const save = document.createElement('button');
+        save.type = 'submit'; save.textContent = 'Apply and save';
+        form.append(save, status);
+        form.addEventListener('submit', async event => {
+            event.preventDefault();
+            if (this._saving) return;
+            this._saving = true;
+            form.querySelectorAll('input,select,button').forEach(control => { control.disabled = true; });
+            status.textContent = 'Fitting and saving uploaded avatar…';
+            try {
+                const saved = await this.club.setCustomAvatarAppearance(window.CustomAvatarAppearance.sanitize(this.draft));
+                if (saved === false) throw new Error('The uploaded look was not saved.');
+                status.textContent = 'Uploaded appearance applied and saved.';
+                this.club.showErrorMessage?.('Uploaded appearance applied and saved.');
+            } catch (error) {
+                status.textContent = `Could not apply or save: ${error.message || 'unknown error'}`;
+            } finally {
+                this._saving = false;
+                form.querySelectorAll('input,select,button').forEach(control => { control.disabled = false; });
+            }
+        });
+        dialog.addEventListener('keydown', event => {
+            if (event.key === 'Escape') { event.preventDefault(); this.close(); }
+            if (event.key !== 'Tab') return;
+            const controls = [...dialog.querySelectorAll('button:not(:disabled),select:not(:disabled),input:not(:disabled)')];
+            const first = controls[0], last = controls[controls.length - 1];
+            if (event.shiftKey && document.activeElement === first) { event.preventDefault(); last.focus(); }
+            else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first.focus(); }
+        });
+        panel.append(header, note, form); dialog.append(panel);
+        this.dialog = dialog;
+        document.body.append(dialog); close.focus();
         return true;
     }
 
@@ -216,7 +299,7 @@ class AvatarEditor {
         const privacy = element('p', 'avatar-editor__privacy',
             'Customize your own detailed avatar. This does not upload a photo or use an account or remote avatar service.');
         const notice = element('p', 'avatar-editor__notice',
-            'Personal customizations use the detailed model, even when lightweight characters are enabled.');
+            'This wardrobe edits club characters, not uploaded .GLB avatars. Saving switches to a detailed club character, even when lightweight characters are enabled.');
 
         const layout = element('div', 'avatar-editor__layout');
         const previewWrap = element('div', 'avatar-editor__preview-wrap');
@@ -537,6 +620,7 @@ class AvatarEditor {
         if (this._restoreFocus?.isConnected) this._restoreFocus.focus();
         this._restoreFocus = null;
         this.draft = null;
+        this._customEditing = false;
         this._canvas = this._form = this._status = this._error = null;
         this._onDialogKey = this._onInput = null;
         this._onPointerDown = this._onPointerMove = this._onPointerEnd = null;
@@ -564,6 +648,18 @@ class AvatarEditor {
             return false;
         }
         this.close(true);
+        if (this.club?.isCustomAvatarSelected?.()) {
+            try {
+                this.vrDraft = window.CustomAvatarAppearance.sanitize(this.club.getCustomAvatarAppearance());
+                this._customVREditing = true;
+                this.vrVisible = true;
+                this.vrColorPage = {};
+                return true;
+            } catch (error) {
+                this.club.showErrorMessage?.(error.message); return false;
+            }
+        }
+        this._customVREditing = false;
         if (!this._ensureVR()) return false;
         if (this.vrVisible) return true;
         try {
@@ -598,6 +694,7 @@ class AvatarEditor {
 
     closeVR() {
         this.vrVisible = false;
+        this._customVREditing = false;
         this.loadGeneration++;
         if (this.vrPreview) {
             try { this.vrPreview.dispose(); } catch (_) { /* loader owns its model resources */ }
@@ -624,6 +721,7 @@ class AvatarEditor {
     }
 
     getVRDefinitions(page) {
+        if (this._customVREditing) return this.customVRDefinition(page);
         const draft = this.vrDraft || {};
         const common = this._vrCommon();
         const selected = (key, value) => String(draft[key]).toLowerCase() === String(value).toLowerCase();
@@ -722,6 +820,12 @@ class AvatarEditor {
     }
 
     setDraftValue(field, value) {
+        if (this._customVREditing) {
+            if (!['outfit', 'top', 'bottom', 'glasses', 'hat'].includes(field)) return;
+            try { this.vrDraft = window.CustomAvatarAppearance.sanitize({ ...this.vrDraft, [field]: value }); }
+            catch (error) { this.club.showErrorMessage?.(error.message); }
+            return;
+        }
         if (!this.vrDraft || !['base', 'hair', 'outfit', 'skin', 'hairColor', 'top', 'bottom', 'glasses', 'facialHair', 'hat', 'shoes', 'legwear'].includes(field)) return;
         const baseChanged = field === 'base' && this.vrDraft.base !== value;
         this.vrDraft[field] = value;
@@ -735,6 +839,11 @@ class AvatarEditor {
     async saveVR() {
         if (!this.vrDraft) return false;
         try {
+            if (this._customVREditing) {
+                if (await this.club.setCustomAvatarAppearance(window.CustomAvatarAppearance.sanitize(this.vrDraft)) === false) return false;
+                this.club.showErrorMessage?.('Uploaded appearance applied and saved.');
+                this.closeVR(); return true;
+            }
             if (!await this.club.savePersonalAppearance(this._cloneDraft(this.vrDraft))) return false;
             this.closeVR();
             return true;
@@ -746,6 +855,10 @@ class AvatarEditor {
 
     async resetVR() {
         try {
+            if (this._customVREditing) {
+                if (await this.club.setCustomAvatarAppearance(window.CustomAvatarAppearance.defaults()) === false) return false;
+                this.closeVR(); return true;
+            }
             if (!await this.club.resetPersonalAppearance()) return false;
             this.closeVR();
             return true;
@@ -762,6 +875,42 @@ class AvatarEditor {
 
     rotateVR(delta) {
         if (this.vrPreview?.root) this.vrPreview.root.rotation.y += delta * Math.PI / 8;
+    }
+
+    customVRDefinition(page = 'appearanceEditor') {
+        const draft = this.vrDraft || window.CustomAvatarAppearance.defaults();
+        const back = { label: 'BACK TO UPLOADED WARDROBE', action: 'page', target: 'appearanceEditor' };
+        const close = { label: 'CLOSE WARDROBE', action: 'appearanceCancel' };
+        const fields = { appearanceOutfit: ['outfit', ['original', 'casual', 'smart']],
+            appearanceGlasses: ['glasses', ['none', 'round', 'square']], appearanceHat: ['hat', ['none', 'cap', 'beanie']] };
+        if (fields[page]) {
+            const [field, values] = fields[page];
+            return [...values.map(value => ({ label: `${value.toUpperCase()}${draft[field] === value ? ' SELECTED' : ''}`,
+                action: 'appearanceSet', field, value })), back, close];
+        }
+        if (page === 'appearanceTop' || page === 'appearanceBottom') {
+            const field = page === 'appearanceTop' ? 'top' : 'bottom', start = (this.vrColorPage[field] || 0) * 8;
+            return [...AvatarEditor.COLORS.slice(start, start + 8).map(color => ({
+                label: color.name.toUpperCase(), action: 'appearanceSet', field, value: color.value, swatch: color.value
+            })), { label: 'MORE COLOURS', action: 'appearanceColorPage', field,
+                delta: start + 8 < AvatarEditor.COLORS.length ? 1 : -Math.floor(start / 8) }, back, close];
+        }
+        return [
+            { label: `OUTFIT ${draft.outfit.toUpperCase()}`, action: 'page', target: 'appearanceOutfit' },
+            { label: 'TOP COLOUR', action: 'page', target: 'appearanceTop' },
+            { label: 'TROUSER COLOUR', action: 'page', target: 'appearanceBottom' },
+            { label: `GLASSES ${draft.glasses.toUpperCase()}`, action: 'page', target: 'appearanceGlasses' },
+            { label: `HEADWEAR ${draft.hat.toUpperCase()}`, action: 'page', target: 'appearanceHat' },
+            { label: 'APPLY AND SAVE', action: 'appearanceSave' },
+            { label: 'RESTORE ORIGINAL OUTFIT', action: 'appearanceReset' }, close
+        ];
+    }
+
+    async customVRAction(action, value) {
+        if (action === 'share') return this.club.setCustomAvatarSharing(!!value);
+        if (action === 'save') return this.saveVR();
+        if (action === 'reset') return this.resetVR();
+        return false;
     }
 
     dispose() {

@@ -4,6 +4,145 @@ Actionable engineering items for the VRCLUB repository.
 Items are grouped by the review that produced them. Unresolved items are never removed —
 they are carried forward and re-prioritised.
 
+## Review - 2026-10-30 - Local server and deployment documentation
+
+- [x] **Keep private development files out of the static server**
+
+  **Priority:** High
+  **Category:** Security
+  **Confidence:** High
+  **Area:** Local and Node-hosted static server
+  **Affected files:** [serve.mjs](scripts/serve.mjs), [server.test.mjs](test/server.test.mjs)
+  **Evidence:** An isolated reproduction of `npm start` returned HTTP 200 for a synthetic
+  `.env.local` file before the fix. The server binds to all interfaces by default.
+  **Problem:** Hidden environment files and Wrangler state were not covered by the deny list;
+  an allowed symlink could also point to a denied file within the served root.
+  **Impact:** Someone who can reach the server could read a known private file path if that
+  file exists. No actual credential disclosure was tested or established.
+  **Recommended solution:** Reject hidden paths except `.well-known`, exclude the Worker
+  tree, and apply the same check to resolved symlink targets.
+  **Regression considerations:** Continue serving Digital Asset Links and Babylon `.env` assets.
+  **Acceptance criteria:** Private fixture paths and symlink targets are denied in both server
+  modes; public fixtures still return HTTP 200.
+  **Validation:** `node --test test/server.test.mjs` passed in development and dist modes.
+  **Estimated effort:** Small
+  **Business value:** High
+  **Technical debt reduction:** Medium
+
+- [x] **Correct QuestDev and wardrobe documentation**
+
+  README and the scaling runbook now describe the isolated development gate, retained
+  remote skinned avatars, v3 footwear negotiation and the current music actions. The
+  old descriptions contradicted the current client and development Worker.
+  **Validation:** Compared with `paymentGate.js`, `avatarManager.js`, `avatarEditor.js`,
+  `avatarAppearance.js`, `index.html` and `worker/src/dev-index.js`.
+
+- [x] **Keep saved sets when the playback checkpoint is corrupt**
+
+  **Priority:** High
+  **Category:** Data
+  **Confidence:** High
+  **Area:** Saved music and playback recovery
+  **Affected files:** [musicLibrary.js](js/musicLibrary.js), [quest.test.mjs](test/quest.test.mjs)
+  **Evidence:** A test with two valid saved sets and malformed playback JSON previously
+  loaded zero sets; a subsequent save could replace the stored library.
+  **Problem:** A separately stored resume checkpoint was parsed in the same failure
+  boundary as the library.
+  **Impact:** Valid saved sets could disappear and then be overwritten.
+  **Recommended solution:** Load and report checkpoint errors independently of the library.
+  **Regression considerations:** Valid checkpoints still resume their matching source once.
+  **Acceptance criteria:** Corrupt checkpoints retain the sets and selection, report the error,
+  start at zero and never erase sets during a later save.
+  **Validation:** `node --test test/quest.test.mjs` passed, including a failing-before-fix regression.
+  **Estimated effort:** Small
+  **Business value:** High
+  **Technical debt reduction:** Medium
+
+- [x] **Provide an explicit recovery path for an unreadable saved music library**
+
+  **Priority:** Medium
+  **Category:** Data
+  **Confidence:** High
+  **Area:** Saved music storage
+  **Affected files:** [musicLibrary.js](js/musicLibrary.js), [ui-init.js](js/ui-init.js),
+  [10-ui.js](js/club/10-ui.js), [immersiveLaunch.js](js/immersiveLaunch.js)
+  **Evidence:** Before the fix, a primary-library parse failure emptied the in-memory
+  list and a subsequent `_persist` replaced the same storage key.
+  **Problem:** Saving a new set after a read error can overwrite the unreadable record
+  without an explicit recovery or reset decision.
+  **Impact:** Potentially recoverable saved URLs can be lost.
+  **Recommended solution:** Preserve the original value and provide an explicit, confirmed
+  recovery/reset workflow; surface unavailable storage distinctly from invalid data.
+  **Regression considerations:** Normal first-time empty libraries and working saves must
+  remain straightforward; do not silently replace an unreadable value.
+  **Acceptance criteria:** Failed reads never overwrite existing bytes without an explicit
+  user decision, and users can recover or deliberately reset the list.
+  **Validation:** Unit tests cover corrupt JSON, partially invalid entries, denied storage,
+  changed records, failed resets, playback checkpoints and VR confirmation; the production
+  browser build exercises desktop retry and confirmed reset. The pre-write comparison detects
+  an already changed record, but localStorage cannot supply an atomic cross-tab compare-and-swap.
+  **Estimated effort:** Medium
+  **Business value:** Medium
+  **Technical debt reduction:** Medium
+
+- [ ] **Offer consent-based Avaturn avatars to room participants**
+
+  **Priority:** Medium
+  **Category:** Feature
+  **Confidence:** High for the missing integration; vendor terms and physical-device fit need verification.
+  **Area:** Personal avatars and live-DJ identity
+  **Affected files:** [avatarAppearance.js](js/avatarAppearance.js), [SCALING.md](docs/SCALING.md)
+  **Evidence:** The user requested Avaturn as an avatar option. The current wardrobe
+  editor uses local authored assets; custom GLB uploads are local-only, and no Avaturn
+  integration exists in the client or Worker.
+  **Problem:** A performer cannot make and share an Avaturn likeness with other guests.
+  **Impact:** Others see the relay-assigned character rather than that likeness.
+  **Recommended solution:** Verify current vendor licensing and consent requirements, then
+  implement opt-in generation and temporary, room-authorized sharing with deletion and
+  abuse limits. Do not collect face images or integrate an external service silently.
+  **Regression considerations:** Existing avatars, private-room authorization and local-only
+  GLB behavior must remain available. NPC use requires separate licensing and performance review.
+  **Acceptance criteria:** With consent and valid configuration, a guest can create, preview,
+  share and remove their avatar; only authorized room members can retrieve it and expired
+  assets are deleted. Failures are explicit.
+  **Validation:** Consent, authorization, retention and failure-path tests; real GLB/rig tests;
+  headset fit and cost measurements.
+  **Estimated effort:** Large
+  **Business value:** Medium
+  **Technical debt reduction:** Low
+
+- [ ] **Accept an authorized Tribe XR RTMP live feed**
+
+  **Priority:** Medium
+  **Category:** Feature
+  **Confidence:** High for the missing ingest path; vendor compatibility and operating costs need validation.
+  **Area:** Live DJ audio
+  **Affected files:** [liveInput.js](js/liveInput.js), [SCALING.md](docs/SCALING.md)
+  **Evidence:** The user requested a Tribe RTMP feed. The current guided input captures
+  a browser audio device and the existing event distributes WebRTC audio; no RTMP ingest
+  implementation exists in the client or Worker.
+  **Problem:** A performer cannot send Tribe's broadcast directly into the club through
+  the requested RTMP path.
+  **Impact:** The performer must use a supported browser audio-input route instead.
+  **Recommended solution:** Evaluate the previously selected LiveKit ingest against current
+  terms, credentials, latency and quotas; connect an authorized event stream to the existing
+  analyser and room admission model without exposing stream keys.
+  **Regression considerations:** Preserve private testing, opt-in publication, event ownership,
+  audience authorization and the existing WebRTC route.
+  **Acceptance criteria:** A permitted Tribe broadcast reaches admitted guests and drives the
+  crowd and show; stop, expiry and revocation end delivery and remove credentials.
+  **Validation:** Provider-backed end-to-end authorization, lifecycle and audio tests, plus a
+  real Quest/Tribe rehearsal and measured latency.
+  **Estimated effort:** Large
+  **Business value:** High
+  **Technical debt reduction:** Low
+
+The existing Worker tooling audit item below was rechecked rather than duplicated. No
+complete physical-headset performance or Chrome DevTools Core Web Vitals audit was
+performed in this review.
+
+---
+
 ## Review - 2026-10-14 - LED wall keep-out
 
 - [x] **The LED wall cannot be entered from movement or teleportation**
@@ -1639,6 +1778,12 @@ Babylon.js moved 8.30.5 -> 9.28.0 (see CHANGELOG). Items it left behind:
 - Not adopted: `fixedFoveation` is exposed on the XR session manager in both versions (not new in 9);
   setting it changes the headset's sharpness against its cost, so it belongs with the Quest baseline.
 - [ ] **Resolve the relay tooling advisory chain and audit its separate lockfile in CI**
+
+  **Rechecked 2026-10-30:** `npm audit --audit-level=high` reports zero at the root;
+  `npm --prefix worker audit --audit-level=high` reports four high-severity tooling
+  dependency nodes. The Worker production-only audit reports zero. npm now proposes
+  Wrangler 4.152.0 outside the pinned version; compatibility and the other pinned
+  deploy commands still need review before changing it. CI still audits only the root.
 
   **Rechecked 2026-10-12:** Root production and full audits still report zero.
   `npm --prefix worker audit --audit-level=high` still exits 1 with four high-severity

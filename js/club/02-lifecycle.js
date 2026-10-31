@@ -156,6 +156,17 @@ class VRClubLifecycle extends VRClubCore {
         this._setupXRSession(vrHelper);
         
         this._buildVenue();
+        if (window.VenueBranding?.requested()) {
+            this._venueBranding = new window.VenueBranding(this);
+            const artworkReady = this._venueBranding.mount().catch(error => {
+                this._venueBranding.dispose();
+                if (!this._disposed) {
+                    log.warn('Optional venue artwork unavailable:', error);
+                    this.showToast('ADE artwork could not load; the NOCTURNE venue remains available.');
+                }
+            });
+            this.modelLoadPromise = Promise.all([this.modelLoadPromise, artworkReady]);
+        }
         this._reportInitProgress(0.72, 'Loading performers...');
         
         // Setup UI
@@ -269,7 +280,24 @@ class VRClubLifecycle extends VRClubCore {
             disableNearInteraction: true,
             // Both hands point and click. Babylon otherwise routes clicks through ONE controller (the first it sees) and the other
             // hand's first trigger pull only switches the pointer to it, so a menu press with the "wrong" hand did nothing.
-            pointerSelectionOptions: { enablePointerSelectionOnAllControllers: true },
+            pointerSelectionOptions: {
+                enablePointerSelectionOnAllControllers: true,
+                customLasterPointerMeshGenerator: () => {
+                    const laser = BABYLON.MeshBuilder.CreateCylinder('laserPointer', {
+                        height: 1, diameterTop: 0.0002, diameterBottom: 0.004, tessellation: 20, subdivisions: 1
+                    }, this.scene);
+                    (this._xrPointerVisuals || (this._xrPointerVisuals = [])).push({ laser, cursor: null });
+                    return laser;
+                },
+                customSelectionMeshGenerator: () => {
+                    const cursor = BABYLON.MeshBuilder.CreateTorus('gazeTracker', {
+                        diameter: 0.0105, thickness: 0.0075, tessellation: 20
+                    }, this.scene);
+                    const visuals = this._xrPointerVisuals;
+                    visuals[visuals.length - 1].cursor = cursor;
+                    return cursor;
+                }
+            },
             // #vrButton is the single entry point: it feature-detects, explains
             // failures and waits for background loading. Babylon's overlay icon
             // would bypass all three.
@@ -345,6 +373,52 @@ class VRClubLifecycle extends VRClubCore {
             }
         }
         return helper;
+    }
+
+    _isXRPointerTarget(mesh) {
+        if (!mesh) return false;
+        if (mesh.metadata?.vrclubSeats || mesh.metadata?.vrclubDoor !== undefined) return true;
+        for (let node = mesh; node; node = node.parent) {
+            if (node === this._vrQuickMenuRoot) return true;
+        }
+        const panels = this._vjDesk?.panels;
+        if (panels) {
+            for (const panel of panels) if (panel.mesh === mesh) return true;
+        }
+        return false;
+    }
+
+    _updateXRPointerVisibility() {
+        const visuals = this._xrPointerVisuals;
+        const selection = this.vrHelper?.pointerSelection;
+        if (!visuals || !selection || !this.isInVRMode) return;
+        for (let i = visuals.length - 1; i >= 0; i--) {
+            const visual = visuals[i];
+            if (visual.laser.isDisposed()) {
+                visuals.splice(i, 1);
+                continue;
+            }
+            let controller = null;
+            for (const candidate of this._xrControllers) {
+                if (candidate.pointer === visual.laser.parent || candidate.grip === visual.laser.parent) {
+                    controller = candidate;
+                    break;
+                }
+            }
+            // Gaze-based XR input has no controller and retains Babylon's default.
+            if (!controller) {
+                visual.laser.visibility = 1;
+                if (visual.cursor) visual.cursor.visibility = 1;
+                continue;
+            }
+            const trigger = controller.motionController?.getComponent?.('xr-standard-trigger');
+            const button = controller.inputSource?.gamepad?.buttons?.[0];
+            const pressed = !!(trigger?.pressed || trigger?.value > 0.1 || button?.pressed || button?.value > 0.1);
+            const target = selection.getMeshUnderPointer(controller.uniqueId);
+            const visible = pressed || this._isXRPointerTarget(target);
+            visual.laser.visibility = visible ? 1 : 0;
+            if (visual.cursor) visual.cursor.visibility = visible ? 1 : 0;
+        }
     }
 
     /** Room, booth, speakers, LED wall, lasers, fixtures, haze, mirror ball and signage (after the floor and XR helper). */
@@ -598,6 +672,9 @@ class VRClubLifecycle extends VRClubCore {
      * session wiring is readable on its own; behaviour is unchanged.
      */
     _setupXRSession(vrHelper) {
+        if (vrHelper?.pointerSelection && this.scene?.onBeforeRenderObservable && !this._xrPointerVisibilityObserver) {
+            this._xrPointerVisibilityObserver = this.scene.onBeforeRenderObservable.add(() => this._updateXRPointerVisibility());
+        }
         if (vrHelper?.baseExperience) this._xrHeadHeight();
         if (vrHelper?.baseExperience) {
             vrHelper.baseExperience.onInitialXRPoseSetObservable.add(camera => {
@@ -902,6 +979,8 @@ class VRClubLifecycle extends VRClubCore {
      * "reload the page" is currently the only recovery mechanism.
      */
     dispose() {
+        this._avatarSharing?.dispose();
+        this._customAvatarBytes = null;
         if (this._disposed) return;
         this.liveInput?.dispose();
         this.lightingPresets?.dispose();
@@ -911,6 +990,7 @@ class VRClubLifecycle extends VRClubCore {
         this._wardrobeCleanupTimer = null;
         this._wardrobeSources?.clear();
         this._disposed = true;
+        this._venueBranding?.dispose();
         this._cancelDevSeatWait();
         window.VRPayment?.onXRStateChange?.(false);
         try { this._immersive?.dispose(); } catch (_) { /* launch state only */ }
@@ -965,7 +1045,7 @@ class VRClubLifecycle extends VRClubCore {
         }
         // Per-frame observers registered against the scene during an XR session.
         if (this.scene && this.scene.onBeforeRenderObservable) {
-            for (const key of ['_jumpObserver', 'vrYLockObserver']) {
+            for (const key of ['_jumpObserver', 'vrYLockObserver', '_xrPointerVisibilityObserver']) {
                 if (this[key]) {
                     try { this.scene.onBeforeRenderObservable.remove(this[key]); } catch (_) { /* ignore */ }
                     this[key] = null;
@@ -1086,6 +1166,12 @@ class VRClubLifecycle extends VRClubCore {
             try { this._localRig.dispose(); } catch (_) { /* ignore */ }
             this._localRig = null;
         }
+        if (this._customAvatarContainer) {
+            this._customAvatarContainer.dispose();
+            this._customAvatarContainer = null;
+        }
+        this._customAvatarRevision = (this._customAvatarRevision || 0) + 1;
+        this._fallbackAvatarCache?.close();
         if (this._bartenderRig) {
             try { this._bartenderRig.dispose(); } catch (_) { /* ignore */ }
             this._bartenderRig = null;

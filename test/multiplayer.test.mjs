@@ -685,8 +685,10 @@ function fakeRig(club) {
     const calls = [];
     club.vjManualMode = false;
     club.showDirector = {
+        program: 'nocturne',
         follower: false,
         enabled: true,
+        setProgram(program) { this.program = program; },
         setFollower(on) { this.follower = on; },
         isDriving() { return this.enabled && !club.vjManualMode; },
         snapshot() { return { mv: 'pulse', cue: 1, cb: 2, sp: null, spt: null, spb: 0, bib: 0, bar: 8 }; },
@@ -729,6 +731,7 @@ test('spot rig: real relay sanitization retains every head and the timestamped b
     club.spotHead0Color = 2;
     club.spotHead3Enabled = false;
     club.spotHead5Motion = 1;
+    club.spotPrismActive = true;
     for (const manual of [false, true]) {
         club.vjManualMode = manual;
         const frame = mp._buildShowFrame();
@@ -738,11 +741,63 @@ test('spot rig: real relay sanitization retains every head and the timestamped b
         assert.equal(retained.fx.spotHead0Color, 2);
         assert.equal(retained.fx.spotHead3Enabled, false);
         assert.equal(retained.fx.spotHead5Motion, 1);
+        assert.equal(retained.fx.spotPrismActive, true);
         assert.equal(retained.fx.spotSequenceBeat, 300.5);
         assert.equal(retained.fx.spotSequenceBpm, 120);
         assert.equal(retained.fx.spotSequenceAt, frame.fx.spotSequenceAt, 'numeric epoch milliseconds would be clamped by the relay');
         assert.ok(Object.keys(retained.fx).length <= MAX_SHOW_FIXTURES);
     }
+    mp.disconnect();
+});
+
+test('aesthetic program and sheet settings survive relay sanitization in both show modes', async () => {
+    const { sanitizeShow } = await import('../worker/src/relay.js');
+    const { mp, club } = connectedController();
+    fakeRig(club);
+    club.showDirector.program = 'aesthetic';
+    club.laserSheetSpeed = 1.5;
+    club.laserSheetBrightness = 0.25;
+    for (const manual of [false, true]) {
+        club.vjManualMode = manual;
+        const frame = sanitizeShow(mp._buildShowFrame());
+        assert.equal(frame.fx.showProgram, 'aesthetic');
+        assert.equal(frame.fx.laserSheetSpeed, 1.5);
+        assert.equal(frame.fx.laserSheetBrightness, 0.25);
+    }
+    mp._applyFixtures({ laserSheetSpeed: 100, laserSheetBrightness: -2 }, true);
+    assert.equal(club.laserSheetSpeed, 2);
+    assert.equal(club.laserSheetBrightness, 0);
+});
+
+test('aesthetic program switches force cue application, promotion retains it and departure restores local sheet settings', () => {
+    const { mp, club } = spotController();
+    const calls = [];
+    club.showDirector.program = 'nocturne';
+    club.showDirector.setProgram = function (program) { this.program = program; };
+    club.showDirector.applyRemote = (frame, force) => calls.push(force);
+    club.laserSheetSpeed = 0.5;
+    club.laserSheetBrightness = 0.75;
+    mp.connect({ serverUrl: 'wss://relay.example', room: 'r' });
+    const socket = FakeSocket.instances.at(-1);
+    socket.receive({ type: 'welcome', id: 'me', hostId: 'p1', peers: [{ id: 'p1', name: 'Host' }] });
+    const frame = { type: 'show', m: 'show', mv: 'arrival', cue: 0,
+        fx: { showProgram: 'aesthetic', laserSheetSpeed: 2, laserSheetBrightness: 0.25 } };
+    socket.receive({ ...frame, fx: { ...frame.fx, showProgram: 'nocturne' } });
+    socket.receive(frame);
+    assert.equal(calls.at(-1), true, 'a program change reapplies even the same movement and cue index');
+    assert.equal(club.showDirector.program, 'aesthetic');
+    mp.disconnect();
+    assert.equal(club.showDirector.program, 'nocturne');
+    assert.equal(club.laserSheetSpeed, 0.5);
+    assert.equal(club.laserSheetBrightness, 0.75);
+    mp.connect({ serverUrl: 'wss://relay.example', room: 'r' });
+    const next = FakeSocket.instances.at(-1);
+    next.receive({ type: 'welcome', id: 'me', hostId: 'p1', peers: [{ id: 'p1', name: 'Host' }] });
+    next.receive(frame);
+    next.receive({ type: 'host', id: 'me' });
+    assert.equal(club.showDirector.program, 'aesthetic');
+    assert.equal(club.laserSheetSpeed, 2);
+    assert.equal(club.laserSheetBrightness, 0.25);
     mp.disconnect();
 });
 
@@ -772,6 +827,7 @@ test('row choreography: steady grouped aims and individual overrides retain the 
 
 test('spot rig: a late welcome applies groups without overriding automatic fixtures; leaving restores local groups', () => {
     const { mp, club } = spotController();
+    club.spotPrismActive = false;
     club.spotHead0Color = 3;
     club.lightsActive = true;
     mp.connect({ serverUrl: 'wss://relay.example', room: 'r' });
@@ -779,13 +835,16 @@ test('spot rig: a late welcome applies groups without overriding automatic fixtu
     socket.receive({ type: 'welcome', id: 'me', hostId: 'p1', peers: [{ id: 'p1', name: 'Host' }],
         show: { m: 'show', mv: 'pulse', cue: 1, fx: {
             spotSequence: 2, spotSequenceRate: 4, spotHead0Enabled: false, spotHead0Color: 2,
-            spotHead5Motion: 1, lightsActive: false, spotlightPattern: 3,
+            spotHead5Motion: 1, spotPrismActive: true, goboEnabled: true, goboPatternIndex: 2,
+            lightsActive: false, spotlightPattern: 3,
             spotSequenceBeat: 17.5, spotSequenceAt: new Date().toISOString(), spotSequenceBpm: 180
         } } });
     assert.equal(club.spotSequence, 2);
     assert.equal(club.spotHead0Enabled, false);
     assert.equal(club.spotHead0Color, 2);
     assert.equal(club.spotHead5Motion, 1);
+    assert.equal(club.spotPrismActive, true);
+    assert.equal(club.goboEnabled, undefined);
     assert.equal(club.lightsActive, true, 'the extra group metadata overrode an automatic cue');
     assert.ok(club._spotRemoteBeat >= 17.5 && club._spotRemoteBeat < 17.7);
     assert.equal(club._spotRemoteBpm, 180, 'a guest not listening to host music still needs the same sequence cadence');
@@ -793,6 +852,28 @@ test('spot rig: a late welcome applies groups without overriding automatic fixtu
     assert.equal(club.spotSequence, 0);
     assert.equal(club.spotHead0Color, 3);
     assert.equal(club.spotHead0Enabled, true);
+    assert.equal(club.spotPrismActive, false);
+});
+
+test('automatic show master follows the host, survives promotion, and restores after leaving', async () => {
+    const { sanitizeShow } = await import('../worker/src/relay.js');
+    const { mp, club } = spotController();
+    club.vjDirector.showMasterIntensity = 0.7;
+    mp.connect({ serverUrl: 'wss://relay.example', room: 'r' });
+    const socket = FakeSocket.instances.at(-1);
+    socket.receive({ type: 'welcome', id: 'me', hostId: 'p1', peers: [{ id: 'p1', name: 'Host' }] });
+    socket.receive({ type: 'show', m: 'show', mv: 'pulse', cue: 1, fx: { vjMaster: 0 } });
+    assert.equal(club.vjDirector.showMasterIntensity, 0);
+    socket.receive({ type: 'show', m: 'show', mv: 'pulse', cue: 1, fx: {} });
+    assert.equal(club.vjDirector.showMasterIntensity, 1, 'older hosts default to full show master');
+    socket.receive({ type: 'show', m: 'show', mv: 'pulse', cue: 1, fx: { vjMaster: 0.4 } });
+    socket.receive({ type: 'host', id: 'me' });
+    assert.equal(club.vjDirector.showMasterIntensity, 0.4);
+    assert.equal(sanitizeShow(mp._buildShowFrame()).fx.vjMaster, 0.4);
+    socket.receive({ type: 'host', id: 'p1' });
+    socket.receive({ type: 'show', m: 'show', mv: 'pulse', cue: 1, fx: { vjMaster: 0.2 } });
+    mp.disconnect();
+    assert.equal(club.vjDirector.showMasterIntensity, 0.4, 'leaving restores the pre-following level');
 });
 
 test('spot rig: promotion preserves the visible sequence phase and settings; old hosts and malformed values cannot leave stale overrides', () => {
@@ -817,6 +898,7 @@ test('spot rig: promotion preserves the visible sequence phase and settings; old
     socket.receive({ type: 'show', m: 'manual', fx: { spotlightPattern: 1 } });
     assert.equal(club.spotSequence, 0);
     assert.equal(club.spotHead5Color, -1);
+    assert.equal(club.spotPrismActive, false);
     mp.disconnect();
 });
 
@@ -960,7 +1042,8 @@ test('under manual control the host publishes its console and never the director
     const frame = socket.last('show');
     assert.equal(frame.m, 'manual');
     assert.ok(!('mv' in frame));
-    assert.deepEqual({ ...frame.fx }, { lightsActive: true, lasersActive: false, laserSpeed: 1.5, spotlightMode: 2, ledPattern: 7, vjMaster: 0.8 });
+    assert.deepEqual({ ...frame.fx }, { lightsActive: true, lasersActive: false, laserSpeed: 1.5, spotlightMode: 2, ledPattern: 7, vjMaster: 0.8, spotPrismActive: false,
+        showProgram: 'nocturne', laserSheetSpeed: 1, laserSheetBrightness: 1 });
 });
 
 test('a lone host sends nothing, and a newcomer is brought in at once', () => {

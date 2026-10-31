@@ -33,10 +33,33 @@ class MusicLibrary {
         this.playback = null;
         this._startupResumePending = true;
         this.onChange = null;
+        this.readError = null;
+        this._unreadableRaw = null;
+        this._playbackGeneration = null;
+        if (this._readSavedSets()) this._readPlayback();
+    }
+
+    _readSavedSets() {
+        let raw;
         try {
-            this.storage = storage || window.localStorage;
-            const raw = this.storage.getItem(MusicLibrary.KEY);
-            if (!raw) return;
+            this.storage = this.storage || window.localStorage;
+            raw = this.storage.getItem(MusicLibrary.KEY);
+        } catch (error) {
+            this.readError = 'unavailable';
+            this._unreadableRaw = null;
+            console.warn('[Music] Saved-set storage is unavailable.', error.name);
+            this.club.showErrorMessage('Saved-set storage is unavailable. Retry from Music when access is restored.');
+            return false;
+        }
+        try {
+            if (raw === null) {
+                this.items = [];
+                this.selected = 0;
+                this.readError = null;
+                this._unreadableRaw = null;
+                this._playbackGeneration = null;
+                return true;
+            }
             const data = JSON.parse(raw);
             if (!data || !Array.isArray(data.items) || data.items.length > MusicLibrary.MAX_SETS) {
                 throw new Error('Invalid saved music library');
@@ -44,19 +67,61 @@ class MusicLibrary {
             this.items = data.items.map(item => this._item(item.url, item.name, item.episode));
             this.selected = Number.isInteger(data.selected) && data.selected >= 0 && data.selected < this.items.length
                 ? data.selected : 0;
+            this._playbackGeneration = typeof data.playbackGeneration === 'string' ? data.playbackGeneration : null;
+        } catch (error) {
+            this.items = [];
+            this.readError = 'unreadable';
+            this._unreadableRaw = raw;
+            console.warn('[Music] Could not read saved sets.', error.name);
+            this.club.showErrorMessage('Saved sets could not be read. Open Music to retry or reset them.');
+            return false;
+        }
+        this.readError = null;
+        this._unreadableRaw = null;
+        return true;
+    }
+
+    _readPlayback() {
+        try {
             const playbackRaw = this.storage.getItem(MusicLibrary.PLAYBACK_KEY);
             if (playbackRaw) {
                 const playback = JSON.parse(playbackRaw);
                 if (playback && typeof playback.savedUrl === 'string' && Number.isFinite(playback.position)
                     && playback.position >= 0 && Number.isFinite(playback.updatedAt)) {
-                    this.playback = playback;
-                }
+                    if (!this._playbackGeneration || playback.generation === this._playbackGeneration) this.playback = playback;
+                } else throw new Error('Invalid saved playback position');
             }
         } catch (error) {
-            this.items = [];
-            console.warn('[Music] Could not read saved sets:', error);
-            club.showErrorMessage('Saved sets could not be read. Add your music links again.');
+            console.warn('[Music] Could not read playback position:', error);
+            this.club.showErrorMessage('The saved playback position could not be read. Your saved sets are still available.');
         }
+    }
+
+    retrySavedSets() {
+        if (!this.readError) return true;
+        const loaded = this._readSavedSets();
+        if (loaded) this._readPlayback();
+        if (this.onChange) this.onChange();
+        return loaded;
+    }
+
+    resetUnreadableSets() {
+        if (this.readError !== 'unreadable') throw new Error('Only an unreadable saved list can be reset. Retry access first.');
+        let current;
+        try { current = this.storage.getItem(MusicLibrary.KEY); }
+        catch (_) { throw new Error('Could not check saved sets on this device. Retry when storage is available.'); }
+        if (current !== this._unreadableRaw) throw new Error('Saved sets changed in another tab. Retry before resetting.');
+        const playbackGeneration = `${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`;
+        try { this.storage.setItem(MusicLibrary.KEY, JSON.stringify({ items: [], selected: 0, playbackGeneration })); }
+        catch (_) { throw new Error('Could not reset saved sets on this device. The unreadable list was not replaced.'); }
+        this.items = [];
+        this.selected = 0;
+        this.readError = null;
+        this._unreadableRaw = null;
+        this._playbackGeneration = playbackGeneration;
+        this.playback = null;
+        this._startupResumePending = false;
+        if (this.onChange) this.onChange();
     }
 
     static normalizeSoundCloudUrl(url) {
@@ -313,6 +378,7 @@ class MusicLibrary {
                 position: Math.min(Math.max(0, info.position), Math.max(0, info.duration - 1)),
                 updatedAt: Date.now()
             };
+            if (this._playbackGeneration) playback.generation = this._playbackGeneration;
             try {
                 this.storage.setItem(MusicLibrary.PLAYBACK_KEY, JSON.stringify(playback));
                 this.playback = playback;
@@ -324,8 +390,11 @@ class MusicLibrary {
     }
 
     _persist(items, selected) {
+        if (this.readError) throw new Error('Saved sets cannot be changed until you retry or reset them in Music.');
         try {
-            this.storage.setItem(MusicLibrary.KEY, JSON.stringify({ items, selected }));
+            const data = { items, selected };
+            if (this._playbackGeneration) data.playbackGeneration = this._playbackGeneration;
+            this.storage.setItem(MusicLibrary.KEY, JSON.stringify(data));
         } catch (error) {
             throw new Error(`Could not save sets on this device: ${error.message}`);
         }
@@ -357,6 +426,7 @@ class MusicLibrary {
      * player learned survive. Resolves to { count, skipped, changed }; storage is only written when something differs.
      */
     replaceAll(entries) {
+        if (this.readError) throw new Error('Saved sets cannot be changed until you retry or reset them in Music.');
         const next = [];
         let skipped = 0;
         for (const entry of Array.isArray(entries) ? entries.slice(0, 64) : []) {

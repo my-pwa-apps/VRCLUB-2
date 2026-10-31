@@ -95,6 +95,7 @@ import { RoomMedia, mediaTransport } from './sfu.js';
 import { DEV_ROOM, DEV_OWNER_HEADER, devRoomAccess } from './devRoomAccess.js';
 import { DevAttendees } from './devAttendees.js';
 import { LIVE_EVENT_ID, liveEventsEnabled, liveEventCall, liveEventStub, consumeLiveRate } from './liveEvents.js';
+import { RoomAvatarAssets } from './avatarAssets.js';
 
 export const MAX_NAME_LENGTH = 32;
 export const MAX_ROOM_NAME_LENGTH = 64;
@@ -427,6 +428,7 @@ export class ClubRoom {
         this._directoryUpdatedAt = 0;
         /** @type {Map<WebSocket, {id: string, pid: string, name: string, avatar: string, avatarPool: string, blocked: Set<string>, lastState: object|null, buckets: object, dropped: number}>} */
         this.sessions = new Map();
+        this.avatarAssets = env.AVATAR_ASSETS ? new RoomAvatarAssets(this) : null;
         this.hostId = null;
         this.musicState = null; // { url, playing, position, updatedAt, podcast, title }
         this.showState = null;  // the host's latest light-show frame (sanitizeShow)
@@ -451,6 +453,7 @@ export class ClubRoom {
     async fetch(request) {
         await this._liveReady;
         const path = new URL(request.url).pathname;
+        if (path === '/avatars' && this.avatarAssets) return this.avatarAssets.fetch(request);
         if (path.startsWith('/live-')) return this._liveInternal(request, path);
         if (new URL(request.url).pathname === '/directory-status') {
             return Response.json(this.capacity === 8 ? { people: this.sessions.size, locked: this.locked } :
@@ -551,6 +554,7 @@ export class ClubRoom {
     _peerInfo(session) {
         return { id: session.id, pid: session.pid, name: session.name, avatar: session.avatar,
             appearance: session.appearance,
+            ...(session.uploadedAvatar ? { uploadedAvatar: session.uploadedAvatar } : {}),
             ...(session.simulated ? { simulated: true } : {}) };
     }
 
@@ -585,6 +589,7 @@ export class ClubRoom {
         const session = { id, pid, name, avatar: AVATARS.includes(avatar) ? avatar : this._pickAvatar(null, avatarPool), avatarPool, blocked: new Set(), lastState: null, buckets, dropped: 0, lastSeen: now, pinger: false,
             poseBatch, poseSent: new Map() };
         session.appearance = sanitizeAppearance(appearance, session.avatar) || null;
+        if (this.avatarAssets && !simulated) session.avatarAssetToken = crypto.randomUUID();
         if (admission) session.liveEvent = admission.event;
         if (simulated) {
             session.simulated = true;
@@ -617,6 +622,7 @@ export class ClubRoom {
             appearanceSelection: true,
             appearanceAccessories: true,
             appearanceFootwear: true,
+            ...(this.avatarAssets ? { uploadedAvatars: true, avatarAssetToken: session.avatarAssetToken, room: this._roomName } : {}),
             hostId: this.hostId,
             locked: this.locked,
             serverTime: now,
@@ -1022,6 +1028,7 @@ export class ClubRoom {
 
     _onClose(ws, session) {
         if (!this.sessions.has(ws)) return;
+        if (this.avatarAssets) this.avatarAssets.remove(session);
         if (this._liveEvent && !session.simulated) {
             const eventId = this._liveEvent.id;
             this._liveTask(() => liveEventCall(this.env, eventId, 'leave', { member: session.id }));
@@ -1236,6 +1243,22 @@ export default {
         const origin = request.headers.get('Origin');
         if (!isAllowedOrigin(origin, allowed)) {
             return new Response('origin not allowed', { status: 403 });
+        }
+        if (url.pathname === '/avatars') {
+            const cors = { 'access-control-allow-origin': origin, 'vary': 'Origin', 'cache-control': 'no-store' };
+            if (request.method === 'OPTIONS') return new Response(null, { status: 204, headers: { ...cors,
+                'access-control-allow-methods': 'GET, PUT, POST, DELETE', 'access-control-allow-headers': 'Authorization, Content-Type, X-Avatar-Appearance' } });
+            const room = url.searchParams.get('room');
+            if (!env.AVATAR_ASSETS) return Response.json({ message: 'This relay does not support uploaded avatars.' }, { status: 503, headers: cors });
+            if (!room || room.length > MAX_ROOM_NAME_LENGTH || /[\u0000-\u001f]/.test(room)) {
+                return Response.json({ message: 'Invalid room.' }, { status: 400, headers: cors });
+            }
+            const forwarded = new Request(request);
+            forwarded.headers.delete('Cookie');
+            const response = await env.CLUB_ROOM.get(env.CLUB_ROOM.idFromName(room)).fetch(forwarded);
+            const headers = new Headers(response.headers);
+            for (const [name, value] of Object.entries(cors)) headers.set(name, value);
+            return new Response(response.body, { status: response.status, headers });
         }
         if (url.pathname.startsWith('/live-')) return new Response('not found', { status: 404 });
         const mediaPath = /^\/live\/([^/]+)\/media$/.exec(url.pathname);

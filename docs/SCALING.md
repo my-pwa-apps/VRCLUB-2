@@ -5,8 +5,10 @@ safety controls (`486d2ae`, `20d8c60`). The shared production relay was deployed
 19 October 2026 with 32 guests in every room, not just ADE rooms. Changing these
 files alone does not deploy a service. Capacity is an admission limit, not a
 headset performance claim.
-The development-only free-VR bypass and development-host routing were not imported;
-the real account/access gate and existing host-music behavior are retained.
+QuestDev uses separate development-host routing and a free-VR bypass on its exact
+development hosts. Its Worker refuses payment and administration routes; the
+shared production distributions retain their existing account/access gate and
+host-music behavior.
 
 ## Configuration
 
@@ -576,6 +578,41 @@ membership and blocks at flush time, so queued stale or blocked guests cannot le
 in. The timer and delivery bookkeeping are cleared when the room empties. Host, show,
 chat, and music control messages are not distance-filtered; their existing block rules
 remain authoritative.
+
+## Uploaded personal models on the development relay
+
+The uploaded wardrobe keeps a supported single-mesh humanoid's face and offers fitted
+casual/smart clothing, top/trouser colours, glasses and headwear. It updates the local
+body, restroom reflection and device-local personal resident DJ. Select the uploaded
+body before opening **Edit my character**; VR uses **Comfort → Me**.
+
+**Share uploaded model** is separate and off by default. Enabling it sends the original
+GLB and complete fitted-look descriptor to current room members. They may retain a copy.
+It does not publish an avatar URL or change everyone else's resident DJ.
+
+Only `worker/wrangler.dev.jsonc` binds the private `nocturne-dev-avatars` R2 bucket.
+Production relay configuration is unchanged. Models are capped at 8 MiB, with bounded
+embedded PNG/JPEG images and indexed geometry, no external files/extensions, and one
+humanoid skin. An active room admission authorizes upload/download with a private token
+in Authorization, not a URL. Downloads recheck membership and two-way blocks.
+Departure, unsharing and replacement remove objects. A seven-day lifecycle expires
+orphans after eviction or failed cleanup; a session must not depend on a model being
+retained beyond that window. Older relays show an explicit unsupported-sharing message.
+
+When provisioning another isolated development environment:
+
+```powershell
+npx --yes wrangler@4.141.0 r2 bucket create nocturne-dev-avatars --location weur --config worker\wrangler.dev.jsonc
+npx --yes wrangler@4.141.0 r2 bucket lifecycle add nocturne-dev-avatars expire-orphaned-room-avatars --expire-days 7 --force --config worker\wrangler.dev.jsonc
+npx --yes wrangler@4.141.0 deploy --config worker\wrangler.dev.jsonc
+```
+
+Never enable a public bucket URL or copy private models into the deployment bundle.
+Shared uploaded people use the procedural rig, preserving the same original geometry
+and wardrobe descriptor rather than replacing them with club characters. Clothing fit,
+controller roll and additional GPU/download costs remain unmeasured on a headset.
+The local GLB remains selectable only on devices where it was imported; sharing does
+not make it a public or account-authenticated exclusive character.
 
 ## Verification and remaining limits
 

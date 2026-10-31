@@ -54,6 +54,32 @@ test('desktop and phone panels retain consistent state, keyboard navigation and 
     await page.keyboard.press('End');
     await expect(page.locator('#audioSourceTabLive')).toBeFocused();
     await expect(page.locator('#audioSourceLive')).toBeVisible();
+    await expect(page.locator('#liveInputUploadGlb')).toHaveText('Upload custom .GLB avatar');
+    const announcements = await page.evaluate(async () => {
+        const input = window.vrClub.liveInput;
+        const previous = { status: input.status, signal: input.signal };
+        const nodes = ['Status', 'Signal', 'Format', 'Monitor', 'PerformDJ', 'Go']
+            .map(key => document.getElementById(`liveInput${key}`));
+        const mutations = [];
+        const observer = new window.MutationObserver(records => mutations.push(...records.map(record => record.target.id)));
+        for (const node of nodes) observer.observe(node, { childList: true, attributes: true, attributeFilter: ['aria-pressed'] });
+        input._changed(); input._changed();
+        await Promise.resolve();
+        const unchanged = [...mutations];
+        mutations.length = 0;
+        input.status = 'Audio input status changed.';
+        input.signal = 'Audio signal changed.';
+        input._changed(); input._changed();
+        await Promise.resolve();
+        const changed = [...mutations];
+        observer.disconnect();
+        input.status = previous.status;
+        input.signal = previous.signal;
+        input._changed();
+        return { unchanged, changed };
+    });
+    expect(announcements.unchanged).toEqual([]);
+    expect(announcements.changed).toEqual(['liveInputStatus', 'liveInputSignal']);
     await page.keyboard.press('Home');
     await expect(page.locator('#audioSourceTabLink')).toBeFocused();
     await page.locator('#streamUrl').focus();

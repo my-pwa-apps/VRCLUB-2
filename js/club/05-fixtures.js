@@ -595,8 +595,8 @@ class VRClubFixtures extends VRClubEnvironment {
         
         // === AIRBORNE DUST MOTES ===
         // Haze makes a beam visible as a solid volume; individual glinting motes are
-        // what make it read as real air. They are tiny, additive and slow, so they cost
-        // almost nothing but remove the "smooth CG cone" look from every fixture.
+        // what make it read as real air. Tiny additive sprites represent visible glints,
+        // not the physical size of individual airborne dust grains.
         const moteCapacity = this.graphicsTier === 'ultra' ? 1400
             : this.graphicsTier === 'high' ? 900 : 400;
         this.dustMotes = new BABYLON.ParticleSystem("dustMotes", moteCapacity, this.scene);
@@ -615,8 +615,8 @@ class VRClubFixtures extends VRClubEnvironment {
         });
         this.dustMotes.preWarmCycles = 600;
         this.dustMotes.preWarmStepOffset = 3;
-        this.dustMotes.minSize = 0.012;
-        this.dustMotes.maxSize = 0.05;
+        this.dustMotes.minSize = 0.003;
+        this.dustMotes.maxSize = 0.012;
         this.dustMotes.minLifeTime = 6.0;
         this.dustMotes.maxLifeTime = 14.0;
         this.dustMotes.emitRate = moteCapacity / 10;

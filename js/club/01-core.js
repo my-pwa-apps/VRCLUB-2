@@ -568,6 +568,9 @@ class VRClubCore {
         this.laserSheetActive = false; // Laser sheet effect
         this.laserSheetOrigin = 'both'; // truss mount: 'both' (default), 'ceilingLeft' or 'ceilingRight'
         this.laserSheetMotion = 'vertical'; // 'vertical' or 'lateral'
+        this.laserSheetSpeed = 1;
+        this.laserSheetBrightness = 1;
+        this.fogImmersion = 0;
         this.colorLockActive = false; // ShowDirector can align every active color system
         
         // Spotlight pattern and speed controls
@@ -605,15 +608,7 @@ class VRClubCore {
         this.spotlightMode = 0;
         this.spotStrobeActive = true; // Simple strobe toggle (true = strobe on)
         
-        // Gobo filter settings (for legacy spotlight system)
-        this.goboEnabled = false;
-        this.goboPatternIndex = 0;
-        this.goboRotationSpeed = 1.0;
-        this.goboRotation = 0;
-        this.goboPatterns = [
-            'circle', 'star', 'triangles', 'squares', 'rings',
-            'spiral', 'dots', 'slats', 'cross', 'flower'
-        ];
+        this.spotPrismActive = false;
         
         // Independent speed controls per light type (0.1 = 10% speed, 2.0 = 200% speed)
         this.spotlightSpeed = 1.0;  // Spotlight sweep/rotation speed
