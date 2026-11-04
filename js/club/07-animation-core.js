@@ -359,7 +359,8 @@ class VRClubAnimationCore extends VRClubEffects {
         const tierScale = this.isInVRMode ? (this.tierSettings?.vrFogOutputScale || 1) : 1;
         const outputScale = tierScale * VRClubAnimationCore.prototype._effectLoadScale.call(this);
         const intensity = Number.isFinite(this.fogIntensity) ? Math.min(2, Math.max(0, this.fogIntensity)) : 1;
-        const fill = this.vjManualMode && intensity === 2 && !this.reducedShowSmoke ? 1 : 0;
+        const fill = !this.reducedShowSmoke &&
+            ((this.vjManualMode && intensity === 2) || this.fogImmersion > 0) ? 1 : 0;
         const burstRate = 150 * outputScale * (1 + fill);
         const continuousRate = 80 * outputScale * (1 + fill);
         const beat = typeof this.spotRigBeat === 'function' ? this.spotRigBeat(time) : time * (this.vjBPM || 120) / 60;
@@ -443,9 +444,16 @@ class VRClubAnimationCore extends VRClubEffects {
         const designed = settings && settings.fogDensity;
         // Outdoors the air is thin: the club's haze is a room effect, and the street needs to see down the block.
         const outdoors = this._exterior || 0;
+        // The extra room fill follows actual machine bursts, then lingers after the cue.
+        const source = this.smokeActive !== false && !this.reducedShowSmoke
+            ? Math.min(1, Math.max(0, this.fogImmersion || 0)) * burst : 0;
+        if (!Number.isFinite(this._smokeImmersion)) this._smokeImmersion = 0;
+        const retention = source > this._smokeImmersion ? 1.6 : 18;
+        this._smokeImmersion += (source - this._smokeImmersion) * (1 - Math.exp(-step60 / retention));
+        if (this.reducedShowSmoke || this.smokeActive === false) this._smokeImmersion = 0;
         if (typeof designed === 'number') {
             const immersion = this.reducedShowSmoke ? 0 : Math.max(
-                Math.min(1, Math.max(0, this.fogImmersion || 0)), this.vjManualMode && intensity === 2 ? 1 : 0);
+                this._smokeImmersion, this.vjManualMode && intensity === 2 ? 1 : 0);
             const target = designed * (0.1 + 0.9 * smoke) * (1 + 2 * immersion * (1 - outdoors)) * (1 - 0.62 * outdoors);
             const current = scene.fogDensity;
             if (!(current > 0)) {
@@ -458,23 +466,24 @@ class VRClubAnimationCore extends VRClubEffects {
         }
         const fog = scene.fogColor;
         const spot = this.currentSpotColor;
-        const mix = (this.lightsActive && spot) ? 0.07 * (this.masterIntensity == null ? 1 : this.masterIntensity) : 0;
-        if (fog) {
-            // The club tints its air with the show; the street's is a cool night blue.
-            const indoors = 1 - outdoors;
-            fog.r = (0.015 + (spot ? spot.r * mix : 0)) * indoors + 0.024 * outdoors;
-            fog.g = (0.012 + (spot ? spot.g * mix : 0)) * indoors + 0.032 * outdoors;
-            fog.b = (0.018 + (spot ? spot.b * mix : 0)) * indoors + 0.07 * outdoors;
-        }
-        const haze = this.haze;
-        if (!haze || !haze.color1) return;
-        const dim = this.masterIntensity == null ? 1 : Math.max(0, Math.min(1, this.masterIntensity));
-        const anyLit = !!(this.lightsActive || this.lasersActive || this.laserSheetActive || this.mirrorBallActive || this.ledWallActive);
-        const lightScale = anyLit ? dim : 0.08;
         const activeColor = (this.lightsActive && spot) ? spot
             : (this.mirrorBallActive && this.mirrorBallSpotlightColor) ? this.mirrorBallSpotlightColor
             : ((this.lasersActive || this.laserSheetActive) && typeof this._laserColor === 'function') ? this._laserColor()
-            : (this.ledWallActive && this.ledShowColor) ? this.ledShowColor : spot;
+            : (this.ledWallActive && this.ledShowColor) ? this.ledShowColor : null;
+        const dim = this.masterIntensity == null ? 1 : Math.max(0, Math.min(1, this.masterIntensity));
+        const scatter = this.reducedShowSmoke ? 0 : this._smokeImmersion * 0.1;
+        const mix = ((this.lightsActive && spot) ? 0.07 : 0) * dim;
+        if (fog) {
+            // The club tints its air with the show; the street's is a cool night blue.
+            const indoors = 1 - outdoors;
+            fog.r = (0.015 + (spot ? spot.r * mix : 0) + (activeColor ? activeColor.r * scatter * dim : 0)) * indoors + 0.024 * outdoors;
+            fog.g = (0.012 + (spot ? spot.g * mix : 0) + (activeColor ? activeColor.g * scatter * dim : 0)) * indoors + 0.032 * outdoors;
+            fog.b = (0.018 + (spot ? spot.b * mix : 0) + (activeColor ? activeColor.b * scatter * dim : 0)) * indoors + 0.07 * outdoors;
+        }
+        const haze = this.haze;
+        if (!haze || !haze.color1) return;
+        const anyLit = !!(this.lightsActive || this.lasersActive || this.laserSheetActive || this.mirrorBallActive || this.ledWallActive);
+        const lightScale = anyLit ? dim : 0.08;
         if (activeColor && anyLit) {
             haze.color1.r = (0.42 + activeColor.r * 0.22) * lightScale;
             haze.color1.g = (0.40 + activeColor.g * 0.22) * lightScale;

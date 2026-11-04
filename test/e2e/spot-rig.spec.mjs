@@ -4,6 +4,56 @@ import { enterClub, enterVR, exitVR, expectHealthyRuntime, useQuestHarness } fro
 
 useQuestHarness();
 
+test('aesthetic smoke fill keeps real fixtures lit and obscures distance without adding geometry or lights', async ({ page }) => {
+    test.setTimeout(900_000);
+    await enterClub(page);
+    const result = await page.evaluate(async () => {
+        const club = window.vrClub;
+        await club.modelLoadPromise;
+        club.engine.stopRenderLoop();
+        const show = club.showDirector;
+        show.setProgram('aesthetic');
+        show._beginSetPiece('cutToBlack', 'afterglow');
+        const meshes = club.scene.meshes.length;
+        const lights = club.scene.lights.length;
+        const audio = { hasAudio: true, low: 0.5 };
+        for (let frame = 0; frame < 360; frame++) {
+            show._applyContinuous(club.vjDirector, audio);
+            // Hold a three-beat burst to measure its buildup, not the detector's current phase.
+            club.spotRigBeat = () => 0;
+            club.updateFogMachines({ time: frame / 60, dt: 1 / 60 });
+        }
+        delete club.spotRigBeat;
+        for (let frame = 0; frame < 3; frame++) {
+            club.updateAnimations();
+            club.scene.render();
+        }
+        const density = club.scene.fogDensity;
+        return {
+            master: club.masterIntensity, spots: club.lightsActive, led: club.ledWallActive,
+            rates: club.fogMachines.map(machine => machine.emitter.emitRate),
+            immersion: club._smokeImmersion, density,
+            near: Math.exp(-Math.pow(density * 2, 2)), far: Math.exp(-Math.pow(density * 20, 2)),
+            addedMeshes: club.scene.meshes.length - meshes, addedLights: club.scene.lights.length - lights,
+            litHeads: club.spotlights.filter(spot => spot._photoIntensity > 0).length,
+            fogScatter: club.scene.fogColor.r + club.scene.fogColor.g + club.scene.fogColor.b
+        };
+    });
+    expect(result.master).toBeGreaterThan(0.6);
+    expect(result.spots).toBe(true);
+    expect(result.led).toBe(true);
+    expect(result.rates.every(rate => rate > 0)).toBe(true);
+    expect(result.immersion).toBeGreaterThan(0.95);
+    expect(result.near).toBeGreaterThan(0.97);
+    expect(result.far).toBeLessThan(0.15);
+    expect(result.litHeads).toBeGreaterThan(0);
+    expect(result.fogScatter).toBeGreaterThan(0.015 + 0.012 + 0.018);
+    expect(result.addedMeshes).toBe(0);
+    expect(result.addedLights).toBe(0);
+    await page.screenshot({ path: test.info().outputPath('aesthetic-smoke-fill.png') });
+    await expectHealthyRuntime(page);
+});
+
 test('smoke settings agree on desktop, the desk and the VR menu', async ({ page }) => {
     test.setTimeout(900_000);
     await enterClub(page);

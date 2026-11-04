@@ -449,9 +449,16 @@ with the underlying cone at 0.25 visibility: no extra colour/opacity gains.
 No new wall playlist index, light, mesh or per-frame buffer allocation is added.
 Program choice travels in the existing `show.fx.showProgram` metadata;
 followers adopt it before resolving cues, and leaving restores the local program.
-Dense passages set `fogImmersion` (0..1), easing the existing EXP2 fog to at most
-three times the normal density indoors without adding particles. DENSE SHOW SMOKE
-FOR ME suppresses that extra density only on this device, including as a room guest.
+Dense Aesthetic passages keep downward spots and the wall lit and use both existing
+smoke machines in beat-shared burst mode. Their `fogImmersion` (0..1) fills the
+existing EXP2 medium from actual bursts (1.6 s attack, 18 s dispersal), capped at
+three times normal indoor density; lit air scatters the active fixture colour.
+The automatic `cutToBlack` snapshot ID becomes SMOKE FILL in Aesthetic, and its
+countdown omits the final blackout. NOCTURNE and explicit master-zero remain unchanged.
+No new mesh, light or particle capacity is added; existing tier/output budgets apply.
+DENSE SHOW SMOKE FOR ME suppresses both extra density and burst-output boost locally,
+including as a room guest. This is homogeneous fog plus sprites, not simulated
+volumetric transport; physical-headset appearance and cost remain unmeasured.
 `laserSheetSpeed` (0.25..2 multiplier, still capped by `_poseLaserSheet` at 1.4)
 and `laserSheetBrightness` (0..3) are independent host-synced sheet controls.
 `spotBrightness`, `laserBrightness` and `ledWallBrightness` (0..2) are separate

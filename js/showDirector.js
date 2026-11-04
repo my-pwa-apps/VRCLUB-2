@@ -170,6 +170,7 @@ class ShowDirector {
         this._aestheticImmersionHue = null;
         this.looks = ShowDirector._buildLooks();
         this.movements = ShowDirector._buildMovements();
+        this.setPieces = ShowDirector._buildSetPieces();
         if (program === 'aesthetic') {
             const base = {
                 intensity: 0.75, punch: 0.12, palette: 'analogous', colorLock: true,
@@ -192,14 +193,26 @@ class ShowDirector {
                 aestheticSweepFill: { hue: 0.76, lightsActive: true, spotlightMode: 1, spotlightPattern: 2,
                     spotlightSpeed: 1, spotSequence: 4, spotSequenceRate: 1, ledPattern: 19, ledLevel: 0.55 },
                 aestheticSheet: { hue: 0.46, laserSheetActive: true, laserSheetOrigin: 'both',
-                    laserSheetMotion: 'lateral', laserSpeed: [0.25, 0.65], fogIntensity: 2, fogImmersion: 1 },
+                    laserSheetMotion: 'lateral', laserSpeed: [0.25, 0.65], lightsActive: true,
+                    fogIntensity: 2, fogImmersion: 1, fogBurstMode: 'auto', ledLevel: 0.55 },
                 aestheticPeak: { hue: 0.9, intensity: 1, punch: 0.25, lightsActive: true,
                     spotlightMode: 1, spotlightPattern: 2, spotlightSpeed: 1, spotPrismActive: true,
                     ledPattern: 19, ledLevel: 0.9, lasersActive: true, strobesActive: true,
-                    strobeSync: 'bar', strobePattern: 'chase', fogIntensity: 2, fogImmersion: 1 },
-                aestheticFade: { hue: 0.08, intensity: [0.65, 0.35], ledLevel: 0.6, fogIntensity: 1 }
+                    strobeSync: 'bar', strobePattern: 'chase', fogIntensity: 2, fogImmersion: 1, fogBurstMode: 'auto' },
+                aestheticFade: { hue: 0.08, intensity: 0.65, lightsActive: true, ledLevel: 0.6, fogIntensity: 1 }
             };
             for (const [name, look] of Object.entries(looks)) this.looks[name] = Object.freeze({ ...base, ...look });
+            this.looks.silence = Object.freeze({ ...this.looks.aestheticSheet, laserSheetActive: false });
+            this.looks.bdFall = Object.freeze({ ...this.looks.silence, hue: 0.64 });
+            this.setPieces.cutToBlack = {
+                title: 'SMOKE FILL',
+                bars: 2,
+                onStart(show) {
+                    show._blackoutBeats = 0;
+                    show._applyCue({ look: 'silence', bars: 2 });
+                },
+                onBar() {}
+            };
             const phrases = {
                 arrival: [['aestheticStill', 24], ['aestheticSheet', 16]],
                 pulse: [['aestheticRows', 24], ['aestheticFill', 24], ['aestheticSweepRows', 16], ['aestheticStill', 16], ['aestheticSheet', 16]],
@@ -220,6 +233,7 @@ class ShowDirector {
             }
         }
         this._setPiece = null;
+        this._blackoutBeats = 0;
         this._hold = null;
         this._validateLooks();
         this._enterMovement('arrival');
@@ -506,7 +520,7 @@ class ShowDirector {
 
         // A one-beat blackout immediately before a new look makes the change
         // read as a decision. Used sparingly — only where the cue asks for it.
-        if (cue.punchIn) this._blackoutBeats = 1;
+        if (cue.punchIn && this.program !== 'aesthetic') this._blackoutBeats = 1;
     }
 
     /**
@@ -1562,7 +1576,7 @@ class ShowDirector {
                     target *= 0.80 + 0.20 * (bar / Math.max(1, bars - 1));
 
                     // THE CUT: last beat of the last bar — total darkness.
-                    if (bar === bars - 1 && beat === ShowDirector.BEATS_PER_BAR - 1) {
+                    if (show.program !== 'aesthetic' && bar === bars - 1 && beat === ShowDirector.BEATS_PER_BAR - 1) {
                         return 0;
                     }
                     return target;

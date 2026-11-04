@@ -2902,6 +2902,101 @@ test('aesthetic show holds single colours, long phrases and one-beat row sequenc
     assert.equal(club.fogImmersion, 0);
 });
 
+test('aesthetic smoke passages keep fixtures powered and replace automatic blackouts without changing NOCTURNE', () => {
+    const ShowDirector = loadClassic('js/showDirector.js').window.ShowDirector;
+    for (const safe of [false, true]) {
+        const club = { vjManualMode: false, photosensitiveSafeMode: safe,
+            vjDirector: { beatEnvelope: 0, showMasterIntensity: 1 } };
+        const show = new ShowDirector(club);
+        show.setProgram('aesthetic');
+        for (const name of ['aestheticSheet', 'aestheticPeak', 'silence', 'bdFall']) {
+            show._applyCue({ look: name, bars: 8, punchIn: true });
+            assert.equal(club.smokeActive, true);
+            assert.equal(club.fogBurstMode, 'auto');
+            assert.equal(club.fogImmersion, 1);
+            assert.equal(club.lightsActive, true);
+            assert.equal(show._blackoutBeats, 0);
+            for (let frame = 0; frame < 120; frame++) show._applyContinuous(club.vjDirector, { hasAudio: true, low: 0.5 });
+            assert.ok(club.masterIntensity > 0.6, `${name} dims the rig rather than filling the air`);
+            if (safe) assert.equal(club.strobesActive, false);
+        }
+        show._beginSetPiece('cutToBlack', 'afterglow');
+        assert.equal(show._setPiece.title, 'SMOKE FILL');
+        assert.equal(show._blackoutBeats, 0);
+        const remoteClub = { vjManualMode: false, photosensitiveSafeMode: safe,
+            vjDirector: { beatEnvelope: 0, showMasterIntensity: 1 } };
+        const follower = new ShowDirector(remoteClub);
+        follower.setFollower(true);
+        assert.equal(follower.applyRemote({ m: 'show', ...show.snapshot(),
+            fx: { showProgram: 'aesthetic' } }), true);
+        assert.equal(follower._setPiece.title, 'SMOKE FILL');
+        assert.equal(remoteClub.fogBurstMode, 'auto');
+        assert.equal(remoteClub.lightsActive, true);
+        assert.equal(follower._blackoutBeats, 0);
+        club.vjDirector.showMasterIntensity = 0;
+        show._applyContinuous(club.vjDirector, { hasAudio: true, low: 0.5 });
+        assert.equal(club.masterIntensity, 0, 'a deliberate master blackout still wins');
+        club.vjDirector.showMasterIntensity = 1;
+        show._beginSetPiece('countdown', 'ignition');
+        show._setPieceBar = 3;
+        show._beatInBar = 3;
+        assert.ok(show._setPiece.onFrame(show, 0.8) > 0);
+        show.setProgram('nocturne');
+        show._beginSetPiece('cutToBlack', 'afterglow');
+        assert.equal(show._blackoutBeats, 4);
+        assert.equal(club.lightsActive, false);
+        assert.equal(show._setPiece.onFrame(show, 0.8), 0);
+    }
+});
+
+test('dense show smoke is emitted in bounded bursts, accumulates gradually and disperses after the cue', () => {
+    const proto = loadClassic('js/club/07-animation-core.js', { VRClubEffects: class {} }).window.VRClubAnimationCore.prototype;
+    const simulate = hz => {
+        const club = {
+            scene: { fogDensity: 0.028, fogColor: {} }, smokeActive: true, fogIntensity: 2,
+            fogImmersion: 1, fogBurstMode: 'auto', lightsActive: true, masterIntensity: 0.75,
+            currentSpotColor: { r: 0.2, g: 0.6, b: 1 },
+            vrSettings: { desktop: { fogDensity: 0.028 } },
+            fogMachines: [0, 1].map(() => ({ emitter: {}, ledMat: {} })),
+            cachedColors: {}, spotRigBeat: () => club.beat, _tintClubAir: proto._tintClubAir
+        };
+        const step = (seconds, burstPhase) => {
+            for (let i = 0; i < seconds * hz; i++) {
+                club.beat = burstPhase;
+                proto.updateFogMachines.call(club, { time: i / hz, dt: 1 / hz });
+            }
+        };
+        step(0.5, 0);
+        const early = club.scene.fogDensity;
+        assert.ok(early < 0.04, 'whole-room fog appeared instantly');
+        step(2, 0);
+        assert.ok(club.fogMachines.every(m => m.emitter.emitRate === 600));
+        const filled = club._smokeImmersion;
+        assert.ok(filled > 0.75);
+        assert.ok(club.scene.fogColor.b > 0.1, 'lit smoke must scatter the active beam colour');
+        club.masterIntensity = 0;
+        proto._tintClubAir.call(club, 1 / hz, 1);
+        assert.equal(club.scene.fogColor.b, 0.018, 'smoke must not bypass a deliberate master blackout');
+        club.masterIntensity = 0.75;
+        club.fogImmersion = 0;
+        step(5, 5);
+        assert.ok(club._smokeImmersion > filled * 0.7, 'smoke vanished with the cue');
+        const nearTransmission = Math.exp(-Math.pow(club.scene.fogDensity * 2, 2));
+        const farTransmission = Math.exp(-Math.pow(club.scene.fogDensity * 20, 2));
+        assert.ok(nearTransmission > 0.97);
+        assert.ok(farTransmission < 0.4, 'smoke must obscure distance, not black out nearby people');
+        assert.equal(club.masterIntensity, 0.75);
+        club.reducedShowSmoke = true;
+        step(10, 0);
+        assert.equal(club._smokeImmersion, 0);
+        assert.ok(club.scene.fogDensity < 0.029);
+        assert.ok(club.fogMachines.every(m => m.emitter.emitRate === 300));
+        return filled;
+    };
+    const reference = simulate(60);
+    for (const hz of [30, 72, 90, 120]) assert.ok(Math.abs(simulate(hz) - reference) < 1e-10);
+});
+
 test('aesthetic mirror sweeps start down, reach inward and return down at varied musical speeds, including late followers', () => {
     const { club } = spotRigHarness();
     const { ShowDirector } = loadClassic('js/showDirector.js').window;
