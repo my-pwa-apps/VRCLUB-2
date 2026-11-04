@@ -898,7 +898,8 @@ function initVJMenu() {
                     updateShowReadout();
                 }
 
-            } else if (['cycleShowProgram', 'cycleSheetSpeed', 'cycleSheetBrightness'].includes(control)) {
+            } else if (['cycleShowProgram', 'cycleSheetSpeed'].includes(control) ||
+                Object.hasOwn(VRClubUI.FIXTURE_BRIGHTNESS_CONTROLS, control)) {
                 vrClubInstance.toggleLightControl(control);
                 updateButtonStates();
                 flashButton(button);
@@ -1142,8 +1143,10 @@ function initVJMenu() {
         vjButtons.forEach(button => {
             const control = button.getAttribute('data-control');
             if (!control) return;
-            if (['cycleShowProgram', 'cycleSheetSpeed', 'cycleSheetBrightness'].includes(control)) {
-                const label = control === 'cycleShowProgram' ? 'SHOW STYLE' : control === 'cycleSheetSpeed' ? 'SHEET SPEED' : 'SHEET BRIGHTNESS';
+            if (['cycleShowProgram', 'cycleSheetSpeed'].includes(control) ||
+                Object.hasOwn(VRClubUI.FIXTURE_BRIGHTNESS_CONTROLS, control)) {
+                const label = VRClubUI.FIXTURE_BRIGHTNESS_CONTROLS[control]?.label ||
+                    (control === 'cycleShowProgram' ? 'SHOW STYLE' : 'SHEET SPEED');
                 button.textContent = `${label}: ${vrClubInstance.aestheticControlValue(control)}`;
                 return;
             }
@@ -2573,6 +2576,16 @@ function initNetworkMenu() {
     if (serverUrlInput) serverUrlInput.value = mp.serverUrl;
     if (roomInput) roomInput.value = mp.room;
     if (nameInput) nameInput.value = mp.name;
+    const ownerHelp = document.getElementById('networkDevOwner');
+    const ownerSignIn = document.getElementById('networkDevOwnerSignIn');
+    const renderOwnerHelp = () => {
+        if (ownerHelp) ownerHelp.hidden = !window.VRPayment?.ownerSignInUrl ||
+            ClubMultiplayer.roomFromCode(roomInput?.value || '') !== 'private-000032';
+        if (ownerSignIn && window.VRPayment?.ownerSignInUrl) ownerSignIn.href = window.VRPayment.ownerSignInUrl;
+    };
+    roomInput?.addEventListener('input', renderOwnerHelp);
+    teardowns.push(() => roomInput?.removeEventListener('input', renderOwnerHelp));
+    renderOwnerHelp();
 
     const closeNetworkMenu = (restoreFocus = true) => {
         networkMenu.classList.add('hidden');

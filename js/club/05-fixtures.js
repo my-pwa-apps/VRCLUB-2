@@ -35,7 +35,8 @@ class VRClubFixtures extends VRClubEnvironment {
         }, this.scene);
         platform.position = new BABYLON.Vector3(0, 0.25, -18);
         
-        const platformMat = this.materialFactory.getPreset('platform');
+        const platformMat = this._venueSurfaceMaterial('stageRust', 'stageRustMat', [0.55, 0.55, 0.55], 0.4);
+        this._applyWorldUVs(platform, 2, { u: 1, v: 1 });
         platform.material = platformMat;
         platform.receiveShadows = true;
         platform.checkCollisions = true; // Enable collisions for walking
@@ -85,6 +86,15 @@ class VRClubFixtures extends VRClubEnvironment {
         const tableMat = this.materialFactory.getPreset('table');
         djTable.material = tableMat;
         djTable.checkCollisions = true;
+
+        const worktop = BABYLON.MeshBuilder.CreatePlane('djWoodWorktop', { width: 4, height: DECK_DEPTH }, this.scene);
+        worktop.rotation.x = Math.PI / 2;
+        worktop.position.set(0, DECK_TOP_Y + 0.002, DECK_Z);
+        worktop.material = this._barWoodMaterial();
+        this._applyWorldUVs(worktop, 1, { u: 1, v: 1 });
+        worktop.isPickable = false;
+        worktop.freezeWorldMatrix();
+        worktop.doNotSyncBoundingInfo = true;
         
         // === CDJ DECKS ===
         const cdjMat = this.materialFactory.getPreset('cdjBody');

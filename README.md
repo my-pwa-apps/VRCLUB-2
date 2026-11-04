@@ -118,10 +118,17 @@ There is no Twitch audio extraction, video or artist likeness.
 
 The Quest distribution is a candidate, not an uploaded or signed store release.
 This QuestDev branch has a separate development deployment, described below.
+Ordinary Online rooms are enabled at `nocturnedev.mitwee.nl`. For the simulated
+owner-only room, enter **000032**, use **Owner sign-in** in this same browser/device,
+wait for **Development owner signed in**, then return and press **Join room**.
+The protected sign-in establishes a scoped HttpOnly development cookie, independently
+of the administration application's cookie path. Development verifies the existing Cloudflare
+Access owner identity but keeps its relay, room database and SFU separate; it never
+uses production payment grants. See [docs/SCALING.md](docs/SCALING.md#questdev-owner-login).
 Run `npm run build:quest` for the web payload. See [docs/QUEST.md](docs/QUEST.md) for
 signing, Meta Bubblewrap packaging, Digital Asset Links, release checks and remaining blockers.
 
-The only music included is the club's own original, generated house set (`audio/nocturne-house.mp3`, MIT), which plays
+The default music is the original generated club set (`audio/nocturne-house.mp3`), which plays
 until you add music of your own. Open **Music**, choose a local file, paste a direct HTTPS audio link,
 or paste one SoundCloud track page in the same **Choose a file or paste a URL** section,
 optionally name it, and press **Play now** to save and play it, or **Save to my sets**
@@ -163,6 +170,26 @@ npm run start:prod
 
 ## Project Layout
 
+Venue surfaces use locally bundled CC0 Poly Haven maps: white restroom tiles to
+1.5 m with matte plaster above, brushed-concrete ceilings and rusty DJ-platform
+sides. The anti-slip platform top stays unchanged; the DJ worktop reuses the bar's
+dark wood maps. `node scripts/build-venue-textures.mjs` recreates the four new
+512/1024 px sets and their source-hash provenance. No runtime CDN is required.
+The unlicensed supplied `audio/demo.mp3` stays out of production builds until
+redistribution permission is confirmed.
+
+Catalog people, crowd, DJs and wardrobe previews reuse the equipment loader's
+`VRClubModelCache` IndexedDB binary store. Visited sources can reload offline
+without the browser HTTP cache; online loads revalidate their fingerprints.
+Downloads have a 120-second header/body deadline and share in-flight requests.
+Decoded containers keep their existing sharing, generation guards and retirement;
+this does not cache other guests' uploaded private models or all wardrobe bases.
+
+Static ceiling service pipes share one material draw instead of three. Geometry,
+material, picking and collision behavior are retained; moving fixtures, seats,
+doors and district visibility boundaries are not merged. This is a small draw
+reduction, not a measured headset frame-time improvement.
+
 Development sources remain plain `<script>` files that publish classes onto `window`, so
 their order in `index.html` is a tested contract. `npm run build` feeds those sources to
 esbuild in that same order and emits one minified, content-hashed application bundle plus
@@ -186,6 +213,7 @@ js/ledPatterns.js          LED wall pattern methods mixed into VRClub.prototype
 js/barProps.js             Bar bottles: lathe shapes, shelf stocking and the label atlas (pure data)
 js/nocturneLogo.js         The NOCTURNE wordmark as path geometry — the one source for the splash SVG and both neon signs
 js/restroomArt.js          The restroom's posters, stickers, marker tags and backlit NOCTURNE box: one runtime-painted atlas plus the placement plan
+js/restroomInteractions.js Shared hinged toilet seats/lids, flush and timed taps, tracked-hand rinsing and bounded spatial water audio
 js/venueDressing.js        Entrance stair hall (down from the street door) and bar (counter, back bar, stools, lights) mixed into VRClub.prototype
 js/mezzanine.js            Steel balcony and stair along the left wall, plus the walking-surface follow, mixed into VRClub.prototype
 js/cityDistrict.js         The street outside (baked GLB), its sky and skyline, fence, street door and "outdoors" amount, mixed into VRClub.prototype
@@ -214,8 +242,14 @@ js/club/06-effects.js      Fixture lights, laser sheet, and mirror ball
 js/club/07-animation-core.js Frame context, fog, mirror ball, and VJ updates
 js/club/08-animation-fixtures.js LED, laser, and spotlight animation
 js/club/09-animation-finish.js Strobe, speaker, and LED wall animation
-js/club/10-ui.js           In-scene controls, audio UI, and camera
-js/club/11-audio-crowd.js  Audio analysis, accessibility, avatars, and diagnostics
+js/club/10-ui-controls.js Shared fixture controls and host/safety gates
+js/club/10-ui-menu.js     VR quick-menu drawing, pages, selection, and music seek
+js/club/10-ui-social.js   VR network pages, social actions, and thumbstick wheel
+js/club/10-ui.js          Seating, pointer routing, music transport, comfort, and camera
+js/club/11-audio.js       Web Audio graph, effects, analysis, acoustics, and volume
+js/club/11-avatars.js     Avatar loading, personal bodies, appearance, and resident DJ
+js/club/11-crowd.js       Crowd placement, visibility, contact shadows, and choreography
+js/club/11-audio-crowd.js Bartender, bar regular, mingler activities, and diagnostics
 js/club_hyperrealistic.js  Public VRClub class assembled from the focused layers
 js/ui-init.js              Splash, desktop VJ menu, and audio menu wiring; constructs VRClub
 scripts/serve.mjs          Dependency-free static server honouring $PORT (used by Procfile)
@@ -316,15 +350,16 @@ while their cookie is present; otherwise contact the issuer. See
 - **The street**: the club is a basement. From its front doorway a carpeted stair climbs between the ticket desk and the coat check to the street door, which opens onto a night avenue lined with lit buildings (or press `6` / use the Street button / the VR menu's Travel page). Every VR entry starts on the opposite pavement, facing the entrance from about 16 metres away so the logo and queue are in view; tracked eye height is preserved. If the street cannot load, a notice explains the indoor fallback. A bouncer in a black suit watches the door, and a line of people waits behind a velvet rope to get in (longer on higher graphics tiers). Out there the music is only the low bass coming through the walls, loudest at the door and quieter the further you walk from it (about half as loud 8 m away, much quieter at the end of the block). The street is drawn only while you are near the entrance, and the door stays shut if it cannot load. Its source kit is not in the repo; see ASSETS.md.
 - **Mirror ball**: 96 surface spots on Balanced, 180 on High, 280 on Ultra. The VJ and VR Lighting controls can hide the outgoing rays while retaining the reflected spots around the room. Outgoing-ray counts and the two-batch rendering layout are unchanged; High and Ultra headset GPU cost is not yet measured.
 - **🎛️ Lights** (top-left, the VJ menu): safe mode, fixture toggles, spotlight movement and multi-beam filter, graphics quality, the NOCTURNE show, live macros and a reset.
-- **Smoke:** switch it on in Effects, then choose **SMOKE AMOUNT** (low to maximum) and **SMOKE OUTPUT** (steady or steady with bursts). The same controls are in VR **EFFECTS → SMOKE SETTINGS** and the desk's **LIGHTS → SETTINGS**. Amount changes both the machines and the room haze; switching smoke off gradually clears the air. The automatic show alternates clear, steady and heavier burst passages. Room guests follow the host's lighting.
+- **Smoke:** choose **SMOKE AMOUNT** (low to maximum) and **SMOKE OUTPUT** (steady or steady with bursts) in Effects; either action switches smoke on. The same controls are in VR **EFFECTS → SMOKE SETTINGS** and the desk's **LIGHTS → SETTINGS**. Maximum gradually fills the room with up to three times normal scene-fog density and stronger machine jets, within existing particle capacities and tier limits. **DENSE SHOW SMOKE FOR ME** also suppresses this extra manual density/output on your device. Switching smoke off gradually clears the air. The automatic show alternates clear, steady and heavier burst passages. Room guests follow the host's lighting.
 - **Take over from the DJ** (the VJ desk on the DJ table): go to the booth (**Go to → DJ Booth**, or the VR menu's TRAVEL page) and use the panels with the mouse or a controller ray. The left **SHOW** panel contains only **AUTO SHOW** (on/off), **SEND DJ HOME / BRING DJ BACK**, and **lighting presets**. The right **LIGHTS** panel switches fixtures and steps colours/pictures; **SPOT RIG** edits individual heads, rows and columns. **LIGHTS → SETTINGS** holds brightness, movement speed, Safe Mode, reset and your return-to-auto timing. The centre player/effects panel appears when the DJ is away. Touching a light or recalling a preset makes you the VJ; the lights stay yours at the desk and follow your existing keep/return/shuffle preference when you leave.
 - **Save a lighting setup:** choose one of twelve slots on the left panel, then **SAVE LIGHTING**. **RECALL PRESET** restores fixtures, exact colours, independent spotlight groups, patterns, speeds and brightness; it never changes music, audio effects, DJ presence or Safe Mode. Selecting a slot does not apply it. Replacing or deleting requires a second press within four seconds. Presets are saved only on this device; a host's recalled lighting is shared with the room through the existing lighting sync. **NAME / TRANSFER** opens a desktop/phone dialog for names and JSON export/import (it says **LEAVES VR** in a headset; immersive-only apps keep save/recall in VR but require a normal browser for file management). Import explicitly replaces all twelve slots after validating the backup. Saving, naming and importing do not take over the room's lights; only the host can recall a preset while following a host.
 - **Automatic column lighting:** the show includes twelve-bar Column Fill passages, both stationary and with a slow beat-synced sweep. Each fills the left column, then both columns, then clears before repeating; the sweeping version keeps all three heads in a column moving together, with the opposite column mirrored. Safe Mode retains its gradual, lower-brightness fades.
 - **Show controls:** brightness also scales the automatic show. **PEAK NOW** starts its immediate release; **COUNTDOWN** builds for four bars first. In manual lighting, the peak switches away from the laser sheet and mirror ball. Photosensitive Safe Mode still takes precedence.
-- **Show style:** choose **SHOW STYLE** in the desktop Show tab, VR SHOW page or desk SHOW panel. **NOCTURNE** remains the default; **AESTHETIC** pairs long single-colour downlight and inward-and-back mirror sweeps with one-beat row chase/fill, including multi-beam passages. Sweeps start vertically, reach toward the dance floor and return vertically over four or eight bars. Its wall alternates subtle breathing colour with eight softly blended, beat-synchronized abstract shape programs; it never uses Warehouse's LED flashes. Occasional layered peaks remain. Dense passages use bounded existing scene fog, not an additional volumetric renderer. **REDUCE SHOW SMOKE** is a personal, session-only opt-out. The host shares the program; updated clients follow it.
-- **Laser sheet settings:** independent speed and brightness controls are in the desktop Effects controls and VR/desk **LIGHTS → SHEET SETTINGS**. They do not change ceiling-laser speed; the sheet's existing motion cap, blackout and room-wide flash governor remain in force. Dense-smoke appearance and comfort still require physical-headset testing.
+- **Show style:** choose **SHOW STYLE** in the desktop Show tab, VR SHOW page or desk SHOW panel. **NOCTURNE** remains the default; **AESTHETIC** pairs long single-colour downlight and inward-and-back mirror sweeps with one-beat row chase/fill, including multi-beam passages. Sweeps start vertically, reach toward the dance floor and return vertically over four or eight bars. Row timing smooths detector/remote-clock nudges without reversing or rapidly catching up. Its wall alternates subtle breathing colour with eight softly blended, beat-synchronized abstract shape programs, lifting their presence during occasional peaks without adding LED flashes. The multi-beam filter preserves the beam colour without extra emission gain. Dense-smoke passages rotate through five hue offsets, held throughout each passage and shared by the host. Dense passages use bounded existing scene fog, not an additional volumetric renderer. **REDUCE SHOW SMOKE** is a personal, session-only opt-out. The host shares the program; updated clients follow it.
+- **Fixture brightness / sheet settings:** desktop Effects and VR/desk **LIGHTS → BRIGHTNESS / SHEET** offer separate spot, ceiling-laser, sheet and wall brightness. Spots, lasers and wall reach 200%; the sheet reaches 300%, using stronger emission with bounded opacity. These trims survive automatic cue changes, are host-synced and saved in lighting presets; older presets default the new trims to 100%. **WHOLE SHOW BRIGHTNESS** remains the overall dimmer. Safe Mode caps boosts at 100%, and zero master still blacks out every fixture. Independent sheet speed does not change ceiling-laser speed or bypass the motion cap. Appearance, smoke comfort and frame cost still require physical-headset testing.
+- **LED wall containment:** the continuous backing stops ordinary walking; a measured room-side boundary also catches tracked headset poses and queued movement that bypass mesh collisions. A player already behind the wall is returned before the stage surface drops away, including during jumps. Physical Quest comfort still requires testing.
 - **Music** (bottom-right): save/play your direct HTTPS audio links, choose a saved set or local file, select a generic male/female DJ, seek with the slider or +/-30 seconds, and adjust music/ambience independently. A finite saved set resumes from its last position after restarting the app when the same source remains selected. The VR Music page offers saved-set controls and a ray-selectable seek strip; ADD LINKS / FILE returns to the setup panel.
-- **Music on entry:** a set you saved resumes; with none saved the club plays its own original house set (`audio/nocturne-house.mp3`, generated by `scripts/build-default-set.mjs`) so nobody stands in a silent club. It loops, is never saved to your list, never plays over your own music, and stays quiet in someone else's room. Your own sets play once, without an automatic queue. DJs are a separate local choice.
+- **Music on entry:** a set you saved resumes; with none saved the club plays the original generated set (`audio/nocturne-house.mp3`) so nobody stands in a silent club. It loops, is never saved to your list, never plays over your own music, and stays quiet in someone else's room. Your own sets play once, without an automatic queue. DJs are a separate local choice.
 - **A DJ who plays the set:** the DJ mixes on the jog wheels, works the mixer knobs, holds a headphone cup to one ear, looks out over the crowd with their hands on the console, and waves when you walk up to the booth. A drop can earn one restrained, staggered raise and return, at most once in 24 seconds; there is no repeated arm pumping or automatic hands-up loop from loud music. They still nod and shift their weight on the beat.
 - **Your character:** choose **Show → Club → My character**, or **VR → Comfort → Me → My character**. Your exact choice is saved on this device and used for your body, reflection and room appearance, including reconnects. **Default** restores the mannequin offline and a random room character online. Online random-look/pool changes clear an exact choice when they reroll. Explicit choices can repeat another guest's look. Deploy the updated frontend and relay together; older relays explain that exact selection is unsupported instead of pretending to change your shared appearance.
 - **A crowd that dances on the beat:** the people on the floor switch between nine moves (a bounce, side taps, clapping, fist pumps, the twist, hands up, a sway and the original dance), each at the track's tempo and locked to its beat, each dancer with their own favourites, changing on bar lines. More clapping in a build, hands up on the drop; when the kick drops out they sway slowly or just stand until it returns.

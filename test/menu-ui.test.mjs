@@ -1,10 +1,10 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { readFileSync } from 'node:fs';
 import vm from 'node:vm';
+import { readClubSource } from './club-sources.mjs';
 
 const root = new URL('../', import.meta.url);
-const read = file => readFileSync(new URL(file, root), 'utf8');
+const read = file => readClubSource(new URL(file, root));
 
 function loadPanelHelpers() {
     const source = read('js/ui-init.js');

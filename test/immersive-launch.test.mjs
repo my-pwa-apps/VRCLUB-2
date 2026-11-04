@@ -1,6 +1,7 @@
 import { test, afterEach } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
+import { readClubSource } from './club-sources.mjs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import vm from 'node:vm';
@@ -99,7 +100,7 @@ test('an immersive launch is requested only by ?immersive=1 (or true) on the sta
 
 test('the veil hides the world and keeps the menu: the menu layer mask carries both bits', () => {
     const { ImmersiveLaunch } = setup();
-    const menu = Number(/MENU_LAYER_MASK\(\)\s*\{\s*return\s*(0x[0-9A-Fa-f]+)/.exec(readFileSync(join(ROOT, 'js', 'club', '10-ui.js'), 'utf8'))[1]);
+    const menu = Number(/MENU_LAYER_MASK\(\)\s*\{\s*return\s*(0x[0-9A-Fa-f]+)/.exec(readClubSource(join(ROOT, 'js', 'club', '10-ui.js')))[1]);
     assert.notEqual(menu & ImmersiveLaunch.WORLD_LAYER_MASK, 0);
     assert.notEqual(menu & ImmersiveLaunch.VEIL_LAYER_MASK, 0);
     assert.equal(ImmersiveLaunch.WORLD_LAYER_MASK & ImmersiveLaunch.VEIL_LAYER_MASK, 0);
@@ -434,7 +435,7 @@ test('the launch is wired in: script order, club hooks and the splash bypass', (
     const ui = readFileSync(join(ROOT, 'js', 'ui-init.js'), 'utf8');
     assert.match(ui, /ImmersiveLaunch\.requested\(\)\) enterClubBtn\.click\(\)/);
     assert.match(ui, /_immersive = new ImmersiveLaunch/);
-    const club = readFileSync(join(ROOT, 'js', 'club', '10-ui.js'), 'utf8');
+    const club = readClubSource(join(ROOT, 'js', 'club', '10-ui.js'));
     for (const member of ['needsAccess', 'menuLocked', 'pageText', 'handleMenuAction']) {
         assert.ok(source.includes(`${member}(`), `ImmersiveLaunch.${member} must exist`);
         assert.ok(club.includes(`_immersive.${member}(`) || club.includes(`_immersive && this._immersive.${member}(`), `10-ui.js uses ${member}`);

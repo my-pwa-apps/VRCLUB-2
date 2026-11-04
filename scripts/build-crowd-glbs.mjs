@@ -1330,7 +1330,7 @@ function repairBaldScalp(document, person) {
 
 function crownHairTriangles(primitive, hair) {
     const p = primitive.getAttribute('POSITION'), c = primitive.getAttribute('COLOR_0'), indices = primitive.getIndices();
-    const parents = new Map(), heights = new Map(), candidates = [];
+    const parents = new Map(), heights = new Map(), counts = new Map(), candidates = [];
     const near = (a, b) => a.every((x, i) => Math.abs(x - b[i]) < 0.006);
     const key = index => p.getElement(index, []).map(x => x.toFixed(5)).join(',');
     const find = k => {
@@ -1347,17 +1347,22 @@ function crownHairTriangles(primitive, hair) {
         for (const k of keys.slice(1)) parents.set(find(k), root);
         candidates.push([i, keys[0], Math.max(...tri.map(index => p.getElement(index, [])[1]))]);
     }
-    for (const [, k, y] of candidates) heights.set(find(k), Math.max(heights.get(find(k)) || -Infinity, y));
-    return new Set(candidates.filter(([, k]) => heights.get(find(k)) > top - 0.025).map(([i]) => i));
+    for (const [, k, y] of candidates) {
+        const root = find(k);
+        heights.set(root, Math.max(heights.get(root) || -Infinity, y));
+        counts.set(root, (counts.get(root) || 0) + 1);
+    }
+    // Quaternius hair is authored as ~19 disconnected tuft shells across the crown, temples, bangs and sides.
+    // Every scalp-hair tuft has >20 triangles and reaches above top - 0.12; eyebrows are 12 triangles each.
+    return new Set(candidates.filter(([, k]) => {
+        const root = find(k);
+        return heights.get(root) > top - 0.12 && (counts.get(root) || 0) > 20;
+    }).map(([i]) => i));
 }
 
 function makeBald(document, person) {
-    if (document.getRoot().getExtras().bald) {
-        repairBaldScalp(document, person);
-        return;
-    }
     const hair = hexToLinear(person.colors.Hair), skin = hexToLinear(SKIN[person.skin]);
-    let removed = 0;
+    let removed = Number(document.getRoot().getExtras().removedHairTriangles) || 0;
     for (const mesh of document.getRoot().listMeshes()) for (const primitive of mesh.listPrimitives()) {
         const p = primitive.getAttribute('POSITION'), c = primitive.getAttribute('COLOR_0'), indices = primitive.getIndices();
         const near = (a, b) => a.every((x, i) => Math.abs(x - b[i]) < 0.006);
@@ -1369,13 +1374,16 @@ function makeBald(document, person) {
         }
         if (scalp < top - 0.06) throw new Error(`${person.id}: the scalp must exist under the removable hair`);
         const cut = crownHairTriangles(primitive, hair);
-        const kept = [];
-        for (let i = 0; i < indices.getCount(); i += 3) {
-            if (cut.has(i)) { removed++; continue; }
-            kept.push(indices.getScalar(i), indices.getScalar(i + 1), indices.getScalar(i + 2));
+        if (cut.size > 0) {
+            const kept = [];
+            for (let i = 0; i < indices.getCount(); i += 3) {
+                if (cut.has(i)) { removed++; continue; }
+                kept.push(indices.getScalar(i), indices.getScalar(i + 1), indices.getScalar(i + 2));
+            }
+            indices.setArray(new Uint32Array(kept));
         }
-        indices.setArray(new Uint32Array(kept));
     }
+    repairBaldScalp(document, person);
     if (removed < 100) throw new Error(`${person.id}: no connected scalp-hair shell was removed`);
     document.getRoot().setExtras({ ...document.getRoot().getExtras(), bald: true, removedHairTriangles: removed });
 }

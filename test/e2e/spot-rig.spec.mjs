@@ -34,7 +34,7 @@ test('smoke settings agree on desktop, the desk and the VR menu', async ({ page 
     });
     expect(result).toEqual({ intensity: 1.5, mode: 'continuous', domAmount: 'SMOKE AMOUNT: HIGH',
         domMode: 'SMOKE OUTPUT: STEADY', deskAmount: 'HIGH', deskMode: 'STEADY',
-        vrAmount: 'HIGH', vrMode: 'STEADY', slots: 5 });
+        vrAmount: 'HIGH', vrMode: 'STEADY', slots: 6 });
 });
 
 test('random and independent heads move at bounded speeds through live speed and pattern changes', async ({ page }) => {
@@ -66,7 +66,7 @@ test('random and independent heads move at bounded speeds through live speed and
                     club.setSpotGroup(0, { motion: 1 });
                 }
                 let maxPan = 0, maxTilt = 0, maxBeam = 0, travel = 0;
-                let old = club.spotlights.map(s => ({ pan: s.yoke.rotation.y, tilt: s.head.rotation.x,
+                const old = club.spotlights.map(s => ({ pan: s.yoke.rotation.y, tilt: s.head.rotation.x,
                     dir: s._photoDir.clone() }));
                 for (let frame = 0; frame < hz * 8; frame++) {
                     step(frame < hz * 4 ? 0.2 : 2, frame < hz * 4 ? 0 : 1);
@@ -116,9 +116,15 @@ test('spot rig: individual colours, dark heads, shading slots, musical rows and 
             spot.light.setEnabled = function (...args) { enableCalls++; return original.apply(this, args); };
         }
         let time = 100;
+        let sequenceStart = null;
         const update = (frames = 90) => {
             for (let i = 0; i < frames; i++) {
                 time += 1 / 60;
+                if (sequenceStart !== null) {
+                    const beat = (time - sequenceStart) * club.vjBPM / 60;
+                    club.vjDirector.beatNumber = Math.floor(beat);
+                    club.barPhase = (beat % 4) / 4;
+                }
                 club.updateSpotlights({ time, dt: 1 / 60, dtScale: 1, audio: { hasAudio: false, bass: 0, mid: 0, treble: 0 } });
             }
         };
@@ -157,12 +163,12 @@ test('spot rig: individual colours, dark heads, shading slots, musical rows and 
         club.setSpotGroup(0, { motion: 2 });
         club.spotSequence = 2;
         club.spotSequenceRate = 2;
+        club.vjBPM = 120;
+        sequenceStart = time;
         const rows = [];
         for (let row = 0; row < 3; row++) {
-            const beat = row * 2;
-            club.vjDirector.beatNumber = beat;
-            club.barPhase = (beat % 4) / 4;
-            update();
+            // Sample near each two-beat row's end after the fade, on one continuous clock.
+            update(row === 0 ? 55 : 60);
             rows.push(snapshot());
         }
         club.photosensitiveSafeMode = true;
@@ -267,7 +273,7 @@ test('spot rig: the in-headset page edits a real row and renders its lights dark
         club.toggleVRQuickMenu(false);
         return { count, held, kept, value, released, manual: club.vjManualMode };
     });
-    expect(hold).toEqual({ count: 11, held: true, kept: true, value: 'HELD: PRESS TO RELEASE', released: true, manual: false });
+    expect(hold).toEqual({ count: 12, held: true, kept: true, value: 'HELD: PRESS TO RELEASE', released: true, manual: false });
     await exitVR(page);
     await expectHealthyRuntime(page);
 });

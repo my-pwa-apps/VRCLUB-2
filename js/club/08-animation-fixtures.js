@@ -140,7 +140,8 @@ class VRClubAnimationFixtures extends VRClubAnimationCore {
     updateLasers(ctx) {
         const { time, dtScale } = ctx;
         const dt = Number.isFinite(ctx.dt) ? ctx.dt : dtScale / 60;
-        const master = this.masterIntensity == null ? 1 : Math.min(1, Math.max(0, this.masterIntensity));
+        const master = (this.masterIntensity == null ? 1 : Math.min(1, Math.max(0, this.masterIntensity))) *
+            (Number.isFinite(this.laserBrightness) ? Math.min(this.photosensitiveSafeMode ? 1 : 2, Math.max(0, this.laserBrightness)) : 1);
 
         // ALWAYS SYNCHRONIZED MODE - no random mode
         this.lightingMode = 'synchronized';
@@ -423,6 +424,14 @@ class VRClubAnimationFixtures extends VRClubAnimationCore {
         return vj.beatNumber + Math.max(0, Math.min(1, (this.barPhase || 0) * 4 - inBar)) + (this._spotBeatOffset || 0);
     }
 
+    spotSequenceBeat(time = performance.now() / 1000) {
+        const clock = this._spotSequenceClock;
+        if (!this.spotSequence || !clock || clock.sequence !== this.spotSequence ||
+            time < clock.time || time - clock.time > 2) return this.spotRigBeat(time);
+        const bpm = this.vjDirector?.remoteDriven && this._spotRemoteBpm ? this._spotRemoteBpm : this.vjBPM || 120;
+        return clock.beat + (time - clock.time) * bpm / 60;
+    }
+
     _updateSpotRig(spot, i, time, dtScale) {
         if (!spot._rigKeys) spot._rigKeys = [`spotHead${i}Enabled`, `spotHead${i}Color`, `spotHead${i}Motion`];
         const sequence = this.spotSequence || 0;
@@ -431,7 +440,7 @@ class VRClubAnimationFixtures extends VRClubAnimationCore {
         const bpm = this.vjDirector?.remoteDriven && this._spotRemoteBpm ? this._spotRemoteBpm : this.vjBPM || 120;
         const stride = Math.max(1, Math.ceil(0.4 * bpm / (60 * rate)));
         spot._rigBeat = this.spotRigBeat(time);
-        const step = Math.max(0, Math.floor(spot._rigBeat / (rate * stride)));
+        const step = this._spotSequenceStep(time, bpm, rate * stride, spot._rigBeat, sequence);
         const on = this[spot._rigKeys[0]] !== false && VRClubAnimationFixtures.spotSequenceTarget(sequence, i, step);
         const target = on ? (sequence && this.photosensitiveSafeMode ? 0.45 : 1) : 0;
         const previous = spot._rigLevel == null ? (sequence ? 0 : 1) : spot._rigLevel;
@@ -445,10 +454,36 @@ class VRClubAnimationFixtures extends VRClubAnimationCore {
         spot._rigMotion = this[spot._rigKeys[2]] || 0;
     }
 
+    _spotSequenceStep(time, bpm, interval, beat, sequence) {
+        let clock = this._spotSequenceClock;
+        const remote = !!this.vjDirector?.remoteDriven;
+        if (!clock || clock.sequence !== sequence || clock.interval !== interval || clock.remote !== remote ||
+            time < clock.time || time - clock.time > 2 || Math.abs(beat - clock.beat) > 4) {
+            clock = this._spotSequenceClock = {
+                sequence, interval, remote, time, beat, step: Math.max(0, Math.floor(beat / interval)),
+                changedAt: time - (beat % interval) * 60 / bpm
+            };
+            return clock.step;
+        }
+        const dt = time - clock.time;
+        clock.time = time;
+        const predicted = clock.beat + dt * bpm / 60;
+        const error = beat - predicted;
+        // Follow small phase corrections slowly; a missed detector beat must not stop or reverse the chase.
+        clock.beat = predicted + (Math.abs(error) < 0.5 ? Math.max(-dt * 0.12, Math.min(dt * 0.12, error)) : 0);
+        if (Math.floor(clock.beat / interval) > clock.step &&
+            time - clock.changedAt >= Math.max(0.4, interval * 60 / bpm * 0.75)) {
+            clock.step++;
+            clock.changedAt = time;
+        }
+        return clock.step;
+    }
+
     /** Moving-head spotlights: pan/tilt, beams, floor pools and fixtures. */
     updateSpotlights(ctx) {
         const { time, dtScale, audio: audioData } = ctx;
-        const master = this.masterIntensity == null ? 1 : Math.min(1, Math.max(0, this.masterIntensity));
+        const master = (this.masterIntensity == null ? 1 : Math.min(1, Math.max(0, this.masterIntensity))) *
+            (Number.isFinite(this.spotBrightness) ? Math.min(this.photosensitiveSafeMode ? 1 : 2, Math.max(0, this.spotBrightness)) : 1);
 
         // === MODULAR SPOTLIGHT SYSTEM UPDATE ===
         // When useModularSystems is enabled, delegate to SpotlightSystem module
@@ -1313,6 +1348,7 @@ class VRClubAnimationFixtures extends VRClubAnimationCore {
     _updateSpotBeamAppearance(spot, i, time, globalPhase, audioSpeedMultiplier, g) {
         const { beamMidpoint, beamLength, baseScale, tiltStretch } = g;
         const master = (this.masterIntensity == null ? 1 : Math.min(1, Math.max(0, this.masterIntensity))) *
+            (Number.isFinite(this.spotBrightness) ? Math.min(this.photosensitiveSafeMode ? 1 : 2, Math.max(0, this.spotBrightness)) : 1) *
             (spot._rigLevel == null ? 1 : spot._rigLevel);
         // UPDATE GLOW BEAM - Match main beam positioning (unparent and world space)
         // Beam visibility and color - HYPERREALISTIC with subtle variation + FLASHING
@@ -1403,8 +1439,9 @@ class VRClubAnimationFixtures extends VRClubAnimationCore {
                 (1 + (this.kickPulse || 0) * 0.25))
             : 0;
         if (spot.prismMat) {
-            spotColor.scaleToRef(master * 2, spot.prismMat.emissiveColor);
-            spot.prismMat.alpha = Math.min(0.99, spot.beamMat.alpha * 2.5);
+            spotColor.scaleToRef(master, spot.prismMat.emissiveColor);
+            // Thirteen feathered shafts overlap in projection; keep their measured total near the unsplit cone.
+            spot.prismMat.alpha = spot.beamMat.alpha * 0.35;
         }
         
         const st = spot._beamState || (spot._beamState = {});

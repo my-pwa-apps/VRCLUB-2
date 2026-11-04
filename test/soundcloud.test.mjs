@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { readFileSync } from 'node:fs';
+import { readClubSource } from './club-sources.mjs';
 import vm from 'node:vm';
 
 function setup({ loadAPI = true } = {}) {
@@ -38,7 +38,7 @@ function setup({ loadAPI = true } = {}) {
         VRClubAnimationFinish: class {}
     });
     for (const file of ['club/10-ui.js', 'club/11-audio-crowd.js', 'crowdDance.js', 'djPerformer.js']) {
-        vm.runInContext(readFileSync(new URL(`../js/${file}`, import.meta.url), 'utf8'), context);
+        vm.runInContext(readClubSource(new URL(`../js/${file}`, import.meta.url)), context);
         if (file === 'club/10-ui.js') context.VRClubUI = window.VRClubUI;
     }
     const club = Object.assign(Object.create(window.VRClubAudioCrowd.prototype), {

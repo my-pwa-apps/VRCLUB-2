@@ -3,6 +3,109 @@ import { enterClub, expectHealthyRuntime, useQuestHarness } from './support.mjs'
 
 useQuestHarness();
 
+test('fixture brightness is independent and Maximum plus bursts produces real room fog and machine output', async ({ page }) => {
+    test.setTimeout(300_000);
+    await enterClub(page);
+    await page.locator('#vjToggle').click();
+    await page.locator('#vjTabEffects').click();
+    const result = await page.evaluate(async () => {
+        const club = window.vrClub, B = window.BABYLON;
+        await club.modelLoadPromise;
+        club.engine.stopRenderLoop();
+        club.photosensitiveSafeMode = false;
+        club.masterIntensity = 1;
+        Object.assign(club, { spotBrightness: 1, laserBrightness: 1, ledWallBrightness: 1, laserSheetBrightness: 1 });
+        const click = control => document.querySelector(`[data-control="${control}"]`).click();
+        click('cycleSpotBrightness');
+        const spots = [club.spotBrightness, club.laserBrightness, club.ledWallBrightness, club.laserSheetBrightness];
+        click('cycleLaserBrightness');
+        click('cycleLedBrightness');
+        click('cycleSheetBrightness');
+        const trims = [club.spotBrightness, club.laserBrightness, club.ledWallBrightness, club.laserSheetBrightness];
+        club.resumeAutoShow();
+        club.showDirector._applyLook(club.showDirector.looks.detonation);
+        const afterCue = [club.spotBrightness, club.laserBrightness, club.ledWallBrightness, club.laserSheetBrightness];
+        club.takeLightControl();
+        Object.assign(club, { smokeActive: false, fogIntensity: 1.5, fogBurstMode: 'continuous', reducedShowSmoke: false });
+        for (const machine of club.fogMachines) machine.emitter.stop();
+        click('cycleFogAmount');
+        click('cycleFogMode');
+        club.vjDirector.beatNumber = 16;
+        club.barPhase = 0;
+        for (let i = 0; i < 1200; i++) club.updateFogMachines({ time: 10, dt: 1 / 60 });
+        for (let i = 0; i < 60; i++) {
+            for (const machine of club.fogMachines) machine.emitter.animate(true);
+        }
+        const smoke = {
+            active: club.smokeActive, density: club.scene.fogDensity,
+            baseDensity: club.vrSettings.desktop.fogDensity,
+            machines: club.fogMachines.map(m => ({ running: m.emitter.isStarted(), rate: m.emitter.emitRate,
+                capacity: m.emitter.getCapacity(), particles: m.emitter.getActiveCount(), bursting: m.isBursting }))
+        };
+        club.toggleLightControl('toggleReducedShowSmoke');
+        for (let i = 0; i < 1200; i++) club.updateFogMachines({ time: 10, dt: 1 / 60 });
+        smoke.reducedDensity = club.scene.fogDensity;
+        smoke.reducedRates = club.fogMachines.map(m => m.emitter.emitRate);
+        club.laserSheetActive = true;
+        club.kickPulse = 0;
+        club.updateLaserSheet({ time: 1, audio: { average: 0 } });
+        const sheet = club.laserSheet;
+        sheet.computeWorldMatrix(true);
+        const positions = sheet.getVerticesData(B.VertexBuffer.PositionKind), indices = sheet.getIndices();
+        const matrix = sheet.getWorldMatrix();
+        const point = index => B.Vector3.TransformCoordinates(B.Vector3.FromArray(positions, index * 3), matrix);
+        let normal;
+        for (let i = 0; i < indices.length; i += 3) {
+            const a = point(indices[i]), b = point(indices[i + 1]), c = point(indices[i + 2]);
+            normal = B.Vector3.Cross(b.subtract(a), c.subtract(a));
+            if (normal.lengthSquared() > 0.001) break;
+        }
+        normal.normalize();
+        const centre = sheet.getBoundingInfo().boundingBox.centerWorld;
+        const camera = new B.FreeCamera('sheetBrightnessTestCamera', centre.add(normal.scale(10)), club.scene);
+        camera.setTarget(centre);
+        const target = new B.RenderTargetTexture('sheetBrightnessTestTarget', { width: 128, height: 128 }, club.scene, false);
+        target.activeCamera = camera;
+        target.renderList = [sheet];
+        target.clearColor = new B.Color4(0, 0, 0, 1);
+        await club.scene.whenReadyAsync();
+        const sample = async brightness => {
+            club.laserSheetBrightness = brightness;
+            club.updateLaserSheet({ time: 1, audio: { average: 0 } });
+            club.scene.incrementRenderId();
+            target.render(true);
+            const pixels = await target.readPixels();
+            let sum = 0;
+            for (let i = 0; i < pixels.length; i += 4) sum += pixels[i] + pixels[i + 1] + pixels[i + 2];
+            return sum;
+        };
+        const sheetPixels = { normal: await sample(1), boosted: await sample(3) };
+        club.masterIntensity = 0;
+        sheetPixels.blackout = await sample(3);
+        target.dispose();
+        camera.dispose();
+        return { spots, trims, afterCue, smoke, sheetPixels };
+    });
+    expect(result.spots).toEqual([1.5, 1, 1, 1]);
+    expect(result.trims).toEqual([1.5, 1.5, 1.5, 1.5]);
+    expect(result.afterCue).toEqual(result.trims);
+    expect(result.smoke.active).toBe(true);
+    expect(result.smoke.density / result.smoke.baseDensity).toBeCloseTo(3, 1);
+    expect(result.smoke.density / result.smoke.reducedDensity).toBeCloseTo(3, 1);
+    for (let i = 0; i < result.smoke.machines.length; i++) {
+        const machine = result.smoke.machines[i];
+        expect(machine.running && machine.bursting).toBe(true);
+        expect(machine.rate).toBeGreaterThan(0);
+        expect(machine.rate / result.smoke.reducedRates[i]).toBeCloseTo(2);
+        expect(machine.capacity).toBeGreaterThan(0);
+        expect(machine.particles).toBeGreaterThan(0);
+    }
+    expect(result.sheetPixels.normal).toBeGreaterThan(0);
+    expect(result.sheetPixels.boosted / result.sheetPixels.normal).toBeGreaterThan(1.3);
+    expect(result.sheetPixels.blackout).toBe(0);
+    await expectHealthyRuntime(page);
+});
+
 test('aesthetic show and independent sheet controls use shared desktop, VR and desk actions', async ({ page }) => {
     test.setTimeout(600_000);
     await enterClub(page);
@@ -30,6 +133,7 @@ test('aesthetic show and independent sheet controls use shared desktop, VR and d
         const sourceSpeed = club.laserSpeed;
         club.toggleLightControl('cycleSheetSpeed');
         out.sheetSpeed = { before: sheetSpeed, after: club.laserSheetSpeed, sourceBefore: sourceSpeed, sourceAfter: club.laserSpeed };
+        club.laserSheetBrightness = 3;
         club.toggleLightControl('cycleSheetBrightness');
         club.updateLaserSheet({ time: 1, audio: { average: 0.5 } });
         out.darkSheet = club.laserSheet.material.alpha;
@@ -73,13 +177,27 @@ test('aesthetic show and independent sheet controls use shared desktop, VR and d
             };
         };
         out.choreography = { down: sample(0), inward: sample(16), returned: sample(32), color: club.ledShowColor.asArray() };
+        const wallLevel = (look, safe = false) => {
+            club.photosensitiveSafeMode = safe;
+            show._applyCue({ look, bars: 8 });
+            club.vjDirector.beatNumber = 8;
+            club.barPhase = 0;
+            club.kickPulse = safe ? 0.125 : 0;
+            for (let frame = 0; frame < 240; frame++) {
+                time += 1 / 60;
+                club.updateLEDWall(time, { hasAudio: safe, bass: 0, treble: safe ? 1 : 0 });
+            }
+            const levels = club.ledPanels.map(panel => Math.max(...panel.material.emissiveColor.asArray()));
+            return { mean: levels.reduce((sum, level) => sum + level, 0) / levels.length, max: Math.max(...levels) };
+        };
+        out.wallLevels = { quiet: wallLevel('aestheticRows'), peak: wallLevel('aestheticPeak'), safe: wallLevel('aestheticPeak', true) };
         return out;
     });
     expect(result.default).toBe('nocturne');
     expect(result.program).toBe('aesthetic');
     expect(result.manual).toBe(false);
     expect(result.pages.show).toBe(true);
-    expect(result.pages.sheet).toEqual(['cycleSheetSpeed', 'cycleSheetBrightness']);
+    expect(result.pages.sheet).toEqual(['cycleSpotBrightness', 'cycleLaserBrightness', 'cycleLedBrightness', 'cycleSheetSpeed', 'cycleSheetBrightness']);
     expect(result.row).toEqual({ sequence: 2, rate: 1, locked: true });
     expect(result.dense / result.reduced).toBeCloseTo(3, 1);
     expect(Math.exp(-Math.pow(result.dense * 20, 2)), 'dense EXP2 fog suppresses distant surface detail').toBeLessThan(0.1);
@@ -88,6 +206,8 @@ test('aesthetic show and independent sheet controls use shared desktop, VR and d
     expect(result.darkSheet).toBe(0);
     expect(result.desk).toEqual({ program: 'AESTHETIC', speed: '150%', brightness: '0%' });
     expect(result.safeStrobes).toBe(false);
+    expect(result.wallLevels.peak.mean / result.wallLevels.quiet.mean).toBeGreaterThan(1.8);
+    expect(result.wallLevels.safe.max).toBeLessThan(0.5);
     for (const sample of [result.choreography.down, result.choreography.returned]) {
         expect(sample.directions.every(direction => direction.y < -0.999 && Math.abs(direction.x) < 0.02), JSON.stringify(sample.directions)).toBe(true);
     }

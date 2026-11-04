@@ -822,35 +822,68 @@ class VRClubEffects extends VRClubFixtures {
         this.mirrorBallHousings = [];
         
         // UPGRADE: Create shared gradient texture for all mirror ball beams (was 4 separate 512px textures)
+        // Longitudinal + radial pinspot profile: U across the beam (tight Gaussian core + soft penumbra edge),
+        // V along the shaft from lens aperture (hot collimated exit) to the mirror ball (inverse-square spread).
         if (!this._mirrorBeamGradientTexture) {
-            const mbGradTex = new BABYLON.DynamicTexture("sharedMirrorBeamGradient", { width: 256, height: 256 }, this.scene);
+            const mbGradTex = new BABYLON.DynamicTexture("sharedMirrorBeamGradient", { width: 256, height: 256 }, this.scene, false);
             const mbCtx = mbGradTex.getContext();
-            const mbGrad = mbCtx.createRadialGradient(128, 128, 25, 128, 128, 128);
-            mbGrad.addColorStop(0, 'rgba(255, 255, 255, 0.8)');
-            mbGrad.addColorStop(0.3, 'rgba(255, 255, 255, 0.6)');
-            mbGrad.addColorStop(0.6, 'rgba(255, 255, 255, 0.3)');
-            mbGrad.addColorStop(0.85, 'rgba(255, 255, 255, 0.1)');
-            mbGrad.addColorStop(1, 'rgba(255, 255, 255, 0)');
-            mbCtx.fillStyle = mbGrad;
-            mbCtx.fillRect(0, 0, 256, 256);
+            const img = mbCtx.createImageData(256, 256);
+            const data = img.data;
+            for (let y = 0; y < 256; y++) {
+                // V=0 at bottom (-Y, lens aperture), V=1 at top (+Y, mirror ball) in cylinder UV space
+                const v = y / 255;
+                const entryFade = Math.min(1, v / 0.04); // crisp exit from lens face without hard clipping
+                const inverseSq = 1 / (1 + 1.15 * v * v);
+                const ballSoftFade = v > 0.88 ? Math.max(0, 1 - (v - 0.88) / 0.12) : 1;
+                const axial = entryFade * (0.38 + 0.62 * inverseSq) * (0.55 + 0.45 * ballSoftFade);
+                for (let x = 0; x < 256; x++) {
+                    const u = (x / 255) * 2 - 1;
+                    const r = Math.abs(u);
+                    // Collimated pinspot core + soft field penumbra
+                    const core = Math.exp(-(r * r) / 0.14);
+                    const halo = 0.35 * Math.exp(-(r * r) / 0.52) * Math.max(0, 1 - r);
+                    const a = Math.min(1, Math.max(0, (core * 0.78 + halo) * axial));
+                    const idx = (y * 256 + x) * 4;
+                    data[idx] = 255;
+                    data[idx + 1] = 255;
+                    data[idx + 2] = 255;
+                    data[idx + 3] = Math.round(a * 255);
+                }
+            }
+            mbCtx.putImageData(img, 0, 0);
             mbGradTex.update();
             mbGradTex.hasAlpha = true;
+            mbGradTex.wrapU = BABYLON.Texture.CLAMP_ADDRESSMODE;
+            mbGradTex.wrapV = BABYLON.Texture.CLAMP_ADDRESSMODE;
             this._mirrorBeamGradientTexture = mbGradTex;
         }
         
         // UPGRADE: Share housing materials across all 4 mirror ball fixtures
-        const sharedMirrorHousingMat = new BABYLON.PBRMetallicRoughnessMaterial("sharedMirrorHousingMat", this.scene);
-        sharedMirrorHousingMat.baseColor = new BABYLON.Color3(0.1, 0.1, 0.12);
-        sharedMirrorHousingMat.metallic = 0.85;
-        sharedMirrorHousingMat.roughness = 0.3;
-        sharedMirrorHousingMat.emissiveColor = new BABYLON.Color3(0, 0, 0);
-        sharedMirrorHousingMat.maxSimultaneousLights = this.maxLights;
+        const sharedMirrorHousingMat = this.materialFactory.createPBRMaterial("sharedMirrorHousingMat", {
+            mutable: true,
+            baseColor: [0.08, 0.08, 0.10],
+            metallic: 0.88,
+            roughness: 0.28,
+            emissiveColor: [0, 0, 0],
+            detail: 'castMetal',
+            detailScale: 5
+        });
         
-        const sharedMirrorBezelMat = new BABYLON.PBRMetallicRoughnessMaterial("sharedMirrorBezelMat", this.scene);
-        sharedMirrorBezelMat.baseColor = new BABYLON.Color3(0.15, 0.15, 0.15);
-        sharedMirrorBezelMat.metallic = 0.95;
-        sharedMirrorBezelMat.roughness = 0.15;
-        sharedMirrorBezelMat.maxSimultaneousLights = this.maxLights;
+        const sharedMirrorBezelMat = this.materialFactory.createPBRMaterial("pinspotBezelMatShared", {
+            baseColor: [0.15, 0.15, 0.16],
+            metallic: 0.95,
+            roughness: 0.16,
+            detail: 'brushedMetal',
+            detailScale: 4
+        }, true);
+
+        const sharedMirrorClampMat = this.materialFactory.createPBRMaterial("pinspotClampMatShared", {
+            baseColor: [0.1, 0.1, 0.1],
+            metallic: 0.9,
+            roughness: 0.4,
+            detail: 'castMetal',
+            detailScale: 4
+        }, true);
         
         const spotlightConfigs = [
             { pos: new BABYLON.Vector3(4, 7.5, -8), name: "Front-Right" },
@@ -858,99 +891,195 @@ class VRClubEffects extends VRClubFixtures {
             { pos: new BABYLON.Vector3(4, 7.5, -16), name: "Back-Right" },
             { pos: new BABYLON.Vector3(-4, 7.5, -16), name: "Back-Left" }
         ];
+
+        const baseMat = this.materialFactory.getPreset('lightFixture');
+        const riggingClampParts = [];
+        const riggingMountParts = [];
+        const bezelParts = [];
         
         spotlightConfigs.forEach((config, index) => {
-            const direction = ballPosition.subtract(config.pos).normalize();
+            const toBall = ballPosition.subtract(config.pos);
+            const direction = toBall.clone().normalize();
             
             this.mirrorBallSpotlights.push(null);
             
-            // === HYPERREALISTIC MOVING HEAD FIXTURE (Professional Stage Light) ===
-            const housingDirection = ballPosition.subtract(config.pos).normalize();
-            const targetQuat = BABYLON.Quaternion.FromLookDirectionLH(housingDirection, BABYLON.Vector3.Up());
-            
-            // Base/Yoke mount (connects to truss) - Professional design
-            const base = BABYLON.MeshBuilder.CreateBox(`mirrorFixtureBase${index}`, {
-                width: 0.5,
-                height: 0.2,
-                depth: 0.4
+            // === HYPERREALISTIC PINSPOT / MOVING-HEAD FIXTURE ON TRUSS ===
+            // Cylinder/Torus primitives have their barrel/ring axis along local +Y.
+            // Align local +Y with `direction` (from fixture to mirror ball) so the barrel,
+            // recessed cowling, chrome bezel and optical lens aim straight at the ball.
+            const up = BABYLON.Vector3.Up();
+            const rotAxis = BABYLON.Vector3.Cross(up, direction).normalize();
+            const rotAngle = Math.acos(Math.min(1, Math.max(-1, BABYLON.Vector3.Dot(up, direction))));
+            const barrelQuat = BABYLON.Quaternion.RotationAxis(rotAxis, rotAngle);
+            // Disc primitives lie in local XY with normal along ±Z; align local +Z with `direction`.
+            const zAxis = new BABYLON.Vector3(0, 0, 1);
+            const discAxis = BABYLON.Vector3.Cross(zAxis, direction).normalize();
+            const discAngle = Math.acos(Math.min(1, Math.max(-1, BABYLON.Vector3.Dot(zAxis, direction))));
+            const discQuat = BABYLON.Quaternion.RotationAxis(discAxis, discAngle);
+            const panYaw = Math.atan2(direction.x, direction.z);
+
+            // Truss C-clamp on the lower chord at y = 8.0 and safety cable loop
+            const clamp = BABYLON.MeshBuilder.CreateTorus(`mirrorClamp${index}`, {
+                diameter: 0.12,
+                thickness: 0.02,
+                tessellation: 14,
+                arc: 0.85
             }, this.scene);
-            base.position = config.pos.clone();
-            base.rotationQuaternion = targetQuat;
+            clamp.position.set(config.pos.x, 8.0, config.pos.z);
+            clamp.rotation.x = Math.PI / 2;
+            clamp.rotation.z = Math.PI;
+            riggingClampParts.push(clamp);
+
+            const clampBolt = BABYLON.MeshBuilder.CreateCylinder(`mirrorClampBolt${index}`, {
+                diameter: 0.028,
+                height: 0.075,
+                tessellation: 8
+            }, this.scene);
+            clampBolt.position.set(config.pos.x + (config.pos.x >= 0 ? 0.055 : -0.055), 8.0, config.pos.z);
+            clampBolt.rotation.z = Math.PI / 2;
+            riggingClampParts.push(clampBolt);
+
+            const safetyCable = BABYLON.MeshBuilder.CreateTorus(`mirrorSafetyCable${index}`, {
+                diameter: 0.15,
+                thickness: 0.005,
+                tessellation: 14
+            }, this.scene);
+            safetyCable.position.set(config.pos.x, 7.95, config.pos.z);
+            safetyCable.rotation.x = Math.PI / 2;
+            riggingClampParts.push(safetyCable);
+
+            // Vertical drop pipe from truss (y = 8.0) down to the horizontal fixture base (y = 7.72)
+            const dropPipe = BABYLON.MeshBuilder.CreateCylinder(`mirrorDropPipe${index}`, {
+                diameter: 0.04,
+                height: 0.28,
+                tessellation: 12
+            }, this.scene);
+            dropPipe.position.set(config.pos.x, 7.86, config.pos.z);
+            riggingMountParts.push(dropPipe);
             
-            const baseMat = this.materialFactory.getPreset('lightFixture');
-            base.material = baseMat;
-            base.isPickable = false;
+            // Base mount (hangs level under the truss drop pipe, panned toward the mirror ball)
+            const base = BABYLON.MeshBuilder.CreateBox(`mirrorFixtureBase${index}`, {
+                width: 0.36,
+                height: 0.09,
+                depth: 0.36
+            }, this.scene);
+            base.position.set(config.pos.x, 7.70, config.pos.z);
+            base.rotation.y = panYaw;
+            riggingMountParts.push(base);
+
+            // U-bracket yoke arms connecting the level base to the tilted barrel pivot at config.pos (y = 7.5)
+            const yokeCross = BABYLON.MeshBuilder.CreateBox(`mirrorYokeCross${index}`, {
+                width: 0.42,
+                height: 0.045,
+                depth: 0.12
+            }, this.scene);
+            yokeCross.position.set(config.pos.x, 7.64, config.pos.z);
+            yokeCross.rotation.y = panYaw;
+            riggingMountParts.push(yokeCross);
+
+            const cosYaw = Math.cos(panYaw), sinYaw = Math.sin(panYaw);
+            for (const side of [-0.185, 0.185]) {
+                const arm = BABYLON.MeshBuilder.CreateBox(`mirrorYokeArm${index}_${side < 0 ? 'L' : 'R'}`, {
+                    width: 0.042,
+                    height: 0.20,
+                    depth: 0.11
+                }, this.scene);
+                arm.position.set(config.pos.x + side * cosYaw, 7.55, config.pos.z - side * sinYaw);
+                arm.rotation.y = panYaw;
+                riggingMountParts.push(arm);
+            }
             
-            // Main fixture body (cylindrical housing) - Professional moving head
+            // Main fixture body (tapered cylindrical pinspot barrel aimed along `direction`)
+            const barrelOffset = 0.05;
+            const barrelLength = 0.56;
+            const frontApertureDist = barrelOffset + barrelLength * 0.5; // 0.33m forward of pivot
             const housing = BABYLON.MeshBuilder.CreateCylinder(`mirrorSpotHousing${index}`, {
-                diameter: 0.5,
-                height: 0.7,
+                diameterTop: 0.34,     // Front aperture end (+Y along direction)
+                diameterBottom: 0.40,  // Rear heatsink end (-Y)
+                height: barrelLength,
                 tessellation: 24
             }, this.scene);
-            housing.position = config.pos.add(housingDirection.scale(0.1)); // Slight offset forward
-            housing.rotationQuaternion = targetQuat;
-            
-            // UPGRADE: Use shared housing material instead of per-fixture instances
+            housing.position = config.pos.add(direction.scale(barrelOffset));
+            housing.rotationQuaternion = barrelQuat;
             housing.material = sharedMirrorHousingMat;
             housing.isPickable = false;
+
+            // Rear cooling heatsink cap
+            const rearCap = BABYLON.MeshBuilder.CreateCylinder(`mirrorRearCap${index}`, {
+                diameterTop: 0.38,
+                diameterBottom: 0.30,
+                height: 0.08,
+                tessellation: 20
+            }, this.scene);
+            rearCap.position = config.pos.add(direction.scale(barrelOffset - barrelLength * 0.5 - 0.04));
+            rearCap.rotationQuaternion = barrelQuat;
+            riggingMountParts.push(rearCap);
             
-            // Front bezel/rim (chrome ring around lens)
+            // Front bezel/cowling rim (chrome ring around the front lens aperture, axis along `direction`)
             const bezel = BABYLON.MeshBuilder.CreateTorus(`mirrorBezel${index}`, {
-                diameter: 0.45,
-                thickness: 0.05,
-                tessellation: 32
+                diameter: 0.33,
+                thickness: 0.032,
+                tessellation: 28
             }, this.scene);
-            bezel.position = config.pos.add(housingDirection.scale(0.4));
-            bezel.rotationQuaternion = targetQuat;
+            bezel.position = config.pos.add(direction.scale(frontApertureDist));
+            bezel.rotationQuaternion = barrelQuat;
+            bezelParts.push(bezel);
             
-            // UPGRADE: Use shared bezel material
-            bezel.material = sharedMirrorBezelMat;
-            bezel.isPickable = false;
-            
-            // Lens (glass front element) - Cylindrical lens shape
+            // Recessed glass condenser lens (cylindrical element flush inside the front bezel)
+            const lensDist = frontApertureDist - 0.015;
             const lens = BABYLON.MeshBuilder.CreateCylinder(`mirrorSpotLens${index}`, {
-                diameter: 0.4,
-                height: 0.1,
-                tessellation: 32
+                diameter: 0.30,
+                height: 0.024,
+                tessellation: 28
             }, this.scene);
-            lens.position = config.pos.add(housingDirection.scale(0.38)); // Inside bezel
-            lens.rotationQuaternion = targetQuat;
+            lens.position = config.pos.add(direction.scale(lensDist));
+            lens.rotationQuaternion = barrelQuat;
             
             const lensMat = new BABYLON.StandardMaterial(`mirrorLensMat${index}`, this.scene);
-            lensMat.emissiveColor = new BABYLON.Color3(0, 0, 0); // Will glow with color when active
+            lensMat.diffuseColor = new BABYLON.Color3(0, 0, 0);
+            lensMat.specularColor = new BABYLON.Color3(0, 0, 0);
+            lensMat.emissiveColor = new BABYLON.Color3(0, 0, 0);
             lensMat.disableLighting = true;
             lensMat.backFaceCulling = false;
             lens.material = lensMat;
             lens.renderingGroupId = 2;
             lens.isPickable = false;
             
-            // Bright light source (visible bulb/LED)
+            // Deep recessed LED/discharge emitter die inside the reflector barrel (smaller than barrel so it never pokes through)
             const lightSource = BABYLON.MeshBuilder.CreateSphere(`mirrorLightSource${index}`, {
-                diameter: 0.35,
-                segments: 16
+                diameter: 0.16,
+                segments: 12
             }, this.scene);
-            lightSource.position = config.pos.add(housingDirection.scale(0.38));
+            lightSource.position = config.pos.add(direction.scale(lensDist - 0.04));
             
             const sourceMat = new BABYLON.StandardMaterial(`mirrorSourceMat${index}`, this.scene);
-            sourceMat.emissiveColor = new BABYLON.Color3(0, 0, 0); // Will glow bright when active
+            sourceMat.diffuseColor = new BABYLON.Color3(0, 0, 0);
+            sourceMat.specularColor = new BABYLON.Color3(0, 0, 0);
+            sourceMat.emissiveColor = new BABYLON.Color3(0, 0, 0);
             sourceMat.disableLighting = true;
             sourceMat.backFaceCulling = false;
             lightSource.material = sourceMat;
             lightSource.renderingGroupId = 2;
             lightSource.isPickable = false;
             
-            // Lens flare (glass reflection effect)
+            // Soft optical aperture bloom disc just outside the front lens face
+            const emissionPos = config.pos.add(direction.scale(frontApertureDist + 0.012));
             const flare = BABYLON.MeshBuilder.CreateDisc(`mirrorFlare${index}`, {
-                radius: 0.25,
-                tessellation: 32
+                radius: 0.20,
+                tessellation: 28
             }, this.scene);
-            flare.position = config.pos.add(housingDirection.scale(0.42)); // Slightly in front
-            flare.rotationQuaternion = targetQuat;
+            flare.position = emissionPos.clone();
+            flare.rotationQuaternion = discQuat;
             
             const flareMat = new BABYLON.StandardMaterial(`mirrorFlareMat${index}`, this.scene);
-            flareMat.emissiveColor = new BABYLON.Color3(0, 0, 0); // Will glow when active
+            flareMat.diffuseColor = new BABYLON.Color3(0, 0, 0);
+            flareMat.specularColor = new BABYLON.Color3(0, 0, 0);
+            flareMat.emissiveColor = new BABYLON.Color3(0, 0, 0);
+            flareMat.opacityTexture = this._mirrorSpotFalloffTexture || this._mirrorBeamGradientTexture;
             flareMat.alpha = 0.4;
+            flareMat.alphaMode = BABYLON.Engine.ALPHA_ADD;
             flareMat.disableLighting = true;
+            flareMat.disableDepthWrite = true;
             flareMat.backFaceCulling = false;
             flare.material = flareMat;
             flare.renderingGroupId = 2;
@@ -965,8 +1094,6 @@ class VRClubEffects extends VRClubFixtures {
             this.mirrorBallHousings.push({ 
                 mesh: housing, 
                 material: sharedMirrorHousingMat,
-                base: base,
-                bezel: bezel,
                 lens: lens,
                 lensMaterial: lensMat,
                 lightSource: lightSource,
@@ -975,26 +1102,27 @@ class VRClubEffects extends VRClubFixtures {
                 flareMaterial: flareMat
             });
             
-            // Visible volumetric beam from all positions (dramatic effect with HIGH-QUALITY rendering)
-            const beamLength = BABYLON.Vector3.Distance(config.pos, ballPosition);
+            // === COLLIMATED INCIDENT PINSPOT BEAM ===
+            // Extends from the front lens aperture (`emissionPos`) to the mirror-ball wrap plane just past
+            // the illuminated hemisphere so the tight cone cleanly envelopes the 1.2m faceted sphere.
+            // Because `barrelQuat` maps local +Y onto `direction` (fixture -> ball):
+            //   - local -Y (`diameterBottom`) sits at the fixture's 0.30m lens aperture
+            //   - local +Y (`diameterTop`) reaches the 1.2m mirror ball
+            const targetPoint = ballPosition.subtract(direction.scale(0.18));
+            const beamLength = BABYLON.Vector3.Distance(emissionPos, targetPoint);
             const beam = BABYLON.MeshBuilder.CreateCylinder(`mirrorSpotBeam${index}`, {
-                diameterTop: 1.1,
-                diameterBottom: 0.18,
+                diameterTop: 1.18,     // Envelopes the 1.20m mirror ball at the target end (+Y)
+                diameterBottom: 0.26,  // Matches the 0.30m front lens aperture at the fixture end (-Y)
                 height: beamLength,
-                tessellation: 16,
+                tessellation: 24,
                 cap: BABYLON.Mesh.NO_CAP
             }, this.scene);
             
-            // Position and rotate beam
-            const beamMidpoint = BABYLON.Vector3.Center(config.pos, ballPosition);
-            beam.position = beamMidpoint;
+            // Position at midpoint between lens face and mirror-ball target plane, oriented along `direction`
+            beam.position = BABYLON.Vector3.Center(emissionPos, targetPoint);
+            beam.rotationQuaternion = barrelQuat.clone();
             
-            const beamRotationAxis = BABYLON.Vector3.Cross(BABYLON.Vector3.Up(), direction);
-            const beamRotationAngle = Math.acos(BABYLON.Vector3.Dot(BABYLON.Vector3.Up(), direction));
-            beam.rotationQuaternion = BABYLON.Quaternion.RotationAxis(beamRotationAxis, beamRotationAngle);
-            
-            // === ULTRA-REALISTIC VOLUMETRIC BEAM (same quality as truss spotlights) ===
-            // UPGRADE: Use shared gradient texture (was 4 separate 512px DynamicTextures)
+            // === ULTRA-REALISTIC VOLUMETRIC BEAM ===
             const beamTexture = this._mirrorBeamGradientTexture;
             
             // Use PBR material with gradient texture for professional quality
@@ -1004,25 +1132,25 @@ class VRClubEffects extends VRClubFixtures {
             beamMat.albedoColor = new BABYLON.Color3(0, 0, 0);
             beamMat.metallic = 0;
             beamMat.roughness = 1;
+            beamMat.maxSimultaneousLights = this.maxLights;
             
             // Apply gradient texture to emissive channel
             beamMat.emissiveTexture = beamTexture;
             beamMat.emissiveColor = this.mirrorBallSpotlightColor.scale(0.6);
-            // All four fixtures emit visible incident shafts. Only the first owns a
-            // GPU SpotLight; dimming the other beam meshes made three fixtures look off.
             beamMat.emissiveIntensity = 1.35;
             
             // Use gradient as alpha mask for realistic edge softness
             beamMat.opacityTexture = beamTexture;
             beamMat.alpha = 0.07;
             beamMat.transparencyMode = BABYLON.PBRMaterial.PBRMATERIAL_ALPHABLEND;
+            beamMat.disableDepthWrite = true;
             
-            // Fresnel effect - more visible from the side
+            // Soft grazing fade so cylinder silhouettes never show a hard polygon edge
             beamMat.opacityFresnel = new BABYLON.FresnelParameters();
-            beamMat.opacityFresnel.leftColor = new BABYLON.Color3(0.15, 0.15, 0.15);
-            beamMat.opacityFresnel.rightColor = new BABYLON.Color3(0, 0, 0);
-            beamMat.opacityFresnel.bias = 0.2;
-            beamMat.opacityFresnel.power = 2;
+            beamMat.opacityFresnel.leftColor = new BABYLON.Color3(0.04, 0.04, 0.04);
+            beamMat.opacityFresnel.rightColor = new BABYLON.Color3(0.95, 0.95, 0.95);
+            beamMat.opacityFresnel.bias = 0.08;
+            beamMat.opacityFresnel.power = 1.8;
             
             // Important settings for realism
             beamMat.backFaceCulling = false;
@@ -1034,22 +1162,45 @@ class VRClubEffects extends VRClubFixtures {
             beam.visibility = 1.0;
             beam.renderingGroupId = 1;
             beam.setEnabled(false);
+            beam.freezeWorldMatrix();
+            beam.doNotSyncBoundingInfo = true;
             
             this.mirrorBallBeams.push({
                 mesh: beam,
                 material: beamMat,
                 texture: beamTexture,
+                origin: emissionPos.clone(),
+                direction: direction.clone(),
+                length: beamLength,
                 isIncidentLight: config.isRealLight
             });
             
-            // UPGRADE: Freeze static fixture hardware (housing, base, bezel don't animate)
-            base.freezeWorldMatrix();
-            base.doNotSyncBoundingInfo = true;
+            // UPGRADE: Freeze static fixture hardware (housing, base, bezel, lens, source, flare don't move)
             housing.freezeWorldMatrix();
             housing.doNotSyncBoundingInfo = true;
-            bezel.freezeWorldMatrix();
-            bezel.doNotSyncBoundingInfo = true;
+            lens.freezeWorldMatrix();
+            lens.doNotSyncBoundingInfo = true;
+            lightSource.freezeWorldMatrix();
+            lightSource.doNotSyncBoundingInfo = true;
+            flare.freezeWorldMatrix();
+            flare.doNotSyncBoundingInfo = true;
         });
+
+        for (const [name, parts, mat] of [
+            ['mirrorSpotTrussClamps', riggingClampParts, sharedMirrorClampMat],
+            ['mirrorSpotRiggingMounts', riggingMountParts, baseMat],
+            ['mirrorSpotBezelMerged', bezelParts, sharedMirrorBezelMat]
+        ]) {
+            if (!parts.length) continue;
+            const merged = BABYLON.Mesh.MergeMeshes(parts, true, true, undefined, false, false);
+            if (merged) {
+                merged.name = name;
+                merged.material = mat;
+                merged.isPickable = false;
+                merged.freezeWorldMatrix();
+                merged.doNotSyncBoundingInfo = true;
+            }
+        }
         
         const maxSpots = this.qualityTiers.ultra.mirrorSpots;
         const maxRays = this.qualityTiers.ultra.mirrorRays;

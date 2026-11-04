@@ -5,14 +5,19 @@ class MusicLibrary {
     static PLAYBACK_KEY = 'vrclub.questMusicPlayback';
     static MAX_SETS = 8;
     /** The club's own generated set, served from this site (so it is first-party and the audio analyser can read it). */
-    static DEFAULT_SET = Object.freeze({ path: 'audio/nocturne-house.mp3', name: 'NOCTURNE House (club set)' });
+    static DEFAULT_SET = Object.freeze({ path: 'audio/nocturne-house.mp3', name: 'NOCTURNE (club set)' });
     static COLOURIZON_FEED_PATH = '/podcast/colourizon/feed.xml';
     static SOUNDCLOUD_RESOLVE_PATH = '/soundcloud/resolve';
     static DEFAULT_NAMES = new Set(['SoundCloud set', 'Resident by Hernan Cattaneo']);
     static RESIDENT_FEED = 'https://podcast.hernancattaneo.com/feed.xml';
+    static DEV_HOSTS = new Set(['nocturnedev.mitwee.nl', 'nocturne-dev.pages.dev']);
     static EPISODE_TTL_MS = 10 * 60 * 1000;
     static MAX_EPISODES = 2000;
     static SOUNDCLOUD_RESERVED = new Set(['sets', 'tracks', 'albums', 'reposts', 'likes', 'following', 'followers', 'popular-tracks', 'comments']);
+
+    static isDevHost(hostname = window.location?.hostname) {
+        return typeof hostname === 'string' && MusicLibrary.DEV_HOSTS.has(hostname);
+    }
 
     constructor(club, storage, options = {}) {
         this.club = club;
@@ -53,7 +58,9 @@ class MusicLibrary {
         }
         try {
             if (raw === null) {
-                this.items = [];
+                this.items = MusicLibrary.isDevHost()
+                    ? [this._item(MusicLibrary.RESIDENT_FEED, 'Resident by Hernan Cattaneo')]
+                    : [];
                 this.selected = 0;
                 this.readError = null;
                 this._unreadableRaw = null;
@@ -451,7 +458,7 @@ class MusicLibrary {
         return { count: next.length, skipped, changed };
     }
 
-    /** The club's own set (scripts/build-default-set.mjs): an absolute URL on the page's own origin, never saved to the list. */
+    /** The default set: an absolute URL on the page's own origin, never saved to the list. */
     defaultItem() {
         return {
             url: new URL(MusicLibrary.DEFAULT_SET.path, window.location.href).href,
@@ -465,7 +472,7 @@ class MusicLibrary {
     }
 
     /**
-     * Plays the club's own original set so nobody stands in a silent club. It only ever fills silence: it does nothing when
+     * Plays the default set so nobody stands in a silent club. It only ever fills silence: it does nothing when
      * the guest has saved sets (that is what plays), in someone else's room (the host owns the music), or when something
      * is already playing. It is not saved, so it never appears in, or overwrites, the guest's list, and it loops.
      */

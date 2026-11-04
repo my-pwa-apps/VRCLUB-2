@@ -625,9 +625,13 @@ class VRClubAnimationFinish extends VRClubAnimationFixtures {
      */
     _applyLedLevel(time) {
         const master = this.masterIntensity == null ? 1 : Math.min(1, Math.max(0, this.masterIntensity));
+        const brightness = Number.isFinite(this.ledWallBrightness)
+            ? Math.min(this.photosensitiveSafeMode ? 1 : 2, Math.max(0, this.ledWallBrightness)) : 1;
         const target = (this.ledWallLevel == null ? 1 : this.ledWallLevel) * master;
-        if (target >= 0.999) {
-            this._ledFade = 1;
+        if (target <= 0.001) {
+            this._ledFade = 0;
+        } else if (target >= 0.999) {
+            this._ledFade = target;
         } else {
             const relit = this._ledFadeT === undefined || time - this._ledFadeT > 0.25;
             if (relit) this._ledFade = 0;
@@ -635,8 +639,8 @@ class VRClubAnimationFinish extends VRClubAnimationFixtures {
             this._ledFade += (target - this._ledFade) * (1 - Math.exp(-dtFade * 2.5));
         }
         this._ledFadeT = time;
-        const level = this._ledFade;
-        if (level < 0.999) {
+        const level = this._ledFade * brightness;
+        if (Math.abs(level - 1) > 0.001) {
             for (let i = 0; i < this.ledPanels.length; i++) {
                 const panel = this.ledPanels[i];
                 const c = panel.material.emissiveColor;

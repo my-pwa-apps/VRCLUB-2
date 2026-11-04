@@ -1281,7 +1281,8 @@ class LEDPatternMethods {
         const panels = this.ledPanels;
         if (!panels?.length) return;
         const cols = this.ledCols || 21, rows = this.ledRows || 10;
-        const beat = this.spotRigBeat ? this.spotRigBeat(time)
+        const beat = this.spotSequence && this.spotSequenceBeat ? this.spotSequenceBeat(time)
+            : this.spotRigBeat ? this.spotRigBeat(time)
             : (this.vjDirector?.beatNumber || 0) + ((this.barPhase || 0) * 4 % 1);
         const stride = (this.vjBPM || this.bpm || 120) > 150 ? 2 : 1;
         const step = Math.floor(beat / stride);
@@ -1293,6 +1294,7 @@ class LEDPatternMethods {
         const dt = Math.min(0.1, Math.max(0, time - state.time));
         state.time = time; state.program = program; state.step = step;
         const ease = 1 - Math.exp(-dt / (this.photosensitiveSafeMode ? 0.45 : 0.22));
+        const peak = Math.min(1, Math.max(0, ((this.ledWallLevel ?? 0.55) - 0.6) / 0.3));
         const cx = (cols - 1) / 2, cy = (rows - 1) / 2;
         for (let i = 0; i < panels.length; i++) {
             const panel = panels[i], x = panel.col - cx, y = panel.row - cy;
@@ -1306,7 +1308,7 @@ class LEDPatternMethods {
             else if (program === 5) shape = Math.max(0, 1 - Math.abs(y - Math.sin(x * 0.45 + step * 0.5) * 2.5));
             else if (program === 6) shape = Math.max(0, 1 - Math.abs(Math.abs(y) - (step % 4 + 0.5)));
             else shape = Math.max(0, 1 - Math.abs(Math.abs(x * 0.6) - Math.abs(y) - step % 3));
-            const target = 0.1 + shape * (this.photosensitiveSafeMode ? 0.3 : 0.55);
+            const target = 0.1 + shape * (this.photosensitiveSafeMode ? 0.3 : 0.55 + 0.3 * peak);
             state.level[i] += (target - state.level[i]) * ease;
             this.updateLEDPanel(panel, color, state.level[i]);
         }

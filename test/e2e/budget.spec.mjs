@@ -4,6 +4,56 @@ import { snapshotResourceBudget } from './xr-measure.mjs';
 
 useQuestHarness();
 
+test('pinspot hardware and grounding shadows remain batched on desktop and in XR', async ({ page }) => {
+    test.setTimeout(900_000);
+    await enterClub(page);
+    await page.evaluate(() => window.vrClub.modelLoadPromise);
+    for (const immersive of [false, true]) {
+        if (immersive) await enterVR(page, { floorPosition: [0, 0, -12] });
+        const state = await page.evaluate(() => {
+            const club = window.vrClub;
+            club.takeLightControl();
+            club.mirrorBallActive = true;
+            club.masterIntensity = 1;
+            const frame = { time: 4, dt: 1 / 72, dtScale: 60 / 72 };
+            club.updateMirrorBall(frame);
+            const hardware = ['mirrorSpotTrussClamps', 'mirrorSpotRiggingMounts', 'mirrorSpotBezelMerged']
+                .map(name => club.scene.getMeshByName(name));
+            const facet = club.mirrorBall.material.emissiveColor;
+            const lit = facet.r + facet.g + facet.b;
+            club.masterIntensity = 0;
+            club.updateMirrorBall(frame);
+            const dark = [facet.r, facet.g, facet.b];
+            club.masterIntensity = 1;
+            club.updateMirrorBall(frame);
+            return {
+                hardware: hardware.map(mesh => ({ present: !!mesh, draws: mesh?.subMeshes.length })),
+                standaloneHardware: club.scene.meshes.filter(mesh => /^mirror(?:Bezel|FixtureBase)\d/.test(mesh.name)).length,
+                venueDraws: club._venueContactShadows.mesh.subMeshes.length,
+                characterDraws: club._contactShadows.mesh.subMeshes.length,
+                venueCount: club._venueContactShadows.mesh.thinInstanceCount,
+                characterCount: club._contactShadows.mesh.thinInstanceCount,
+                lit, dark, restored: facet.r + facet.g + facet.b,
+                mutableFacets: !club.mirrorBall.material.isFrozen,
+                realPinspotLights: club.mirrorBallSpotlights.filter(Boolean).length,
+                shadowMaps: club.scene.lights.filter(light => light.getShadowGenerator()).length
+            };
+        });
+        expect(state.hardware).toEqual(Array.from({ length: 3 }, () => ({ present: true, draws: 1 })));
+        expect(state.standaloneHardware).toBe(0);
+        expect(state.venueDraws).toBe(1);
+        expect(state.characterDraws).toBe(1);
+        expect(state.venueCount).toBeGreaterThanOrEqual(25);
+        expect(state.characterCount).toBeGreaterThan(0);
+        expect(state.lit).toBeGreaterThan(0);
+        expect(state.dark).toEqual([0, 0, 0]);
+        expect(state.restored).toBeGreaterThan(0);
+        expect(state.mutableFacets).toBe(true);
+        expect(state.realPinspotLights).toBe(0);
+        expect(state.shadowMaps).toBe(0);
+    }
+});
+
 /** Holds the cue and palette still so the resource snapshot does not drift under NOCTURNE. */
 const pinBudgetCue = page => page.evaluate(() => {
     const club = window.vrClub;

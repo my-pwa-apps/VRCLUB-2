@@ -578,6 +578,9 @@ test('Quest 3 emulation enters WebXR, registers controllers, and restores deskto
         })),
         mirrorRealLightCount: window.vrClub.mirrorBallSpotlights.filter(Boolean).length,
         djFacing: window.vrClub.npcAvatars.find(npc => npc.name === 'djPerformer')?.root.rotation.y,
+        djRigFacing: (window.vrClub._djRig.bodyYaw - window.vrClub._djRig.yaw0) *
+            window.vrClub._djRig.yawDir,
+        djBodyFacingCrowd: Math.cos(window.vrClub._djRig.bodyYaw),
         djFacingUsesEuler: window.vrClub.npcAvatars.find(npc => npc.name === 'djPerformer')
             ?.root.rotationQuaternion === null
     }));
@@ -614,9 +617,8 @@ test('Quest 3 emulation enters WebXR, registers controllers, and restores deskto
         })),
         mirrorRealLightCount: 0
     });
-    // The DJ is posed by AvatarRig: its root yaw is the skeleton's measured facing (a few 1e-5 rad off zero), and the
-    // performer's head turns stay inside the rig's dead-zone, so the body keeps facing the crowd.
-    expect(xrState.djFacing).toBeCloseTo(0, 2);
+    expect(xrState.djFacing).toBeCloseTo(xrState.djRigFacing, 6);
+    expect(xrState.djBodyFacingCrowd).toBeGreaterThan(0.99);
     expect(xrState.djFacingUsesEuler).toBe(true);
 
     const opticsState = await page.evaluate(() => {

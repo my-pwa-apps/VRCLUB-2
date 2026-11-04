@@ -623,6 +623,21 @@ test('lightweight bald people retain a solid, rounded scalp without adding any m
     const io = new NodeIO(), box = context(true), B = box.BABYLON;
     const skins = { bouncer: [0.0902, 0.0314, 0.0157], m7: [0.1451, 0.0549, 0.0275],
         vm4: [0.5569, 0.2706, 0.1216] };
+    const generator = readFileSync(join(root, 'scripts/build-crowd-glbs.mjs'), 'utf8');
+    const rows = name => {
+        const body = generator.match(new RegExp(`const ${name} = \\[([\\s\\S]*?)\\n\\];`))?.[1];
+        assert.ok(body, `could not read ${name} assignments from the crowd generator`);
+        return body.split('\n').filter(line => /^\s*\{/.test(line));
+    };
+    const field = (row, name) => row.match(new RegExp(`\\b${name}:\\s*'([^']+)'`))?.[1];
+    const baldSuitBases = rows('CAST')
+        .filter(row => field(row, 'file') === 'Suit' && /\bbald:\s*true\b/.test(row))
+        .map(row => field(row, 'id'));
+    const baldSuitVariants = rows('VARIANTS')
+        .filter(row => baldSuitBases.includes(field(row, 'from')))
+        .map(row => field(row, 'id'));
+    assert.deepEqual(Object.keys(skins).sort(), [...baldSuitBases, ...baldSuitVariants].sort(),
+        'the scalp regression must cover every bald Suit source and each variant derived from it');
     for (const [id, skinColor] of Object.entries(skins)) {
         const document = await io.read(join(root, `js/models/avatars/club-crowd-${id}.glb`));
         assert.equal(document.getRoot().getExtras().bald, true);
@@ -657,6 +672,17 @@ test('lightweight bald people retain a solid, rounded scalp without adding any m
             if (info && (!hit || info.distance < hit.distance)) hit = info;
         }
         assert.ok(hit && origin.y - hit.distance > head.y + 0.08, `${id}: removing hair opened the scalp`);
+        const isHairVert = i => {
+            const c = colors.getElement(i, []).slice(0, 3);
+            return c.every(v => v < 0.05) && position.getElement(i, [])[1] > head.y - 0.02;
+        };
+        const remainingHairVerts = [...used].filter(i => {
+            if (!isHairVert(i)) return false;
+            const pt = position.getElement(i, []);
+            // Only the front eyebrows/eyes (z >= 0.13, y in [1.68, 1.72]) may retain dark pigment above the neck
+            return !(pt[2] >= 0.13 && pt[1] >= 1.68 && pt[1] <= 1.72);
+        });
+        assert.equal(remainingHairVerts.length, 0, `${id}: ${remainingHairVerts.length} floating side/temple hair vertices remain on the bald scalp`);
     }
 });
 

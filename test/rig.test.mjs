@@ -8,6 +8,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync, readdirSync } from 'node:fs';
+import { readClubSource } from './club-sources.mjs';
 import { join, dirname, isAbsolute } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { performance } from 'node:perf_hooks';
@@ -848,7 +849,7 @@ test('crowd animation reuses interpolation results without changing the real ske
     const { scene, container, B, box } = await loadContainer('club-crowd-f1.glb');
     if (typeof box.VRClubAudioCrowd?._reuseAnimationInterpolation !== 'function') {
         box.VRClubUI = class {};
-        vm.runInContext(readFileSync(join(ROOT, 'js/club/11-audio-crowd.js'), 'utf8'), box, {
+        vm.runInContext(readClubSource(join(ROOT, 'js/club/11-audio-crowd.js')), box, {
             filename: 'js/club/11-audio-crowd.js'
         });
     }

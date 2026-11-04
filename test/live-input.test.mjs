@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import vm from 'node:vm';
 import { readFileSync } from 'node:fs';
+import { readClubSource } from './club-sources.mjs';
 const { Event, EventTarget } = globalThis;
 
 function setup(t, capture) {
@@ -201,7 +202,7 @@ test('music transport cannot restart an old track over the mixer and VR can stop
     const h = setup(t);
     h.window.VRClubAnimationFinish = class {};
     vm.runInContext('var VRClubAnimationFinish = window.VRClubAnimationFinish;', h.context);
-    vm.runInContext(readFileSync(new URL('../js/club/10-ui.js', import.meta.url), 'utf8'), h.context);
+    vm.runInContext(readClubSource(new URL('../js/club/10-ui.js', import.meta.url)), h.context);
     const surface = new h.window.VRClubUI();
     let stopped = false, played = false;
     surface.multiplayer = { hasLiveEvent: true };
@@ -240,7 +241,7 @@ test('Live input Perform as DJ mode hides the NPC DJ, drives the player avatar w
     ctx.window = ctx;
     vm.runInContext(readFileSync(new URL('../js/djPerformer.js', import.meta.url), 'utf8'), ctx);
     vm.runInContext(readFileSync(new URL('../js/club/07-animation-core.js', import.meta.url), 'utf8'), ctx);
-    vm.runInContext(readFileSync(new URL('../js/club/11-audio-crowd.js', import.meta.url), 'utf8'), ctx);
+    vm.runInContext(readClubSource(new URL('../js/club/11-audio-crowd.js', import.meta.url)), ctx);
     const sent = [];
     const npcRoot = { enabled: true, isEnabled() { return this.enabled; }, setEnabled(v) { this.enabled = v; } };
     const club = Object.assign(Object.create(ctx.window.VRClubAudioCrowd.prototype), {

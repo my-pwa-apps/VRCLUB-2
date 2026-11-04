@@ -4,6 +4,52 @@ Actionable engineering items for the VRCLUB repository.
 Items are grouped by the review that produced them. Unresolved items are never removed —
 they are carried forward and re-prioritised.
 
+## Triage - 2026-11-04 - Whole-app polish
+
+Historical reports are retained as evidence, not current architecture specifications.
+Use this triage and each item's acceptance criteria rather than treating every old
+unchecked title as a newly discovered bug. Do not mark device-dependent work complete
+from an emulator run.
+
+| Disposition | Work | Completion gate |
+|---|---|---|
+| Do now | Reproduce browser failures, replace guessed DJ-facing/sequence assertions, preserve offline model-cache tests and run resource budgets | Production browser regressions pass without relaxed thresholds |
+| Do now | Batch static pinspot bases/bezels, enforce mirror blackout, test shadow lifecycle and avoid unchanged shadow-buffer uploads | Real Babylon geometry/lifecycle tests; desktop/XR submission inventory |
+| Do now | Split oversized UI/audio/crowd sources without changing public APIs or script order | Syntax, classic-script contracts and existing behavior tests |
+| Do now | Audit bald assignments and deployed bytes; reduce payload only with verified equivalence | Cast regressions, optimizer idempotence and asset audit |
+| Device commissioning | Quest tier/thermal baseline; street, stair, bar, bins, smoke, DJ, crowd, mirror and controller feel; voice and multiplayer phase alignment | Recorded physical Quest runs, including real peers/provider where applicable |
+| Deferred product scope | Avaturn, Tribe RTMP ingest, persistent moderation, clustered lighting, new street activity/props and interior district culling | Explicit design/consent/licensing decision and measured budgets before implementation |
+| Deferred compatibility work | Stereo submission replacement, Worker compatibility-date upgrade and dependency advisory chain | Dedicated regression-backed migration; never re-enable the known black-frame multiview path |
+| Retain for focused verification | Saved-music spatial test, repeatable image parity, seek reliability, offline environment assets, mirror CPU target and beam depth behavior | Reproduce against current source; close only the software criteria actually verified |
+
+Existing bans/locks resetting when a room empties are intentional current behavior,
+not a cleanup regression. A durable room-owner/moderation system is a separate feature.
+The old audio-band issue is only partly applicable: dedicated kick/rhythm taps now
+exist, but changing the legacy visual bands still requires show recalibration.
+The old remote-capsule, entrance/bar, social-crowd and embodiment findings describe
+implemented features whose remaining hardware acceptance must stay explicit.
+
+Review documents remain at their existing paths so citations and historical captures
+do not break. They are marked historical instead of being deleted or copied.
+Generated browser results remain ignored; retain failures until triaged, not as source.
+The existing LF policy already covers text files; normalize touched text rather than
+rewriting vendored bytes or unrelated repository files.
+
+Implemented in this pass: static pinspot batching (seven fewer geometry draws),
+master-correct mirror emission, unchanged shadow-upload suppression, eight
+UI/audio/crowd source modules, complete bald-Suit coverage and unused source-asset
+removal. The development podcast regression also covers feed failure, preserved
+personal sets and exact-host isolation. Node validation: 938 passed, one skipped;
+lint and syntax pass. Source assets are 156.11 MiB; the built site is 163.10 MiB.
+The isolated production budget test measured 180 desktop and 240 XR scene
+submissions, 202/131 active-submesh proxies, and zero shadow maps on SwiftShader.
+These are regression inventories, not physical Quest timings. All 19 focused
+production cache/audio/rendering/XR/wardrobe/venue tests passed serially. A full
+run with four concurrent software-rendered browsers was stopped after startup
+timeouts and silent audio; the same audio, wardrobe and venue regressions passed
+serially without relaxed thresholds. The complete
+browser suite and physical-device commissioning remain separate completion gates.
+
 ## Review - 2026-10-30 - Local server and deployment documentation
 
 - [x] **Keep private development files out of the static server**
@@ -1181,12 +1227,13 @@ SwiftShader only. Open items:
 
   **Priority:** Low
   **Category:** Licensing
-  **Evidence:** `Hip Hop Dancing.glb`, `house.glb` and `rumba_dancing_female_character.glb` are still the only
-  non-CC0 characters and still account for three of the 14 dance slots; `club-dancer-*.glb` now only dress the
-  player's own body.
-  **Recommended solution:** Replace them with `club-crowd-*` people once a second CC0 dance exists to retarget, and
-  rebuild the player's body from a Modular character (the rig would need the modular skeleton, not the mannequin).
-  **Acceptance criteria:** Every shipped character file is CC0.
+  **Cleanup 2026-11-04:** Removed the unused hip-hop and rumba source GLBs.
+  `house.glb` remains only for real-rig tests and stays excluded from production.
+  These files no longer occupy any dance slot. The 2.72 MiB saving is repository
+  cleanup, not deployed-payload headroom; both removed files were already excluded.
+  Detailed characters may also use verified, attributed CC BY 4.0 clothing.
+  **Acceptance criteria:** Every shipped character has verified compatible licensing
+  and required attribution; no historical Mixamo file enters production.
 
 ---
 
@@ -1197,7 +1244,12 @@ from the 17 crowd people, clip-driven remote people (`AvatarManager`), wave/nod/
 mute, personal-space bubble, two-way block by hashed `pid`, host kick/ban/lock. See `.github/copilot-instructions.md`.
 Open items, each with an acceptance criterion:
 
-- [ ] **The player's own first-person body is still the UE mannequin, not their assigned avatar.**
+- [x] **The player's own first-person body is still the UE mannequin, not their assigned avatar.**
+  **Resolved; re-triaged 2026-11-04:** The selected/acknowledged character is now the
+  shared first-person and mirror body; the mannequin stands down while it is shown.
+  `test/e2e/self-body.spec.mjs` covers the visible body and head visibility, and
+  the real-rig suite covers the modular skeleton/controller arms. Hardware fit
+  remains in the separate device-commissioning items, not this missing-feature title.
   **Priority:** Low
   **Category:** VR / Avatars
   **Affected files:** `js/avatarRig.js`, `js/club/07-animation-core.js`.

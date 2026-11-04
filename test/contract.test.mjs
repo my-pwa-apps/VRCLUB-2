@@ -128,11 +128,14 @@ test('script load order honours the dependency contract', () => {
     assert.ok(idx('js/venueBranding.js') > -1 && idx('js/venueBranding.js') < idx('js/club/02-lifecycle.js'),
         'opt-in venue branding must load before lifecycle');
 
-    const clubLayers = Array.from({ length: 11 }, (_, index) =>
+    const clubLayers = Array.from({ length: 9 }, (_, index) =>
         `js/club/${String(index + 1).padStart(2, '0')}-${[
             'core', 'lifecycle', 'rendering', 'environment', 'fixtures', 'effects',
-            'animation-core', 'animation-fixtures', 'animation-finish', 'ui', 'audio-crowd'
-        ][index]}.js`);
+            'animation-core', 'animation-fixtures', 'animation-finish'
+        ][index]}.js`).concat([
+        '10-ui-controls', '10-ui-menu', '10-ui-social', '10-ui',
+        '11-audio', '11-avatars', '11-crowd', '11-audio-crowd'
+    ].map(name => `js/club/${name}.js`));
     for (let index = 0; index < clubLayers.length; index++) {
         assert.ok(idx(clubLayers[index]) > -1, `${clubLayers[index]} is not loaded`);
         if (index > 0) assert.ok(idx(clubLayers[index - 1]) < idx(clubLayers[index]), 'VRClub layers are out of order');
@@ -384,11 +387,14 @@ test('no first-party code fetches from a third-party origin', () => {
             }
         });
     }
-    // These are user-triggered media rather than startup dependencies. SoundCloud is
-    // loaded only in its official iframe player after a guest submits a page URL.
+    // Media and the exact development owner-login endpoints are user-triggered,
+    // never startup dependencies.
     const filtered = offenders.filter(o => !o.includes('stream.sunshine-live.de') &&
         !o.includes('https://podcast.hernancattaneo.com/feed.xml') &&
-        !o.includes('https://w.soundcloud.com/player/'));
+        !o.includes('https://w.soundcloud.com/player/') &&
+        !(o.startsWith('js/paymentGate.js:') && [
+            'https://api.mitwee.nl/admin/dev-owner/sign-in', 'https://api.mitwee.nl/dev-owner/check'
+        ].some(url => o.endsWith(`  ${url}`))));
     assert.deepEqual(filtered, [],
         `vendor these instead of loading them from a third-party origin:\n${filtered.join('\n')}`);
 });
@@ -584,7 +590,7 @@ test('every long-lived listener stored on the instance is removed in dispose()',
 
 test('types/vrclub.d.ts declares only classes and methods that exist', () => {
     // The declaration file is the editor-facing API contract for a window-global,
-    // 11-layer class chain. Without this check it silently drifted (it declared a
+    // layered class chain. Without this check it silently drifted (it declared a
     // LightFactory.createLight that never existed). Every declared class must be
     // exported onto window and every declared method must be defined in its source.
     const dts = readFileSync(join(ROOT, 'types/vrclub.d.ts'), 'utf8');

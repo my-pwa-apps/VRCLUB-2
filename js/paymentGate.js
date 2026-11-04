@@ -11,6 +11,19 @@
             holdLeaseForSetup: () => true,
             setPreview() {},
             upgradeToMember: async () => true,
+            ownerSignInUrl: 'https://api.mitwee.nl/admin/dev-owner/sign-in',
+            async prepareDevRoom(serverUrl) {
+                if (new URL(serverUrl).origin !== 'wss://vrclub-network-dev.garfieldapp.workers.dev') {
+                    throw new Error('Use the development relay for DEV room 000032 on this site.');
+                }
+                const response = await fetch('https://api.mitwee.nl/dev-owner/check', {
+                    credentials: 'include', signal: window.AbortSignal.timeout(15000)
+                });
+                const body = await response.json();
+                if (!response.ok) throw new Error(body.message || 'Development owner verification failed.');
+                if (body.ready !== true) throw new Error('Development owner verification returned an invalid response.');
+                return 'wss://api.mitwee.nl/dev-owner/socket';
+            },
             showGate: () => window.vrClub?.showErrorMessage?.('Development site: VR access is free. Purchases and production access are disabled.'),
             onXRStateChange() {}, setXRHandlers() {}, releaseLease: async () => {}, dispose() {}
         });

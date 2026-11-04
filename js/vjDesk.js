@@ -120,11 +120,14 @@ function vjDeskLayout() {
             { id: 'mirrorColour', panel: 'lights', kind: 'light', label: 'MIRROR COLOUR', control: 'changeMirrorBallColor', colour: '#ffd23a', rect: lights(1, 5), step: true },
             { id: 'matchColours', panel: 'lights', kind: 'light', label: 'MATCH ALL COLOURS', control: 'matchAllColors', colour: '#ffffff', rect: lights(2, 5), step: true },
             { id: 'lightSettings', panel: 'lights', kind: 'lightsPage', targetPage: 'settings', label: 'SETTINGS', colour: '#ffffff', rect: lights(3, 5) },
-            { id: 'sheetSettings', panel: 'lights', kind: 'lightsPage', targetPage: 'sheet', label: 'SHEET SETTINGS', colour: '#38e870', rect: lights(3, 3) }
+            { id: 'sheetSettings', panel: 'lights', kind: 'lightsPage', targetPage: 'sheet', label: 'BRIGHTNESS / SHEET', colour: '#38e870', rect: lights(3, 3) }
         ].map(button => Object.freeze({ ...button, page: 'fixtures' })).concat([
-            { id: 'sheetSpeed', panel: 'lights', page: 'sheet', kind: 'light', control: 'cycleSheetSpeed', label: 'SHEET SPEED', colour: '#38e870', rect: lights(0, 0, 4) },
-            { id: 'sheetBrightness', panel: 'lights', page: 'sheet', kind: 'light', control: 'cycleSheetBrightness', label: 'SHEET BRIGHTNESS', colour: '#38e870', rect: lights(0, 1, 4) },
-            { id: 'denseSmoke', panel: 'lights', page: 'sheet', kind: 'light', control: 'toggleReducedShowSmoke', label: 'DENSE SHOW SMOKE FOR ME', colour: '#b9b9ff', rect: lights(0, 2, 4) },
+            { id: 'spotBrightness', panel: 'lights', page: 'sheet', kind: 'light', control: 'cycleSpotBrightness', label: 'SPOT BRIGHTNESS', colour: '#ff8a1f', rect: lights(0, 0, 2) },
+            { id: 'laserBrightness', panel: 'lights', page: 'sheet', kind: 'light', control: 'cycleLaserBrightness', label: 'LASER BRIGHTNESS', colour: '#38e870', rect: lights(2, 0, 2) },
+            { id: 'sheetBrightness', panel: 'lights', page: 'sheet', kind: 'light', control: 'cycleSheetBrightness', label: 'SHEET BRIGHTNESS', colour: '#38e870', rect: lights(0, 1, 2) },
+            { id: 'wallBrightness', panel: 'lights', page: 'sheet', kind: 'light', control: 'cycleLedBrightness', label: 'WALL BRIGHTNESS', colour: '#3aa0ff', rect: lights(2, 1, 2) },
+            { id: 'sheetSpeed', panel: 'lights', page: 'sheet', kind: 'light', control: 'cycleSheetSpeed', label: 'SHEET SPEED', colour: '#38e870', rect: lights(0, 2, 4) },
+            { id: 'denseSmoke', panel: 'lights', page: 'sheet', kind: 'light', control: 'toggleReducedShowSmoke', label: 'DENSE SHOW SMOKE FOR ME', colour: '#b9b9ff', rect: lights(0, 3, 4) },
             { id: 'sheetBack', panel: 'lights', page: 'sheet', kind: 'lightsPage', targetPage: 'fixtures', label: 'BACK TO ALL LIGHTS', colour: '#ffffff', rect: lights(0, 5, 4) },
             { id: 'spotTarget', panel: 'lights', page: 'rig', kind: 'lightsPage', targetPage: 'rigGroups', control: 'cycleSpotTarget', label: 'CHOOSE SPOTS', colour: '#ff8a1f', rect: lights(0, 0, 4) },
             { id: 'spotGroupOn', panel: 'lights', page: 'rig', kind: 'spotRig', label: 'SELECTED ON/OFF', control: 'toggleSpotGroup', colour: '#ff8a1f', rect: lights(0, 1, 2) },
@@ -144,7 +147,7 @@ function vjDeskLayout() {
                 kind: 'spotGroup', label, colour: '#ff8a1f', rect: lights(col, row, span || 1)
             })),
             { id: 'spotGroupsBack', panel: 'lights', page: 'rigGroups', kind: 'lightsPage', targetPage: 'rig', label: 'BACK TO SPOT SETTINGS', colour: '#ffffff', rect: lights(0, 5, 4) },
-            { id: 'brightness', panel: 'lights', page: 'settings', kind: 'fader', fader: 'brightness', label: 'BRIGHTNESS', rect: lights(0, 0, 4), colour: '#ffffff' },
+            { id: 'brightness', panel: 'lights', page: 'settings', kind: 'fader', fader: 'brightness', label: 'WHOLE SHOW BRIGHTNESS', rect: lights(0, 0, 4), colour: '#ffffff' },
             { id: 'speed', panel: 'lights', page: 'settings', kind: 'fader', fader: 'speed', label: 'MOVEMENT SPEED', rect: lights(0, 1, 4), colour: '#39d0ff' },
             { id: 'safeMode', panel: 'lights', page: 'settings', kind: 'safeMode', label: 'SAFE MODE', rect: lights(0, 2, 2), colour: '#39d0ff' },
             { id: 'reset', panel: 'lights', page: 'settings', kind: 'reset', label: 'RESET LIGHTS', rect: lights(2, 2, 2), colour: '#9aa3b5' },
@@ -1403,6 +1406,7 @@ const VJDesk = {
                     case 'cycleStrobePattern': out.value = typeof this.strobePatternName === 'function' ? this.strobePatternName() : 'ALL AT ONCE'; break;
                     case 'cycleFogAmount': case 'cycleFogMode': out.value = this.smokeControlValue(button.control); break;
                     case 'cycleShowProgram': case 'cycleSheetSpeed': case 'cycleSheetBrightness': case 'toggleReducedShowSmoke':
+                    case 'cycleSpotBrightness': case 'cycleLaserBrightness': case 'cycleLedBrightness':
                         out.value = this.aestheticControlValue(button.control); break;
                     case 'cycleLedPattern': {
                         const count = this._ledPatternPlaylist ? this._ledPatternPlaylist.length : 20;

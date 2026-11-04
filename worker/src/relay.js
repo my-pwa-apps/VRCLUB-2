@@ -18,6 +18,7 @@
  *     { type: 'music', url, playing, position, podcast?, title? } - host only; shared track state (http(s) only)
  *     { type: 'show', m, mv, cue, ... }               - host only; the light show (see sanitizeShow)
  *     { type: 'door', door: 0|1, shut: bool }         - any guest; push a restroom stall door shut or ajar by hand (shared room state)
+ *     { type: 'restroom', action:'seat'|'lid'|'tap'|'flush', fixture:0|1, on?:bool } - shared fixtures; acknowledged snapshot, bounded water/flush
  *     { type: 'rtc-signal', target, signal }          - relayed 1:1 to `target`
  *     { type: 'media-control', voice:null|[ids], listen?, music? } - SFU audience/consent, music state host-only
  *     { type: 'sfu', request, slot, action, ... }     - room-authorized SFU operation (see sfu.js)
@@ -96,6 +97,7 @@ import { DEV_ROOM, DEV_OWNER_HEADER, devRoomAccess } from './devRoomAccess.js';
 import { DevAttendees } from './devAttendees.js';
 import { LIVE_EVENT_ID, liveEventsEnabled, liveEventCall, liveEventStub, consumeLiveRate } from './liveEvents.js';
 import { RoomAvatarAssets } from './avatarAssets.js';
+import { createRestroomState, applyRestroomAction } from './restroomState.js';
 
 export const MAX_NAME_LENGTH = 32;
 export const MAX_ROOM_NAME_LENGTH = 64;
@@ -203,6 +205,7 @@ export const RATE_LIMITS = Object.freeze({
     music: { rate: 2, burst: 4 },
     show: { rate: 5, burst: 10 },
     door: { rate: 2, burst: 6 },
+    restroom: { rate: 2, burst: 6 },
     'dev-seat': { rate: 0.5, burst: 2 },
     'rtc-signal': { rate: 50, burst: 120 },
     // A 31-source receiver may need 31 offer/answer pairs during simultaneous
@@ -433,6 +436,7 @@ export class ClubRoom {
         this.musicState = null; // { url, playing, position, updatedAt, podcast, title }
         this.showState = null;  // the host's latest light-show frame (sanitizeShow)
         this.doors = new Array(MAX_DOORS).fill(false); // stall doors pushed shut by hand (any guest may)
+        this.restroom = createRestroomState();
         this.world = null;
         this.locked = false;
         this.banned = new Set();
@@ -637,7 +641,9 @@ export class ClubRoom {
             peers,
             music: this.musicState,
             show: this.showState,
-            doors: this.doors
+            doors: this.doors,
+            restroomInteractions: true,
+            restroom: this.restroom
         });
         this._relay(session, { type: 'join', ...this._peerInfo(session) }, ws);
         if (this.media) this.media.add(session);
@@ -714,6 +720,7 @@ export class ClubRoom {
         if (this._throttle(ws, session, msg.type)) {
             if (msg.type === 'avatar' && this.sessions.has(ws)) this._send(ws, { type: 'avatar-error', reason: 'rate-limit' });
             if (msg.type === 'event' && Number.isSafeInteger(msg.request)) this._send(ws, { type: 'event-result', request: msg.request, error: 'Event rate limit exceeded. Try again shortly.' });
+            if (msg.type === 'restroom' && this.sessions.has(ws)) this._send(ws, { type: 'restroom-error', message: 'Too many restroom actions. Try again shortly.' });
             return;
         }
 
@@ -856,6 +863,21 @@ export class ClubRoom {
                 const shut = msg.shut === true;
                 this.doors[msg.door] = shut;
                 this._relay(session, { type: 'door', id: session.id, door: msg.door, shut }, ws);
+                break;
+            }
+
+            case 'restroom': {
+                const occupied = [...this.sessions.values()].some(person => {
+                    const state = person.lastState;
+                    return state?.seated && Math.hypot(state.x + 15.62, state.z - [-5.4, -2][msg.fixture]) < 0.5;
+                });
+                const error = applyRestroomAction(this.restroom, msg, Date.now(), occupied);
+                if (error) this._send(ws, { type: 'restroom-error', message: error });
+                else {
+                    const frame = { type: 'restroom', id: session.id, state: this.restroom };
+                    this._send(ws, frame);
+                    this._relay(session, frame, ws);
+                }
                 break;
             }
 
@@ -1063,6 +1085,7 @@ export class ClubRoom {
             this.musicState = null;
             this.showState = null;
             this.doors.fill(false);
+            this.restroom = createRestroomState();
             this.world = null;
             this.locked = false;
             this.banned.clear();

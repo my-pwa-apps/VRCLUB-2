@@ -114,6 +114,7 @@ test('prism presets round-trip and legacy gobo presets load without reviving pro
     const old = JSON.parse(h.presets.export());
     delete old.slots[0].fx.spotPrismActive;
     delete old.slots[0].fx.fogBurstMode;
+    for (const key of ['spotBrightness', 'laserBrightness', 'ledWallBrightness']) delete old.slots[0].fx[key];
     Object.assign(old.slots[0].fx, { goboEnabled: true, goboPatternIndex: 9, goboRotationSpeed: -1 });
     h.presets.import(JSON.stringify(old));
     assert.equal(h.presets.slots[0].fx.spotPrismActive, false);
@@ -143,6 +144,7 @@ test('smoke mode is saved and shared, and older presets migrate without losing t
     assert.equal(follower.club.fogBurstMode, 'continuous');
     const old = JSON.parse(h.presets.export());
     delete old.slots[0].fx.fogBurstMode;
+    for (const key of ['spotBrightness', 'laserBrightness', 'ledWallBrightness']) delete old.slots[0].fx[key];
     h.presets.import(JSON.stringify(old));
     assert.equal(h.presets.slots[0].fx.fogBurstMode, 'auto');
     assert.equal(h.presets.slots[0].fx.fogIntensity, 1.5);
@@ -164,6 +166,30 @@ test('preset recall preserves personal Safe Mode and host authority; saving a gu
     assert.equal(club.strobesActive, false);
     assert.equal(club.spotStrobeActive, false);
     assert.equal(presets.slots[0].fx.strobesActive, true, 'the saved look itself is not rewritten');
+});
+
+test('independent brightness presets retain boosts and migrate the previous complete schema to neutral trims', () => {
+    const h = harness();
+    Object.assign(h.club, { spotBrightness: 0.5, laserBrightness: 2, laserSheetBrightness: 3, ledWallBrightness: 1.5 });
+    h.presets.save(0);
+    Object.assign(h.club, { spotBrightness: 1, laserBrightness: 1, laserSheetBrightness: 1, ledWallBrightness: 1 });
+    h.presets.recall(0);
+    assert.equal(h.club.spotBrightness, 0.5);
+    assert.equal(h.club.laserBrightness, 2);
+    assert.equal(h.club.laserSheetBrightness, 3);
+    assert.equal(h.club.ledWallBrightness, 1.5);
+    const old = JSON.parse(h.presets.export());
+    for (const key of ['spotBrightness', 'laserBrightness', 'ledWallBrightness']) delete old.slots[0].fx[key];
+    h.presets.import(JSON.stringify(old));
+    assert.equal(h.presets.slots[0].fx.spotBrightness, 1);
+    assert.equal(h.presets.slots[0].fx.laserBrightness, 1);
+    assert.equal(h.presets.slots[0].fx.ledWallBrightness, 1);
+    assert.equal(h.presets.slots[0].fx.laserSheetBrightness, 3);
+    const invalid = JSON.parse(h.presets.export());
+    invalid.slots[0].fx.laserSheetBrightness = 3.5;
+    assert.throws(() => h.presets.import(JSON.stringify(invalid)), /Invalid lighting setting/);
+    delete invalid.slots[0].fx.spotBrightness;
+    assert.throws(() => h.presets.import(JSON.stringify(invalid)), /incomplete lighting settings/);
 });
 
 test('presets can be recalled before an inactive LED wall builds its lazy playlist, and stop an unfinished colour fade', () => {

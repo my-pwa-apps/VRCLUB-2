@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import vm from 'node:vm';
 import { readFileSync } from 'node:fs';
+import { readClubSource } from './club-sources.mjs';
 
 const id = '842bc212-b941-48a1-bcf8-17172a7d47e5';
 const token = 'test-only-live-capability';
@@ -214,7 +215,7 @@ test('pending local stream resolution and recovery cannot replace an announced l
     const h = harness(t);
     h.window.VRClubAnimationFinish = class {};
     vm.runInContext('var VRClubAnimationFinish = window.VRClubAnimationFinish;', h.context);
-    vm.runInContext(readFileSync(new URL('../js/club/10-ui.js', import.meta.url), 'utf8'), h.context);
+    vm.runInContext(readClubSource(new URL('../js/club/10-ui.js', import.meta.url)), h.context);
     const club = new h.window.VRClubUI();
     club.multiplayer = { hasLiveEvent: true };
     const before = club.nowPlayingLabel = 'A live set';

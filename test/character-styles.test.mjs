@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
+import { readClubSource } from './club-sources.mjs';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import vm from 'node:vm';
@@ -145,7 +146,7 @@ test('An old-style source completing late cannot populate the new crowd source a
     const { club, context, window } = fixture();
     context.VRClubUI = class {};
     context.BABYLON = { Color3: class {} };
-    vm.runInContext(readFileSync(join(root, 'js', 'club', '11-audio-crowd.js'), 'utf8'), context);
+    vm.runInContext(readClubSource(join(root, 'js', 'club', '11-audio-crowd.js')), context);
     let finish;
     club._loadAvatarSource = () => new Promise(resolve => { finish = resolve; });
     club._loadCrowdSource = window.VRClubAudioCrowd.prototype._loadCrowdSource;

@@ -279,6 +279,7 @@ const Mezzanine = {
     },
 
     _guardDesktopCameraSteps(camera) {
+        const club = this;
         const updatePosition = camera._updatePosition;
         camera._updatePosition = function () {
             const direction = this.cameraDirection;
@@ -291,7 +292,28 @@ const Mezzanine = {
                 direction.z *= scale;
             }
             updatePosition.call(this);
+            club._containLEDWall(this);
         };
+    },
+
+    // Tracked XR poses bypass camera collisions. Keep both the eye and deferred locomotion on the room side.
+    _containLEDWall(camera) {
+        const wall = this._ledWallCollider;
+        if (!wall || !wall.isEnabled()) return;
+        const box = wall.getBoundingInfo().boundingBox;
+        const radius = Math.max(0.25, camera.ellipsoid?.z || 0);
+        const front = box.maximumWorld.z + radius + 0.01;
+        const position = camera.position;
+        if (position.x >= box.minimumWorld.x - radius && position.x <= box.maximumWorld.x + radius &&
+            position.z < front) {
+            position.z = front;
+            if (camera.cameraDirection?.z < 0) camera.cameraDirection.z = 0;
+        }
+        if (camera._deferOnly && camera._deferredUpdated) {
+            const queued = camera._deferredPositionUpdate;
+            if (queued.x >= box.minimumWorld.x - radius && queued.x <= box.maximumWorld.x + radius &&
+                queued.z < front) queued.z = front;
+        }
     },
 
     jumpDesktop() {
@@ -312,6 +334,7 @@ const Mezzanine = {
             this._updateVRWalkSurface(camera);
             return;
         }
+        this._containLEDWall(camera);
         const level = this._walkLevel || 0;
         const frameDt = this.engine && this.engine.getDeltaTime ? this.engine.getDeltaTime() / 1000 : 1 / 60;
         let next = this._walkSurfaceLevel(camera.position.x, camera.position.z, level);
@@ -339,6 +362,7 @@ const Mezzanine = {
      */
     _updateVRWalkSurface(camera) {
         this._guardVRCameraSteps(camera);
+        this._containLEDWall(camera);
         if (this.jumpState && this.jumpState.active) return;
         const eye = this._xrHeadHeight();
         if (!Number.isFinite(eye)) return;
@@ -388,6 +412,7 @@ const Mezzanine = {
             club._fitVRCollisionBody(this);
             const y = this.position.y;
             update.call(this);
+            club._containLEDWall(this);
             if (club.isInVRMode) {
                 this.position.y = y;
                 if (this._deferOnly && this._deferredUpdated) this._deferredPositionUpdate.y = y;

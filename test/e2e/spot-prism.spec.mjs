@@ -195,8 +195,8 @@ test('spotlight prism layers clipped, synchronized rays over a dim cone', async 
         vertices: 364, indices: 780, position: true, rotation: true, scale: true, clip: true, allSix: true
     });
     expect(coneAlpha).toBeCloseTo(result.normal.alpha, 6);
-    expect(rayAlpha).toBeGreaterThan(coneAlpha);
-    for (let i = 0; i < 3; i++) expect(rayColor[i]).toBeCloseTo(coneColor[i] * 2, 6);
+    expect(rayAlpha).toBeCloseTo(coneAlpha * 0.35, 6);
+    for (let i = 0; i < 3; i++) expect(rayColor[i]).toBeCloseTo(coneColor[i], 6);
     expect(result.blackout).toBe(true);
     expect(result.dark).toBe(true);
     expect(result.restored).toEqual({ cone: 1, prism: false });
@@ -254,12 +254,16 @@ test('filtered spotlight feathers individual rays into their gaps', async ({ pag
         const feathered = await sample(0, 1);
         const cone = await sample(0.25, 0);
         const combined = await sample(0.25, 1);
+        const ordinary = await sample(1, 0);
+        let ordinaryEnergy = 0, filteredEnergy = 0;
         let gaps = 0, haloGaps = 0, haloBrighter = 0, rayPixels = 0, brighter = 0, maxRay = 0, maxCone = 0;
         for (let i = 0; i < rays.length; i += 4) {
             const r = rays[i] + rays[i + 1] + rays[i + 2];
             const c = cone[i] + cone[i + 1] + cone[i + 2];
             const f = feathered[i] + feathered[i + 1] + feathered[i + 2];
             const both = combined[i] + combined[i + 1] + combined[i + 2];
+            ordinaryEnergy += ordinary[i] + ordinary[i + 1] + ordinary[i + 2];
+            filteredEnergy += both;
             maxRay = Math.max(maxRay, r);
             maxCone = Math.max(maxCone, c);
             if (r <= 3 && c >= 6 && both >= 6) gaps++;
@@ -270,7 +274,7 @@ test('filtered spotlight feathers individual rays into their gaps', async ({ pag
         }
         target.dispose();
         camera.dispose();
-        return { gaps, haloGaps, haloBrighter, rayPixels, brighter, direction: spot._photoDir.asArray(),
+        return { gaps, haloGaps, haloBrighter, rayPixels, brighter, ordinaryEnergy, filteredEnergy, direction: spot._photoDir.asArray(),
             alpha: spot.beamMat.alpha, rayAlpha: spot.prismMat.alpha, color: spot.beamMat.emissiveColor.asArray(),
             maxRay, maxCone, vertexAlpha: spot.prism.subMeshes[0].effect?.defines.includes('#define VERTEXALPHA') };
     });
@@ -280,6 +284,8 @@ test('filtered spotlight feathers individual rays into their gaps', async ({ pag
     expect(result.rayPixels, JSON.stringify(result)).toBeGreaterThan(100);
     expect(result.brighter, JSON.stringify(result)).toBeGreaterThan(100);
     expect(result.maxCone, JSON.stringify(result)).toBeLessThan(result.maxRay);
+    expect(result.filteredEnergy / result.ordinaryEnergy, JSON.stringify(result)).toBeLessThan(1.15);
+    expect(result.filteredEnergy / result.ordinaryEnergy, JSON.stringify(result)).toBeGreaterThan(0.75);
     expect(result.vertexAlpha).toBe(true);
     await expectHealthyRuntime(page);
 });
@@ -339,7 +345,10 @@ test('feathered rays remain visible through the club rendering pipeline', async 
             visibleGlow++;
             if (baseline[i] < 60 && baseline[i + 2] < 60) dimGaps++;
         }
-        if (softened[i] > 120 && softened[i + 2] > 120) brightCores++;
+        // Shaft definition is colour contrast, not a white-hot floor that rewards excess emission.
+        const coreContrast = Math.min(baseline[i] - baseline[i + 1], baseline[i + 2] - baseline[i + 1]);
+        const finalContrast = Math.min(softened[i] - softened[i + 1], softened[i + 2] - softened[i + 1]);
+        if (coreContrast > 40 && finalContrast > 40) brightCores++;
     }
     console.log('PRISM_PIPELINE_PIXELS', JSON.stringify({ visibleGlow, dimGaps, brightCores }));
     expect(visibleGlow).toBeGreaterThan(5000);

@@ -16,6 +16,7 @@ class VRClubAnimationCore extends VRClubEffects {
         this.updateSpotlights(ctx);
         this.updateRoomBounce(ctx);
         this.updateStrobes(ctx);
+        if (typeof this._updateProjectedCharacterShadows === 'function') this._updateProjectedCharacterShadows();
         this.updateSpeakerCones(ctx);
         this.updateCameraPresence(ctx);
         this.updateEyeAdaptation(ctx);
@@ -357,9 +358,10 @@ class VRClubAnimationCore extends VRClubEffects {
         const { time, dt } = ctx;
         const tierScale = this.isInVRMode ? (this.tierSettings?.vrFogOutputScale || 1) : 1;
         const outputScale = tierScale * VRClubAnimationCore.prototype._effectLoadScale.call(this);
-        const burstRate = 150 * outputScale;
-        const continuousRate = 80 * outputScale;
         const intensity = Number.isFinite(this.fogIntensity) ? Math.min(2, Math.max(0, this.fogIntensity)) : 1;
+        const fill = this.vjManualMode && intensity === 2 && !this.reducedShowSmoke ? 1 : 0;
+        const burstRate = 150 * outputScale * (1 + fill);
+        const continuousRate = 80 * outputScale * (1 + fill);
         const beat = typeof this.spotRigBeat === 'function' ? this.spotRigBeat(time) : time * (this.vjBPM || 120) / 60;
         const burstPhase = ((beat % 16) + 16) % 16;
         const bursting = this.fogBurstMode === 'auto' && burstPhase < 3;
@@ -376,6 +378,7 @@ class VRClubAnimationCore extends VRClubEffects {
                 this.fogMachines.forEach(machine => {
                     const emitter = machine.emitter;
                     const ledMat = machine.ledMat;
+                    if (typeof emitter.isStarted === 'function' && !emitter.isStarted()) emitter.start();
                     
                     // === FOG BURST LOGIC ===
                     if (this.fogBurstMode === 'auto') {
@@ -441,7 +444,8 @@ class VRClubAnimationCore extends VRClubEffects {
         // Outdoors the air is thin: the club's haze is a room effect, and the street needs to see down the block.
         const outdoors = this._exterior || 0;
         if (typeof designed === 'number') {
-            const immersion = this.reducedShowSmoke ? 0 : Math.min(1, Math.max(0, this.fogImmersion || 0));
+            const immersion = this.reducedShowSmoke ? 0 : Math.max(
+                Math.min(1, Math.max(0, this.fogImmersion || 0)), this.vjManualMode && intensity === 2 ? 1 : 0);
             const target = designed * (0.1 + 0.9 * smoke) * (1 + 2 * immersion * (1 - outdoors)) * (1 - 0.62 * outdoors);
             const current = scene.fogDensity;
             if (!(current > 0)) {
@@ -563,26 +567,43 @@ class VRClubAnimationCore extends VRClubEffects {
                 n++;
             }
         }
-        // Mirror-ball incident beams (from (±4, 7.5, -8/-16) to (0, 6.5, -12)) also illuminate smoke plumes crossing them
+        // Mirror-ball incident beams (from (±4, 7.5, -8/-16) lens apertures to (0, 6.5, -12)) also illuminate smoke plumes crossing them
         if (this.mirrorBallActive && this.mirrorBallSpotlightColor && dim > 0.02) {
-            const mbSources = this._mbAirSources || (this._mbAirSources = [
-                { ox: 4, oy: 7.5, oz: -8 }, { ox: -4, oy: 7.5, oz: -8 },
-                { ox: 4, oy: 7.5, oz: -16 }, { ox: -4, oy: 7.5, oz: -16 }
-            ]);
-            for (let m = 0; m < mbSources.length; m++) {
-                const src = mbSources[m];
-                const vx = 0 - src.ox, vy = 6.5 - src.oy, vz = -12 - src.oz;
-                const len = Math.sqrt(vx * vx + vy * vy + vz * vz) || 1;
-                const b = beams[n] || (beams[n] = {});
-                b.spot = null;
-                b.color = this.mirrorBallSpotlightColor;
-                b.ox = src.ox; b.oy = src.oy; b.oz = src.oz;
-                b.dx = vx / len; b.dy = vy / len; b.dz = vz / len;
-                b.tan = 0.22;
-                b.len = len + 1.5;
-                b.gain = 0.95 * dim;
-                b.acc = 0;
-                n++;
+            const mbBeams = this.mirrorBallBeams;
+            if (mbBeams && mbBeams.length > 0 && mbBeams[0].origin && mbBeams[0].direction) {
+                for (let m = 0; m < mbBeams.length; m++) {
+                    const mb = mbBeams[m];
+                    const b = beams[n] || (beams[n] = {});
+                    b.spot = null;
+                    b.color = this.mirrorBallSpotlightColor;
+                    b.ox = mb.origin.x; b.oy = mb.origin.y; b.oz = mb.origin.z;
+                    b.dx = mb.direction.x; b.dy = mb.direction.y; b.dz = mb.direction.z;
+                    b.tan = 0.145;
+                    b.len = (mb.length || 5.3) + 1.0;
+                    b.gain = 0.95 * dim;
+                    b.acc = 0;
+                    n++;
+                }
+            } else {
+                const mbSources = this._mbAirSources || (this._mbAirSources = [
+                    { ox: 4, oy: 7.5, oz: -8 }, { ox: -4, oy: 7.5, oz: -8 },
+                    { ox: 4, oy: 7.5, oz: -16 }, { ox: -4, oy: 7.5, oz: -16 }
+                ]);
+                for (let m = 0; m < mbSources.length; m++) {
+                    const src = mbSources[m];
+                    const vx = 0 - src.ox, vy = 6.5 - src.oy, vz = -12 - src.oz;
+                    const len = Math.sqrt(vx * vx + vy * vy + vz * vz) || 1;
+                    const b = beams[n] || (beams[n] = {});
+                    b.spot = null;
+                    b.color = this.mirrorBallSpotlightColor;
+                    b.ox = src.ox; b.oy = src.oy; b.oz = src.oz;
+                    b.dx = vx / len; b.dy = vy / len; b.dz = vz / len;
+                    b.tan = 0.145;
+                    b.len = len + 1.5;
+                    b.gain = 0.95 * dim;
+                    b.acc = 0;
+                    n++;
+                }
             }
         }
         // Rotating ceiling laser beams (3 projectors × 5 beams) cut moving coloured streaks through the smoke
@@ -1073,7 +1094,7 @@ class VRClubAnimationCore extends VRClubEffects {
         const { time, audio: audioData } = ctx;
         const speedMultiplierLaser = Math.min(1.4, Math.max(0.2, (this.laserSpeed || 1) * (this.laserSheetSpeed || 1)));
         const master = (this.masterIntensity == null ? 1 : Math.min(1, Math.max(0, this.masterIntensity))) *
-            (Number.isFinite(this.laserSheetBrightness) ? Math.min(1, Math.max(0, this.laserSheetBrightness)) : 1);
+            (Number.isFinite(this.laserSheetBrightness) ? Math.min(this.photosensitiveSafeMode ? 1 : 3, Math.max(0, this.laserSheetBrightness)) : 1);
 
         // ANIMATE LASER SHEET (Hyperrealism)
         if (this.laserSheet && this.laserSheetActive) {
@@ -1100,10 +1121,10 @@ class VRClubAnimationCore extends VRClubEffects {
             const plumeBoost = Number.isFinite(this._laserSheetSmokeBoost) ? this._laserSheetSmokeBoost : 1;
             const pulse = (0.75 + (audioData.average || 0) * 0.25 + (this.kickPulse || 0) * 0.35) * plumeBoost;
             const level = Math.min(1, 0.75 * pulse * (0.35 + 0.65 * haze)) * master;
-            sheetMat.alpha = level;
+            sheetMat.alpha = Math.min(1, level);
             if (this.laserSheetHaze && this.laserSheetHaze.material) {
                 const hazeMat = this.laserSheetHaze.material;
-                hazeMat.alpha = 0.58 * level;
+                hazeMat.alpha = Math.min(1, 0.58 * level);
                 if (hazeMat.opacityTexture) {
                     hazeMat.opacityTexture.vOffset = -time * 0.025 * speedMultiplierLaser;
                     hazeMat.opacityTexture.uOffset = -0.008 * time * speedMultiplierLaser -
@@ -1207,14 +1228,15 @@ class VRClubAnimationCore extends VRClubEffects {
             // All lights (spotlights, lasers, LED wall, strobes) can run simultaneously
             // VJ has full control to enable any combination
             
-            // Enable all mirror ball spotlights and beams
+            // Enable all mirror ball spotlights and beams (stay dark on full blackout)
+            const opticsLit = (this.masterIntensity ?? 1) > 0.001;
             if (this.mirrorBallSpotlights) {
-                this.mirrorBallSpotlights.forEach(light => {
-                    if (light) light.setEnabled(true); // Only enable real lights (not nulls)
-                });
+                for (const light of this.mirrorBallSpotlights) {
+                    if (light) light.setEnabled(opticsLit); // Only enable real lights (not nulls)
+                }
             }
             if (this.mirrorBallBeams) {
-                this.mirrorBallBeams.forEach(beam => beam.mesh.setEnabled(true));
+                for (const beam of this.mirrorBallBeams) beam.mesh.setEnabled(opticsLit);
             }
             const color = this.mirrorBallSpotlightColor;
             // Palette fades can mutate the same Color3; identity alone leaves incident beams on the old hue.
@@ -1226,27 +1248,27 @@ class VRClubAnimationCore extends VRClubEffects {
                 this._mirrorAppliedG = color.g;
                 this._mirrorAppliedB = color.b;
                 if (this.mirrorBallSpotlights) {
-                    this.mirrorBallSpotlights.forEach(light => {
+                    for (const light of this.mirrorBallSpotlights) {
                         if (light) light.diffuse.copyFrom(this.mirrorBallSpotlightColor);
-                    });
+                    }
                 }
                 if (this.mirrorBallBeams) {
-                    this.mirrorBallBeams.forEach(beam => {
+                    for (const beam of this.mirrorBallBeams) {
                         beam.material.emissiveColor.copyFrom(this.mirrorBallSpotlightColor);
-                    });
+                    }
                 }
             }
             if (this.mirrorBallHousings) {
                 this._refreshMirrorBallColorCache();
-                
-                this.mirrorBallHousings.forEach(housing => {
+                for (const housing of this.mirrorBallHousings) {
                     // Make all fixture components glow with current color (professional moving head)
                     housing.material.emissiveColor = this.mirrorBallCachedColors.housingGlow;
-                    housing.lensMaterial.emissiveColor = this.mirrorBallCachedColors.lensBright;
-                    housing.sourceMaterial.emissiveColor = this.mirrorBallCachedColors.sourceVeryBright;
-                    housing.flareMaterial.emissiveColor = this.mirrorBallCachedColors.flareMedium;
-                });
-            };
+                    housing.lensMaterial.emissiveColor = opticsLit ? this.mirrorBallCachedColors.lensBright : this.cachedColors.black;
+                    housing.sourceMaterial.emissiveColor = opticsLit ? this.mirrorBallCachedColors.sourceVeryBright : this.cachedColors.black;
+                    housing.flareMaterial.emissiveColor = opticsLit ? this.mirrorBallCachedColors.flareMedium : this.cachedColors.black;
+                    if (housing.flare) housing.flare.isVisible = opticsLit;
+                }
+            }
             
             // Rotate mirror ball faster so you can see it spinning (classic disco ball rotation)
             // Apply speed multiplier for VJ control
@@ -1254,6 +1276,16 @@ class VRClubAnimationCore extends VRClubEffects {
                 const speedMultiplier = this.mirrorBallSpeed || 1.0;
                 this.mirrorBallRotation -= 0.003 * speedMultiplier * dtScale * (1 + (this.kickPulse || 0) * 1.2); // the ball lurches on the kick
                 this.mirrorBall.rotation.y = this.mirrorBallRotation;
+                const ballMat = this.mirrorBall.material;
+                if (ballMat && ballMat.emissiveColor && color) {
+                    const master = this.masterIntensity ?? 1;
+                    const m = master * (0.28 + (this.kickPulse || 0) * 0.14);
+                    ballMat.emissiveColor.set(
+                        0.08 * master + color.r * m,
+                        0.08 * master + color.g * m,
+                        0.10 * master + color.b * m
+                    );
+                }
             }
             
             if (this.mirrorReflectionBatch) {
@@ -1273,15 +1305,20 @@ class VRClubAnimationCore extends VRClubEffects {
                     this._updateMirrorReflectionColors();
                 }
             }
-        } else {
-            // Mirror ball inactive - disable all mirror ball elements
+            this._mirrorWasActive = true;
+        } else if (this._mirrorWasActive !== false) {
+            this._mirrorWasActive = false;
+            // Mirror ball inactive - disable all mirror ball elements once
+            if (this.mirrorBall && this.mirrorBall.material && this.mirrorBall.material.emissiveColor) {
+                this.mirrorBall.material.emissiveColor.set(0.12, 0.12, 0.14);
+            }
             if (this.mirrorBallSpotlights) {
-                this.mirrorBallSpotlights.forEach(light => {
+                for (const light of this.mirrorBallSpotlights) {
                     if (light) light.setEnabled(false); // Check for null (fake lights)
-                });
+                }
             }
             if (this.mirrorBallBeams) {
-                this.mirrorBallBeams.forEach(beam => beam.mesh.setEnabled(false));
+                for (const beam of this.mirrorBallBeams) beam.mesh.setEnabled(false);
             }
             if (this.mirrorReflectionBatch) {
                 this.mirrorReflectionBatch.spots.setEnabled(false);
@@ -1295,6 +1332,9 @@ class VRClubAnimationCore extends VRClubEffects {
                 this.mirrorBallHousings.forEach(housing => {
                     housing.material.emissiveColor = this.cachedColors.black;
                     housing.lensMaterial.emissiveColor = this.cachedColors.black;
+                    if (housing.sourceMaterial) housing.sourceMaterial.emissiveColor = this.cachedColors.black;
+                    if (housing.flareMaterial) housing.flareMaterial.emissiveColor = this.cachedColors.black;
+                    if (housing.flare) housing.flare.isVisible = false;
                 });
             }
         }

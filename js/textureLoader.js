@@ -54,14 +54,32 @@ class TextureLoader {
                 scale: { u: 4, v: 2 }
             },
             ceiling: {
-                name: 'Raw Concrete Ceiling',
-                baseUrl: `${baseUrl}/ceiling`,
+                name: 'Brushed Concrete Ceiling',
+                baseUrl: `${baseUrl}/brushedCeiling`,
                 maps: {
                     diffuse: 'diff.jpg',
                     normal: 'normal.jpg',
                     orm: 'orm.jpg' // R occlusion, G roughness, B metallic (scripts/pack-orm.mjs)
                 },
                 scale: { u: 3, v: 3 }
+            },
+            restroomTiles: {
+                name: 'Long White Restroom Tiles',
+                baseUrl: `${baseUrl}/restroomTiles`,
+                maps: { diffuse: 'diff.jpg', normal: 'normal.jpg', orm: 'orm.jpg' },
+                scale: { u: 1, v: 1 }
+            },
+            restroomPlaster: {
+                name: 'Matte Restroom Plaster',
+                baseUrl: `${baseUrl}/restroomPlaster`,
+                maps: { diffuse: 'diff.jpg', normal: 'normal.jpg', orm: 'orm.jpg' },
+                scale: { u: 1, v: 1 }
+            },
+            stageRust: {
+                name: 'Worn Stage Metal',
+                baseUrl: `${baseUrl}/stageRust`,
+                maps: { diffuse: 'diff.jpg', normal: 'normal.jpg', orm: 'orm.jpg' },
+                scale: { u: 1, v: 1 }
             },
             // Poly Haven "Dark Wood" (CC0): the bar counter, back bar and ticket desk.
             // Normal map is the DirectX variant; orm is Poly Haven's `arm` (R occlusion, G roughness, B metallic).

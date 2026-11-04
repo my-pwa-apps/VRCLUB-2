@@ -308,10 +308,15 @@
                 </div>
                 <button class="vj-button vj-button-wide" type="button" data-control="cycleFogAmount">SMOKE AMOUNT: MEDIUM</button>
                 <button class="vj-button vj-button-wide" type="button" data-control="cycleFogMode">SMOKE OUTPUT: STEADY + BURSTS</button>
+                <p class="vj-help">Choosing amount or output switches smoke on. Maximum fills the room gradually; bursts add jets from both machines.</p>
                 <button class="vj-button vj-button-wide" id="reducedShowSmoke" type="button">DENSE SHOW SMOKE FOR ME: ALLOWED</button>
                 <p class="vj-help">Dense passages use slowly eased room fog, not extra particles. Reduce them on this device without changing the room show.</p>
                 <button class="vj-button vj-button-wide" type="button" data-control="cycleSheetSpeed">SHEET SPEED: 100%</button>
                 <button class="vj-button vj-button-wide" type="button" data-control="cycleSheetBrightness">SHEET BRIGHTNESS: 100%</button>
+                <button class="vj-button vj-button-wide" type="button" data-control="cycleSpotBrightness">SPOT BRIGHTNESS: 100%</button>
+                <button class="vj-button vj-button-wide" type="button" data-control="cycleLaserBrightness">LASER BRIGHTNESS: 100%</button>
+                <button class="vj-button vj-button-wide" type="button" data-control="cycleLedBrightness">WALL BRIGHTNESS: 100%</button>
+                <p class="vj-help">Each brightness changes only that fixture, including during the automatic show. Spots, lasers and wall reach 200%; the sheet reaches 300%. Safe Mode limits boosts to 100%.</p>
                 <button class="vj-button vj-button-wide" type="button" data-control="cycleStrobePattern" title="How the four truss strobes fire: regular sequences or an irregular mode with short stabs and longer pauses. Every flash still obeys the shared safety limit.">STROBE PATTERN: ALL AT ONCE</button>
                 <button class="vj-button vj-button-wide" id="vjResetBtn" type="button" title="Restore every VJ control to its documented default.">↺ RESET TO DEFAULTS</button>
             </div>
@@ -735,6 +740,9 @@
                 <input type="text" class="audio-input" id="networkRoom" maxlength="64" autocomplete="off"
                        placeholder="lobby" aria-describedby="networkRoomHelp">
                 <p class="network-help" id="networkRoomHelp">Leave it on <strong>lobby</strong> to meet anyone, or type the 6-digit code a friend gave you.</p>
+                <p class="network-help" id="networkDevOwner" hidden>Room 000032 contains simulated guests and requires your verified owner login.
+                    <a id="networkDevOwnerSignIn" href="https://api.mitwee.nl/admin/dev-owner/sign-in" target="_blank" rel="noopener noreferrer">Owner sign-in (opens a new tab)</a>.
+                    Return here afterwards and press Join room. In a headset, sign in in this headset's browser first.</p>
                 <button class="audio-button network-primary" id="networkConnectBtn" type="button">
                     <span aria-hidden="true">🚪</span>
                     <span id="networkConnectBtnLabel">Join room</span>
@@ -1148,6 +1156,7 @@
     <!-- The restroom's posters, stickers, tags and light box, painted into one atlas at runtime (pure data + Canvas 2D
          painters; uses the wordmark above). -->
     <script src="js/restroomArt.js?v=20261021-5"></script>
+    <script src="js/restroomInteractions.js?v=20261021-5"></script>
 
     <!-- Entrance vestibule and bar, mixed into VRClub.prototype by club_hyperrealistic.js (needs barProps). -->
     <script src="js/venueDressing.js?v=20261021-5"></script>
@@ -1201,7 +1210,13 @@
     <script src="js/club/07-animation-core.js?v=20261021-5"></script>
     <script src="js/club/08-animation-fixtures.js?v=20261021-5"></script>
     <script src="js/club/09-animation-finish.js?v=20261021-5"></script>
+    <script src="js/club/10-ui-controls.js?v=20261021-5"></script>
+    <script src="js/club/10-ui-menu.js?v=20261021-5"></script>
+    <script src="js/club/10-ui-social.js?v=20261021-5"></script>
     <script src="js/club/10-ui.js?v=20261021-5"></script>
+    <script src="js/club/11-audio.js?v=20261021-5"></script>
+    <script src="js/club/11-avatars.js?v=20261021-5"></script>
+    <script src="js/club/11-crowd.js?v=20261021-5"></script>
     <script src="js/club/11-audio-crowd.js?v=20261021-5"></script>
 
     <!-- VR Club Main Application -->

@@ -238,6 +238,50 @@ does not schedule connection retries, and a cancelled preflight cannot reconnect
 Account authorization is checked on entry/reconnection, not continuously on an
 already admitted socket. No schema migration, new secret or SFU application is required.
 
+### QuestDev owner login
+
+Ordinary Online rooms on `nocturnedev.mitwee.nl` are enabled without owner
+authentication. The isolated development room **000032** instead uses a signed
+Cloudflare Access owner identity, not the production payment session described above.
+Enter **000032**, select **Owner sign-in**, complete the existing Access login in
+the same browser/device, wait for **Development owner signed in**, then return to the
+club and press **Join room** again.
+A phone login does not sign in a headset browser. Use the custom development domain;
+preview `pages.dev` hosts can be subject to third-party-cookie blocking.
+
+`worker/wrangler.dev.jsonc` enables `DEV_OWNER_ACCESS="1"` and supplies
+`DEV_OWNER_ORIGIN`, `DEV_ACCESS_TEAM_DOMAIN`, `DEV_ACCESS_AUD` and
+`DEV_ROOM_OWNERS`. These are public identity configuration, not signing secrets.
+Its API-host routes are `api.mitwee.nl/dev-owner/*` and the narrow
+`api.mitwee.nl/admin/dev-owner/*`. The latter is covered by the existing Access
+application for `/admin` but routes only this development sign-in to the isolated
+Worker. Production payment and invitation-administration routes stay untouched.
+The client credentialed
+`GET /dev-owner/check` must pass before `/dev-owner/socket` opens.
+Sign-in verifies Access's `Cf-Access-Jwt-Assertion` RS256 signature, issuer, audience,
+expiry, app type and owner identity before setting `__Secure-NocturneDevOwner`:
+host-only, Secure, HttpOnly, SameSite=None, session lifetime, path `/dev-owner/`.
+Its value is the already signed Access token; it is never placed in a page body,
+JavaScript or URL. Preflight and socket verify that token independently, including
+its expiry and the current owner allow-list. Duplicate cookies are refused.
+The flow does not require changing Access cookie-path restrictions, which could
+otherwise prevent the administration-page cookie reaching the development socket.
+The socket independently rechecks identity on every reconnect, is pinned to
+`private-000032`, and strips credentials before DO forwarding. Requests on other
+hosts, origins, routes or with forged owner/email headers are refused. A missing
+or expired development cookie requires another **Owner sign-in**; no account grant
+or long-lived unsigned browser authorization is created.
+Development databases, SFU and avatars remain separate; no production entitlement,
+invitation or session data is copied or read.
+
+Deploy both the development Worker and frontend after changes:
+
+```powershell
+npx --yes wrangler@4.141.0 deploy --config worker\wrangler.dev.jsonc
+npm run build
+npx --yes wrangler@4.141.0 pages deploy dist --project-name nocturne-dev --branch QuestDev --commit-dirty=true
+```
+
 The first real owner starts the simulation. `worker/src/devAttendees.js` gives
 each guest individual activity choices on a measured navigation graph, not a shared
 tour: dance, watch from a wall or balcony, chat indoors/outside, get fresh air, sit

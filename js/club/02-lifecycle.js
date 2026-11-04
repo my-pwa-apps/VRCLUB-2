@@ -461,6 +461,7 @@ class VRClubLifecycle extends VRClubCore {
         this.createDJMonitors(); // Nearfield monitor speakers on the left and right ends of the DJ table
         this.createRestroom(); // Underground club restroom off the front-left hall
         this.createMezzanine(); // Steel balcony and stair along the left wall
+        if (typeof this.createVenueContactShadows === 'function') this.createVenueContactShadows();
     }
 
     /** Scene-wide quality passes that must see the finished scene (probe, light budgets, filtering, SSR fallback). */
@@ -985,6 +986,9 @@ class VRClubLifecycle extends VRClubCore {
         this.liveInput?.dispose();
         this.lightingPresets?.dispose();
         this.avatarEditor?.dispose();
+        this.restroomInteractions?.dispose();
+        this._restroomHandleInstances?.forEach(entry => entry.dispose());
+        this._restroomHandleSource?.dispose();
         this._appearancePending?.reject('The club has closed.');
         if (this._wardrobeCleanupTimer) clearTimeout(this._wardrobeCleanupTimer);
         this._wardrobeCleanupTimer = null;

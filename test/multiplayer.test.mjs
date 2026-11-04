@@ -6,6 +6,7 @@ import { performance } from 'node:perf_hooks';
 import assert from 'node:assert/strict';
 import vm from 'node:vm';
 import { readFileSync } from 'node:fs';
+import { readClubSource } from './club-sources.mjs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -400,7 +401,7 @@ test('host transfer is advertised, host-only, targets a visible person and waits
 test('the VR person page delegates host transfer, confirms a second press, hides it for guests and disables old relays', async () => {
     const { mp, context, window, socket } = connectedController(undefined, { hostTransfer: true });
     context.VRClubAnimationFinish = class {};
-    vm.runInContext(readFileSync(join(ROOT, 'js/club/10-ui.js'), 'utf8'), context);
+    vm.runInContext(readClubSource(join(ROOT, 'js/club/10-ui.js')), context);
     const ui = Object.create(window.VRClubUI.prototype);
     ui._multiplayer = () => mp;
     ui.isFollowingHost = () => mp.following;
@@ -666,7 +667,7 @@ test('dispose releases the session and detaches from the club', () => {
 });
 
 test('the VR menu and the DOM panel only call the controller; neither writes a block or a kick itself', () => {
-    const vr = readFileSync(join(ROOT, 'js/club/10-ui.js'), 'utf8');
+    const vr = readClubSource(join(ROOT, 'js/club/10-ui.js'));
     const dom = readFileSync(join(ROOT, 'js/ui-init.js'), 'utf8');
     const start = vr.indexOf('_runVRNetworkAction');
     assert.ok(start > 0);
@@ -711,8 +712,9 @@ function spotController() {
     env.context.VRClubAnimationFinish = class extends env.window.VRClubAnimationFixtures {
         static STROBE_PATTERNS = ['all', 'chase'];
     };
-    vm.runInContext(readFileSync(join(ROOT, 'js/club/10-ui.js'), 'utf8'), env.context);
+    vm.runInContext(readClubSource(join(ROOT, 'js/club/10-ui.js')), env.context);
     env.club.spotRigBeat = env.window.VRClubAnimationFixtures.prototype.spotRigBeat;
+    env.club.spotSequenceBeat = env.window.VRClubAnimationFixtures.prototype.spotSequenceBeat;
     env.club.resetSpotRig = env.window.VRClubUI.prototype.resetSpotRig;
     env.club.resetSpotRig();
     env.club.vjBPM = 120;
@@ -750,6 +752,18 @@ test('spot rig: real relay sanitization retains every head and the timestamped b
     mp.disconnect();
 });
 
+test('spot rig: shared frames retain the rendered sequence phase after a missed detector beat', async () => {
+    const { sanitizeShow } = await import('../worker/src/relay.js');
+    const { mp, club } = spotController();
+    mp.connect({ serverUrl: 'wss://relay.example', room: 'r' });
+    FakeSocket.instances.at(-1).receive({ type: 'welcome', id: 'me', hostId: 'me', peers: [{ id: 'p1', name: 'Bo' }] });
+    club.spotSequence = 4;
+    club._spotSequenceClock = { sequence: 4, beat: 301.5, time: performance.now() / 1000 };
+    const frame = sanitizeShow(mp._buildShowFrame());
+    assert.ok(Math.abs(frame.fx.spotSequenceBeat - 301.5) < 0.05, 'published the stalled detector instead of the visible row phase');
+    mp.disconnect();
+});
+
 test('aesthetic program and sheet settings survive relay sanitization in both show modes', async () => {
     const { sanitizeShow } = await import('../worker/src/relay.js');
     const { mp, club } = connectedController();
@@ -757,16 +771,25 @@ test('aesthetic program and sheet settings survive relay sanitization in both sh
     club.showDirector.program = 'aesthetic';
     club.laserSheetSpeed = 1.5;
     club.laserSheetBrightness = 0.25;
+    Object.assign(club, { spotBrightness: 0.5, laserBrightness: 2, ledWallBrightness: 1.5 });
     for (const manual of [false, true]) {
         club.vjManualMode = manual;
         const frame = sanitizeShow(mp._buildShowFrame());
         assert.equal(frame.fx.showProgram, 'aesthetic');
         assert.equal(frame.fx.laserSheetSpeed, 1.5);
         assert.equal(frame.fx.laserSheetBrightness, 0.25);
+        assert.equal(frame.fx.spotBrightness, 0.5);
+        assert.equal(frame.fx.laserBrightness, 2);
+        assert.equal(frame.fx.ledWallBrightness, 1.5);
     }
     mp._applyFixtures({ laserSheetSpeed: 100, laserSheetBrightness: -2 }, true);
     assert.equal(club.laserSheetSpeed, 2);
     assert.equal(club.laserSheetBrightness, 0);
+    mp._applyFixtures({ spotBrightness: 9, laserBrightness: -1, ledWallBrightness: 1.75, laserSheetBrightness: 3 }, true);
+    assert.equal(club.spotBrightness, 2);
+    assert.equal(club.laserBrightness, 0);
+    assert.equal(club.ledWallBrightness, 1.75);
+    assert.equal(club.laserSheetBrightness, 3);
 });
 
 test('aesthetic program switches force cue application, promotion retains it and departure restores local sheet settings', () => {
@@ -777,11 +800,12 @@ test('aesthetic program switches force cue application, promotion retains it and
     club.showDirector.applyRemote = (frame, force) => calls.push(force);
     club.laserSheetSpeed = 0.5;
     club.laserSheetBrightness = 0.75;
+    club.spotBrightness = 0.5;
     mp.connect({ serverUrl: 'wss://relay.example', room: 'r' });
     const socket = FakeSocket.instances.at(-1);
     socket.receive({ type: 'welcome', id: 'me', hostId: 'p1', peers: [{ id: 'p1', name: 'Host' }] });
     const frame = { type: 'show', m: 'show', mv: 'arrival', cue: 0,
-        fx: { showProgram: 'aesthetic', laserSheetSpeed: 2, laserSheetBrightness: 0.25 } };
+        fx: { showProgram: 'aesthetic', laserSheetSpeed: 2, laserSheetBrightness: 0.25, spotBrightness: 2 } };
     socket.receive({ ...frame, fx: { ...frame.fx, showProgram: 'nocturne' } });
     socket.receive(frame);
     assert.equal(calls.at(-1), true, 'a program change reapplies even the same movement and cue index');
@@ -790,6 +814,7 @@ test('aesthetic program switches force cue application, promotion retains it and
     assert.equal(club.showDirector.program, 'nocturne');
     assert.equal(club.laserSheetSpeed, 0.5);
     assert.equal(club.laserSheetBrightness, 0.75);
+    assert.equal(club.spotBrightness, 0.5);
     mp.connect({ serverUrl: 'wss://relay.example', room: 'r' });
     const next = FakeSocket.instances.at(-1);
     next.receive({ type: 'welcome', id: 'me', hostId: 'p1', peers: [{ id: 'p1', name: 'Host' }] });
@@ -798,6 +823,7 @@ test('aesthetic program switches force cue application, promotion retains it and
     assert.equal(club.showDirector.program, 'aesthetic');
     assert.equal(club.laserSheetSpeed, 2);
     assert.equal(club.laserSheetBrightness, 0.25);
+    assert.equal(club.spotBrightness, 2);
     mp.disconnect();
 });
 
@@ -906,7 +932,7 @@ function attachPerformance(env) {
     env.context.localStorage = env.storage;
     env.context.VRClubUI = class {};
     for (const file of ['js/club/01-core.js', 'js/club/11-audio-crowd.js']) {
-        vm.runInContext(readFileSync(join(ROOT, file), 'utf8'), env.context, { filename: file });
+        vm.runInContext(readClubSource(join(ROOT, file)), env.context, { filename: file });
     }
     const proto = env.window.VRClubAudioCrowd.prototype;
     for (const name of ['_djEffectsState', 'djEffectsSnapshot', '_applySharedDJEffects', 'resetDJEffects',
@@ -1043,7 +1069,8 @@ test('under manual control the host publishes its console and never the director
     assert.equal(frame.m, 'manual');
     assert.ok(!('mv' in frame));
     assert.deepEqual({ ...frame.fx }, { lightsActive: true, lasersActive: false, laserSpeed: 1.5, spotlightMode: 2, ledPattern: 7, vjMaster: 0.8, spotPrismActive: false,
-        showProgram: 'nocturne', laserSheetSpeed: 1, laserSheetBrightness: 1 });
+        showProgram: 'nocturne', laserSheetSpeed: 1, laserSheetBrightness: 1,
+        spotBrightness: 1, laserBrightness: 1, ledWallBrightness: 1 });
 });
 
 test('a lone host sends nothing, and a newcomer is brought in at once', () => {
@@ -1346,7 +1373,7 @@ test('disposing the multiplayer controller aborts an outstanding room lookup', a
 test('every room-browser page fits all twelve VR slots including navigation and close', () => {
     const { mp, context, window } = makeController();
     context.VRClubAnimationFinish = class {};
-    vm.runInContext(readFileSync(join(ROOT, 'js/club/10-ui.js'), 'utf8'), context);
+    vm.runInContext(readClubSource(join(ROOT, 'js/club/10-ui.js')), context);
     const ui = Object.create(window.VRClubUI.prototype);
     ui._multiplayer = () => mp;
     const common = { back: { action: 'back' }, close: { action: 'close' } };
@@ -1366,7 +1393,7 @@ test('every room-browser page fits all twelve VR slots including navigation and 
 });
 
 test('every control that changes the room\'s music or lights is gated for a guest, on every surface', () => {
-    const ui = readFileSync(join(ROOT, 'js/club/10-ui.js'), 'utf8');
+    const ui = readClubSource(join(ROOT, 'js/club/10-ui.js'));
     const dom = readFileSync(join(ROOT, 'js/ui-init.js'), 'utf8');
     const podcasts = readFileSync(join(ROOT, 'js/podcasts.js'), 'utf8');
     const body = (source, signature) => {

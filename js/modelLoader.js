@@ -448,6 +448,23 @@ class ModelLoader {
         });
     }
 
+    /** Shares persistent bytes, not decoded scene objects; the caller owns and disposes the returned container. */
+    async loadAssetContainer(url, scene = this.scene) {
+        const bytes = await this.loadOrDownloadModel(url);
+        if (this.abortController.signal.aborted || scene.isDisposed) throw new Error('Model loading was cancelled.');
+        const blobUrl = URL.createObjectURL(new Blob([bytes], { type: 'model/gltf-binary' }));
+        try {
+            const container = await BABYLON.SceneLoader.LoadAssetContainerAsync('', blobUrl, scene, null, '.glb');
+            if (this.abortController.signal.aborted || scene.isDisposed) {
+                container.dispose();
+                throw new Error('Model loading was cancelled.');
+            }
+            return container;
+        } finally {
+            URL.revokeObjectURL(blobUrl);
+        }
+    }
+
     async loadModel(modelKey) {
         const config = this.modelConfigs[modelKey];
         if (!config) {
@@ -469,26 +486,10 @@ class ModelLoader {
         // PHASE 1 - fetch and parse. A failure here has added nothing to the scene.
         let result;
         try {
-            const arrayBuffer = await this.loadOrDownloadModel(config.url);
-
             if (this.gltfPluginAvailable === false) {
                 throw new Error('glTF loader plugin is unavailable - cannot parse .glb');
             }
-
-            // Create blob URL for Babylon.js
-            const blob = new Blob([arrayBuffer], { type: 'model/gltf-binary' });
-            const blobUrl = URL.createObjectURL(blob);
-            
-            // The blob URL MUST be revoked even when the loader throws (corrupt GLB,
-            // missing loaders plugin) - otherwise every failed load permanently pins
-            // the whole file in memory.
-            try {
-                result = await BABYLON.SceneLoader.LoadAssetContainerAsync(
-                    '', blobUrl, this.scene, null, '.glb'
-                );
-            } finally {
-                URL.revokeObjectURL(blobUrl);
-            }
+            result = await this.loadAssetContainer(config.url);
         } catch (error) {
             this.log.warn(`⚠️ Failed to fetch/parse ${config.name}:`, error);
             return this._modelUnavailable(modelKey, config);

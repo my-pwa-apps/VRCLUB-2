@@ -166,6 +166,8 @@ class ShowDirector {
         if (!['nocturne', 'aesthetic'].includes(program)) throw new TypeError('Unknown light show.');
         if (program === this.program) return;
         this.program = program;
+        this._aestheticImmersionPass = 0;
+        this._aestheticImmersionHue = null;
         this.looks = ShowDirector._buildLooks();
         this.movements = ShowDirector._buildMovements();
         if (program === 'aesthetic') {
@@ -193,7 +195,7 @@ class ShowDirector {
                     laserSheetMotion: 'lateral', laserSpeed: [0.25, 0.65], fogIntensity: 2, fogImmersion: 1 },
                 aestheticPeak: { hue: 0.9, intensity: 1, punch: 0.25, lightsActive: true,
                     spotlightMode: 1, spotlightPattern: 2, spotlightSpeed: 1, spotPrismActive: true,
-                    ledPattern: 19, ledLevel: 0.7, lasersActive: true, strobesActive: true,
+                    ledPattern: 19, ledLevel: 0.9, lasersActive: true, strobesActive: true,
                     strobeSync: 'bar', strobePattern: 'chase', fogIntensity: 2, fogImmersion: 1 },
                 aestheticFade: { hue: 0.08, intensity: [0.65, 0.35], ledLevel: 0.6, fogIntensity: 1 }
             };
@@ -496,6 +498,10 @@ class ShowDirector {
 
         const look = this.looks[cue.look];
         if (!look) return;
+        if (this.program === 'aesthetic' && look.fogImmersion && !this.follower) {
+            this._aestheticImmersionHue = ((look.hue ?? 0.58) + this._aestheticImmersionPass * 0.2) % 1;
+            this._aestheticImmersionPass = (this._aestheticImmersionPass + 1) % 5;
+        }
         this._applyLook(look);
 
         // A one-beat blackout immediately before a new look makes the change
@@ -563,8 +569,14 @@ class ShowDirector {
         // colour back to the director's phrase-by-phrase rotation.
         const vj = club.vjDirector;
         if (vj) {
-            if (look.hue !== undefined && typeof vj.setMasterHue === 'function') vj.setMasterHue(look.hue);
-            else if (typeof vj.unlockHue === 'function') vj.unlockHue();
+            // Aesthetic followers retain the host's colour snapshot through cue and Safe Mode recomposition.
+            if (!(this.program === 'aesthetic' && this.follower)) {
+                if (look.hue !== undefined && typeof vj.setMasterHue === 'function') {
+                    const hue = this.program === 'aesthetic' && look.fogImmersion
+                        ? this._aestheticImmersionHue ?? look.hue : look.hue;
+                    vj.setMasterHue(hue);
+                } else if (typeof vj.unlockHue === 'function') vj.unlockHue();
+            }
             // Looks only write the keys they declare, so the wall's relation to the beams
             // is reset here: a look that omits ledHarmony matches the beams, it does not
             // inherit the previous cue's contrast.

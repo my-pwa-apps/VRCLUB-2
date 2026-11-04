@@ -98,7 +98,10 @@ class ClubMultiplayer {
         mirrorBallActive: 'b', mirrorBallRaysActive: 'b', laserSheetActive: 'b', smokeActive: 'b', spotStrobeActive: 'b',
         spotlightMode: [0, 7], spotlightPattern: [0, 7], ledPattern: [0, 63], spotColorIndex: [0, 63],
         spotlightSpeed: [0, 10], laserSpeed: [0, 10], mirrorBallSpeed: [0, 10],
-        laserSheetSpeed: [0.25, 2], laserSheetBrightness: [0, 1], fogImmersion: [0, 1],
+        laserSheetSpeed: [0.25, 2],         laserSheetBrightness: [0, 3],
+        spotBrightness: [0, 2],
+        laserBrightness: [0, 2],
+        ledWallBrightness: [0, 2], fogImmersion: [0, 1],
         ledWallSpeed: [0, 10], strobeSpeed: [0, 10], vjMaster: [0, 1], strobePatternIndex: [0, 31],
         currentColorIndex: [0, 2], colorLockActive: 'b',
         ledMulti: 'b', ledWallLevel: [0, 1], kickDepth: [0, 1], fogIntensity: [0, 2],
@@ -743,6 +746,7 @@ class ClubMultiplayer {
                 this.locked = false;
                 // The doors belong to the room: out of it they are ajar again.
                 if (typeof club.setSharedDoors === 'function') club.setSharedDoors([]);
+                club.setSharedRestroom?.(null);
             }
             if (status === 'error' || status === 'disconnected') {
                 this._stopPing();
@@ -822,6 +826,7 @@ class ClubMultiplayer {
         client.onShow = (frame) => this._applyShow(frame);
         client.onDoors = (doors) => { if (typeof club.setSharedDoors === 'function') club.setSharedDoors(doors); };
         client.onDoor = (door, shut) => { if (typeof club.setSharedDoor === 'function') club.setSharedDoor(door, shut); };
+        client.onRestroom = state => club.setSharedRestroom?.(state);
         client.musicDecorator = (music) => this._decorateMusic(music);
         client.onRemoteStream = (id, stream) => stream ? manager.attachVoice(id, stream) : manager.detachVoice(id);
         client.onError = (err) => {
@@ -1312,7 +1317,11 @@ class ClubMultiplayer {
         this._roleApplied = following;
         if (following) {
             this._savedShowProgram = club.showDirector?.program || 'nocturne';
-            this._savedSheetSettings = { laserSheetSpeed: club.laserSheetSpeed ?? 1, laserSheetBrightness: club.laserSheetBrightness ?? 1 };
+            this._savedSheetSettings = {
+                laserSheetSpeed: club.laserSheetSpeed ?? 1, laserSheetBrightness: club.laserSheetBrightness ?? 1,
+                spotBrightness: club.spotBrightness ?? 1, laserBrightness: club.laserBrightness ?? 1,
+                ledWallBrightness: club.ledWallBrightness ?? 1
+            };
             this._savedSpotRig = {};
             for (const key of Object.keys(ClubMultiplayer.SPOT_RIG_FIXTURES)) {
                 if (key in club) this._savedSpotRig[key] = club[key];
@@ -1413,6 +1422,9 @@ class ClubMultiplayer {
         frame.fx.showProgram = director.program || 'nocturne';
         frame.fx.laserSheetSpeed = club.laserSheetSpeed ?? 1;
         frame.fx.laserSheetBrightness = club.laserSheetBrightness ?? 1;
+        frame.fx.spotBrightness = club.spotBrightness ?? 1;
+        frame.fx.laserBrightness = club.laserBrightness ?? 1;
+        frame.fx.ledWallBrightness = club.ledWallBrightness ?? 1;
         if (driving && Number.isFinite(vj.showMasterIntensity)) frame.fx.vjMaster = vj.showMasterIntensity;
         frame.fx.spotPrismActive = !!club.spotPrismActive;
         const independent = Array.from({ length: 6 }, (_, i) => club[`spotHead${i}Motion`] === 1).some(Boolean);
@@ -1428,7 +1440,8 @@ class ClubMultiplayer {
             }
             if (musicalSpots) {
                 // 672 beats spans every preset/rate combination and stays inside the relay's numeric bounds.
-                frame.fx.spotSequenceBeat = club.spotRigBeat() % 672;
+                frame.fx.spotSequenceBeat = (club.spotSequence && typeof club.spotSequenceBeat === 'function'
+                    ? club.spotSequenceBeat() : club.spotRigBeat()) % 672;
                 frame.fx.spotSequenceAt = new Date(Date.now() + (this.client.serverOffset || 0)).toISOString();
                 frame.fx.spotSequenceBpm = club.vjBPM || 120;
             }
@@ -1510,7 +1523,7 @@ class ClubMultiplayer {
             club._spotMotionPhase = fx.spotMotionPhase;
         }
         for (const key of Object.keys(ClubMultiplayer.MANUAL_FIXTURES)) {
-            if (rigOnly && !['vjMaster', 'laserSheetSpeed', 'laserSheetBrightness'].includes(key) && !Object.prototype.hasOwnProperty.call(ClubMultiplayer.SPOT_RIG_FIXTURES, key)) continue;
+            if (rigOnly && !['vjMaster', 'laserSheetSpeed', 'laserSheetBrightness', 'spotBrightness', 'laserBrightness', 'ledWallBrightness'].includes(key) && !Object.prototype.hasOwnProperty.call(ClubMultiplayer.SPOT_RIG_FIXTURES, key)) continue;
             if (!Object.prototype.hasOwnProperty.call(fx, key)) continue;
             const spec = ClubMultiplayer.MANUAL_FIXTURES[key];
             let value = fx[key];
