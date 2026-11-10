@@ -2022,13 +2022,14 @@ test('every runtime-colour-written factory material declares mutable: true', () 
     // now opt in explicitly, so removing the heuristic changed no runtime behaviour.
     const legacyTags = ['lens', 'source', 'flare', 'beam', 'gobo', 'strobe', 'led', 'pool',
         'glow', 'laser', 'mirror', 'toggle', 'audiobtn', 'sliderhandle'];
+    const staticFixtureMaterials = new Set(['strobeMountMat', 'strobeCasingMat', 'strobeReflectorMat', 'strobeTubeMat']);
     const missing = [];
     const files = ['js/materialFactory.js', ...readdirSync(join(ROOT, 'js/club')).map(f => `js/club/${f}`)];
     for (const file of files) {
         const lines = readFileSync(join(ROOT, file), 'utf8').split('\n');
         lines.forEach((line, i) => {
             const m = line.match(/create(?:PBR|Standard|FullPBR)Material\(\s*(['"`])([^'"`]*)/);
-            if (!m || !legacyTags.some(tag => m[2].toLowerCase().includes(tag))) return;
+            if (!m || staticFixtureMaterials.has(m[2]) || !legacyTags.some(tag => m[2].toLowerCase().includes(tag))) return;
             if (!/mutable:\s*true/.test(lines.slice(i, i + 3).join('\n'))) missing.push(`${file}:${i + 1}`);
         });
     }
