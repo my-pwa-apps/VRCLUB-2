@@ -190,6 +190,9 @@ export class DevAttendees {
         this.chatTurn = 0;
         this.chatGroup = null;
         this.conversations = new Map();
+        this.peakActive = false;
+        this.peakTurn = this.seed;
+        this.peakChatAt = now;
     }
 
     _random(bot) {
@@ -375,7 +378,20 @@ export class DevAttendees {
         members[turn % members.length].chat = script[turn % script.length];
     }
 
-    step(now, people = [], doors = []) {
+    _reactToPeak(show) {
+        const peak = show?.m === 'show' && (show.sp === 'release' || (!show.sp && show.mv === 'ignition'));
+        const entered = peak && !this.peakActive;
+        this.peakActive = peak;
+        if (!entered) return;
+        const turn = this.peakTurn++;
+        if (turn % 2 || this.clock < this.peakChatAt) return;
+        const dancers = [...this.guests.values()].filter(bot => !bot.path && !bot.yielding && bot.state.dancing);
+        if (!dancers.length) return;
+        dancers[Math.floor(turn / 2) % dancers.length].chat = 'Het lijkt wel gabber!';
+        this.peakChatAt = this.clock + 60000;
+    }
+
+    step(now, people = [], doors = [], show = null) {
         for (const bot of this.guests.values()) { bot.gesture = null; bot.emoji = null; bot.chat = null; }
         this.accumulator += Math.max(0, Math.min(250, now - this.now));
         this.now = now;
@@ -391,5 +407,6 @@ export class DevAttendees {
             }
             this._socialize();
         }
+        this._reactToPeak(show);
     }
 }

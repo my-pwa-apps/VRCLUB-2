@@ -681,7 +681,7 @@ export class ClubRoom {
 
     _tickSimulation(now) {
         if (!this._simulation) return;
-        this._simulation.step(now, this._simulationPeople(), this.doors);
+        this._simulation.step(now, this._simulationPeople(), this.doors, this.showState);
         for (const session of this.sessions.values()) {
             if (!session.simulated) continue;
             const bot = this._simulation.guests.get(session.simulatedIndex);

@@ -2511,6 +2511,10 @@ Occupied destinations are skipped; a newly occupied target causes safe backtrack
 Its 31 distinct international first names are fictional, never account identities.
 Resting groups of two or three face partners, gesture and exchange short scripted
 fictional chat balloons through existing block-aware chat; no voice or AI service.
+On alternate host-owned automatic IGNITION/release peak entries, one resting floor
+dancer may say "Het lijkt wel gabber!", at most once per minute room-wide and never
+repeated through a held peak. Only retained, validated host show state drives it;
+ordinary rooms, human chat and media membership are unchanged.
 `talking` selects an optional talking clip, only for simulated peers; seated guests
 keep their seated pose. Dancers sometimes cheer toward the DJ without a scripted reply.
 `dev-seat` is a rate-limited, DEV-only request for a known seat/toilet: the NPC stands,

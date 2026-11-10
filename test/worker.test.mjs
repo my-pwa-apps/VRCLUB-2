@@ -162,6 +162,61 @@ test('DEV seat requests validate known furniture, are rate-limited and let a rea
     assert.ok(!room._simulation.seatHolds.has('bar-0'), 'a third immediate request exceeds the two-request burst');
 });
 
+test('DEV dancers occasionally mention gabber on peak entries, never continuously or during ordinary passages', () => {
+    const simulation = new DevAttendees(0, 0);
+    for (let i = 0; i < 31; i++) {
+        const bot = simulation.add(i);
+        bot.departAt = bot.chooseAt = Infinity;
+    }
+    const phrase = 'Het lijkt wel gabber!';
+    const peak = { m: 'show', mv: 'ignition' };
+    const groove = { m: 'show', mv: 'pulse' };
+    let now = 0;
+    const tick = show => {
+        simulation.step(now += 50, [], [], show);
+        return [...simulation.guests.values()].filter(bot => bot.chat === phrase);
+    };
+    for (const show of [null, groove, { m: 'manual', mv: 'ignition' },
+        { m: 'show', mv: 'ignition', sp: 'countdown' }]) assert.equal(tick(show).length, 0);
+    const first = tick(peak);
+    assert.equal(first.length, 1);
+    assert.ok(first[0].state.dancing && !first[0].path);
+    const deadline = simulation.peakChatAt;
+    assert.equal(tick({ ...peak, sp: 'release' }).length, 0, 'release and ignition form one continuous peak');
+    tick(groove);
+    assert.equal(tick(peak).length, 0, 'not every peak gets this line');
+    tick(groove);
+    assert.equal(tick({ m: 'show', sp: 'release' }).length, 0, 'room-wide one-minute cooldown');
+    while (now < deadline + 100) assert.equal(tick(peak).length, 0, 'a sustained peak never repeats, even after cooldown');
+    tick(groove);
+    assert.equal(tick(peak).length, 0);
+    tick(groove);
+    const next = tick(peak);
+    assert.equal(next.length, 1);
+    assert.notEqual(next[0].index, first[0].index, 'different dancers take turns');
+});
+
+test('DEV peak chat uses only the host show and remains block-aware without synthetic voice', t => {
+    const room = devRoom(t);
+    const owner = join(room, 'Owner');
+    const guest = join(room, 'Other owner');
+    const phrase = 'Het lijkt wel gabber!';
+    const now = room._simulation.now;
+    guest.ws.message({ type: 'show', m: 'show', mv: 'ignition' });
+    room._tickSimulation(now + 50);
+    assert.equal(owner.ws.sent.filter(frame => frame.text === phrase).length, 0, 'a guest cannot invent a room peak');
+    for (const session of room.sessions.values()) if (session.simulated) guest.session.blocked.add(session.pid);
+    owner.ws.message({ type: 'show', m: 'show', mv: 'ignition' });
+    room._tickSimulation(now + 100);
+    const chats = owner.ws.sent.filter(frame => frame.type === 'chat' && frame.text === phrase);
+    assert.equal(chats.length, 1);
+    const speaker = [...room.sessions.values()].find(session => session.id === chats[0].id);
+    assert.ok(speaker.simulated && speaker.lastState.dancing);
+    assert.equal(sanitizeChat(chats[0].text), phrase);
+    assert.equal(guest.ws.sent.filter(frame => frame.text === phrase).length, 0, 'blocked NPC text stays hidden');
+    assert.equal(room.media.members.size, 2, 'NPC chat does not create an audio publisher');
+});
+
 test('DEV owner heartbeat loss clears synthetic guests even when the owner never sent a first ping', t => {
     const room = devRoom(t), owner = join(room);
     room._sweep(owner.session.lastSeen + IDLE_CLOSE_MS + 1);

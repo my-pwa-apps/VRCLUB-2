@@ -283,6 +283,13 @@ npx --yes wrangler@4.141.0 pages deploy dist --project-name nocturne-dev --branc
 ```
 
 The first real owner starts the simulation. `worker/src/devAttendees.js` gives
+one resting floor dancer an occasional "Het lijkt wel gabber!" chat balloon on
+the host's automatic IGNITION/release peak entries. Alternate peak entries are
+eligible, with at least one minute between room-wide reactions and no repetition
+during a held peak. These use the existing block-aware scripted chat, not audio
+analysis, speech synthesis or a new message type.
+
+The simulation gives
 each guest individual activity choices on a measured navigation graph, not a shared
 tour: dance, watch from a wall or balcony, chat indoors/outside, get fresh air, sit
 at one of four available bar stools, either couch cushion or either balcony chair,
