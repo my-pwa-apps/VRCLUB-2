@@ -54,9 +54,10 @@ all resources on expiry/disposal.
 Ceiling service pipes are static merged geometry; movable/pickable fixtures stay
 independent. Surface keys use new licensed folders to avoid stale texture caching.
 Finish/handle/toilet recipes and provenance live in scripts, ASSETS.md and beside
-the assets. Do not import live-event/uploaded-avatar releases, branding/ADE artwork,
-advanced smoke illumination, development routing/gates or demo music to obtain these
-features. Preserve this branch's paid VR, origin metadata and packaging.
+the assets. Shared live-event, uploaded-avatar and smoke features are integrated
+independently of these portable fixes. ADE artwork remains opt-in; development
+routing, free-access gates and seeded music must not enter the production frontend.
+Preserve this branch's paid VR, origin metadata and packaging.
 
 > **Accuracy contract**: this file describes the code as it exists. If you change the
 > architecture, update this file in the same commit. A previous version of this document

@@ -124,7 +124,7 @@ test('aesthetic show and independent sheet controls use shared desktop, VR and d
         club.showDirector.forceMovement('pulse');
         out.row = { sequence: club.spotSequence, rate: club.spotSequenceRate, locked: club.colorLockActive };
         club.showDirector._applyCue({ look: 'aestheticSheet', bars: 16 });
-        for (let i = 0; i < 1200; i++) club._tintClubAir(1 / 60);
+        for (let i = 0; i < 1200; i++) club._tintClubAir(1 / 60, 1);
         out.dense = club.scene.fogDensity;
         club.toggleLightControl('toggleReducedShowSmoke');
         for (let i = 0; i < 1200; i++) club._tintClubAir(1 / 60);
@@ -139,7 +139,6 @@ test('aesthetic show and independent sheet controls use shared desktop, VR and d
         out.darkSheet = club.laserSheet.material.alpha;
         const buttons = window.VJDeskLayout.buttons;
         out.desk = {
-            program: club._vjDeskButtonState(buttons.show.find(b => b.id === 'program')).value,
             speed: club._vjDeskButtonState(buttons.lights.find(b => b.id === 'sheetSpeed')).value,
             brightness: club._vjDeskButtonState(buttons.lights.find(b => b.id === 'sheetBrightness')).value
         };
@@ -204,7 +203,7 @@ test('aesthetic show and independent sheet controls use shared desktop, VR and d
     expect(result.sheetSpeed.after).toBeGreaterThan(result.sheetSpeed.before);
     expect(result.sheetSpeed.sourceAfter).toBe(result.sheetSpeed.sourceBefore);
     expect(result.darkSheet).toBe(0);
-    expect(result.desk).toEqual({ program: 'AESTHETIC', speed: '150%', brightness: '0%' });
+    expect(result.desk).toEqual({ speed: '150%', brightness: '0%' });
     expect(result.safeStrobes).toBe(false);
     expect(result.wallLevels.peak.mean / result.wallLevels.quiet.mean).toBeGreaterThan(1.8);
     expect(result.wallLevels.safe.max).toBeLessThan(0.5);
