@@ -180,7 +180,7 @@ const TOGGLE_CONTROLS = Object.freeze(new Set([
 /** The panel's step/cycle buttons that change a light: pressing one takes the lights by hand (see takeLightControl). */
 const HAND_CONTROLS = Object.freeze(new Set([
     'changeColor', 'changeLaserColor', 'matchAllColors', 'changeMirrorBallColor',
-    'cycleSpotMode', 'cyclePattern', 'goboActive', 'cycleGoboPattern', 'reverseGoboSpin', 'cycleStrobePattern'
+    'cycleSpotMode', 'cyclePattern', 'cycleStrobePattern'
 ]));
 
 // One list of names for every surface (this panel, the VR menu and the desk at the DJ table).
@@ -684,7 +684,6 @@ function initVJMenu() {
     document.addEventListener('keydown', onVJKeyDown);
     teardowns.push(() => document.removeEventListener('keydown', onVJKeyDown));
     
-    const goboDisplayName = name => name === 'circle' ? 'OPEN' : String(name || 'circle').toUpperCase();
     // Handle VJ control buttons
     const vjButtons = document.querySelectorAll('.vj-button[data-control]');
 
@@ -939,32 +938,6 @@ function initVJMenu() {
                 button.textContent = `AIM PATH: ${SPOT_PATTERN_NAMES[vrClubInstance.spotlightPattern]}`;
                 flashButton(button);
                 
-            } else if (control === 'goboActive') {
-                const isActive = vrClubInstance.toggleGobo ? vrClubInstance.toggleGobo() : false;
-                setToggleState(button, isActive);
-                flashButton(button);
-                
-            } else if (control === 'cycleGoboPattern') {
-                const patternName = vrClubInstance.nextGoboPattern
-                    ? vrClubInstance.nextGoboPattern()
-                    : 'circle';
-                button.textContent = `IMAGE: ${goboDisplayName(patternName)}`;
-                flashButton(button);
-                
-            } else if (control === 'reverseGoboSpin') {
-                // Reverse gobo rotation direction - use VRClub properties directly
-                const newSpeed = -(vrClubInstance.goboRotationSpeed || 1.0);
-                vrClubInstance.setGoboRotationSpeed(newSpeed);
-                
-                const goboSpeedSlider = document.getElementById('goboSpeed');
-                const goboSpeedValue = document.getElementById('goboSpeedValue');
-                if (goboSpeedSlider) {
-                    goboSpeedSlider.value = newSpeed;
-                    goboSpeedSlider.setAttribute('aria-valuetext', `${newSpeed.toFixed(1)}x`);
-                }
-                if (goboSpeedValue) goboSpeedValue.textContent = `${newSpeed.toFixed(1)}x`;
-                flashButton(button);
-                
             } else if (TOGGLE_CONTROLS.has(control)) {
                 vrClubInstance.toggleLightControl(control);
                 updateButtonStates();
@@ -997,19 +970,6 @@ function initVJMenu() {
         });
     }
     
-    // Handle gobo speed slider - use VRClub properties directly
-    const goboSpeed = document.getElementById('goboSpeed');
-    const goboSpeedValue = document.getElementById('goboSpeedValue');
-    if (goboSpeed && goboSpeedValue) {
-        goboSpeed.addEventListener('input', (e) => {
-            const value = parseFloat(e.target.value);
-            vrClubInstance.setGoboRotationSpeed(value);
-            const text = `${value.toFixed(1)}x`;
-            goboSpeedValue.textContent = text;
-            goboSpeed.setAttribute('aria-valuetext', text);
-        });
-    }
-
     // === VJ DIRECTOR: Live Macros (DROP / BLACKOUT / LOCK / TAP / Master / BPM) ===
     const vjDir = () => vrClubInstance && vrClubInstance.vjDirector;
     const dropBtn = document.getElementById('vjDropBtn');
@@ -1204,9 +1164,7 @@ function initVJMenu() {
             // fall into the generic branch and read `vrClubInstance.toggleShow`, which
             // is undefined - so the poller stripped .active off the SHOW button every
             // two seconds while its own label still read "SHOW: ON".
-            if (control === 'goboActive') {
-                setToggleState(button, vrClubInstance.goboEnabled);
-            } else if (control === 'toggleShow') {
+            if (control === 'toggleShow') {
                 setToggleState(button, !!(vrClubInstance.showDirector && vrClubInstance.showDirector.enabled));
             } else if (TOGGLE_CONTROLS.has(control)) {
                 if (control === 'mirrorBallRaysActive') {

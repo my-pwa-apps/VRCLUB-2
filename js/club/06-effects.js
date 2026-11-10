@@ -418,26 +418,7 @@ class VRClubEffects extends VRClubFixtures {
             
             // PERFORMANCE: Shadows and pool lights disabled for better FPS
             
-            const goboProjection = BABYLON.MeshBuilder.CreateDisc("goboProjection" + i, {
-                radius: 1.0, tessellation: 64
-            }, this.scene);
-            goboProjection.rotation.x = Math.PI / 2;
-            goboProjection.position.set(pos.x, 0.02, pos.z - 5);
-            goboProjection.isPickable = false;
-            const goboMat = this.materialFactory.createStandardMaterial("goboMat" + i, {
-                diffuseColor: [0, 0, 0], specularColor: [0, 0, 0],
-                emissiveColor: this.currentSpotColor, disableLighting: true, mutable: true
-            });
-            goboMat.alpha = 0.9;
-            goboMat.alphaMode = BABYLON.Engine.ALPHA_ADD;
-            goboMat.backFaceCulling = false;
-            goboMat.disableDepthWrite = true;
-            goboProjection.material = goboMat;
-            goboProjection.renderingGroupId = 1;
-            goboProjection.setEnabled(false);
             this.spotlights.push({
-                goboProjection, goboMat, goboTexture: null,
-                goboLocalRotation: i * (Math.PI / 3),
                 light: spot,
                 beam: beam,
                 beamMat: beamMat,

@@ -293,10 +293,6 @@ class VRClubAnimationCore extends VRClubEffects {
 
         this.ledTime += dt * (this.ledWallSpeed || 1.0);
         this.frameCounter++;
-        if (this.goboEnabled) {
-            this.goboRotation += 0.02 * dtScale * (this.goboRotationSpeed || 1.0);
-            this.goboRotation %= Math.PI * 2;
-        }
         
         // Get audio data for reactive lighting (needed for laser sheet pulse)
         const audioData = this.getAudioData();
