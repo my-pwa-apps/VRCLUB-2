@@ -7,7 +7,7 @@ The shared QuestDev integration also includes live events, local performers,
 uploaded avatars, the split UI/audio layers, Aesthetic smoke and visibility
 regressions. Development free-VR access, development relay selection and seeded
 music are excluded from these distributions. ADE artwork remains opt-in.
-Production retains its projected-gobo controls alongside the multi-beam filter;
+Production uses normal spot beams and the optional multi-beam filter only;
 their methods now live in the eager UI controls layer, with shared fixture and
 preset state preserved. The VR controls are on the smoke settings page to keep
 the Effects page within twelve slots.
@@ -42,7 +42,9 @@ neutral and governs flashes; master zero immediately blacks show-owned output.
 Keep sheet speed/opacity bounded, maximum smoke output tier-aware, both automatic
 bursts on one musical clock, manual bursts expiring, and sequences advancing
 through missed detector beats without exceeding the cadence governor.
-Projected gobos and independent movable/pickable heads must remain intact.
+Independent movable/pickable heads and their ordinary soft pools remain intact.
+Projected gobo filters are removed from controls, rendering and shared state.
+Imports of complete older presets discard their retired gobo fields.
 
 `LightingPresets` owns twelve local slots and validates complete schemas before
 writing. Selection/save/delete are personal; recall is host-owned. Matching

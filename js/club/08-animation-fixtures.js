@@ -584,17 +584,13 @@ class VRClubAnimationFixtures extends VRClubAnimationCore {
                     if (spot.beamGlow) spot.beamGlow.visibility = 0;
                     if (spot.lightPoolGlow) spot.lightPoolGlow.visibility = 0;
                     if (spot.poolLight) spot.poolLight.setEnabled(false);
-                    if (spot.goboProjection) {
-                        spot.goboProjection.setEnabled(false);
-                        spot.goboProjection.visibility = 0;
-                    }
                 }
                 
                 // PROFESSIONAL CONSTANT INTENSITY (audio disabled)
                 const baseIntensity = this.isInVRMode ? 48 : 30;
                 const smoothPulse = Math.sin(time * 2.5) * (this.isInVRMode ? 5 : 3);
                 
-                // UPGRADE: Keep diffuse in sync with specular color for projectionTexture.
+                // Keep diffuse in sync with the physical head's specular colour.
                 // `specular` may safely alias currentSpotColor (we own it and never let
                 // anyone else mutate it). `diffuse` needs a scaled copy, so scale into a
                 // per-spot buffer rather than allocating a Color3 per spotlight per frame.
@@ -650,10 +646,6 @@ class VRClubAnimationFixtures extends VRClubAnimationCore {
                 if (spot.lightPool) spot.lightPool.visibility = 0;
                 if (spot.lightPoolGlow) spot.lightPoolGlow.visibility = 0;
                 if (spot.poolLight) spot.poolLight.setEnabled(false);
-                if (spot.goboProjection) {
-                    spot.goboProjection.setEnabled(false);
-                    spot.goboProjection.visibility = 0;
-                }
             });
         }
         
@@ -823,9 +815,9 @@ class VRClubAnimationFixtures extends VRClubAnimationCore {
             out.z = zSweep;
             
         } else if (pattern === 3) {
-            // PATTERN 3: CROSSED BEAMS - Outer gobos cross over middle gobo
+            // PATTERN 3: CROSSED BEAMS - Outer heads cross over the middle head
             // Each side has 3 lights: front (0,3), middle (1,4), back (2,5)
-            // The front and back gobos sweep across, crossing over the middle one
+            // The front and back heads sweep across, crossing over the middle one
             const sweepPhase = globalPhase * speedMultiplier;
             const crossSweep = Math.sin(sweepPhase * 0.4) * 0.8; // Wide crossing motion
             
@@ -833,16 +825,16 @@ class VRClubAnimationFixtures extends VRClubAnimationCore {
             const positionInGroup = i % 3; // 0=front, 1=middle, 2=back
             
             if (positionInGroup === 1) {
-                // MIDDLE gobo: Points straight down/slightly forward - stationary anchor
+                // MIDDLE head: Points straight down/slightly forward - stationary anchor
                 out.x = 0;
                 out.z = -0.2; // Slight forward angle toward dance floor
             } else if (positionInGroup === 0) {
-                // FRONT gobo: Sweeps from outside to inside and back
-                // When crossing, it goes PAST the middle gobo position
+                // FRONT head: Sweeps from outside to inside and back
+                // When crossing, it goes PAST the middle head position
                 out.x = isLeftSide ? crossSweep : -crossSweep;
                 out.z = -0.35 + Math.abs(crossSweep) * 0.2; // More forward when at extremes
             } else {
-                // BACK gobo: Sweeps opposite to front (counter-phase)
+                // BACK head: Sweeps opposite to front (counter-phase)
                 // This creates an X pattern when viewed from above
                 out.x = isLeftSide ? -crossSweep : crossSweep; // Opposite of front
                 out.z = 0.1 - Math.abs(crossSweep) * 0.15; // Slightly back, less when crossing
@@ -1169,7 +1161,7 @@ class VRClubAnimationFixtures extends VRClubAnimationCore {
     /**
      * Beam geometry: emission point, first surface hit, length/extension, transform,
      * clip plane and texture scroll. Returns the per-spot geometry record the
-     * appearance, light-pool and gobo passes read.
+     * appearance and light-pool passes read.
      */
     _updateSpotBeamGeometry(spot, i, direction, time, dtScale, speedMultiplier) {
         const { centerDistanceToSurface, hitSurface, emissionPoint, surfaceIntersection } = this._resolveSpotSurfaceHit(spot, direction);
@@ -1502,7 +1494,7 @@ class VRClubAnimationFixtures extends VRClubAnimationCore {
                 // === LAMBERT'S COSINE LAW ===
                 // Irradiance on surface = I₀ * cos(θ)
                 // Light spreads over larger area at steeper angles → dimmer
-                // The cone, pool, gobo and real SpotLight share this one photometric model.
+                // The cone, pool and real SpotLight share this one photometric model.
                 physicsIntensity = (typeof this._fixturePhotometricGain === 'function'
                     ? this._fixturePhotometricGain(centerBeamLength, cosIncident) : 1) * master;
                 
@@ -1692,89 +1684,6 @@ class VRClubAnimationFixtures extends VRClubAnimationCore {
                 spot.poolGlowMat.emissiveColor = spot._poolGlowEmisBuf;
                 const baseGlowAlpha = (hitSurface === 'floor') ? 0.35 : 0.5;
                 spot.poolGlowMat.alpha = baseGlowAlpha * Math.min(1.0, physicsIntensity);
-            }
-        }
-    }
-
-    /** Gobo pattern projection on the surface the beam hits. */
-    _updateSpotGoboProjection(spot, g, st) {
-        const { hitSurface } = g;
-        const { beamVisible, physicsIntensity, spotColor } = st;
-        // === GOBO PROJECTION UPDATE ===
-        if (spot.goboProjection) {
-            // An untextured gobo disc is a hard flat circle; only a real pattern may replace the soft pool.
-            const hasPattern = !!(spot.goboMat && spot.goboMat.emissiveTexture);
-            const showGobo = this.lightsActive && this.goboEnabled && beamVisible && hasPattern;
-            spot.goboProjection.setEnabled(showGobo);
-            spot.goboProjection.visibility = showGobo ? 1.0 : 0;
-            
-            if (showGobo) {
-                // === SURFACE-AWARE GOBO POSITIONING ===
-                // Gobo must match the lightPool's position and orientation on any surface
-                const goboLocalOffset = spot.goboLocalRotation || 0;
-                const goboRotAngle = this.goboRotation + goboLocalOffset;
-                
-                if (hitSurface === 'floor') {
-                    // Floor or elevated horizontal surface: flat disc on XZ plane
-                    spot.goboProjection.position.set(
-                        spot.lightPool.position.x,
-                        (spot.lightPool.position.y || 0.004) + 0.021, // Just above surface
-                        spot.lightPool.position.z
-                    );
-                    spot.goboProjection.rotation.x = Math.PI / 2;
-                    spot.goboProjection.rotation.y = spot.lightPool.rotation.y;
-                    spot.goboProjection.rotation.z = goboRotAngle;
-                } else if (hitSurface === 'backWall') {
-                    // Back wall: vertical disc facing +Z
-                    spot.goboProjection.position.set(
-                        spot.lightPool.position.x,
-                        spot.lightPool.position.y,
-                        spot.lightPool.position.z + 0.015
-                    );
-                    spot.goboProjection.rotation.x = 0;
-                    spot.goboProjection.rotation.y = 0;
-                    spot.goboProjection.rotation.z = goboRotAngle;
-                } else if (hitSurface === 'leftWall') {
-                    // Left wall: vertical disc facing +X
-                    spot.goboProjection.position.set(
-                        spot.lightPool.position.x + 0.015,
-                        spot.lightPool.position.y,
-                        spot.lightPool.position.z
-                    );
-                    spot.goboProjection.rotation.x = 0;
-                    spot.goboProjection.rotation.y = Math.PI / 2;
-                    spot.goboProjection.rotation.z = goboRotAngle;
-                } else if (hitSurface === 'rightWall') {
-                    // Right wall: vertical disc facing -X
-                    spot.goboProjection.position.set(
-                        spot.lightPool.position.x - 0.015,
-                        spot.lightPool.position.y,
-                        spot.lightPool.position.z
-                    );
-                    spot.goboProjection.rotation.x = 0;
-                    spot.goboProjection.rotation.y = -Math.PI / 2;
-                    spot.goboProjection.rotation.z = goboRotAngle;
-                }
-                
-                // Sync scale with light pool (gobo slightly larger for soft edges)
-                spot.goboProjection.scaling.x = spot.lightPool.scaling.x * 1.1;
-                spot.goboProjection.scaling.y = spot.lightPool.scaling.y * 1.1;
-                
-                // Update color to match spotlight with physics-based brightness
-                if (spot.goboMat) {
-                    const goboBrightness = 1.8 * physicsIntensity;
-                    if (!spot._goboEmisBuf) spot._goboEmisBuf = new BABYLON.Color3(0, 0, 0);
-                    spotColor.scaleToRef(goboBrightness, spot._goboEmisBuf);
-                    spot.goboMat.emissiveColor = spot._goboEmisBuf;
-                }
-                
-                // Hide regular pool when gobo is on (gobo replaces it)
-                spot.lightPool.visibility = 0;
-            } else {
-                // Gobo is off - ensure regular pool is visible (if lights are on)
-                if (this.lightsActive && beamVisible && spot.lightPool) {
-                    spot.lightPool.visibility = 1.0;
-                }
             }
         }
     }

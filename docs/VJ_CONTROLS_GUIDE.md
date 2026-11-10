@@ -53,7 +53,7 @@ The selection is personal navigation; changing a setting is host-owned in a room
 Automatic spotlight looks include paired row chases, alternating columns
 and row fills. Each new look resets specialized head settings. A manual group
 edit takes the lights under the normal hold/return policy. Master blackout and
-Safe Mode remain authoritative across lenses, beams, pools, gobos and lighting.
+Safe Mode remain authoritative across lenses, normal/multi-beam beams, pools and lighting.
 Room frames carry group settings and a timestamped musical position in automatic
 and manual modes. Late joiners follow the host's sequence; handover keeps its
 current phase, and leaving/blocking restores local group settings. Older clients

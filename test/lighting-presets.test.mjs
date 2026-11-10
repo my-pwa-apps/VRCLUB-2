@@ -152,6 +152,31 @@ test('smoke mode is saved and shared, and older presets migrate without losing t
     assert.throws(() => h.presets.import(JSON.stringify(old)));
 });
 
+test('complete gobo-era presets migrate to normal beams without losing prism, smoke or brightness', () => {
+    const h = harness();
+    h.club.spotPrismActive = true;
+    h.club.spotBrightness = 1.5;
+    h.club.fogBurstMode = 'continuous';
+    h.presets.save(0);
+    const current = JSON.parse(h.presets.export());
+    for (const omitted of [[], ['spotBrightness', 'laserBrightness', 'ledWallBrightness'],
+        ['spotBrightness', 'laserBrightness', 'ledWallBrightness', 'fogBurstMode']]) {
+        const old = structuredClone(current);
+        for (const key of omitted) delete old.slots[0].fx[key];
+        Object.assign(old.slots[0].fx, { goboEnabled: true, goboPatternIndex: 9, goboRotationSpeed: -1 });
+        h.presets.import(JSON.stringify(old));
+        assert.equal(h.presets.recall(0), true);
+        assert.equal(h.club.spotPrismActive, true);
+        assert.equal(h.club.spotBrightness, omitted.length ? 1 : 1.5);
+        assert.equal(h.club.fogBurstMode, omitted.includes('fogBurstMode') ? 'auto' : 'continuous');
+        assert.ok(Object.keys(h.presets.slots[0].fx).every(key => !key.startsWith('gobo')));
+        assert.ok(Object.keys(h.club.multiplayer._captureFixtures()).every(key => !key.startsWith('gobo')));
+    }
+    const partial = structuredClone(current);
+    partial.slots[0].fx.goboEnabled = true;
+    assert.throws(() => h.presets.import(JSON.stringify(partial)), /retired gobo/);
+});
+
 test('preset recall preserves personal Safe Mode and host authority; saving a guest view remains personal', () => {
     const { club, presets, follow, changes } = harness();
     presets.save(0);
