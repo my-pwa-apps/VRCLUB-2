@@ -695,6 +695,16 @@ with no audio; the master's smoothing compounds with `dtScale`. The show's energ
 calms the room and a drop lifts it.
 ## Non-negotiable rendering rules
 
+### Strobe fixtures
+
+The four strobes copy the Unity fixture design and placement only: x = +/-sideTrussX,
+y = 7.6, z = -9.2/-14.8, aimed at (0, 1.7, -12). Dark 1.05 x 0.36 x 0.22 m
+casings, reflectors and resting tubes share static instance draws; each front emitter
+remains independently animated. Upright mounts remain on the trusses. The web flash
+scheduler, glare, Safe Mode and room flash governor are unchanged; no Unity flash
+lights or visual scripting are ported. Geometry is measured by
+`test/strobe-fixtures.test.mjs`; physical-headset appearance remains unverified.
+
 ### Frame-rate independence
 The render loop runs at 60 Hz on desktop, 72/90/120 Hz on Quest, and lower under thermal
 throttling. `updateAnimations()` computes:
