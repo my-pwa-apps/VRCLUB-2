@@ -1690,8 +1690,14 @@ class VRClubAudioCrowd extends VRClubUI {
 
     /** Load one avatar GLB into a container with its materials normalised. Null when it cannot be loaded. */
     async _loadAvatarSource(url, garmentColor = null, hairColor = null) {
+        let container = null;
         try {
-            const container = await BABYLON.SceneLoader.LoadAssetContainerAsync("", url, this.scene);
+            if (this._disposed) return null;
+            container = await this.modelLoader.loadAssetContainer(url, this.scene);
+            if (this._disposed) {
+                container.dispose();
+                return null;
+            }
             // Babylon's glTF loader starts the file's first clip on the SOURCE skeleton, even in a container nothing draws, and it
             // loops there for ever: every frame the scene evaluated ~2,200 animatables (about 17 source files) that no one could
             // see. The instantiated characters start their own cloned groups, so the sources' can simply be stopped.
@@ -1707,6 +1713,7 @@ class VRClubAudioCrowd extends VRClubUI {
             this._avatarContainers.push(container);
             return container;
         } catch (error) {
+            if (container) container.dispose();
             log.warn(`  ❌ Failed to load avatar source ${url}: ${error.message}`);
             return null;
         }

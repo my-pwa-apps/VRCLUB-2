@@ -1,0 +1,10 @@
+{
+  "id": "plastered_wall_04", "source": "https://polyhaven.com/a/plastered_wall_04",
+  "license": "CC0-1.0", "licenseUrl": "https://polyhaven.com/license", "authors": {"Rob Tuytel": "All"},
+  "filesHash": "6d3a95313563598622a45bdfe02137a3e590cc30", "size": 512,
+  "maps": {
+    "diff.jpg": {"url": "https://dl.polyhaven.org/file/ph-assets/Textures/jpg/1k/plastered_wall_04/plastered_wall_04_diff_1k.jpg", "sourceSha256": "52d789111bbe93d311c22e49d28b56256593c8f84c75742642403da857a36503", "outputSha256": "67fa10ff3bc684ba0e0da90ca6f46c1fa8d98bf8f5088f070e2544606a276e7b", "bytes": 7400},
+    "normal.jpg": {"url": "https://dl.polyhaven.org/file/ph-assets/Textures/jpg/1k/plastered_wall_04/plastered_wall_04_nor_dx_1k.jpg", "sourceSha256": "4f9d9fee72dd41b3174f3e39e86b60dd34549e68f8cf81306a943161350b9c0f", "outputSha256": "825f09471ebf8e1492ca9aec052bf07eea335a9038d92d7c0b03628f06da3203", "bytes": 13239},
+    "orm.jpg": {"url": "https://dl.polyhaven.org/file/ph-assets/Textures/jpg/1k/plastered_wall_04/plastered_wall_04_arm_1k.jpg", "sourceSha256": "9ffc6cc7b58f95972361ac887df92fdf3e6d86b96ecadcac17cbc2676cb8617d", "outputSha256": "1278e51d0a1220349aa56f6de4b5ff996f179c8bc8931df882be984b2fa52abe", "bytes": 9235}
+  }
+}

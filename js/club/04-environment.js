@@ -384,13 +384,15 @@ class VRClubEnvironment extends VRClubRendering {
         
         // Apply downloaded concrete ceiling textures if available
         if (this.concreteTextures && this.concreteTextures.ceiling) {
-            log.info('🎨 Applying ceiling textures (Polyhaven - Raw Concrete)');
+            log.info('🎨 Applying ceiling textures (Poly Haven - Brushed Concrete)');
             this.textureLoader.applyTexturesToMaterial(ceilingMat, this.concreteTextures.ceiling);
             
             // Adjust for darker, more industrial look
             ceilingMat.baseColor = new BABYLON.Color3(0.25, 0.25, 0.28); // Darker industrial concrete
             ceilingMat.roughness = 0.88;
+            ceilingMat.metallic = 1;
             ceilingMat.environmentIntensity = 0.15; // Subtle light reflections from below
+            if (this.concreteTextures.ceiling.normal) this.concreteTextures.ceiling.normal.level = 0.3;
         }
         
         // One 3 m square tile of concrete, not one stretched across 25 x 45 m (see _applyWorldUVs).
@@ -440,6 +442,13 @@ class VRClubEnvironment extends VRClubRendering {
         pipe2.material = pipeMat;
         pipe2.freezeWorldMatrix();
         pipe2.doNotSyncBoundingInfo = true;
+
+        const servicePipes = BABYLON.Mesh.MergeMeshes([ventDuct, pipe1, pipe2], true, true, undefined, false, false);
+        if (!servicePipes) throw new Error('Could not consolidate ceiling service pipes.');
+        servicePipes.name = 'ceilingServicePipes';
+        servicePipes.material = pipeMat;
+        servicePipes.freezeWorldMatrix();
+        servicePipes.doNotSyncBoundingInfo = true;
 
         this.createRoofGirders();
         

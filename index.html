@@ -301,6 +301,42 @@
                 <button class="vj-button vj-button-wide" id="vjResetBtn" type="button" title="Restore every VJ control to its documented default.">↺ RESET TO DEFAULTS</button>
             </div>
             
+            <div class="vj-section" data-vj-tab-panel="effects" hidden>
+                <div class="vj-section-title">Fixture brightness and smoke</div>
+                <p class="vj-help">Independent brightness trims survive show cues. Safe Mode caps boosts at 100%; zero whole-show brightness remains blackout.</p>
+                <div class="vj-button-grid">
+                    <button class="vj-button" type="button" data-control="cycleSpotBrightness" data-portable-label="SPOT BRIGHTNESS">SPOT BRIGHTNESS: 100%</button>
+                    <button class="vj-button" type="button" data-control="cycleLaserBrightness" data-portable-label="LASER BRIGHTNESS">LASER BRIGHTNESS: 100%</button>
+                    <button class="vj-button" type="button" data-control="cycleLedBrightness" data-portable-label="WALL BRIGHTNESS">WALL BRIGHTNESS: 100%</button>
+                    <button class="vj-button" type="button" data-control="cycleSheetBrightness" data-portable-label="SHEET BRIGHTNESS">SHEET BRIGHTNESS: 100%</button>
+                    <button class="vj-button" type="button" data-control="cycleSheetSpeed" data-portable-label="SHEET SPEED">SHEET SPEED: 100%</button>
+                    <button class="vj-button" type="button" data-control="cycleFogMode" data-portable-label="SMOKE MODE">SMOKE MODE: STEADY + BURSTS</button>
+                    <button class="vj-button" type="button" data-control="cycleFogIntensity" data-portable-label="SMOKE AMOUNT">SMOKE AMOUNT: MEDIUM</button>
+                    <button class="vj-button" type="button" data-control="spotPrismActive" data-portable-label="SPOT PRISM">SPOT PRISM: OFF</button>
+                </div>
+            </div>
+            <div class="vj-section" data-vj-tab-panel="lights" hidden>
+                <div class="vj-section-title">Independent spotlight rig</div>
+                <p class="vj-help">Select all heads, a row, a column or one head, then set its power, colour and aim. Sequences stay on the musical clock.</p>
+                <div class="vj-button-grid">
+                    <button class="vj-button" type="button" data-control="cycleSpotSequence" data-portable-label="SEQUENCE">SEQUENCE: STEADY</button>
+                    <button class="vj-button" type="button" data-control="cycleSpotSequenceRate" data-portable-label="TIMING">TIMING: 2 BEATS</button>
+                    <button class="vj-button" type="button" data-control="cycleSpotTarget" data-portable-label="EDIT TARGET">EDIT TARGET: ALL</button>
+                    <button class="vj-button" type="button" data-control="toggleSpotTarget" data-portable-label="TARGET POWER">TARGET POWER: ON</button>
+                    <button class="vj-button" type="button" data-control="cycleSpotTargetColor" data-portable-label="TARGET COLOUR">TARGET COLOUR: FOLLOW SPOT COLOUR</button>
+                    <button class="vj-button" type="button" data-control="cycleSpotTargetMotion" data-portable-label="TARGET AIM">TARGET AIM: FOLLOW AIM PATH</button>
+                </div>
+            </div>
+            <div class="vj-section" data-vj-tab-panel="show" hidden>
+                <div class="vj-section-title">Lighting presets</div>
+                <p class="vj-help">Save one of twelve local lighting setups without taking control. Only the host can recall; overwrite and delete require a second press within four seconds.</p>
+                <div class="vj-button-grid">
+                    <button class="vj-button" type="button" data-control="cycleLightingPreset" data-portable-label="PRESET SLOT">PRESET SLOT: 1 EMPTY</button>
+                    <button class="vj-button" type="button" data-control="saveLightingPreset" data-portable-label="SAVE LIGHTING">SAVE LIGHTING</button>
+                    <button class="vj-button" type="button" data-control="recallLightingPreset" data-portable-label="RECALL PRESET">RECALL PRESET</button>
+                    <button class="vj-button" type="button" data-control="deleteLightingPreset" data-portable-label="DELETE PRESET">DELETE PRESET</button>
+                </div>
+            </div>
             <!-- Spotlight Controls -->
             <div class="vj-section" data-vj-tab-panel="lights" hidden>
                 <div class="vj-section-title">Spotlight settings</div>
@@ -538,6 +574,13 @@
             <div class="audio-section">
                 <label for="savedSets">Saved sets on this device</label>
                 <select class="audio-input" id="savedSets" aria-label="Saved sets"></select>
+                <div id="musicRecovery" hidden>
+                    <p class="network-help" id="musicRecoveryMessage" role="status"></p>
+                    <div class="audio-input-group">
+                        <button class="audio-button" id="retrySavedSets" type="button">Retry reading saved sets</button>
+                        <button class="audio-button" id="resetSavedSets" type="button">Reset unreadable saved sets</button>
+                    </div>
+                </div>
                 <div class="audio-input-group">
                     <button class="audio-button" id="playSavedSetBtn" type="button">Play saved set</button>
                     <button class="audio-button" id="removeSavedSetBtn" type="button">Remove saved set</button>
@@ -1037,6 +1080,7 @@
     <script src="js/restroomArt.js?v=20261009-1"></script>
 
     <!-- Entrance vestibule and bar, mixed into VRClub.prototype by club_hyperrealistic.js (needs barProps). -->
+    <script src="js/restroomInteractions.js?v=20261009-1"></script>
     <script src="js/venueDressing.js?v=20261009-1"></script>
 
     <!-- Steel mezzanine and stair along the left wall, mixed into VRClub.prototype (borrows venueDressing's builder). -->
@@ -1072,6 +1116,7 @@
     <script src="js/multiplayer.js?v=20261009-1"></script>
 
     <!-- VRClub implementation layers. Each extends the previous class; keep this order. -->
+    <script src="js/lightingPresets.js?v=20261009-1"></script>
     <script src="js/club/01-core.js?v=20261009-1"></script>
     <script src="js/club/02-lifecycle.js?v=20261009-1"></script>
     <script src="js/club/03-rendering.js?v=20261009-1"></script>

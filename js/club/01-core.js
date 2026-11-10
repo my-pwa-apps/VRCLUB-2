@@ -539,6 +539,20 @@ class VRClubCore {
         this.ledMonochrome = false; // true = wall renders in black & white only
         this.ledMulti = false;      // true = shapes alternate the wall colour, its complement and white
         this.ledWallLevel = 1;      // 0..1, how bright the wall runs; the Show Director resolves it from a look's ledLevel
+        this.spotBrightness = 1;
+        this.laserBrightness = 1;
+        this.ledWallBrightness = 1;
+        this.laserSheetBrightness = 1;
+        this.laserSheetSpeed = 1;
+        this.fogImmersion = 0;
+        this.spotSequence = 0;
+        this.spotSequenceRate = 2;
+        this.spotPrismActive = false;
+        for (let i = 0; i < 6; i++) {
+            this[`spotHead${i}Enabled`] = true;
+            this[`spotHead${i}Color`] = -1;
+            this[`spotHead${i}Motion`] = 0;
+        }
         this.strobesActive = true;
         this.strobePattern = 'all'; // 'all' = synchronized burst, 'chase' = clockwise corners
         // When the Show Director drives, when a burst fires: 'free' = random timer (legacy),

@@ -448,6 +448,23 @@ class ModelLoader {
         });
     }
 
+    /** Shares persistent bytes, not decoded scene objects; the caller owns the returned container. */
+    async loadAssetContainer(url, scene = this.scene) {
+        const bytes = await this.loadOrDownloadModel(url);
+        if (this.abortController.signal.aborted || scene.isDisposed) throw new Error('Model loading was cancelled.');
+        const blobUrl = URL.createObjectURL(new Blob([bytes], { type: 'model/gltf-binary' }));
+        try {
+            const container = await BABYLON.SceneLoader.LoadAssetContainerAsync('', blobUrl, scene, null, '.glb');
+            if (this.abortController.signal.aborted || scene.isDisposed) {
+                container.dispose();
+                throw new Error('Model loading was cancelled.');
+            }
+            return container;
+        } finally {
+            URL.revokeObjectURL(blobUrl);
+        }
+    }
+
     async loadModel(modelKey) {
         const config = this.modelConfigs[modelKey];
         if (!config) {

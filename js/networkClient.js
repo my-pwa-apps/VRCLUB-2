@@ -137,6 +137,7 @@ class NetworkClient {
         this.musicState = null;
         this.musicListening = false;
         this.mediaTransport = 'mesh';
+        this.restroomInteractionsSupported = false;
         this.sfu = null;
         this.capacity = 8;
 
@@ -165,6 +166,7 @@ class NetworkClient {
         /** The room's hand-operated doors: the whole list on joining, then one change at a time (index, shut). */
         this.onDoors = () => {};
         this.onDoor = () => {};
+        this.onRestroom = () => {};
         this.onChat = () => {};
         this.onModerationReport = () => {};
         this.onRemoteStream = () => {};
@@ -428,6 +430,8 @@ class NetworkClient {
                 if (msg.music) this.onMusic(msg.music);
                 if (msg.show) this.onShow(msg.show);
                 if (Array.isArray(msg.doors)) this.onDoors(msg.doors.slice(0, NetworkClient.MAX_DOORS).map(shut => shut === true));
+                this.restroomInteractionsSupported = msg.restroomInteractions === true;
+                if (this.restroomInteractionsSupported) this.onRestroom(msg.restroom);
                 this.onHostChange(this.hostId);
                 this.onRoom(this.locked);
                 if (this.sfu) {
@@ -537,6 +541,14 @@ class NetworkClient {
 
             case 'show':
                 this.onShow(msg);
+                break;
+
+            case 'restroom':
+                if (msg.id === this.selfId || this.peers.has(msg.id)) this.onRestroom(msg.state);
+                break;
+
+            case 'restroom-error':
+                this.onError(new Error(typeof msg.message === 'string' ? msg.message.slice(0, 120) : 'Restroom action was rejected.'));
                 break;
 
             case 'door':
@@ -840,6 +852,20 @@ class NetworkClient {
     sendDoor(door, shut) {
         if (this.status !== 'connected' || !Number.isInteger(door) || door < 0 || door >= NetworkClient.MAX_DOORS) return false;
         this._send({ type: 'door', door, shut: shut === true });
+        return true;
+    }
+
+    sendRestroom(action, fixture, on) {
+        if (!this.connected || !this.restroomInteractionsSupported) {
+            this.onError(new Error('This relay does not support shared restroom controls.'));
+            return false;
+        }
+        if (!['seat', 'lid', 'tap', 'flush'].includes(action) || !Number.isInteger(fixture) || fixture < 0 || fixture > 1 ||
+            (action !== 'flush' && typeof on !== 'boolean')) {
+            this.onError(new Error('Invalid restroom control.'));
+            return false;
+        }
+        this._send({ type: 'restroom', action, fixture, ...(action === 'flush' ? {} : { on }) });
         return true;
     }
 

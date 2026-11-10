@@ -82,13 +82,29 @@ class ClubMultiplayer {
      * so the relay (which only checks shapes) can never be used to write an arbitrary property.
      * 'b' is a boolean; [min, max] a clamped number.
      */
+    static SPOT_RIG_FIXTURES = Object.freeze({
+        spotSequence: [0, 6], spotSequenceRate: [1, 8], spotPrismActive: 'b',
+        ...Object.fromEntries(Array.from({ length: 6 }, (_, i) => [
+            [`spotHead${i}Enabled`, 'b'], [`spotHead${i}Color`, [-1, 8]], [`spotHead${i}Motion`, [0, 4]]
+        ]).flat())
+    });
+
     static MANUAL_FIXTURES = Object.freeze({
+        ...ClubMultiplayer.SPOT_RIG_FIXTURES,
         lightsActive: 'b', lasersActive: 'b', ledWallActive: 'b', ledMonochrome: 'b', strobesActive: 'b',
         mirrorBallActive: 'b', mirrorBallRaysActive: 'b', laserSheetActive: 'b', smokeActive: 'b', spotStrobeActive: 'b', goboEnabled: 'b',
         spotlightMode: [0, 7], spotlightPattern: [0, 7], goboPatternIndex: [0, 31], ledPattern: [0, 63], spotColorIndex: [0, 63],
         goboRotationSpeed: [-10, 10], spotlightSpeed: [0, 10], laserSpeed: [0, 10], mirrorBallSpeed: [0, 10],
         ledWallSpeed: [0, 10], strobeSpeed: [0, 10], vjMaster: [0, 1], strobePatternIndex: [0, 31],
-        currentColorIndex: [0, 2], colorLockActive: 'b'
+        currentColorIndex: [0, 2], colorLockActive: 'b',
+        spotBrightness: [0, 2], laserBrightness: [0, 2], ledWallBrightness: [0, 2],
+        laserSheetBrightness: [0, 3], laserSheetSpeed: [0.25, 2], fogImmersion: [0, 1],
+        fogIntensity: [0, 2], fogBurstMode: ['auto', 'continuous', 'burst'],
+        ledMulti: 'b', ledWallLevel: [0, 1], kickDepth: [0, 1],
+        laserSheetOrigin: ['both', 'ceilingLeft', 'ceilingRight'], laserSheetMotion: ['vertical', 'lateral'],
+        strobeSync: ['free', 'beat', 'offbeat', 'bar', 'roll'],
+        spotRed: [0, 1], spotGreen: [0, 1], spotBlue: [0, 1],
+        mirrorRed: [0, 1], mirrorGreen: [0, 1], mirrorBlue: [0, 1]
     });
     /** A dance ends when the guest walks this far from where it started. */
     static DANCE_BREAK_DISTANCE = 0.6;
@@ -577,6 +593,7 @@ class ClubMultiplayer {
                 this.locked = false;
                 // The doors belong to the room: out of it they are ajar again.
                 if (typeof club.setSharedDoors === 'function') club.setSharedDoors([]);
+                club.setSharedRestroom?.(null);
             }
             if (status === 'error' || status === 'disconnected') {
                 this._stopPing();
@@ -653,6 +670,7 @@ class ClubMultiplayer {
         client.onShow = (frame) => this._applyShow(frame);
         client.onDoors = (doors) => { if (typeof club.setSharedDoors === 'function') club.setSharedDoors(doors); };
         client.onDoor = (door, shut) => { if (typeof club.setSharedDoor === 'function') club.setSharedDoor(door, shut); };
+        client.onRestroom = state => club.setSharedRestroom?.(state);
         client.musicDecorator = (music) => this._decorateMusic(music);
         client.onRemoteStream = (id, stream) => stream ? manager.attachVoice(id, stream) : manager.detachVoice(id);
         client.onError = (err) => {
@@ -1175,7 +1193,13 @@ class ClubMultiplayer {
                     ? (typeof VRClubAnimationFinish !== 'undefined' ? VRClubAnimationFinish.STROBE_PATTERNS.indexOf(club.strobePattern) : -1)
                     : club[key];
             if (key === 'strobePatternIndex' && !(value >= 0)) continue;
-            if (spec === 'b' ? typeof value === 'boolean' : (typeof value === 'number' && Number.isFinite(value))) out[key] = value;
+            if (spec === 'b' ? typeof value === 'boolean' : typeof spec[0] === 'string' ? spec.includes(value)
+                : (typeof value === 'number' && Number.isFinite(value))) out[key] = value;
+        }
+        for (const [prefix, colour] of [['spot', club.currentSpotColor], ['mirror', club.mirrorBallSpotlightColor]]) {
+            if (colour) {
+                out[prefix + 'Red'] = colour.r; out[prefix + 'Green'] = colour.g; out[prefix + 'Blue'] = colour.b;
+            }
         }
         return out;
     }
@@ -1200,6 +1224,17 @@ class ClubMultiplayer {
         // Room appearance travels through the existing relay's validated flat metadata map, in every show mode.
         if (typeof club.getRoomCharacterStyle === 'function') {
             frame.fx = { ...frame.fx, characterStyle: club.getRoomCharacterStyle() };
+        }
+        const fixtures = this._captureFixtures();
+        frame.fx ||= {};
+        for (const key of [...Object.keys(ClubMultiplayer.SPOT_RIG_FIXTURES),
+            'spotBrightness', 'laserBrightness', 'ledWallBrightness', 'laserSheetBrightness', 'laserSheetSpeed']) {
+            if (key in fixtures) frame.fx[key] = fixtures[key];
+        }
+        if (club.spotSequence && typeof club.spotSequenceBeat === 'function') {
+            frame.fx.spotSequenceBeat = club.spotSequenceBeat() % 672;
+            frame.fx.spotSequenceAt = new Date(Date.now() + (this.client.serverOffset || 0)).toISOString();
+            frame.fx.spotSequenceBpm = club.vjBPM || 120;
         }
         return frame;
     }
@@ -1243,6 +1278,7 @@ class ClubMultiplayer {
             club.vjManualMode = false;
             director.enabled = true;
             director.applyRemote(frame, show.force);
+            this._applyFixtures(frame.fx, true);
         } else {
             club.vjManualMode = true;
             club.lastVJInteraction = now / 1000;
@@ -1263,20 +1299,25 @@ class ClubMultiplayer {
     }
 
     /** Apply the host's console settings, each one only if it is a known fixture, of the right type and in range. */
-    _applyFixtures(fx) {
+    _applyFixtures(fx, rigOnly = false) {
         if (!fx || typeof fx !== 'object') return;
         const club = this.club;
         const safe = !!club.photosensitiveSafeMode;
         for (const key of Object.keys(ClubMultiplayer.MANUAL_FIXTURES)) {
+            if (rigOnly && !Object.hasOwn(ClubMultiplayer.SPOT_RIG_FIXTURES, key) &&
+                !['spotBrightness', 'laserBrightness', 'ledWallBrightness', 'laserSheetBrightness', 'laserSheetSpeed'].includes(key)) continue;
             if (!Object.prototype.hasOwnProperty.call(fx, key)) continue;
             const spec = ClubMultiplayer.MANUAL_FIXTURES[key];
             let value = fx[key];
             if (spec === 'b') {
                 if (typeof value !== 'boolean') continue;
+            } else if (typeof spec[0] === 'string') {
+                if (!spec.includes(value)) continue;
             } else {
                 if (typeof value !== 'number' || !Number.isFinite(value)) continue;
                 value = Math.min(spec[1], Math.max(spec[0], value));
-                if (/Index$|Mode$|Pattern$/.test(key)) value = Math.round(value);
+                if (/Index$|Mode$|Pattern$|^spotHead|^spotSequence/.test(key)) value = Math.round(value);
+                if (key === 'spotSequenceRate' && ![1, 2, 4, 8].includes(value)) continue;
             }
             // Safe Mode is the guest's own medical setting: a host's console never turns strobes back on.
             if (safe && (key === 'strobesActive' || key === 'spotStrobeActive')) value = false;
@@ -1309,8 +1350,31 @@ class ClubMultiplayer {
                     if (key in club) club[key] = value;
             }
         }
-        if (club.colorLockActive && typeof club.matchAllLightColors === 'function') {
+        const stampedAt = typeof fx.spotSequenceAt === 'string' && fx.spotSequenceAt.length === 24 ? Date.parse(fx.spotSequenceAt) : NaN;
+        if (Number.isFinite(fx.spotSequenceBeat) && fx.spotSequenceBeat >= 0 && fx.spotSequenceBeat < 672 &&
+            Number.isFinite(stampedAt) && Math.abs(Date.now() + (this.client.serverOffset || 0) - stampedAt) < 12000) {
+            const age = Math.max(0, Date.now() + (this.client.serverOffset || 0) - stampedAt) / 1000;
+            club._spotRemoteBpm = Number.isFinite(fx.spotSequenceBpm) && fx.spotSequenceBpm >= 30 && fx.spotSequenceBpm <= 300
+                ? fx.spotSequenceBpm : club.vjBPM || 120;
+            club._spotRemoteBeat = fx.spotSequenceBeat + age * club._spotRemoteBpm / 60;
+            club._spotRemoteAt = performance.now() / 1000;
+        }
+        if (!rigOnly && club.colorLockActive && typeof club.matchAllLightColors === 'function') {
             club.matchAllLightColors(false);
+        }
+        if (!rigOnly) {
+            const colour = prefix => {
+                const rgb = ['Red', 'Green', 'Blue'].map(channel => fx[prefix + channel]);
+                return rgb.every(value => Number.isFinite(value) && value >= 0 && value <= 1) ? new BABYLON.Color3(...rgb) : null;
+            };
+            const spot = colour('spot'), mirror = colour('mirror');
+            if (spot) {
+                club.currentSpotColor = spot;
+                club.colorTransitionProgress = 1;
+                club.vjDirector?.refreshLedColor?.();
+            }
+            if (mirror) club._setMirrorBallColor?.(mirror);
+            if ('laserSheetOrigin' in fx || 'laserSheetMotion' in fx) club.configureLaserSheetVariant?.();
         }
     }
 

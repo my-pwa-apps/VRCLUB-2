@@ -1,5 +1,35 @@
 # VR Club
 
+### Selective production reliability and venue port
+
+`js/restroomInteractions.js` owns acknowledged shared toilet-seat/lid, flush and tap
+actions, controller-derived rinse water, and procedural spatial water sound controlled
+by **Ambience**, never Music. `worker/src/restroomState.js` validates the retained
+room state. Deploying the updated production Worker is required for online controls;
+older relays explicitly report unsupported controls. No deployment is performed by
+building the site.
+
+`js/lightingPresets.js` provides twelve validated, device-local lighting slots.
+DOM Show & Lights, VR BRIGHTNESS / RIG and the desk's BRIGHTNESS / RIG page share
+fixture controls: spots, lasers and wall up to 200%, sheet up to 300%, independent
+head/row/column power, colour and aim, beat-based sequences, prism and smoke settings.
+Save/select/delete stay personal; recalling or changing fixtures is host-gated.
+Safe Mode caps brightness boosts and denies flashes; master zero remains blackout.
+Preset overwrite/delete requires a second matching press within four seconds.
+
+Normal avatar, wardrobe and editor container downloads reuse ModelLoader's fingerprinted
+byte cache and download deadlines; parsing remains per container with clips stopped.
+Unreadable saved music never triggers or overwrites the default list. Music offers
+retry and an explicitly confirmed permanent reset; corrupt playback positions do not
+discard valid saved links. LED containment corrects tracked and deferred XR positions.
+The static server rejects private paths and symlink destinations.
+
+Static ceiling service pipes are merged without consolidating pickable fixtures.
+Licensed venue finishes, Door Handle 3 and hinged toilet geometry are recorded in
+ASSETS.md with rebuild recipes. This selective port does not include live-DJ events,
+uploaded avatars, branding/ADE artwork, advanced smoke scattering, development
+access bypasses or demo music. Existing production access and deployment remain unchanged.
+
 Hyperrealistic WebXR nightclub built with Babylon.js for compatible VR headsets and desktop browsers, with Meta Quest used as the primary tested headset. The experience includes a PBR club environment, DJ booth, LED wall, lasers, spotlights, mirror ball effects, audio-reactive lighting, local audio files, and stream URL playback.
 
 ## Quick Start
