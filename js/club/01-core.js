@@ -809,7 +809,7 @@ class VRClubCore {
         this.scene.fogDensity = vr.fogDensity;
         
         // Static materials are frozen at their creation sites, where ownership is
-        // known. Do not freeze by name here: fog LEDs, mirror fixtures, gobos and VJ
+        // known. Do not freeze by name here: fog LEDs, mirror fixtures, beams and VJ
         // controls all mutate at runtime and several of their names look static.
         
         // CRITICAL: Force unfreeze ALL LED panel materials (they may have been frozen during creation)

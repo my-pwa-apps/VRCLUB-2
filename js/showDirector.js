@@ -175,7 +175,7 @@ class ShowDirector {
             const base = {
                 intensity: 0.75, punch: 0.12, palette: 'analogous', colorLock: true,
                 lightsActive: false, lasersActive: false, laserSheetActive: false,
-                strobesActive: false, spotStrobeActive: false, mirrorBallActive: false, goboActive: false,
+                strobesActive: false, spotStrobeActive: false, mirrorBallActive: false,
                 mirrorBallRaysActive: false, smokeActive: true, fogIntensity: 1.4,
                 fogImmersion: 0, ledWallActive: true, ledPattern: 5, ledLevel: 0.35,
                 ledMonochrome: false, spotlightMode: 3, spotlightPattern: 1, spotlightSpeed: 0.5,
