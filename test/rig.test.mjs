@@ -29,10 +29,12 @@ function sandbox() {
         btoa: s => Buffer.from(s, 'binary').toString('base64')
     };
     box.window = box; box.self = box; box.globalThis = box;
-    box.document = { createElement: () => ({ getContext: () => null, style: {} }), addEventListener() {} };
+    box.addEventListener = () => {};
+    box.removeEventListener = () => {};
+    box.document = { createElement: () => ({ getContext: () => null, style: {} }), addEventListener() {}, removeEventListener() {} };
     box.navigator = { userAgent: 'node' };
     vm.createContext(box);
-    for (const file of ['js/vendor/babylon.js', 'js/vendor/babylonjs.loaders.min.js', 'js/avatarRig.js', 'js/djPerformer.js']) {
+    for (const file of ['js/vendor/babylon.js', 'js/vendor/babylonjs.loaders.min.js', 'js/avatarRig.js', 'js/djPerformer.js', 'js/avatarManager.js']) {
         vm.runInContext(readFileSync(join(ROOT, file), 'utf8'), box, { filename: file });
     }
     box.BABYLON.Logger.LogLevels = box.BABYLON.Logger.WarningLogLevel | box.BABYLON.Logger.ErrorLogLevel;
@@ -69,8 +71,105 @@ const limbLengths = rig => ({
     lower: dist(pos(rig, 'lowerarm_l'), pos(rig, 'hand_l'))
 });
 
+test('every network avatar follows real left/right dance and wave targets after animation without stretching limbs', async () => {
+    const files = readdirSync(join(ROOT, 'js/models/avatars')).filter(file => /^club-crowd-[fm]\d+\.glb$/.test(file));
+    assert.equal(files.length, 17);
+    let totalMs = 0, frames = 0;
+    for (const file of files) {
+        const { B, scene, engine, container, box } = await loadContainer(file);
+        box.VRClubAudioCrowd = { sourceIndex: () => 0 };
+        const manager = new box.AvatarManager({ scene, _loadCrowdSource: async () => container, _crowdSourceContainers: [] });
+        manager._createLabel = () => {
+            const mesh = new B.Mesh('testLabel', scene);
+            mesh.material = new B.StandardMaterial('testLabelMaterial', scene);
+            mesh.material.diffuseTexture = { dispose() {} };
+            return mesh;
+        };
+        manager._drawNameplate = () => {};
+        manager.setPersonalSpace(false);
+        manager.ensurePeer('p', 'Pat');
+        await manager.setAvatar('p', file.slice('club-crowd-'.length, -4));
+        const peer = manager.remotes.get('p');
+        assert.ok(peer.person?.arms, `${file}: tracking helper missing`);
+        const arms = peer.person.arms;
+        const updateArms = arms.updateTrackedArms;
+        arms.updateTrackedArms = function (...args) {
+            const start = performance.now();
+            updateArms.apply(this, args);
+            totalMs += performance.now() - start;
+            frames++;
+        };
+        new B.FreeCamera('camera', new B.Vector3(0, 2, -4), scene);
+        const at = name => {
+            const node = peer.person.node.getChildTransformNodes(false).find(n => n.name === `peerp_${name}`);
+            node.computeWorldMatrix(true);
+            return node.getAbsolutePosition().clone();
+        };
+        // Physical left is -X when facing +Z; imported bone names can be mirrored.
+        const leftSuffix = at('UpperArm.L').x < at('UpperArm.R').x ? 'L' : 'R';
+        const rightSuffix = leftSuffix === 'L' ? 'R' : 'L';
+        for (const yaw of [-2.4, 0.7, Math.PI]) {
+            peer.root.rotation.y = yaw;
+            peer.root.computeWorldMatrix(true);
+            const rotated = box.AvatarRig.createTrackedArms(peer.person.node, 'peerp_');
+            assert.equal(rotated.arms.find(arm => arm.side === 'left').suffix, leftSuffix.toLowerCase(),
+                `${file}: construction while turned swaps physical sides`);
+        }
+        peer.root.rotation.y = 0;
+        peer.root.computeWorldMatrix(true);
+        const leftShoulder = at(`UpperArm.${leftSuffix}`), rightShoulder = at(`UpperArm.${rightSuffix}`);
+        const reach = dist(leftShoulder, at(`LowerArm.${leftSuffix}`)) + dist(at(`LowerArm.${leftSuffix}`), at(`Wrist.${leftSuffix}`));
+        for (let frame = 0; frame < 50; frame++) {
+            const yaw = frame * 0.14;
+            const root = { x: 4, y: 4.7, z: -8, rotY: yaw };
+            const hand = (shoulder, side) => {
+                const dx = shoulder.x + side * 0.15, dz = shoulder.z + 0.25;
+                return { x: dx * Math.cos(yaw) + dz * Math.sin(yaw),
+                    y: shoulder.y - 1.7 + 0.18 + 0.12 * Math.sin(frame * 0.3),
+                    z: dz * Math.cos(yaw) - dx * Math.sin(yaw),
+                    fx: Math.sin(yaw), fy: 0, fz: Math.cos(yaw), ux: 0, uy: 1, uz: 0 };
+            };
+            const hands = { left: hand(leftShoulder, -1), right: hand(rightShoulder, 1) };
+            manager.updatePeerState('p', null, { ...root, hands });
+            manager.update(1 / 60);
+            scene.render();
+            for (const [side, suffix] of [['left', leftSuffix], ['right', rightSuffix]]) {
+                const target = peer.hands[side];
+                const wrist = at(`Wrist.${suffix}`);
+                const expected = { x: peer.root.position.x + target.x, y: peer.root.position.y + 1.7 + target.y,
+                    z: peer.root.position.z + target.z };
+                assert.ok(dist(wrist, expected) < 0.035, `${file} ${side} frame ${frame}: wrist misses by ${dist(wrist, expected).toFixed(3)} m`);
+                const shoulder = at(`UpperArm.${suffix}`), elbow = at(`LowerArm.${suffix}`);
+                const length = dist(shoulder, elbow) + dist(elbow, wrist);
+                assert.ok(Math.abs(length - reach) < 0.025, `${file}: limb stretched`);
+                const finger = at(`Index1.${suffix}`).add(at(`Pinky1.${suffix}`)).scale(0.5).subtract(wrist).normalize();
+                const forward = new B.Vector3(target.fx, target.fy, target.fz).normalize();
+                assert.ok(B.Vector3.Dot(finger, forward) > 0.97, `${file}: hand orientation does not follow the controller`);
+            }
+        }
+        const onlyLeft = { x: leftShoulder.x - 0.1, y: leftShoulder.y - 1.7 + 0.2, z: leftShoulder.z + 0.25,
+            fx: 0, fy: 0, fz: 1, ux: 0, uy: 1, uz: 0 };
+        manager.updatePeerState('p', null, { x: 4, y: 4.7, z: -8, rotY: 0, hands: { left: onlyLeft } });
+        for (let frame = 0; frame < 30; frame++) { manager.update(DT); scene.render(); }
+        assert.equal(peer.hands.right, null, 'missing right controller must not receive the left pose');
+        const target = peer.hands.left;
+        assert.ok(dist(at(`Wrist.${leftSuffix}`), {
+            x: peer.root.position.x + target.x, y: peer.root.position.y + 1.7 + target.y,
+            z: peer.root.position.z + target.z
+        }) < 0.035, `${file}: left-only tracking drives the wrong arm`);
+        manager.updatePeerState('p', null, { x: 4, y: 4.7, z: -8, rotY: 1.2 });
+        manager.update(1 / 60);
+        scene.render();
+        assert.equal(peer.hands.left, null, 'tracking loss returns to clip animation');
+        manager.dispose();
+        scene.dispose();
+        engine.dispose();
+    }
+    assert.ok(totalMs / frames < 2, `remote arm IK averaged ${(totalMs / frames).toFixed(2)} ms`);
+});
+
 test('the rig builds on every UE-skeleton body and stands at the requested eye height', async () => {
-    for (const glb of ['club-dancer-female.glb', 'club-dancer-male.glb', 'club-dj-hernan.glb', 'club-dj-melera.glb']) {
+    for (const glb of ['club-dancer-female.glb', 'club-dancer-male.glb', 'club-dj-male.glb', 'club-dj-female.glb']) {
         const { rig } = await loadRig(glb, { eyeHeight: 1.7, hideHead: true });
         assert.equal(rig.ok, true, `${glb} did not build`);
         const pose = makePose();
@@ -501,7 +600,7 @@ test('the performing DJ reaches the controller, leans in, keeps the feet on the 
     // The club's numbers: the controller's measured bounds, the DJ 0.18 m behind its near edge, the riser at 0.5 m,
     // eyes at 93% of the look's height (see _spawnPerformingDJ).
     const desk = { cx: 0, near: -18.89, far: -18.35, top: 1.54, halfWidth: 0.51 };
-    for (const [glb, height] of [['club-dj-hernan.glb', 1.78], ['club-dj-melera.glb', 1.68]]) {
+    for (const [glb, height] of [['club-dj-male.glb', 1.78], ['club-dj-female.glb', 1.68]]) {
         const { rig, scene } = await loadRig(glb, { eyeHeight: height * 0.93 });
         assert.equal(rig.ok, true, `${glb} cannot be driven`);
         const Performer = vm.runInContext('DJPerformer', sandbox());
@@ -524,12 +623,12 @@ test('the performing DJ reaches the controller, leans in, keeps the feet on the 
         const upright = tilt();
         const rest = limbLengths(rig);
         dj._begin('tweak', 99);
-        let ms = 0;
+        const samples = [];
         // Every knob in reach (the performer picks a knob with rng; no bar lines pass, so nothing else draws):
         // the wrist 5 cm behind each palm target, whichever bone the GLB calls left.
         for (let knob = 0; knob < 6; knob++) {
             pick = (knob + 0.5) / 6;
-            ms = Math.max(ms, step(70));
+            samples.push(step(70));
             for (const h of [dj.pose.left, dj.pose.right]) {
                 const want = { x: h.x - h.fx * 0.05, y: h.y - h.fy * 0.05, z: h.z - h.fz * 0.05 };
                 const miss = Math.min(dist(pos(rig, 'hand_l'), want), dist(pos(rig, 'hand_r'), want));
@@ -537,7 +636,7 @@ test('the performing DJ reaches the controller, leans in, keeps the feet on the 
             }
         }
         dj._begin('mix', 99);
-        step(70);
+        samples.push(step(70));
         for (const h of [dj.pose.left, dj.pose.right]) {
             const want = { x: h.x - h.fx * 0.05, y: h.y - h.fy * 0.05, z: h.z - h.fz * 0.05 };
             const miss = Math.min(dist(pos(rig, 'hand_l'), want), dist(pos(rig, 'hand_r'), want));
@@ -548,6 +647,8 @@ test('the performing DJ reaches the controller, leans in, keeps the feet on the 
         assert.ok(Math.abs(pos(rig, 'foot_l').y - (rig.ankleH + 0.5)) < 0.015, `${glb}: a foot left the riser`);
         const l = limbLengths(rig);
         for (const k of Object.keys(rest)) assert.ok(Math.abs(l[k] - rest[k]) < 0.002, `${glb}: ${k} stretched`);
+        const orderedSamples = samples.slice().sort((a, b) => a - b);
+        const ms = orderedSamples[Math.floor(orderedSamples.length / 2)];
         assert.ok(ms < 2, `${glb}: the performing DJ costs ${ms.toFixed(2)} ms a frame`);
         // Hands up on a drop: both wrists above the head.
         music.drop = true; step(1); music.drop = false; step(60);

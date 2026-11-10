@@ -5,13 +5,14 @@
  * this class never touches the network itself.
  *
  * Each remote guest is one of the club's Quaternius people (the relay hands every guest a different random one, see
- * AVATARS in worker/src/index.js). They are played, not posed: the people files carry the packs' own Idle, Walk, Run
+ * AVATARS in worker/src/index.js). The people files carry the packs' own Idle, Walk, Run
  * and Wave clips plus the retargeted Yes (a nod) and Dance_Loop, and this class picks one from how fast the guest is
  * moving and what gesture they sent, cross-fading between them. Only the first MAX_PEOPLE guests get a skinned body
  * (a skeleton each); the rest, and any guest whose character is still loading, are a capsule + head. The capsule
  * always stays as an invisible collision body. A floating name tag and an emoji bubble ride on top. Position and
  * facing are interpolated toward the last network sample rather than snapped, because state arrives far slower than
- * the render loop.
+ * the render loop. VR controller samples override the tracked arms with IK after clip evaluation, so a real wave
+ * is visible without sending a canned gesture; the lower body keeps its locomotion clip.
  *
  * Safety lives here too, on the receiving side: a guest can be muted (their voice node is silenced, the connection
  * stays so unmuting is instant) and a personal-space bubble hides anyone who comes within arm's length.
@@ -40,6 +41,9 @@ class AvatarManager {
     static CHAT_Y = 2.62;
     static CHAT_MIN_SECONDS = 5;
     static CHAT_MAX_SECONDS = 12;
+    static HAND_KEYS = ['x', 'y', 'z', 'fx', 'fy', 'fz', 'ux', 'uy', 'uz'];
+    static HAND_SIDES = ['left', 'right'];
+    static HAND_TIMEOUT = 0.5;
 
     /** Shortest signed angle from `from` to `to`, in (-PI, PI]. */
     static shortestAngle(from, to) {
@@ -57,6 +61,14 @@ class AvatarManager {
         this.nameTags = true;
         this.muteAll = false;
         this._frame = 0;
+        this._poseTime = 0;
+        this._armObserver = this.scene.onAfterAnimationsObservable.add(() => {
+            for (const peer of this.remotes.values()) {
+                if (peer.person?.arms && peer.root.isEnabled() && this._hasTrackedHands(peer)) {
+                    peer.person.arms.updateTrackedArms(peer.hands, peer.root.rotation.y, AvatarManager.EYE_HEIGHT);
+                }
+            }
+        });
         this.onSpeakingChange = () => {};
     }
 
@@ -105,6 +117,10 @@ class AvatarManager {
             speed: 0, prevX: NaN, prevZ: NaN,
             target: { x: root.position.x, y: root.position.y, z: root.position.z, rotY: 0 },
             hasState: false,
+            handTargets: { left: null, right: null },
+            hands: { left: null, right: null },
+            handBuffers: { left: {}, right: {} },
+            handsAt: -Infinity,
             audio: null
         };
         peer.nameplate = this._createLabel(peer, root);
@@ -181,7 +197,9 @@ class AvatarManager {
         }
         if (!groups.Idle) { entry.dispose(); return false; }
 
-        peer.person = { entry, node, meshes, groups, current: null, speedRatio: 1 };
+        const arms = AvatarRig.createTrackedArms(node, prefix);
+        if (!arms) console.warn(`Live arm tracking unavailable for avatar ${avatarId}: required modular bones are missing.`);
+        peer.person = { entry, node, meshes, groups, arms, current: null, speedRatio: 1 };
         peer.body.isVisible = false;   // stays as the collision body
         peer.head.isVisible = false;
         this._applyHidden(peer);
@@ -347,6 +365,14 @@ class AvatarManager {
         peer.target.y = finite(state.y) - AvatarManager.EYE_HEIGHT;
         peer.target.z = finite(state.z);
         peer.target.rotY = finite(state.rotY);
+        for (const side of ['left', 'right']) {
+            const hand = state.hands?.[side];
+            const valid = hand && AvatarManager.HAND_KEYS.every(key => Number.isFinite(hand[key])) &&
+                Math.hypot(hand.x, hand.y, hand.z) <= 1.5;
+            peer.handTargets[side] = valid ? hand : null;
+            if (!valid) peer.hands[side] = null;
+        }
+        peer.handsAt = this._poseTime;
         if (!peer.hasState) {
             // Snap on the first sample instead of sliding in from the world origin.
             peer.hasState = true;
@@ -543,6 +569,7 @@ class AvatarManager {
         // Exponential smoother compounded for frame-rate independence (see
         // .github/copilot-instructions.md - "never scale a bare retention rate").
         const step = dt;
+        this._poseTime += step;
         const lerpK = 1 - (1 - 0.15) ** (step * 60);
         this._frame++;
 
@@ -555,6 +582,7 @@ class AvatarManager {
             // JavaScript's % keeps the dividend's sign, so the previous wrap left
             // differences below -PI unwrapped and avatars spun the long way round.
             root.rotation.y += AvatarManager.shortestAngle(root.rotation.y, peer.target.rotY) * lerpK;
+            this._updateTrackedHands(peer, lerpK);
 
             if (peer.hasState) {
                 // Ground speed, smoothed: it picks idle, walk or run, and the walk's playback rate.
@@ -581,6 +609,25 @@ class AvatarManager {
                 peer.chatTimer -= step;
                 if (peer.chatTimer <= 0) peer.chatPlane.setEnabled(false);
             }
+        }
+    }
+
+    _hasTrackedHands(peer) {
+        return this._poseTime - peer.handsAt <= AvatarManager.HAND_TIMEOUT && !!(peer.hands.left || peer.hands.right);
+    }
+
+    _updateTrackedHands(peer, k) {
+        for (const side of AvatarManager.HAND_SIDES) {
+            const target = peer.handTargets[side];
+            if (!target || this._poseTime - peer.handsAt > AvatarManager.HAND_TIMEOUT) { peer.hands[side] = null; continue; }
+            const fresh = !peer.hands[side];
+            const hand = peer.handBuffers[side];
+            for (const key of AvatarManager.HAND_KEYS) {
+                const value = target[key];
+                if (fresh) hand[key] = value;
+                else hand[key] += (value - hand[key]) * k;
+            }
+            peer.hands[side] = hand;
         }
     }
 
@@ -683,9 +730,10 @@ class AvatarManager {
         const person = peer.person;
         const moving = peer.speed > AvatarManager.WALK_SPEED;
         // A gesture plays to its end; walking away from a dance ends it.
-        if (person.current === 'Wave' || person.current === 'Yes') return;
+        const tracked = this._hasTrackedHands(peer);
+        if (!tracked && (person.current === 'Wave' || person.current === 'Yes')) return;
         if (peer.gesture.dancing && moving) peer.gesture.dancing = false;
-        if (peer.gesture.dancing && person.groups.Dance_Loop) { this._play(peer, 'Dance_Loop', true, 1); return; }
+        if (!tracked && peer.gesture.dancing && person.groups.Dance_Loop) { this._play(peer, 'Dance_Loop', true, 1); return; }
         if (peer.speed > AvatarManager.RUN_SPEED && person.groups.Run) this._play(peer, 'Run', true, Math.min(1.5, peer.speed / 4));
         else if (moving && person.groups.Walk) this._play(peer, 'Walk', true, Math.min(1.7, Math.max(0.6, peer.speed / 1.4)));
         else this._play(peer, 'Idle', true, 1);
@@ -705,6 +753,7 @@ class AvatarManager {
     }
 
     dispose() {
+        this.scene.onAfterAnimationsObservable.remove(this._armObserver);
         for (const id of [...this.remotes.keys()]) this.removePeer(id);
         if (this._material && this._material._vrclubShared !== true) {
             try { this._material.dispose(); } catch { /* ignore */ }

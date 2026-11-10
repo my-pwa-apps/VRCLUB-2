@@ -7,7 +7,7 @@
  * and the server side of every message type used below. Voice audio is never
  * sent through the Worker: once two peers are in the same room this class
  * negotiates a direct WebRTC connection between their browsers (mesh - every
- * mic-enabled guest connects to every other one) and the Worker only relays
+ * mic-enabled guest connects to their selected recipients) and the Worker only relays
  * the SDP/ICE signaling needed to set that connection up.
  *
  * Deliberately has no Babylon.js dependency: `js/avatarManager.js` (and
@@ -86,6 +86,8 @@ class NetworkClient {
         this.hostId = null;
         /** Relay clock minus this browser's clock (ms), from the welcome: shared timestamps are read through it. */
         this.serverOffset = 0;
+        this.worldClock = null;
+        this._pingSentAt = null;
         /** Set by ClubMultiplayer: adds what only it knows (the podcast, the title) to every shared track state. */
         this.musicDecorator = null;
         this.status = 'idle'; // idle | connecting | connected | disconnected | error
@@ -96,6 +98,12 @@ class NetworkClient {
         this.micEnabled = false;
         this._micPending = null;
         this._voiceEpoch = 0;
+        this.voiceAudience = null;
+        this.targetedChat = false;
+        this.hostTransferSupported = false;
+        this.musicStream = null;
+        this.musicState = null;
+        this.musicListening = false;
 
         this.ws = null;
         this._closedByUser = false;
@@ -119,6 +127,8 @@ class NetworkClient {
         this.onShow = () => {};
         this.onChat = () => {};
         this.onRemoteStream = () => {};
+        this.onMusicBroadcast = () => {};
+        this.onRemoteMusic = () => {};
         this.onError = () => {};
     }
 
@@ -140,6 +150,7 @@ class NetworkClient {
         clearTimeout(this._reconnectTimer);
         this._reconnectTimer = null;
         this.disableVoice();
+        this.resetMusic();
         this._dropAllPeers();
         this.selfId = null;
         this.selfPid = null;
@@ -200,6 +211,7 @@ class NetworkClient {
 
     _onSocketClosed(evt) {
         this.ws = null;
+        this.resetMusic();
         // The relay assigns a fresh id per connection, so peers from this socket can
         // never be matched again after a reconnect - without this their avatars and
         // voice nodes stayed in the scene as frozen duplicates.
@@ -259,9 +271,17 @@ class NetworkClient {
                 this.selfPid = NetworkClient.PID.test(msg.pid) ? msg.pid : null;
                 this.avatar = typeof msg.avatar === 'string' ? msg.avatar : null;
                 this.hostId = msg.hostId;
+                this.targetedChat = msg.targetedChat === true;
+                this.hostTransferSupported = msg.hostTransfer === true;
                 this.locked = !!msg.locked;
                 const skew = Number(msg.serverTime) - Date.now();
                 this.serverOffset = Number.isFinite(skew) ? skew : 0;
+                const world = msg.world;
+                this.worldClock = world && world.v === 1 && Number.isInteger(world.seed) &&
+                    world.seed >= 0 && world.seed <= 0xffffffff && Number.isFinite(world.startedAt) &&
+                    world.startedAt > 0 && world.startedAt <= msg.serverTime && Number.isFinite(msg.serverTime)
+                    ? { startedAt: world.startedAt, seed: world.seed, at: performance.now(),
+                        elapsed: (msg.serverTime - world.startedAt) / 1000 } : null;
                 this._setStatus('connected');
                 // Tell the relay who to keep invisible before anything else happens; it hides them again with a `leave`.
                 if (this.blockedPids.size) this._send({ type: 'blocklist', pids: [...this.blockedPids] });
@@ -272,6 +292,17 @@ class NetworkClient {
                 this.onHostChange(this.hostId);
                 this.onRoom(this.locked);
                 break;
+
+            case 'pong': {
+                const now = performance.now(), rtt = now - msg.time;
+                if (this.worldClock && msg.time === this._pingSentAt && rtt >= 0 && rtt < 10000 &&
+                    Number.isFinite(msg.serverTime) && msg.serverTime >= this.worldClock.startedAt) {
+                    this.worldClock.elapsed = (msg.serverTime - this.worldClock.startedAt + rtt / 2) / 1000;
+                    this.worldClock.at = now;
+                    this._pingSentAt = null;
+                }
+                break;
+            }
 
             case 'join':
                 this._addPeer(msg);
@@ -300,7 +331,7 @@ class NetworkClient {
                 break;
 
             case 'chat':
-                if (this.peers.has(msg.id) && typeof msg.text === 'string' && msg.text) this.onChat(msg.id, msg.text.slice(0, NetworkClient.MAX_CHAT_LENGTH));
+                if (this.peers.has(msg.id) && typeof msg.text === 'string' && msg.text) this.onChat(msg.id, msg.text.slice(0, NetworkClient.MAX_CHAT_LENGTH), msg.restricted === true);
                 break;
 
             case 'gesture':
@@ -327,6 +358,7 @@ class NetworkClient {
                 break;
 
             case 'host':
+                this.resetMusic();
                 this.hostId = msg.id;
                 this.onHostChange(this.hostId);
                 break;
@@ -357,15 +389,26 @@ class NetworkClient {
     }
 
     /** A heartbeat: the relay closes a client that has pinged and then goes silent, so a vanished host is replaced. */
-    sendPing() { this._send({ type: 'ping' }); }
+    sendPing() {
+        this._pingSentAt = performance.now();
+        this._send({ type: 'ping', time: this._pingSentAt });
+    }
+
+    worldTime() {
+        return this.status === 'connected' && this.worldClock
+            ? this.worldClock.elapsed + (performance.now() - this.worldClock.at) / 1000 : null;
+    }
 
     sendState(state) { this._send({ type: 'state', state }); }
     sendEmoji(emoji) { this._send({ type: 'emoji', emoji }); }
     /** A typed message. Returns false when there was nothing to send. */
-    sendChat(text) {
+    sendChat(text, targets = null) {
         const clean = NetworkClient.cleanChat(text);
         if (!clean || !this.connected) return false;
-        this._send({ type: 'chat', text: clean });
+        if (targets !== null && (!this.targetedChat || !Array.isArray(targets))) return false;
+        const selected = targets === null ? null : [...new Set(targets)].filter(id => this.peers.has(id));
+        if (selected && !selected.length) return false;
+        this._send({ type: 'chat', text: clean, ...(selected ? { targets: selected } : {}) });
         return true;
     }
     sendGesture(gesture) {
@@ -403,11 +446,147 @@ class NetworkClient {
     banPeer(id) { this._send({ type: 'ban', target: id }); }
     setRoomLocked(locked) { this._send({ type: 'lock', locked: !!locked }); }
 
+    transferHost(id) {
+        if (!this.connected || !this.isHost() || !this.hostTransferSupported || !this.peers.has(id)) return false;
+        this._send({ type: 'host-transfer', target: id });
+        return true;
+    }
+
     /** Host-only. Returns false when nothing was sent (not host, or a local blob:/data: URL). */
     sendMusic(music) {
         if (!this.isHost() || !music || !NetworkClient.isShareableMusicUrl(music.url)) return false;
         this._send({ type: 'music', ...(this.musicDecorator ? this.musicDecorator(music) : music) });
         return true;
+    }
+
+    /** Music uses its own connection, never a voice sender or the relay's URL-only music frame. */
+    setLocalMusic(stream, state) {
+        if (!this.connected || !this.isHost()) return;
+        this.musicStream = stream;
+        this.musicState = { available: !!stream, playing: !!stream && !!state.playing,
+            title: String(state.title || '').slice(0, 200) };
+        for (const [id, peer] of this.peers) {
+            this._sendMusicSignal(id, { kind: 'state', ...this.musicState });
+            if (!stream) this._closeMusic(id);
+            else if (peer.musicListening && !peer.musicPc) this._createMusicConnection(id);
+        }
+    }
+
+    setMusicListening(enabled) {
+        this.musicListening = !!enabled;
+        if (this.isHost() || !this.peers.has(this.hostId)) return;
+        this._sendMusicSignal(this.hostId, { kind: 'listen', enabled: this.musicListening });
+        if (!enabled) this._closeMusic(this.hostId);
+    }
+
+    resetMusic() {
+        for (const id of this.peers.keys()) {
+            this._closeMusic(id);
+            this.peers.get(id).musicListening = false;
+        }
+        this.musicStream = null;
+        this.musicState = null;
+        this.musicListening = false;
+    }
+
+    _sendMusicSignal(id, signal) {
+        this._send({ type: 'rtc-signal', target: id, signal: { ...signal, channel: 'music' } });
+    }
+
+    _closeMusic(id) {
+        const peer = this.peers.get(id);
+        if (!peer) return;
+        const pc = peer.musicPc;
+        peer.musicPc = null;
+        peer.musicIce = [];
+        if (pc) pc.close();
+        if (id === this.hostId) this.onRemoteMusic(id, null);
+    }
+
+    _createMusicConnection(id) {
+        const peer = this.peers.get(id);
+        if (!peer || peer.musicPc) return peer && peer.musicPc;
+        if (typeof RTCPeerConnection === 'undefined') {
+            this.onError(new Error('WebRTC music is unavailable in this browser.'));
+            return null;
+        }
+        const pc = new RTCPeerConnection({ iceServers: NetworkClient.ICE_SERVERS });
+        peer.musicPc = pc;
+        peer.musicIce = [];
+        pc.addEventListener('icecandidate', event => {
+            if (peer.musicPc === pc && event.candidate) this._sendMusicSignal(id, { kind: 'ice', candidate: event.candidate });
+        });
+        pc.addEventListener('track', event => {
+            if (peer.musicPc !== pc || id !== this.hostId || !this.musicListening) return;
+            const [stream] = event.streams;
+            if (stream) {
+                this.onRemoteMusic(id, stream);
+                event.track.addEventListener('ended', () => {
+                    if (peer.musicPc === pc) this._closeMusic(id);
+                });
+            }
+        });
+        pc.addEventListener('connectionstatechange', () => {
+            if (peer.musicPc === pc && pc.connectionState === 'failed') {
+                this._closeMusic(id);
+                this.onError(new Error('The music broadcast connection failed. Direct WebRTC may be blocked by your network.'));
+            }
+        });
+        if (this.isHost() && this.musicStream && peer.musicListening) {
+            for (const track of this.musicStream.getAudioTracks()) pc.addTrack(track, this.musicStream);
+            pc.addEventListener('negotiationneeded', async () => {
+                try {
+                    await pc.setLocalDescription();
+                    if (peer.musicPc === pc) this._sendMusicSignal(id, { kind: 'offer', sdp: pc.localDescription });
+                } catch (error) {
+                    if (peer.musicPc === pc) this.onError(new Error(`Could not broadcast music: ${error.message}`));
+                }
+            });
+        }
+        return pc;
+    }
+
+    async _onMusicSignal(id, signal) {
+        const peer = this.peers.get(id);
+        if (!peer) return;
+        if (signal.kind === 'state') {
+            if (id !== this.hostId || this.isHost() || typeof signal.available !== 'boolean') return;
+            const state = { available: signal.available, playing: signal.playing === true,
+                title: typeof signal.title === 'string' ? signal.title.slice(0, 200) : '' };
+            if (!state.available) this._closeMusic(id);
+            this.onMusicBroadcast(state);
+            if (state.available && this.musicListening && !peer.musicPc) this.setMusicListening(true);
+            return;
+        }
+        if (signal.kind === 'listen') {
+            if (!this.isHost() || typeof signal.enabled !== 'boolean') return;
+            peer.musicListening = signal.enabled;
+            if (!signal.enabled) this._closeMusic(id);
+            else if (this.musicStream) this._createMusicConnection(id);
+            return;
+        }
+        if (!(this.isHost() ? peer.musicListening && this.musicStream : id === this.hostId && this.musicListening)) return;
+        try {
+            if (signal.kind === 'offer' || signal.kind === 'answer') {
+                if ((signal.kind === 'offer') === this.isHost() || signal.sdp?.type !== signal.kind) return;
+                const pc = peer.musicPc || this._createMusicConnection(id);
+                if (!pc) return;
+                await pc.setRemoteDescription(signal.sdp);
+                if (peer.musicPc !== pc) return;
+                for (const candidate of peer.musicIce.splice(0)) await pc.addIceCandidate(candidate);
+                if (!this.isHost()) {
+                    await pc.setLocalDescription();
+                    if (peer.musicPc === pc) this._sendMusicSignal(id, { kind: 'answer', sdp: pc.localDescription });
+                }
+            } else if (signal.kind === 'ice' && signal.candidate) {
+                const pc = peer.musicPc || (!this.isHost() && this._createMusicConnection(id));
+                if (!pc) return;
+                if (pc.remoteDescription) await pc.addIceCandidate(signal.candidate);
+                else if (peer.musicIce.length < 64) peer.musicIce.push(signal.candidate);
+            }
+        } catch (error) {
+            if (peer.musicPc) this.onError(new Error(`Music connection error: ${error.message}`));
+        }
     }
 
     /** The relay's clock now, in ms. */
@@ -460,12 +639,10 @@ class NetworkClient {
         this.micEnabled = false;
         const stream = this.micStream;
         this.micStream = null;
-        for (const peer of this.peers.values()) {
+        for (const [id, peer] of this.peers) {
             if (!peer.pc) continue;
             for (const sender of peer.pc.getSenders()) {
-                if (sender.track) {
-                    try { peer.pc.removeTrack(sender); } catch { /* connection already closed */ }
-                }
+                if (sender.track) this._replaceVoiceTrack(id, sender, null);
             }
         }
         if (stream) for (const track of stream.getTracks()) track.stop();
@@ -478,14 +655,26 @@ class NetworkClient {
 
     _attachLocalTracks(peerId) {
         if (!this.micStream || !this.selfId || !peerId) return;
+        if (this.voiceAudience !== null && !this.voiceAudience.has(peerId)) return;
         const peer = this.peers.get(peerId);
         if (!peer) return;
         const pc = peer.pc || this._createPeerConnection(peerId);
         if (!pc) return;
-        const sending = new Set(pc.getSenders().map(sender => sender.track).filter(Boolean));
-        for (const track of this.micStream.getTracks()) {
-            if (!sending.has(track)) pc.addTrack(track, this.micStream);
-        }
+        this.micStream.getTracks().forEach((track, index) => {
+            const sender = peer.micSenders[index];
+            if (!sender) peer.micSenders[index] = pc.addTrack(track, this.micStream);
+            else if (sender.track !== track) this._replaceVoiceTrack(peerId, sender, track);
+        });
+    }
+
+    _replaceVoiceTrack(peerId, sender, track) {
+        const pc = this.peers.get(peerId)?.pc;
+        sender.replaceTrack(track).catch(error => {
+            if (this.peers.get(peerId)?.pc !== pc) return;
+            // If stopping a sender fails, close it rather than risk sending to an excluded guest.
+            this._teardownPeerConnection(peerId, true);
+            this.onError(new Error(`Could not update microphone recipients: ${error.message}`));
+        });
     }
 
     _isPolite(peerId) { return !!this.selfId && this.selfId > peerId; }
@@ -496,6 +685,7 @@ class NetworkClient {
 
         const pc = new RTCPeerConnection({ iceServers: NetworkClient.ICE_SERVERS });
         peer.pc = pc;
+        peer.micSenders = [];
         peer.makingOffer = false;
         peer.ignoreOffer = false;
 
@@ -531,6 +721,11 @@ class NetworkClient {
     async _onSignal(fromId, signal) {
         const peer = this.peers.get(fromId);
         if (!peer || !signal || typeof signal !== 'object') return;
+        if (signal.channel === 'music') {
+            peer.musicQueue = (peer.musicQueue || Promise.resolve()).then(() => this._onMusicSignal(fromId, signal));
+            await peer.musicQueue;
+            return;
+        }
         try {
             if (signal.kind === 'offer' || signal.kind === 'answer') {
                 const description = signal.sdp;
@@ -564,11 +759,26 @@ class NetworkClient {
     /** @param {boolean} keepEntry - true while voice is merely being disabled/renegotiated. */
     _teardownPeerConnection(peerId, keepEntry) {
         const peer = this.peers.get(peerId);
+        if (!keepEntry) this._closeMusic(peerId);
         if (peer && peer.pc) {
             try { peer.pc.close(); } catch { /* ignore */ }
             peer.pc = null;
         }
         if (!keepEntry) this.peers.delete(peerId);
+    }
+
+    /** null sends to everyone; an empty set sends nowhere while keeping incoming streams. */
+    setVoiceAudience(ids) {
+        this.voiceAudience = ids === null ? null : new Set(ids.filter(id => this.peers.has(id)));
+        for (const [id, peer] of this.peers) {
+            if (this.voiceAudience === null || this.voiceAudience.has(id)) {
+                if (this.micEnabled) this._attachLocalTracks(id);
+            } else if (peer.pc) {
+                for (const sender of peer.pc.getSenders()) {
+                    if (sender.track) this._replaceVoiceTrack(id, sender, null);
+                }
+            }
+        }
     }
 }
 

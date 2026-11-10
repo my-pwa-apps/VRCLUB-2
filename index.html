@@ -15,19 +15,17 @@
          (Note: element.style.foo = ... writes are CSSOM, not blocked by style-src.)
          media-src is deliberately open to https:/blob: because the whole point of the
          app is that the user pastes an arbitrary internet radio URL or drops a local file.
+         frame-src allows only SoundCloud's official player. It is created after a guest
+         explicitly submits a SoundCloud page URL that the club relay cannot resolve.
 
          connect-src allows immersive-web.github.io because Babylon's WebXR controller
          layer fetches the input-profiles catalogue from there when a session starts. It
          is NOT in the startup critical path - blocking it only costs controller models -
          but blocking it also logs a CSP violation on every VR entry.
 
-         connect-src allows podcast.hernancattaneo.com for the Resident podcast: it reads that RSS
-         feed to choose an episode (a random one on entry, the newest from the "Latest" button).
-         The episode MP3 itself is media and already covered by media-src https:.
-
-         connect-src also allows the hosted relay's https origin: Miss Melera's podcast is a
-         SoundCloud feed a browser cannot read, so the relay Worker serves it (worker/src/podcast.js).
-         A self-hosted relay used for that podcast needs its own origin added here.
+         No podcast or music catalogue is bundled. Music links are supplied by the guest;
+         media-src allows their audio. Miss Melera Colourizon links resolve through the
+         club relay's allow-listed feed and CORS-safe stream endpoint.
 
          connect-src also allows the ws:/wss: schemes (any origin) for the optional
          multiplayer relay: the Cloudflare Worker URL is a user-supplied setting (see
@@ -36,7 +34,9 @@
          signaling (SDP/ICE) is negotiated through that same relay; the resulting
          peer-to-peer audio connection is exempt from connect-src by the Fetch spec.
 
-         script-src is 'self' only: the Babylon.js runtime is vendored under js/vendor/
+         script-src allows self and the exact official SoundCloud Widget API endpoint,
+         loaded only after choosing a SoundCloud set to track play/pause for dance animation.
+         The Babylon.js runtime is vendored under js/vendor/
          (see scripts/vendor.manifest.json) rather than loaded from a CDN, so there is no
          third-party origin left in the critical path.
 
@@ -48,33 +48,55 @@
         base-uri 'none';
         object-src 'none';
         form-action 'none';
-        script-src 'self';
+        script-src 'self' https://w.soundcloud.com/player/api.js;
         style-src 'self' 'unsafe-inline';
         img-src 'self' data: blob:;
         font-src 'self' data:;
         media-src 'self' blob: https: http:;
-        connect-src 'self' blob: https://immersive-web.github.io https://podcast.hernancattaneo.com https://vrclub-network.garfieldapp.workers.dev ws: wss:;
+        frame-src https://w.soundcloud.com;
+        connect-src 'self' blob: https://immersive-web.github.io https://api.mitwee.nl https://vrclub-network.garfieldapp.workers.dev ws: wss:;
         worker-src 'self' blob:;
     ">
     <meta name="referrer" content="no-referrer">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
-    <meta name="robots" content="noindex, nofollow, noarchive">
-    <meta name="description" content="Immersive VR nightclub for Meta Quest 3S with professional lighting, DJ booth, and audio-reactive visuals">
+    <meta name="description" content="Explore NOCTURNE, an immersive WebXR virtual nightclub for compatible VR headsets and desktop browsers, with multiplayer, live VJ controls, and your own music.">
+    <meta name="robots" content="index, follow, max-image-preview:large, max-snippet:-1, max-video-preview:-1">
+    <meta name="theme-color" content="#030308">
+
+    <link rel="canonical" href="https://nocturne.mitwee.nl/">
+    <link rel="sitemap" type="application/xml" href="https://nocturne.mitwee.nl/sitemap.xml">
+
+    <meta property="og:type" content="website">
+    <meta property="og:site_name" content="NOCTURNE">
+    <meta property="og:title" content="NOCTURNE — WebXR Virtual Nightclub">
+    <meta property="og:description" content="Enter an immersive WebXR nightclub on a compatible VR headset or desktop. Meet friends online, control the light show, explore the venue, and bring your own music.">
+    <meta property="og:url" content="https://nocturne.mitwee.nl/">
+    <meta property="og:image" content="https://nocturne.mitwee.nl/icons/social-preview.png">
+    <meta property="og:image:width" content="1200">
+    <meta property="og:image:height" content="630">
+    <meta property="og:image:type" content="image/png">
+    <meta property="og:image:alt" content="NOCTURNE WebXR virtual nightclub with neon lighting">
+
+    <meta name="twitter:card" content="summary_large_image">
+    <meta name="twitter:title" content="NOCTURNE — WebXR Virtual Nightclub">
+    <meta name="twitter:description" content="Explore a social WebXR nightclub on compatible VR headsets or desktop, control the show, and bring your own music.">
+    <meta name="twitter:image" content="https://nocturne.mitwee.nl/icons/social-preview.png">
+    <meta name="twitter:image:alt" content="NOCTURNE WebXR virtual nightclub with neon lighting">
     
-    <!-- Quest 3S / WebXR Optimization -->
+    <!-- WebXR and mobile browser support -->
     <meta name="mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
     
     <!-- Performance Hints: the Babylon runtime is the critical path and is same-origin. -->
-    <link rel="preload" href="js/vendor/babylon.js?v=20261008-1" as="script">
+    <link rel="preload" href="js/vendor/babylon.js?v=20261009-1" as="script">
     
-    <title>NOCTURNE - Virtual Nightclub Experience</title>
+    <title>WebXR Virtual Nightclub for VR Headsets &amp; Desktop | NOCTURNE</title>
     
-    <link rel="manifest" href="manifest.json?v=20261008-1">
-    <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='0.9em' font-size='90'>🎧</text></svg>">
-    <link rel="apple-touch-icon" href="icons/icon-192.png?v=20261008-1">
-    <link rel="stylesheet" href="css/styles.css?v=20261008-1">
+    <link rel="manifest" href="manifest.json?v=20261009-1">
+    <link rel="icon" type="image/png" sizes="192x192" href="icons/icon-192.png?v=20261009-1">
+    <link rel="apple-touch-icon" href="icons/icon-192.png?v=20261009-1">
+    <link rel="stylesheet" href="css/styles.css?v=20261009-1">
 </head>
 <body>
     <!-- Splash Screen -->
@@ -137,7 +159,6 @@
     </div>
     
     <main id="mainExperience" inert>
-    <h1 class="visually-hidden">NOCTURNE virtual nightclub</h1>
     <canvas id="canvas" class="hidden" tabindex="0"
             aria-label="Club scene. Use W, A, S, D or the arrow keys to move and drag with the mouse to look around."></canvas>
     
@@ -304,7 +325,7 @@
     
     <!-- Enter VR. Promoted to a top-level control: burying the headline action of a
          WebXR app behind an unlabelled gear icon meant nobody on a Quest found it. -->
-    <button id="vrButton" type="button" title="Enter immersive VR">🥽 Enter VR</button>
+    <button id="vrButton" type="button" title="Enter immersive VR" hidden>🥽 Enter VR</button>
     
     <!-- Audio Toggle Button -->
     <button id="audioToggle" type="button" title="Audio Stream" aria-label="Open audio stream panel" aria-expanded="false" aria-controls="audioMenu"><span aria-hidden="true">🎵</span><span class="toggle-word" aria-hidden="true">Music</span></button>
@@ -314,7 +335,7 @@
         <div class="panel-header">
             <h2 class="panel-title" id="audioMenuTitle" tabindex="-1">
                 <span aria-hidden="true">🎵</span>
-                <span>Audio Stream</span>
+                <span>Your Music</span>
             </h2>
             <div class="panel-header-actions">
                 <button class="panel-btn-icon" id="audioMinimize" type="button" title="Minimize" aria-label="Minimize audio panel" aria-expanded="true"><span aria-hidden="true">−</span></button>
@@ -328,43 +349,49 @@
                 <div id="audioNowPlaying" class="audio-now-playing" role="status" aria-live="polite">No audio yet</div>
             </div>
 
-            <!-- Stream URL -->
+            <!-- User-provided music only -->
             <div class="audio-section">
+                <div class="vj-section-title">Choose a file or paste a URL</div>
+                <p class="network-help">Use a local audio file, paste a direct HTTPS MP3, M4A, OGG or audio-stream link, or paste a SoundCloud track/set page. Miss Melera Colourizon links use the club's analysed audio stream so the crowd, DJ and lights follow the set; other SoundCloud pages use its official player. YouTube and Spotify page URLs are not playable audio. Direct audio hosts must allow CORS. No music is included.</p>
                 <div class="audio-input-group">
                     <input type="url" class="audio-input" id="streamUrl" placeholder="Paste stream URL (https://...)"
                               inputmode="url" autocomplete="off"
                            aria-label="Audio stream URL">
-                    <button class="audio-button" id="playStreamBtn" type="button">
+                    <button class="audio-button audio-paste-button" id="pasteStreamBtn" type="button"
+                            aria-label="Paste a music URL from the clipboard">Paste URL</button>
+                    <button class="audio-button audio-primary-button" id="playStreamBtn" type="button">
                         <span aria-hidden="true">▶️</span>
-                        <span id="playStreamBtnLabel">Play</span>
+                        <span id="playStreamBtnLabel">Save &amp; play</span>
                     </button>
+                </div>
+                <div id="audioSourceHint" class="audio-source-hint" role="status" aria-live="polite" hidden></div>
+                <div class="audio-file-upload">
+                    <input type="file" id="audioFileInput" class="audio-file-input" accept="audio/*">
+                    <label for="audioFileInput" class="audio-file-label">
+                        Choose Audio File
+                    </label>
+                </div>
+                <div id="audioFileName" class="audio-file-name"></div>
+                <div id="soundCloudPlayer" class="soundcloud-player" hidden>
+                    <p class="network-help">Other SoundCloud pages play in its official player. Use its controls for position and volume. The crowd and DJ dance while it plays, at an independent tempo, not the track's detected beat. Beat-synced lights, spatial audio and room sharing are unavailable for this source.</p>
                 </div>
             </div>
 
-            <!-- On-demand DJ sets (podcast feeds): choose whose set, then a random or the newest episode -->
             <div class="audio-section">
-                <div class="audio-podcasts" role="radiogroup" aria-label="Podcast">
-                    <button class="audio-podcast-choice" id="podcastResidentBtn" type="button" role="radio" aria-checked="true" data-podcast="resident"
-                            title="Resident, the radio show by Hernan Cattaneo. The feed is podcast.hernancattaneo.com; the audio is served by podbean.com, which receives your IP address.">
-                        <span aria-hidden="true">🎧</span> Hernan Cattaneo
-                    </button>
-                    <button class="audio-podcast-choice" id="podcastColourizonBtn" type="button" role="radio" aria-checked="false" data-podcast="colourizon"
-                            title="Colourizon, the podcast by Miss Melera. It comes through the club's relay from SoundCloud; both receive your IP address.">
-                        <span aria-hidden="true">🎧</span> Miss Melera
-                    </button>
+                <label for="setName">Set name (optional)</label>
+                <input class="audio-input" id="setName" maxlength="60" placeholder="A name you will recognise in VR">
+                <label for="savedSets">Saved sets on this device</label>
+                <select class="audio-input" id="savedSets" aria-label="Saved sets"></select>
+                <div class="audio-input-group">
+                    <button class="audio-button" id="playSavedSetBtn" type="button">Play saved set</button>
+                    <button class="audio-button" id="removeSavedSetBtn" type="button">Remove saved set</button>
                 </div>
-                <div class="audio-input-group audio-podcast-actions">
-                    <button class="audio-button audio-podcast-button" id="playRandomEpisodeBtn" type="button"
-                            title="Play a random episode of the chosen podcast">
-                        <span aria-hidden="true">🎲</span>
-                        <span>Random episode</span>
-                    </button>
-                    <button class="audio-button audio-podcast-button" id="playPodcastBtn" type="button"
-                            title="Play the newest episode of the chosen podcast">
-                        <span aria-hidden="true">🆕</span>
-                        <span>Latest</span>
-                    </button>
-                </div>
+                <p class="network-help">Save up to eight sets and choose them from the VR Music menu. Only sets you save here can resume on entry. Links stay on this device; the audio host receives your IP when you play. Share music in a room only when you have permission.</p>
+                <label for="djStyle">DJ at the decks</label>
+                <select class="audio-input" id="djStyle">
+                    <option value="male">Male DJ</option>
+                    <option value="female">Female DJ</option>
+                </select>
             </div>
 
             <!-- Position in the episode: only for something with a length (an episode or a file), not a live stream -->
@@ -378,17 +405,6 @@
                 </div>
             </div>
             
-            <!-- File Upload -->
-            <div class="audio-section">
-                <div class="audio-file-upload">
-                    <input type="file" id="audioFileInput" class="audio-file-input" accept="audio/*">
-                    <label for="audioFileInput" class="audio-file-label">
-                        📁 Choose Audio File
-                    </label>
-                </div>
-                <div id="audioFileName" class="audio-file-name"></div>
-            </div>
-
             <!-- Volume -->
             <div class="audio-section">
                 <div class="vj-slider-container">
@@ -462,6 +478,18 @@
                 </details>
             </div>
 
+            <div class="audio-section">
+                <div class="vj-section-title">Browse rooms</div>
+                <p class="network-help">Public rooms are visible to everyone. Private rooms stay unlisted: only codes you save or rooms you have joined appear here. Counts are approximate; joining checks again.</p>
+                <button class="audio-button" id="networkBrowseRooms" type="button">Refresh available rooms</button>
+                <p class="network-help" id="networkRoomsStatus" role="status" aria-live="polite">Press Refresh to look for rooms.</p>
+                <ul class="network-people" id="networkRoomsList" aria-label="Available rooms"></ul>
+                <button class="audio-button" id="networkMoreRooms" type="button" hidden>Load more public rooms</button>
+                <label class="network-field" for="networkSavedRoom">Private room code to save</label>
+                <input class="audio-input" id="networkSavedRoom" inputmode="numeric" maxlength="6" pattern="[0-9]{6}" autocomplete="off" placeholder="6 digits">
+                <button class="audio-button" id="networkSaveRoom" type="button">Save private code and check room</button>
+            </div>
+
             <!-- In a room: everything below is only shown while connected. -->
             <div class="audio-section" id="networkRoomActions" hidden>
                 <p class="network-help" id="networkRoomInfo"></p>
@@ -489,6 +517,7 @@
 
             <div class="audio-section" id="networkTalk" hidden>
                 <div class="vj-section-title">🎤 Talk</div>
+                <div id="networkVoiceAudience"></div>
                 <button class="audio-button network-primary" id="networkMicBtn" type="button" aria-pressed="false">
                     <span aria-hidden="true">🎤</span>
                     <span id="networkMicBtnLabel">Turn my microphone on</span>
@@ -522,6 +551,7 @@
 
             <div class="audio-section" id="networkPeople" hidden>
                 <div class="vj-section-title">👥 People here</div>
+                <p class="network-help">The host can choose Make host beside another person to hand over music and lights without leaving. Press again to confirm.</p>
                 <div id="networkPeerCount" class="network-help">Nobody else yet</div>
                 <ul id="networkPeopleList" class="network-people" aria-label="Guests in this room"></ul>
             </div>
@@ -610,6 +640,7 @@
             </div>
         </div>
         <div id="socialChatBox" class="social-pop" hidden>
+            <div id="socialChatAudience"></div>
             <div class="social-pop-title">Chat with the room</div>
             <ol id="socialChatLog" class="social-chat-log" aria-label="Messages" aria-live="polite"></ol>
             <form id="socialChatForm" class="social-chat-form">
@@ -638,13 +669,45 @@
          the scene, and the splash names every CC BY creator before entry. Full provenance
          for every shipped binary is recorded in ASSETS.md. -->
     <details id="modelCredits">
-        <summary class="credits-title">ⓘ Credits &amp; licences</summary>
+        <summary class="credits-title">ⓘ About, Credits &amp; licences</summary>
         <div class="credits-body">
+        <section class="experience-overview" aria-labelledby="experienceOverviewTitle"
+                 itemscope itemtype="https://schema.org/WebApplication">
+            <link itemprop="url" href="https://nocturne.mitwee.nl/">
+            <meta itemprop="applicationCategory" content="GameApplication">
+            <meta itemprop="operatingSystem" content="Web browser">
+            <meta itemprop="browserRequirements" content="A modern WebGL 2 browser; WebXR support for immersive VR">
+            <meta itemprop="image" content="https://nocturne.mitwee.nl/icons/social-preview.png">
+            <h1 id="experienceOverviewTitle" itemprop="name">NOCTURNE WebXR Virtual Nightclub</h1>
+            <p itemprop="description">
+                NOCTURNE is an immersive social 3D nightclub for WebXR-compatible VR headsets and desktop browsers.
+                Explore a basement club and its city street, join friends online, or take control of the
+                audio-reactive lighting from the VJ desk.
+            </p>
+            <ul>
+                <li>Enter in immersive WebXR on a compatible VR headset or explore with keyboard and mouse on desktop.</li>
+                <li>Bring direct music links or local audio files; no music is bundled with the experience.</li>
+                <li>Meet friends in multiplayer rooms with avatars, spatial voice, chat, reactions, and shared music.</li>
+                <li>Control moving lights, lasers, LED visuals, effects, the resident DJ, and the automatic NOCTURNE show.</li>
+                <li>Use Photosensitive Safe Mode and optional VR comfort movement at any time.</li>
+            </ul>
+        </section>
         <div class="credits-heading"><strong>3D models and textures</strong></div>
         <div>
-            • "Pioneer DJ Console"
+            • <a href="https://sketchfab.com/3d-models/pioneer-dj-console-0ba527fa6b164c34aa050dcecbaa2ffb" target="_blank" rel="noopener noreferrer" class="credit-link">"Pioneer DJ Console"</a>
             by <a href="https://sketchfab.com/twopixels.studio" target="_blank" rel="noopener noreferrer" class="credit-link">TwoPixels.studio</a>
             — <a href="https://creativecommons.org/licenses/by/4.0/" target="_blank" rel="noopener noreferrer" class="credit-link">CC BY 4.0</a>
+            (geometry processed and textures resized)
+        </div>
+        <div>
+            • Characters, outfits and animation libraries by
+            <a href="https://quaternius.com/" target="_blank" rel="noopener noreferrer" class="credit-link">Quaternius</a>
+            — CC0. Recoloured, combined, retargeted and extended with club-authored animations.
+            Male and female DJs are fictional characters, not artist endorsements.
+        </div>
+        <div>
+            • <a href="https://opengameart.org/content/headphones" target="_blank" rel="noopener noreferrer" class="credit-link">"Headphones"</a>
+            by nisu — CC0 (resized, reshaped, textured and rigged).
         </div>
         <div>
             • <a href="https://sketchfab.com/3d-models/stage-speaker-black-f3209a6a45b844df92560099f982a508" target="_blank" rel="noopener noreferrer" class="credit-link">"Stage Speaker — Black"</a>
@@ -669,6 +732,11 @@
             — CC0
         </div>
         <div>
+            • Venue surfaces and reflection environment: Poly Haven, CC0.
+            "Concrete Floor Damaged 01" and wood/metal surfaces by Rob Tuytel;
+            "Empty Warehouse 01" by Sergej Majboroda. Converted and packed for the app.
+        </div>
+        <div>
             • Street: "Downtown City MegaKit", "Car Pack" and "Ultimate House Interior Pack"
             by <a href="https://quaternius.com/" target="_blank" rel="noopener noreferrer" class="credit-link">Quaternius</a>
             — CC0
@@ -686,19 +754,23 @@
         </div>
         <div class="credits-heading"><strong>Music</strong></div>
         <div>
-            • "Resident" — the radio show by Hernan Cattaneo. Feed
-            <a href="https://podcast.hernancattaneo.com/" target="_blank" rel="noopener noreferrer" class="credit-link">podcast.hernancattaneo.com</a>,
-            audio served by Podbean.
-        </div>
-        <div>
-            • "Colourizon" — the podcast by Miss Melera, served from
-            <a href="https://soundcloud.com/missmelera" target="_blank" rel="noopener noreferrer" class="credit-link">SoundCloud</a>
-            through this club's own relay.
+            No music, podcasts or third-party sound recordings are included.
+            Crowd ambience and reverb are generated by the app.
+            Use audio you own or have permission to play and share.
         </div>
         <div class="credits-note">
-            A DJ set is streamed from its publisher, which receives your IP address and listening
-            time. Any station or file you choose yourself is fetched straight from that URL;
-            nothing is sent to us.
+            Links you choose are fetched directly from the audio host, which receives your IP address.
+            Local files stay on your device. In a multiplayer room, the host's music URL and playback position
+            are shared through the relay; guests must choose Listen along before contacting that audio host.
+        </div>
+        <div class="credits-heading"><strong>Software</strong></div>
+        <div>Babylon.js and its loaders/procedural textures — Apache License 2.0.
+            <a href="licenses/babylon-apache-2.0.txt" target="_blank" rel="noopener noreferrer" class="credit-link">Licence</a>.
+            <a href="LICENSE" target="_blank" rel="noopener noreferrer" class="credit-link">App source licence (MIT)</a>.
+            <a href="licenses/THIRD-PARTY-NOTICES.txt" target="_blank" rel="noopener noreferrer" class="credit-link">Third-party notices</a>.
+            <a href="ASSETS.md" target="_blank" rel="noopener noreferrer" class="credit-link">Asset register</a>.
+            <a href="licenses/cc-by-4.0.txt" target="_blank" rel="noopener noreferrer" class="credit-link">CC BY 4.0</a>.
+            <a href="licenses/cc0-1.0.txt" target="_blank" rel="noopener noreferrer" class="credit-link">CC0</a>.
         </div>
         </div>
     </details>
@@ -708,92 +780,94 @@
          scripts/vendor.manifest.json. `npm run check:sri` re-verifies these bytes
          against the recorded hashes and against the upstream CDN.
          Refresh with: npm run vendor:babylon -- --force -->
-    <script src="js/vendor/babylon.js?v=20261008-1"></script>
-    <script src="js/vendor/babylonjs.proceduralTextures.min.js?v=20261008-1"></script>
+    <script src="js/vendor/babylon.js?v=20261009-1"></script>
+    <script src="js/vendor/babylonjs.proceduralTextures.min.js?v=20261009-1"></script>
 
     <!-- glTF Loader Plugin (REQUIRED for loading .glb 3D models) -->
-    <script src="js/vendor/babylonjs.loaders.min.js?v=20261008-1"></script>
+    <script src="js/vendor/babylonjs.loaders.min.js?v=20261009-1"></script>
     
     <!-- Shared asset cache primitives (IndexedDB + fetch timeout + in-flight dedup).
          MUST load before textureLoader.js and modelLoader.js, which depend on it. -->
-    <script src="js/assetCache.js?v=20261008-1"></script>
-    <script src="js/audioUtils.js?v=20261008-1"></script>
-    <!-- Podcast catalogue, choice, random pick and queue behind both the Audio menu and the VR menu (needs audioUtils + assetCache). -->
-    <script src="js/podcasts.js?v=20261008-1"></script>
+    <script src="js/assetCache.js?v=20261009-1"></script>
+    <script src="js/audioUtils.js?v=20261009-1"></script>
+    <!-- Saved music links and Colourizon relay resolution (needs audioUtils + assetCache). -->
+    <script src="js/musicLibrary.js?v=20261009-1"></script>
 
     <!-- Texture Loader (loads before club script) -->
-    <script src="js/textureLoader.js?v=20261008-1"></script>
+    <script src="js/textureLoader.js?v=20261009-1"></script>
     
     <!-- Model Loader (CDJs, Mixer, PA Speakers) -->
-    <script src="js/modelLoader.js?v=20261008-1"></script>
+    <script src="js/modelLoader.js?v=20261009-1"></script>
     
     <!-- Material Factory (centralized material creation) -->
-    <script src="js/materialFactory.js?v=20261008-1"></script>
+    <script src="js/materialFactory.js?v=20261009-1"></script>
     
     <!-- Light Factory (centralized light creation) -->
-    <script src="js/lightFactory.js?v=20261008-1"></script>
+    <script src="js/lightFactory.js?v=20261009-1"></script>
 
     <!-- VJ Director (beat-locked palette + macros). MUST load before club script. -->
-    <script src="js/vjDirector.js?v=20261008-1"></script>
+    <script src="js/vjDirector.js?v=20261009-1"></script>
 
     <!-- Show Director ("NOCTURNE" beat-locked cue engine). Depends on the beat
          clock published by VJDirector, so it MUST load after it and before the
          club script that instantiates both. -->
-    <script src="js/showDirector.js?v=20261008-1"></script>
+    <script src="js/showDirector.js?v=20261009-1"></script>
 
     <!-- LED wall pattern library. Mixed into VRClub.prototype by the club script. -->
-    <script src="js/ledPatterns.js?v=20261008-1"></script>
+    <script src="js/ledPatterns.js?v=20261009-1"></script>
 
     <!-- Bar dressing: bottle shapes, shelf stocking and the label atlas (pure data, no club dependency). -->
-    <script src="js/barProps.js?v=20261008-1"></script>
+    <script src="js/barProps.js?v=20261009-1"></script>
 
     <!-- The NOCTURNE wordmark as path geometry. Pure data; the club's signage strokes it onto canvas
          and the splash <svg> above carries the same `d` (a unit test fails if the two drift apart). -->
-    <script src="js/nocturneLogo.js?v=20261008-1"></script>
+    <script src="js/nocturneLogo.js?v=20261009-1"></script>
 
     <!-- Entrance vestibule and bar, mixed into VRClub.prototype by club_hyperrealistic.js (needs barProps). -->
-    <script src="js/venueDressing.js?v=20261008-1"></script>
+    <script src="js/venueDressing.js?v=20261009-1"></script>
 
     <!-- Steel mezzanine and stair along the left wall, mixed into VRClub.prototype (borrows venueDressing's builder). -->
-    <script src="js/mezzanine.js?v=20261008-1"></script>
+    <script src="js/mezzanine.js?v=20261009-1"></script>
 
     <!-- The street outside the club (a baked GLB from three CC0 Quaternius packs), its sky and skyline, and the audio/fog
          "outdoors" amount, mixed into VRClub.prototype (borrows venueDressing's builder). -->
-    <script src="js/cityDistrict.js?v=20261008-1"></script>
+    <script src="js/cityDistrict.js?v=20261009-1"></script>
 
     <!-- The VJ desk at the DJ table: two touch panels (the show, the lights), mixed into VRClub.prototype. -->
-    <script src="js/vjDesk.js?v=20261008-1"></script>
+    <script src="js/vjDesk.js?v=20261009-1"></script>
 
     <!-- Procedural player body: the shared dancer skeleton posed from where a guest is,
          looks and (in VR) holds their hands. Used for the local guest and remote guests. -->
-    <script src="js/avatarRig.js?v=20261008-1"></script>
-    <script src="js/djPerformer.js?v=20261008-1"></script>
-    <script src="js/crowdDance.js?v=20261008-1"></script>
+    <script src="js/avatarRig.js?v=20261009-1"></script>
+    <script src="js/djPerformer.js?v=20261009-1"></script>
+    <script src="js/crowdDance.js?v=20261009-1"></script>
+    <script src="js/minglerClock.js?v=20261009-1"></script>
 
     <!-- Multiplayer: WebSocket/WebRTC client (no Babylon dependency) and the
          Babylon-side remote-avatar/voice/emoji renderer it drives. Both are opt-in -
          VRClub only creates instances once a guest connects from the Multiplayer panel. -->
-    <script src="js/networkClient.js?v=20261008-1"></script>
-    <script src="js/avatarManager.js?v=20261008-1"></script>
-    <script src="js/multiplayer.js?v=20261008-1"></script>
+    <script src="js/networkClient.js?v=20261009-1"></script>
+    <script src="js/avatarManager.js?v=20261009-1"></script>
+    <script src="js/multiplayer.js?v=20261009-1"></script>
 
     <!-- VRClub implementation layers. Each extends the previous class; keep this order. -->
-    <script src="js/club/01-core.js?v=20261008-1"></script>
-    <script src="js/club/02-lifecycle.js?v=20261008-1"></script>
-    <script src="js/club/03-rendering.js?v=20261008-1"></script>
-    <script src="js/club/04-environment.js?v=20261008-1"></script>
-    <script src="js/club/05-fixtures.js?v=20261008-1"></script>
-    <script src="js/club/06-effects.js?v=20261008-1"></script>
-    <script src="js/club/07-animation-core.js?v=20261008-1"></script>
-    <script src="js/club/08-animation-fixtures.js?v=20261008-1"></script>
-    <script src="js/club/09-animation-finish.js?v=20261008-1"></script>
-    <script src="js/club/10-ui.js?v=20261008-1"></script>
-    <script src="js/club/11-audio-crowd.js?v=20261008-1"></script>
+    <script src="js/club/01-core.js?v=20261009-1"></script>
+    <script src="js/club/02-lifecycle.js?v=20261009-1"></script>
+    <script src="js/club/03-rendering.js?v=20261009-1"></script>
+    <script src="js/club/04-environment.js?v=20261009-1"></script>
+    <script src="js/club/05-fixtures.js?v=20261009-1"></script>
+    <script src="js/club/06-effects.js?v=20261009-1"></script>
+    <script src="js/club/07-animation-core.js?v=20261009-1"></script>
+    <script src="js/club/08-animation-fixtures.js?v=20261009-1"></script>
+    <script src="js/club/09-animation-finish.js?v=20261009-1"></script>
+    <script src="js/club/10-ui.js?v=20261009-1"></script>
+    <script src="js/club/11-audio-crowd.js?v=20261009-1"></script>
 
     <!-- VR Club Main Application -->
-    <script src="js/club_hyperrealistic.js?v=20261008-1"></script>
+    <script src="js/club_hyperrealistic.js?v=20261009-1"></script>
+    <script src="js/paymentGate.js?v=20261009-1"></script>
     
     <!-- UI Initialization (splash screen, VJ controls, audio, multiplayer) -->
-    <script src="js/ui-init.js?v=20261008-1"></script>
+    <script src="js/ui-init.js?v=20261009-1"></script>
 </body>
 </html>

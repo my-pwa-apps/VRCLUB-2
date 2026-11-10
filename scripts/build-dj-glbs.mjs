@@ -2,19 +2,19 @@
 // Derive the two DJs from the checked-in Quaternius guest characters (CC0), so they can be rebuilt without the
 // original outfit and animation packs:
 //
-//   club-dj-hernan.glb  <- club-guest-male.glb   with its beard cut out and the Universal Base Characters'
+//   club-dj-male.glb  <- club-guest-male.glb   with its beard cut out and the Universal Base Characters'
 //                          rigged-to-head `Hair_Long` added over the short cap, shortened to shoulder length and with
 //                          its front (bangs, face-framing locks) removed: the cap makes the swept-back fringe, the long
 //                          strands fall behind the ears (half-long dark wavy hair, clean-shaven; the brown is a
 //                          runtime tint). Without the trim the fringe reads as very long eyebrows.
-//   club-dj-melera.glb  <- club-guest-female.glb   (long straight hair; the blond is a runtime tint)
+//   club-dj-female.glb  <- club-guest-female.glb   (long straight hair; the blond is a runtime tint)
 //
 // Both keep ONE clip, `Idle_Loop` (the DJ works the decks; it does not dance), so a DJ is about half the size of a
 // guest file. Hair and clothes are tinted per DJ at load time (see DJ_LOOKS in js/club/11-audio-crowd.js): the pale
 // strand texture is a grey map that the material colour turns into blond, brown or anything else.
 //
 //   node scripts/build-dj-glbs.mjs --ubc "<unzipped Universal Base Characters[Standard]>" [--out js/models/avatars]
-//   npm run optimize:avatars -- js/models/avatars/club-dj-hernan.glb js/models/avatars/club-dj-melera.glb
+//   npm run optimize:avatars -- js/models/avatars/club-dj-male.glb js/models/avatars/club-dj-female.glb
 //
 // Every hair glTF must have the same ordered joint list as the guest skeleton (the same rule build-avatar-glb.mjs
 // enforces for every accessory).
@@ -132,7 +132,7 @@ function removeEmbeddedBeard(document, beardDocument) {
 /**
  * Swap the character's hair for another rigged-to-head style, shortened to `keep` of its hang below the jaw line.
  * The hair is skinned to the head bone, so compressing its vertices downwards in bind space shortens the strands
- * and leaves the scalp untouched: Hernan's half-long hair is Hair_Long at about half its length.
+ * and leaves the scalp untouched: the male DJ uses Hair_Long at about half its length.
  */
 function swapHair(document, hairDocument, { keep, keepCap, trimFront }) {
     // keepCap: the character's own short hair stays as the scalp cap (the long style is authored for the female
@@ -346,7 +346,5 @@ async function build({ from, to, beard, hair }) {
     console.log(`${to}: from ${from}, clip ${KEEP_CLIP}${added.length ? `, + ${added.join(', ')}` : ''}`);
 }
 
-// Hernan Cattaneo: half-long dark wavy hair, no beard (his press photos). Miss Melera: long straight blond hair.
-// Both wear headphones, as DJs do (Miss Melera's photo, and it reads as a DJ at the decks).
-await build({ from: 'club-guest-male.glb', to: 'club-dj-hernan.glb', hair: { style: 'Hair_Long', keep: 0.5, keepCap: true, shave: true, trimFront: { front: 0.0, below: 1 } } });
-await build({ from: 'club-guest-female.glb', to: 'club-dj-melera.glb' });
+await build({ from: 'club-guest-male.glb', to: 'club-dj-male.glb', hair: { style: 'Hair_Long', keep: 0.5, keepCap: true, shave: true, trimFront: { front: 0.0, below: 1 } } });
+await build({ from: 'club-guest-female.glb', to: 'club-dj-female.glb' });

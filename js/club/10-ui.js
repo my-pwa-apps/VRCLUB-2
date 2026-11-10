@@ -68,6 +68,7 @@ class VRClubUI extends VRClubAnimationFinish {
     _setupVRButton(vrHelper) {
         const vrButton = document.getElementById('vrButton');
         if (!vrButton) return;
+        vrButton.hidden = true;
 
         const setLabel = (text, inSession) => {
             vrButton.textContent = text;
@@ -77,6 +78,10 @@ class VRClubUI extends VRClubAnimationFinish {
         const supported = navigator.xr && typeof navigator.xr.isSessionSupported === 'function'
             ? navigator.xr.isSessionSupported('immersive-vr').catch(() => false)
             : Promise.resolve(false);
+        supported.then(ok => {
+            this._vrAvailable = !!(ok && vrHelper?.baseExperience);
+            if (!this._disposed) vrButton.hidden = !this._vrAvailable;
+        });
 
         // The DJ console and PA speaker GLBs are parsed, instanced and compiled on the
         // main thread for several seconds after the club appears (measured 250-600 ms
@@ -103,11 +108,13 @@ class VRClubUI extends VRClubAnimationFinish {
         Promise.all([supported, entryReady]).then(([ok]) => {
             if (this._disposed) return;
             if (!ok || !vrHelper || !vrHelper.baseExperience) {
+                vrButton.hidden = true;
                 vrButton.disabled = true;
                 vrButton.title = 'No VR headset detected. Connect via Link/Air Link, or open this page in the Quest browser.';
                 setLabel('\u{1F97D} VR unavailable', false);
                 return;
             }
+            vrButton.hidden = false;
             vrButton.disabled = false;
             if (!this.isInVRMode) setLabel('\u{1F97D} Enter VR', false);
         });
@@ -116,6 +123,11 @@ class VRClubUI extends VRClubAnimationFinish {
             const base = vrHelper && vrHelper.baseExperience;
             if (!base) {
                 this.showErrorMessage('VR unavailable. Connect your headset via Link/Air Link, or open this page in the Quest browser.');
+                return;
+            }
+            const payment = window.VRPayment;
+            if (!this.isInVRMode && payment && !(payment.canEnterVR ? payment.canEnterVR() : payment.hasEntitlement())) {
+                window.VRPayment.showGate();
                 return;
             }
             try {
@@ -142,9 +154,15 @@ class VRClubUI extends VRClubAnimationFinish {
             ];
         }
         if (vrHelper && vrHelper.baseExperience) {
+            this.scene?.onDisposeObservable?.add(() => window.VRPayment?.dispose?.());
+            window.VRPayment?.setXRHandlers?.(
+                () => vrHelper.baseExperience.exitXRAsync(),
+                message => this.showErrorMessage(message)
+            );
             this._vrButtonStateObserver = vrHelper.baseExperience.onStateChangedObservable.add(state => {
                 const inSession = state === BABYLON.WebXRState.IN_XR;
                 if (inSession || state === BABYLON.WebXRState.NOT_IN_XR) {
+                    window.VRPayment?.onXRStateChange?.(inSession);
                     setLabel(inSession ? '\u{1F97D} Exit VR' : '\u{1F97D} Enter VR', inSession);
                 }
             });
@@ -526,9 +544,12 @@ class VRClubUI extends VRClubAnimationFinish {
         if (button.action !== 'net' && button.action !== 'person') return false;
         const mp = this._multiplayer();
         if (!mp) return true;
+        if (button.op === 'joinListedRoom') return !!(button.locked || button.full || mp.roomDirectory.loading || mp.connecting);
+        if (button.op === 'browseRooms' || button.op === 'moreRooms') return mp.roomDirectory.loading;
         const needsRoom = ['mic', 'avatar', 'gesture', 'emoji', 'phrase', 'muteAll', 'leave', 'listenAlong'];
         if (needsRoom.includes(button.op) && !mp.connected) return true;
         if (button.op === 'lock' && !mp.isHost()) return true;
+        if (button.op === 'peerHost' && (!mp.connected || !mp.isHost() || !mp.client.hostTransferSupported || !mp.client.peers.has(button.peer))) return true;
         if (button.op === 'listenAlong' && !mp.pendingMusicInfo()) return true;
         if (button.op === 'unblockAll' && !mp.blockedList().length) return true;
         return false;
@@ -540,22 +561,16 @@ class VRClubUI extends VRClubAnimationFinish {
             return VRClubCore.peopleCategories(button.people).every(name => this.isPeopleVisible(name));
         }
         if (button.action === 'autoShow') return !this.vjManualMode;
-        if (button.action === 'podcast') return this._selectedPodcastId() === button.podcast;
+        if (button.action === 'dj') return this._initialDJId() === button.dj;
         if (button.action === 'playPause') return this.getPlaybackInfo().playing;
         if (button.action === 'quality' || button.action === 'cycle') return true;
         if (button.control) return !!this[button.control];
         return false;
     }
 
-    /** The chosen podcast's id ('resident' | 'colourizon'), whichever surface chose it. */
-    _selectedPodcastId() {
-        if (this.podcastPlayer) return this.podcastPlayer.selectedId();
-        try { return window.Podcasts ? window.Podcasts.selectedId(localStorage) : 'resident'; } catch (_) { return 'resident'; }
-    }
-
     /** Buttons that change the room's music or lights: in someone else's room they belong to the host. */
     _isHostOwnedVRButton(button) {
-        if (['seek', 'playPause', 'podcast', 'randomEpisode', 'latestEpisode', 'autoShow', 'reset', 'cycle'].includes(button.action)) return true;
+        if (['seek', 'playPause', 'savedSet', 'setStep', 'musicSetup', 'autoShow', 'reset', 'cycle'].includes(button.action)) return true;
         return !!button.control && !button.action && !['vrComfortMode', 'photosensitiveSafeMode', 'bassHapticsEnabled'].includes(button.control);
     }
 
@@ -563,7 +578,11 @@ class VRClubUI extends VRClubAnimationFinish {
         if (button.op || button.action === 'person') return this._vrNetValue(button, active);
         if (button.action === 'people') return active ? 'HERE' : 'SENT HOME';
         if (this.isFollowingHost() && this._isHostOwnedVRButton(button)) return 'HOST ONLY';
-        if (button.action === 'podcast') return active ? 'SELECTED' : '';
+        if (button.action === 'dj') return active ? 'SELECTED' : '';
+        if (button.action === 'savedSet') {
+            const item = this.musicLibrary && this.musicLibrary.current();
+            return item ? item.name.slice(0, 22).toUpperCase() : 'ADD LINKS FIRST';
+        }
         if (button.action === 'playPause') return active ? 'PLAYING' : 'PAUSED';
         if (button.action === 'quality') return this.graphicsTier.toUpperCase();
         if (button.action === 'cycle' && button.control === 'cycleLedPattern') {
@@ -647,6 +666,7 @@ class VRClubUI extends VRClubAnimationFinish {
                 { label: 'SAFE MODE', control: 'photosensitiveSafeMode' },
                 { label: 'HAPTICS', control: 'bassHapticsEnabled' },
                 { label: 'QUALITY', action: 'quality' },
+                { label: 'CREDITS / LICENCES', action: 'credits' },
                 common.back,
                 common.close
             ],
@@ -655,6 +675,7 @@ class VRClubUI extends VRClubAnimationFinish {
                 { label: 'DANCERS', action: 'people', people: 'dancers' },
                 { label: 'BYSTANDERS', action: 'people', people: 'bystanders' },
                 { label: 'DJ', action: 'people', people: 'dj' },
+                { label: 'CHOOSE DJ', action: 'page', target: 'dj' },
                 { label: 'EVERYONE', action: 'people', people: 'all' },
                 common.back,
                 common.close
@@ -682,10 +703,16 @@ class VRClubUI extends VRClubAnimationFinish {
                 { label: '\u2212 1 MIN', action: 'seek', delta: -60 },
                 { label: 'PLAY / PAUSE', action: 'playPause' },
                 { label: '+ 1 MIN', action: 'seek', delta: 60 },
-                { label: 'HERNAN', action: 'podcast', podcast: 'resident' },
-                { label: 'MELERA', action: 'podcast', podcast: 'colourizon' },
-                { label: 'RANDOM', action: 'randomEpisode' },
-                { label: 'LATEST', action: 'latestEpisode' },
+                { label: 'PREVIOUS SET', action: 'setStep', delta: -1 },
+                { label: 'PLAY SAVED SET', action: 'savedSet' },
+                { label: 'NEXT SET', action: 'setStep', delta: 1 },
+                { label: 'ADD MUSIC', action: 'musicSetup' },
+                common.back,
+                common.close
+            ],
+            dj: [
+                { label: 'MALE DJ', action: 'dj', dj: 'male' },
+                { label: 'FEMALE DJ', action: 'dj', dj: 'female' },
                 common.back,
                 common.close
             ]
@@ -705,7 +732,7 @@ class VRClubUI extends VRClubAnimationFinish {
             button.control = null;
             button.action = null;
             button.target = null;
-            button.podcast = null;
+            button.dj = null;
             button.delta = 0;
             button.op = null;
             button.peer = null;
@@ -715,6 +742,12 @@ class VRClubUI extends VRClubAnimationFinish {
             button.pool = null;
             button.phrase = null;
             button.people = null;
+            button.room = null;
+            button.capacity = null;
+            button.locked = false;
+            button.full = false;
+            button.inactive = false;
+            button.scope = null;
             button.danger = false;
             Object.assign(button, definition);
             this._drawVRQuickMenuButton(button);
@@ -733,7 +766,8 @@ class VRClubUI extends VRClubAnimationFinish {
             context.font = 'bold 66px sans-serif';
             context.textAlign = 'left';
             context.textBaseline = 'middle';
-            const titles = { home: 'VR CLUB', room: 'JOIN ROOM', look: 'RANDOM LOOK', gestures: 'REACT', chat: 'CHAT', crowd: 'WHO IS HERE' };
+            const titles = { home: 'VR CLUB', room: 'JOIN ROOM', look: 'RANDOM LOOK', gestures: 'REACT', chat: 'CHAT', crowd: 'WHO IS HERE',
+                voiceAudience: 'MICROPHONE AUDIENCE', chatAudience: 'CHAT RECIPIENTS' };
             context.fillText(titles[page] || page.toUpperCase(), 54, 72);
             context.fillStyle = '#a7afbf';
             context.font = '30px sans-serif';
@@ -823,7 +857,7 @@ class VRClubUI extends VRClubAnimationFinish {
             ctx.textAlign = 'right';
             ctx.fillText(clock(info.duration), right, 178);
         } else {
-            ctx.fillText(this._audioKind ? 'Live stream: no position to seek' : 'Pick a podcast to start', left, 178);
+            ctx.fillText(this._audioKind ? 'Live stream: no position to seek' : 'ADD MUSIC: FILE OR URL', left, 178);
         }
         this._vrSeek.texture.update();
     }
@@ -878,23 +912,34 @@ class VRClubUI extends VRClubAnimationFinish {
         this._drawVRSeekBar();
     }
 
-    /** Music page actions: run on whichever podcast player the DOM script attached (the same one the Audio menu uses). */
+    async _openQuestPanel(kind) {
+        this.toggleVRQuickMenu(false);
+        try {
+            if (this.isInVRMode && this.vrHelper) await this.vrHelper.baseExperience.exitXRAsync();
+            const open = kind === 'credits' ? window.openClubCredits : window.openMusicSetup;
+            if (!open) throw new Error('The setup panel is not ready.');
+            open();
+        } catch (error) {
+            this.showErrorMessage(`Could not open the panel: ${error.message}`);
+        }
+    }
+
     async _runVRMusicAction(button) {
         if (!this.guardHostControl('music')) return;
-        const player = this.podcastPlayer;
+        const library = this.musicLibrary;
         if (button.action === 'seek') {
             if (!this.seekAudioBy(button.delta)) this.showErrorMessage('Nothing to seek in.');
         } else if (button.action === 'playPause') {
             this.toggleAudioPlayback();
-        } else if (!player) {
+        } else if (button.action === 'musicSetup') {
+            await this._openQuestPanel('music');
+            return;
+        } else if (!library) {
             this.showErrorMessage('The music player is not ready yet.');
         } else {
-            const podcast = window.Podcasts.get(button.action === 'podcast' ? button.podcast : player.selectedId());
-            this.showErrorMessage(`Finding ${podcast.artist}'s set\u2026`);
             try {
-                if (button.action === 'podcast') await player.switchTo(button.podcast);
-                else if (button.action === 'randomEpisode') await player.playRandom();
-                else await player.playLatest();
+                if (button.action === 'setStep') library.step(button.delta);
+                else await library.play();
             } catch (err) {
                 this.showErrorMessage(`Could not start the music: ${err && err.message ? err.message : 'unknown error'}`);
             }
@@ -918,7 +963,7 @@ class VRClubUI extends VRClubAnimationFinish {
         return typeof ClubMultiplayer !== 'undefined' ? new ClubMultiplayer(this) : null;
     }
 
-    static get VR_NET_PAGES() { return ['online', 'gestures', 'chat', 'people', 'person', 'safety', 'room', 'look']; }
+    static get VR_NET_PAGES() { return ['online', 'rooms', 'gestures', 'chat', 'people', 'person', 'safety', 'room', 'look', 'voiceAudience', 'chatAudience']; }
 
     /** The five pages' buttons. Names come from other guests, so they are shortened and never interpreted. */
     _vrNetPageDefinitions(page, common) {
@@ -929,17 +974,32 @@ class VRClubUI extends VRClubAnimationFinish {
         if (page === 'online') {
             return [
                 net('NETWORK', 'connection'),
-                net('MIC', 'mic'),
+                { label: 'MIC / WHO HEARS ME', action: 'page', target: 'voiceAudience', op: 'mic' },
                 { label: 'LOOK', action: 'page', target: 'look', op: 'avatar' },
                 { label: 'GESTURES', action: 'page', target: 'gestures' },
                 { label: 'PEOPLE', action: 'page', target: 'people', op: 'peopleCount' },
                 { label: 'SAFETY', action: 'page', target: 'safety' },
                 net('NEW PRIVATE ROOM', 'privateRoom'),
                 { label: 'JOIN ROOM', action: 'page', target: 'room' },
-                net('PUBLIC LOBBY', 'lobby'),
+                net('BROWSE ROOMS', 'browseRooms'),
                 net('LISTEN ALONG', 'listenAlong'),
                 common.back,
                 common.close
+            ];
+        }
+        if (page === 'rooms') {
+            const rooms = mp.directoryRooms(), count = Math.ceil(rooms.length / 5);
+            this._vrRoomsPage = Math.min(this._vrRoomsPage || 0, Math.max(0, count - 1));
+            return [
+                ...rooms.slice(this._vrRoomsPage * 5, this._vrRoomsPage * 5 + 5).map(room =>
+                    net(`${room.private ? 'PRIVATE ' : ''}${room.room.replace(/^private-/i, '').slice(0, 16).toUpperCase()}`,
+                        'joinListedRoom', { room: room.room, people: room.people, capacity: room.capacity, locked: room.locked, full: room.people >= room.capacity, inactive: !room.active })),
+                net('REFRESH', 'browseRooms'),
+                ...(rooms.length > 5 ? [net('NEXT PAGE', 'roomsPage')] : []),
+                ...(mp.roomDirectory.next ? [net('MORE PUBLIC', 'moreRooms')] : []),
+                net('PUBLIC LOBBY', 'lobby'),
+                { label: 'PRIVATE CODE', action: 'page', target: 'room' },
+                back('online'), common.close
             ];
         }
         if (page === 'look') {
@@ -973,7 +1033,14 @@ class VRClubUI extends VRClubAnimationFinish {
         if (page === 'chat') {
             // No keyboard in a headset: one tap sends a ready-made message, shown in a bubble over your head.
             const phrases = ClubMultiplayer.QUICK_PHRASES.map(text => net(text.toUpperCase(), 'phrase', { phrase: text }));
-            return [...phrases, back('home'), common.close];
+            return [{ label: 'CHAT RECIPIENTS', action: 'page', target: 'chatAudience' }, ...phrases, back('home'), common.close];
+        }
+        if (page === 'voiceAudience' || page === 'chatAudience') {
+            const scope = page === 'voiceAudience' ? 'voice' : 'chat';
+            return [...(scope === 'voice' ? [net('MIC', 'mic')] : []), net('EVERYONE', 'audienceAll', { scope }),
+                net('CLEAR SELECTION', 'audienceClear', { scope }),
+                ...mp.people().map(person => net(this._vrShortName(person.name), 'audiencePeer', { scope, peer: person.id })),
+                back(scope === 'voice' ? 'online' : 'chat'), common.close];
         }
         if (page === 'safety') {
             return [
@@ -1007,6 +1074,7 @@ class VRClubUI extends VRClubAnimationFinish {
             net('BLOCK', 'peerBlock', { peer: person.id })
         ];
         if (mp.isHost()) {
+            rows.push(net(armedFor('host') ? 'SURE? MAKE HOST' : 'MAKE HOST', 'peerHost', { peer: person.id }));
             rows.push(net(armedFor('kick') ? 'SURE? KICK' : 'KICK', 'peerKick', { peer: person.id, danger: true }));
             rows.push(net(armedFor('ban') ? 'SURE? BAN' : 'BAN', 'peerBan', { peer: person.id, danger: true }));
         }
@@ -1023,6 +1091,12 @@ class VRClubUI extends VRClubAnimationFinish {
         if (!VRClubUI.VR_NET_PAGES.includes(page)) return '';
         const mp = this._multiplayer();
         if (!mp) return '';
+        if (page === 'rooms') return (mp.roomDirectory.loading ? 'CHECKING ROOMS...' : mp.roomDirectory.error ||
+            (mp.roomDirectory.loaded && !mp.directoryRooms().length ? 'NO ROOMS: JOIN LOBBY OR ENTER A PRIVATE CODE' :
+                'PUBLIC ROOMS + YOUR SAVED PRIVATE CODES')).slice(0, 56).toUpperCase();
+        if (page === 'voiceAudience' || page === 'chatAudience') {
+            return `TO: ${mp.audienceLabel(page === 'voiceAudience' ? 'voice' : 'chat')}`.slice(0, 56).toUpperCase();
+        }
         if (page === 'person') {
             const person = mp.people().find(item => item.id === this._vrPerson);
             return person ? this._vrShortName(person.name).toUpperCase() : '';
@@ -1031,7 +1105,7 @@ class VRClubUI extends VRClubAnimationFinish {
         if (page === 'chat') {
             if (!mp.connected) return 'JOIN A ROOM FIRST: ONLINE \u2192 NETWORK';
             const last = mp.chat.filter(entry => !entry.self).at(-1);
-            return last ? `${this._vrShortName(last.name)}: ${last.text}`.toUpperCase().slice(0, 52) : 'TAP A MESSAGE TO SEND IT';
+            return `TO: ${mp.audienceLabel('chat')}${last ? ` | ${this._vrShortName(last.name)}: ${last.text}` : ''}`.toUpperCase().slice(0, 52);
         }
         if (page === 'look') {
             return mp.avatarPool === 'any' ? 'RANDOM LOOK: ANYONE' : `RANDOM LOOK: ${mp.avatarPool.toUpperCase()}`;
@@ -1048,6 +1122,8 @@ class VRClubUI extends VRClubAnimationFinish {
         const mp = this._multiplayer();
         if (!mp) return false;
         switch (button.op) {
+            case 'audienceAll': return mp[`${button.scope}Audience`] === null;
+            case 'audiencePeer': return !!mp[`${button.scope}Audience`]?.includes(button.peer);
             case 'connection': return mp.connected;
             case 'mic': return mp.micEnabled;
             case 'personalSpace': return mp.personalSpace;
@@ -1072,8 +1148,14 @@ class VRClubUI extends VRClubAnimationFinish {
         const mp = this._multiplayer();
         if (!mp) return '';
         switch (button.op) {
+            case 'joinListedRoom': return button.locked ? 'LOCKED' : button.full ? 'FULL' : button.inactive ? 'START ROOM' : `${button.people}/${button.capacity} HERE`;
+            case 'peerHost': return !mp.isHost() ? 'HOST ONLY' : !mp.client.hostTransferSupported ? 'UPDATE RELAY' : 'YOU STAY IN ROOM';
+            case 'browseRooms': return mp.roomDirectory.loading ? 'CHECKING...' : 'PUBLIC + SAVED PRIVATE';
+            case 'audienceAll': return active ? 'SELECTED' : '';
+            case 'audienceClear': return 'SEND TO NOBODY';
+            case 'audiencePeer': return active ? 'SELECTED' : 'NOT SELECTED';
             case 'connection': return mp.connected ? 'CONNECTED' : mp.connecting ? 'CONNECTING' : 'OFFLINE';
-            case 'mic': return !mp.connected ? 'JOIN A ROOM FIRST' : active ? 'MIC ON' : 'MIC OFF';
+            case 'mic': return !mp.connected ? 'JOIN A ROOM FIRST' : active ? (mp.voiceAudience === null ? 'ON: EVERYONE' : 'ON: SELECTED') : 'MIC OFF';
             case 'chatUnread': return mp.chatUnread ? ` NEW` : '';
             case 'duck': return active ? 'WHILE TALKING' : 'OFF';
             case 'phrase': return !mp.connected ? 'JOIN A ROOM FIRST' : '';
@@ -1104,6 +1186,33 @@ class VRClubUI extends VRClubAnimationFinish {
             return true;
         };
         switch (button.op) {
+            case 'browseRooms':
+            case 'moreRooms':
+                this._showVRQuickMenuPage('rooms');
+                await mp.refreshRooms({ more: button.op === 'moreRooms' });
+                if (mp.roomDirectory.error) this.showErrorMessage(mp.roomDirectory.error);
+                break;
+            case 'roomsPage': {
+                const pages = Math.max(1, Math.ceil(mp.directoryRooms().length / 5));
+                this._vrRoomsPage = ((this._vrRoomsPage || 0) + 1) % pages;
+                this._showVRQuickMenuPage('rooms');
+                return;
+            }
+            case 'joinListedRoom':
+                if (mp.joinListedRoom(button.room)) {
+                    this.showErrorMessage(`Joining ${mp.roomLabel(button.room)}...`);
+                    this._showVRQuickMenuPage('online');
+                } else this.showErrorMessage(mp.roomDirectory.error);
+                break;
+            case 'audienceAll':
+                if (!needConnection()) mp.setAudience(button.scope, null);
+                break;
+            case 'audienceClear':
+                if (!needConnection()) mp.setAudience(button.scope, []);
+                break;
+            case 'audiencePeer':
+                if (!needConnection()) mp.toggleAudiencePeer(button.scope, button.peer);
+                break;
             case 'connection': {
                 const wasOn = mp.connected || mp.connecting;
                 mp.toggleConnection();
@@ -1180,9 +1289,13 @@ class VRClubUI extends VRClubAnimationFinish {
                 return;
             }
             case 'peerKick':
-            case 'peerBan': {
-                // Neither can be undone from here, so the first press arms the button and the second (within 4 s) acts.
-                const kind = button.op === 'peerKick' ? 'kick' : 'ban';
+            case 'peerBan':
+            case 'peerHost': {
+                const kind = button.op === 'peerHost' ? 'host' : button.op === 'peerKick' ? 'kick' : 'ban';
+                if (kind === 'host' && (!mp.isHost() || !mp.client?.hostTransferSupported || !mp.client.peers.has(button.peer))) {
+                    mp.transferHost(button.peer);
+                    return;
+                }
                 const key = `${kind}:${button.peer}`;
                 if (!this._vrArmed || this._vrArmed.key !== key || this._vrArmed.until < Date.now()) {
                     this._vrArmed = { key, until: Date.now() + 4000 };
@@ -1190,8 +1303,13 @@ class VRClubUI extends VRClubAnimationFinish {
                     break;
                 }
                 this._vrArmed = null;
-                if (kind === 'kick') mp.kickPeer(button.peer); else mp.banPeer(button.peer);
-                this.showErrorMessage(kind === 'kick' ? 'Guest removed from the room' : 'Guest banned from this room');
+                if (kind === 'host') {
+                    if (!mp.transferHost(button.peer)) return;
+                    this.showErrorMessage('Host transfer requested. You stay in the room.');
+                } else {
+                    if (kind === 'kick') mp.kickPeer(button.peer); else mp.banPeer(button.peer);
+                    this.showErrorMessage(kind === 'kick' ? 'Guest removed from the room' : 'Guest banned from this room');
+                }
                 this._vrPerson = null;
                 this._showVRQuickMenuPage('people');
                 this.pulseHaptic(0.8, 40);
@@ -1243,7 +1361,16 @@ class VRClubUI extends VRClubAnimationFinish {
             this._runVRNetworkAction(button);
             return;
         }
-        if (['seek', 'playPause', 'podcast', 'randomEpisode', 'latestEpisode'].includes(button.action)) {
+        if (button.action === 'credits') {
+            this._openQuestPanel('credits');
+            return;
+        }
+        if (button.action === 'dj') {
+            this.chooseDJ(button.dj).then(() => this._refreshVRQuickMenu())
+                .catch(error => this.showErrorMessage(error.message));
+            return;
+        }
+        if (['seek', 'playPause', 'savedSet', 'setStep', 'musicSetup'].includes(button.action)) {
             this._runVRMusicAction(button);
             return;
         }
@@ -1428,6 +1555,7 @@ class VRClubUI extends VRClubAnimationFinish {
     }
 
     toggleVRQuickMenu(force) {
+        if (force !== false) this._closeVRSocialWheel();
         this._createVRQuickMenu();
         const camera = this.isInVRMode
             ? this.vrHelper?.baseExperience?.camera : this.scene.activeCamera;
@@ -1439,6 +1567,209 @@ class VRClubUI extends VRClubAnimationFinish {
         this._vrQuickMenuRoot.setEnabled(next);
         this.pulseHaptic(next ? 0.8 : 0.35, 35);
         return next;
+    }
+
+    _socialWheelItems() {
+        const state = this._vrSocialWheel;
+        if (state.page === 'home') return [
+            { label: 'CHAT', target: 'chat' }, { label: 'REACTIONS', target: 'gestures' },
+            { label: 'MICROPHONE', target: 'voiceAudience' }, { label: 'CLOSE', close: true }
+        ];
+        const items = this._vrQuickMenuPageDefinitions(state.page)
+            .filter(item => item && item.action !== 'back' && item.action !== 'close');
+        const start = state.offset * 5;
+        return [...items.slice(start, start + 5),
+            ...(items.length > 5 ? [{ label: 'MORE', more: true }] : []),
+            { label: 'BACK', target: state.page === 'chatAudience' ? 'chat' : 'home' },
+            { label: 'CLOSE', close: true }];
+    }
+
+    _pressVRSocialWheel(x = 0, y = 0) {
+        if (!this.isInVRMode) return;
+        if (!this._multiplayer()?.connected) {
+            this.showErrorMessage('Join a room in People to use chat, reactions and your microphone.');
+            return;
+        }
+        if (!this._vrSocialWheel?.open) {
+            this._createVRSocialWheel();
+            const state = this._vrSocialWheel;
+            this.toggleVRQuickMenu(false);
+            state.page = 'home'; state.offset = 0; state.selected = -1; state.open = true;
+            state.x = x; state.y = y; state.armed = Math.hypot(x, y) < 0.25; state.busy = false;
+            this._vrQuickMenuRoot.setEnabled(false);
+            this._placeVRQuickMenu(this.vrHelper.baseExperience.camera);
+            state.mesh.position.copyFrom(this._vrQuickMenuRoot.position);
+            state.mesh.rotation.copyFrom(this._vrQuickMenuRoot.rotation);
+            state.mesh.setEnabled(true);
+            this._restoreVRSocialTurning();
+            state.turning = [];
+            for (const feature of [this.movementFeature, this.vrHelper.teleportation]) {
+                if (!feature) continue;
+                state.turning.push({ feature, enabled: feature.rotationEnabled });
+                feature.rotationEnabled = false;
+            }
+            this._drawVRSocialWheel();
+            return;
+        }
+        const state = this._vrSocialWheel;
+        if (state.busy || !state.armed) return;
+        const item = this._socialWheelItems()[state.selected];
+        if (!item) return;
+        if (item.close) { this._closeVRSocialWheel(); return; }
+        state.selected = -1;
+        state.armed = false;
+        if (item.more) {
+            const count = this._vrQuickMenuPageDefinitions(state.page).filter(item =>
+                item && item.action !== 'back' && item.action !== 'close').length;
+            state.offset = (state.offset + 1) % Math.ceil(count / 5);
+        } else if (item.target) {
+            state.page = item.target; state.offset = 0;
+        } else {
+            state.busy = true;
+            void this._runVRNetworkAction(item)
+                .catch(error => this.showErrorMessage(`Social action failed: ${error.message}`))
+                .finally(() => {
+                    state.busy = false;
+                    if (state.open) this._drawVRSocialWheel();
+                });
+        }
+        this.pulseHaptic(0.45, 25);
+        this._drawVRSocialWheel();
+    }
+
+    _createVRSocialWheel() {
+        if (this._vrSocialWheel) return;
+        this._createVRQuickMenu();
+        const texture = new BABYLON.DynamicTexture('vrSocialWheelTexture', { width: 1024, height: 1024 }, this.scene, false);
+        texture.hasAlpha = true;
+        const material = this.materialFactory.createStandardMaterial('vrSocialWheelMaterial', {
+            emissiveTexture: texture, disableLighting: true
+        });
+        material.diffuseTexture = texture;
+        material.useAlphaFromDiffuseTexture = true;
+        material.disableDepthWrite = true;
+        material.backFaceCulling = false;
+        const mesh = BABYLON.MeshBuilder.CreatePlane('vrSocialWheel', { size: 1.35 }, this.scene);
+        mesh.material = material;
+        mesh.renderingGroupId = 2;
+        mesh.isPickable = false;
+        mesh.setEnabled(false);
+        this._vrSocialWheel = {
+            mesh, texture, open: false, selected: -1, x: 0, y: 0,
+            armed: true, busy: false, turning: []
+        };
+        const unsubscribe = this._multiplayer().onChange(() => {
+            if (!this._multiplayer().connected) this._closeVRSocialWheel(true);
+            else if (this._vrSocialWheel.open) {
+                this._vrSocialWheel.selected = -1;
+                this._drawVRSocialWheel();
+            }
+        });
+        this.scene.onDisposeObservable.add(() => {
+            this._closeVRSocialWheel(true);
+            unsubscribe();
+            texture.dispose();
+        });
+    }
+
+    _moveVRSocialWheel(x, y) {
+        const state = this._vrSocialWheel;
+        if (!state) return;
+        state.x = x; state.y = y;
+        if (!state.open) {
+            if (Math.hypot(x, y) < 0.25) this._restoreVRSocialTurning();
+            return;
+        }
+        // Babylon's movement feature registers its axis observer before the UI bindings,
+        // so it may have already copied this event into its private turn state. Clear that
+        // cached value as well as gating future events in _xrMovementOptions().
+        if (this.movementFeature?._movementState) {
+            this.movementFeature._movementState.rotateX = 0;
+            this.movementFeature._movementState.rotateY = 0;
+        }
+        const magnitude = Math.hypot(x, y);
+        if (magnitude < 0.25) {
+            const changed = !state.armed || state.selected !== -1;
+            state.armed = true;
+            state.selected = -1;
+            if (changed) this._drawVRSocialWheel();
+            return;
+        }
+        if (!state.armed || state.busy) return;
+        const items = this._socialWheelItems();
+        const angle = (Math.atan2(x, -y) + Math.PI * 2) % (Math.PI * 2);
+        const selected = magnitude < 0.5 ? -1 : Math.round(angle / (Math.PI * 2 / items.length)) % items.length;
+        if (selected === state.selected) return;
+        state.selected = selected;
+        this._drawVRSocialWheel();
+        if (selected >= 0) this.pulseHaptic(0.2, 15);
+    }
+
+    _closeVRSocialWheel(restoreNow = false) {
+        const state = this._vrSocialWheel;
+        if (!state) return;
+        state.open = false;
+        state.busy = false;
+        state.selected = -1;
+        state.mesh.setEnabled(false);
+        if (restoreNow || Math.hypot(state.x, state.y) < 0.25) this._restoreVRSocialTurning();
+    }
+
+    _restoreVRSocialTurning() {
+        const state = this._vrSocialWheel;
+        if (!state) return;
+        for (const { feature, enabled } of state.turning) feature.rotationEnabled = enabled;
+        state.turning = [];
+    }
+
+    _drawVRSocialWheel() {
+        const state = this._vrSocialWheel, items = this._socialWheelItems();
+        const ctx = state.texture.getContext();
+        ctx.clearRect(0, 0, 1024, 1024);
+        const step = Math.PI * 2 / items.length;
+        items.forEach((item, index) => {
+            const angle = index * step - Math.PI / 2;
+            ctx.beginPath(); ctx.moveTo(512, 512);
+            ctx.arc(512, 512, 490, angle - step / 2, angle + step / 2);
+            ctx.closePath();
+            const active = item.op && this._vrNetActive(item);
+            ctx.fillStyle = index === state.selected ? '#16818a' : active ? '#164653' : '#141e30';
+            ctx.fill(); ctx.strokeStyle = '#708899'; ctx.lineWidth = 3; ctx.stroke();
+            ctx.fillStyle = item.danger ? '#ffb4b4' : '#ffffff';
+            ctx.textAlign = 'center'; ctx.font = 'bold 25px sans-serif';
+            const x = 512 + Math.cos(angle) * 330, y = 512 + Math.sin(angle) * 330;
+            const words = String(item.label).split(/\s+/);
+            let top = '', bottom = '';
+            for (const word of words) {
+                if (!bottom && `${top} ${word}`.trim().length <= 14) top = `${top} ${word}`.trim();
+                else bottom = `${bottom} ${word}`.trim();
+            }
+            if (bottom.length > 14) bottom = `${bottom.slice(0, 13)}\u2026`;
+            ctx.fillText(top, x, y - (bottom ? 13 : 0));
+            if (bottom) ctx.fillText(bottom, x, y + 16);
+            if (item.op) {
+                ctx.font = '20px sans-serif'; ctx.fillStyle = '#a7eff1';
+                ctx.fillText(this._vrNetValue(item, active), x, y + (bottom ? 44 : 30));
+            }
+        });
+        ctx.beginPath(); ctx.arc(512, 512, 165, 0, Math.PI * 2);
+        ctx.fillStyle = '#080f1a'; ctx.fill();
+        ctx.fillStyle = '#ffffff'; ctx.font = 'bold 28px sans-serif';
+        const titles = {
+            home: 'SOCIAL', gestures: 'REACTIONS', chat: 'CHAT',
+            voiceAudience: 'MICROPHONE', chatAudience: 'CHAT AUDIENCE'
+        };
+        ctx.fillText(titles[state.page] || state.page.toUpperCase(), 512, 485);
+        ctx.font = '22px sans-serif';
+        if (state.busy) {
+            ctx.fillText('WORKING...', 512, 535);
+        } else if (!state.armed) {
+            ctx.fillText('CENTER STICK', 512, 535);
+        } else {
+            ctx.fillText('TILT TO CHOOSE', 512, 525);
+            ctx.fillText('CLICK TO SELECT', 512, 555);
+        }
+        state.texture.update();
     }
 
     /**
@@ -1577,6 +1908,7 @@ class VRClubUI extends VRClubAnimationFinish {
      *        end so the caller can queue the next one. Everything else loops, as before.
      */
     _playAudio(src, kind, label, options = {}) {
+        this._stopSoundCloudPlayer();
         const audio = this._ensureAudioElement();
         audio.loop = options.loop !== false;
         this._audioKind = kind;
@@ -1593,6 +1925,7 @@ class VRClubUI extends VRClubAnimationFinish {
 
         return audio.play().then(() => {
             log.info(`🔊 Playing ${kind}: ${label}`);
+            this._shareAudioPosition();
             return audio;
         }).catch(error => {
             log.error(`❌ Failed to play ${kind}:`, error);
@@ -1610,6 +1943,125 @@ class VRClubUI extends VRClubAnimationFinish {
         }
         this.nowPlayingLabel = url; // a podcast episode replaces this with its title once it has started
         return this._playAudio(url, 'stream', url, { loop: !options.onDemand });
+    }
+
+    static _loadSoundCloudAPI() {
+        if (window.SC && typeof window.SC.Widget === 'function') return Promise.resolve(window.SC);
+        if (VRClubUI._soundCloudAPIReady) return VRClubUI._soundCloudAPIReady;
+        const pending = new Promise((resolve, reject) => {
+            const script = document.createElement('script');
+            const fail = () => {
+                clearTimeout(timer);
+                script.remove();
+                reject(new Error('SoundCloud playback tracking could not load. Try playing the set again.'));
+            };
+            const timer = setTimeout(fail, 10000);
+            script.src = 'https://w.soundcloud.com/player/api.js';
+            script.onload = () => {
+                if (!window.SC || typeof window.SC.Widget !== 'function') return fail();
+                clearTimeout(timer);
+                resolve(window.SC);
+            };
+            script.onerror = fail;
+            document.head.appendChild(script);
+        });
+        VRClubUI._soundCloudAPIReady = pending;
+        pending.catch(() => {
+            if (VRClubUI._soundCloudAPIReady === pending) VRClubUI._soundCloudAPIReady = null;
+        });
+        return pending;
+    }
+
+    async startSoundCloud(url, label = 'SoundCloud set') {
+        const parsed = new URL(String(url));
+        if (parsed.protocol !== 'https:' || !/(^|\.)soundcloud\.com$/.test(parsed.hostname) ||
+            parsed.username || parsed.password) {
+            return Promise.reject(new TypeError('Use a SoundCloud track or set page URL.'));
+        }
+        if (this.audioElement) this.audioElement.pause();
+        this._stopSoundCloudPlayer();
+        const holder = document.getElementById('soundCloudPlayer');
+        if (!holder) return Promise.reject(new Error('The SoundCloud player is unavailable.'));
+        const iframe = document.createElement('iframe');
+        iframe.title = `SoundCloud player: ${label}`;
+        iframe.allow = 'autoplay; encrypted-media';
+        iframe.referrerPolicy = 'no-referrer';
+        iframe.src = `https://w.soundcloud.com/player/?url=${encodeURIComponent(parsed.href)}&auto_play=true&hide_related=true&show_comments=false&show_reposts=false&visual=false`;
+        holder.appendChild(iframe);
+        holder.hidden = false;
+        this._soundCloudFrame = iframe;
+        this._soundCloudUrl = parsed.href;
+        this._audioKind = 'soundcloud';
+        this._audioStreamUrl = null;
+        this._soundCloudPlaying = false;
+        this._soundCloudDanceBeat = 0;
+        this._soundCloudStateRevision = 0;
+        try {
+            const SC = await VRClubUI._loadSoundCloudAPI();
+            if (this._soundCloudFrame !== iframe) return iframe;
+            const widget = SC.Widget(iframe);
+            this._soundCloudWidget = widget;
+            const events = SC.Widget.Events;
+            this._soundCloudEvents = [events.READY, events.PLAY, events.PLAY_PROGRESS, events.PAUSE, events.FINISH, events.ERROR];
+            const current = () => this._soundCloudFrame === iframe && this._soundCloudWidget === widget;
+            const playing = value => {
+                if (!current()) return;
+                this._soundCloudStateRevision++;
+                this._setSoundCloudPlaying(value);
+            };
+            widget.bind(events.PLAY, () => playing(true));
+            widget.bind(events.PLAY_PROGRESS, () => playing(true));
+            widget.bind(events.PAUSE, () => playing(false));
+            widget.bind(events.FINISH, () => playing(false));
+            widget.bind(events.ERROR, () => {
+                if (!current()) return;
+                playing(false);
+                log.warn('SoundCloud reported a playback error.');
+                this.showErrorMessage('SoundCloud could not play this set. Check its official player in Music.');
+            });
+            widget.bind(events.READY, () => {
+                const revision = this._soundCloudStateRevision;
+                widget.isPaused(paused => {
+                    if (current() && revision === this._soundCloudStateRevision) playing(paused === false);
+                });
+            });
+        } catch (error) {
+            if (this._soundCloudFrame === iframe) {
+                log.error('SoundCloud playback tracking failed:', error);
+                this.showErrorMessage(error.message);
+                throw error;
+            }
+        }
+        return iframe;
+    }
+
+    _setSoundCloudPlaying(playing) {
+        if (this._soundCloudPlaying === playing) return;
+        const now = performance.now();
+        if (playing) this._soundCloudDanceStartedAt = now;
+        else this._soundCloudDanceBeat += Math.max(0, now - this._soundCloudDanceStartedAt) / 500;
+        this._soundCloudPlaying = playing;
+    }
+
+    _stopSoundCloudPlayer() {
+        if (this._soundCloudWidget) {
+            for (const event of this._soundCloudEvents) this._soundCloudWidget.unbind(event);
+            this._soundCloudWidget = null;
+            this._soundCloudEvents = null;
+        }
+        this._soundCloudPlaying = false;
+        this._soundCloudDanceBeat = 0;
+        this._soundCloudDanceStartedAt = 0;
+        if (this._soundCloudFrame) {
+            this._soundCloudFrame.remove();
+            this._soundCloudFrame = null;
+        }
+        const holder = typeof document !== 'undefined' && document.getElementById('soundCloudPlayer');
+        if (holder) {
+            holder.replaceChildren();
+            holder.hidden = true;
+        }
+        this._soundCloudUrl = null;
     }
 
     startAudioFromFile(file) {
@@ -1632,6 +2084,12 @@ class VRClubUI extends VRClubAnimationFinish {
      * @returns {{ seekable: boolean, position: number, duration: number, playing: boolean }}
      */
     getPlaybackInfo() {
+        if (this._audioKind === 'network') {
+            return { seekable: false, position: 0, duration: 0, playing: !!this.multiplayer?._broadcastState?.playing };
+        }
+        if (this._audioKind === 'soundcloud') {
+            return { seekable: false, position: 0, duration: 0, playing: !!this._soundCloudPlaying };
+        }
         const audio = this.audioElement;
         if (!audio) return { seekable: false, position: 0, duration: 0, playing: false };
         const duration = audio.duration;
@@ -1670,9 +2128,13 @@ class VRClubUI extends VRClubAnimationFinish {
     /** Play or pause what is loaded. Returns true when it is now playing. */
     toggleAudioPlayback() {
         if (!this.guardHostControl('music')) return false;
+        if (this._audioKind === 'soundcloud') {
+            this.showErrorMessage('Use the official SoundCloud player in Music to play or pause this set.');
+            return false;
+        }
         const audio = this.audioElement;
         if (!audio || !audio.src) {
-            this.showErrorMessage('Nothing is playing yet. Pick a podcast.');
+            this.showErrorMessage('No music yet. Open Music and add your own audio link or file.');
             return false;
         }
         if (audio.paused) {
@@ -1689,6 +2151,7 @@ class VRClubUI extends VRClubAnimationFinish {
     _shareAudioPosition(playing) {
         const net = this.networkManager;
         const audio = this.audioElement;
+        if (this.multiplayer) this.multiplayer.shareLocalMusic();
         if (!net || !net.connected || !net.isHost() || !audio || this._audioKind !== 'stream' || !this._audioStreamUrl) return;
         net.sendMusic({
             url: this._audioStreamUrl,
@@ -1731,6 +2194,7 @@ class VRClubUI extends VRClubAnimationFinish {
     }
 
     setVRComfortMode(enabled) {
+        this._closeVRSocialWheel(true);
         this.vrComfortMode = !!enabled;
         try { localStorage.setItem('vrclub.vrComfort', this.vrComfortMode ? '1' : '0'); } catch (_) {}
         this._applyXRLocomotionMode();
@@ -1770,6 +2234,22 @@ class VRClubUI extends VRClubAnimationFinish {
     }
 
     _xrMovementOptions() {
+        const registrations = BABYLON.WebXRControllerMovement.REGISTRATIONS.default.map(registration => {
+            const forceHandedness = registration.forceHandedness === 'left' ? 'right' : 'left';
+            if (forceHandedness !== 'right') return { ...registration, forceHandedness };
+            return {
+                ...registration,
+                forceHandedness,
+                axisChangedHandler: (axes, movementState, featureContext) => {
+                    if (this._vrSocialWheel?.open) {
+                        movementState.rotateX = 0;
+                        movementState.rotateY = 0;
+                        return;
+                    }
+                    registration.axisChangedHandler(axes, movementState, featureContext);
+                }
+            };
+        });
         return {
             xrInput: this.vrHelper.input,
             movementEnabled: true,
@@ -1781,10 +2261,7 @@ class VRClubUI extends VRClubAnimationFinish {
             movementOrientationFollowsViewerPose: true,
             movementOrientationFollowsController: false,
             // Reuse Babylon's dead-zone handlers, swapping its default right-walk/left-turn layout.
-            customRegistrationConfigurations: BABYLON.WebXRControllerMovement.REGISTRATIONS.default.map(registration => ({
-                ...registration,
-                forceHandedness: registration.forceHandedness === 'left' ? 'right' : 'left'
-            }))
+            customRegistrationConfigurations: registrations
         };
     }
 

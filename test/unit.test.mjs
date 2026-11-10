@@ -148,7 +148,7 @@ test('keyboard shortcuts leave focused buttons to native Space activation but st
     assert.equal(audio.pauseCalls, 0, 'a default-prevented Space should not pause audio');
 });
 
-test('the audio menu exposes a separate ambience slider and labels both ranges by scope', () => {
+test('the audio menu exposes labelled levels and a clipboard paste action', async () => {
     const source = readFileSync(join(ROOT, 'js/ui-init.js'), 'utf8');
     const start = source.indexOf('function initAudioMenu()');
     const end = source.indexOf('// =============================================================================\n// MULTIPLAYER', start);
@@ -173,13 +173,17 @@ test('the audio menu exposes a separate ambience slider and labels both ranges b
         focus() {},
         querySelector() { return null; },
         setCustomValidity() {},
-        reportValidity() { return true; }
+        setSelectionRange(start, end) { this.selection = [start, end]; },
+        reportValidity() { return true; },
+        replaceChildren() {},
+        add() {}
     });
     const elements = Object.fromEntries([
         'audioToggle', 'audioMenu', 'audioMinimize', 'audioClose', 'streamUrl',
-        'playStreamBtn', 'playStreamBtnLabel', 'audioFileInput', 'audioFileName',
+        'pasteStreamBtn', 'playStreamBtn', 'playStreamBtnLabel', 'audioFileInput', 'audioFileName',
         'audioStatus', 'audioMenuTitle', 'audioNowPlaying', 'audioVolume',
-        'audioVolumeValue', 'crowdAmbience', 'crowdAmbienceValue'
+        'audioVolumeValue', 'crowdAmbience', 'crowdAmbienceValue', 'savedSets',
+        'setName', 'playSavedSetBtn', 'removeSavedSetBtn', 'djStyle'
     ].map(id => [id, makeEl()]));
     elements.audioToggle.attributes['aria-expanded'] = 'false';
     elements.audioVolume.value = '1';
@@ -188,6 +192,7 @@ test('the audio menu exposes a separate ambience slider and labels both ranges b
     const calls = [];
     const context = vm.createContext({
         Promise,
+        Option: class {},
         document: {
             getElementById(id) { return elements[id] || null; },
             querySelectorAll() { return []; },
@@ -195,7 +200,10 @@ test('the audio menu exposes a separate ambience slider and labels both ranges b
             removeEventListener() {}
         },
         window: { addEventListener() {}, removeEventListener() {} },
-        navigator: { onLine: true },
+        navigator: {
+            onLine: true,
+            clipboard: { readText: async () => '  https://soundcloud.com/missmelera/colourizon-168  ' }
+        },
         uiTeardowns: [],
         entryNowPlaying: '',
         uiLog: { info() {}, warn() {} },
@@ -204,7 +212,7 @@ test('the audio menu exposes a separate ambience slider and labels both ranges b
         AudioUtils: { isResidentEpisodeUrl: () => false, formatClock: String },
         Podcasts: { get: () => ({ id: 'resident', artist: 'Hernan Cattaneo' }) },
         // The podcast player and its choice buttons are exercised by their own tests (podcasts.js).
-        ensurePodcastPlayer: () => ({ selected: () => ({ id: 'resident', artist: 'Hernan Cattaneo' }), queue: null, isQueuedUrl: () => false }),
+        ensureMusicLibrary: () => ({ current: () => null, items: [], selected: 0 }),
         refreshPodcastChoices() {},
         setInterval() { return 1; },
         clearInterval() {},
@@ -215,6 +223,7 @@ test('the audio menu exposes a separate ambience slider and labels both ranges b
             _audioVolume: 0.6,
             audioElement: null,
             scene: null,
+            _initialDJId: () => 'male',
             _isSafeAudioUrl() { return true; },
             getPlaybackInfo() { return { seekable: false, position: 0, duration: 0, playing: false }; },
             setAudioVolume(value) { calls.push(['music', value]); },
@@ -238,6 +247,19 @@ test('the audio menu exposes a separate ambience slider and labels both ranges b
     assert.deepEqual(calls.slice(-2), [['music', 0.4], ['ambience', 0.1]]);
     assert.equal(elements.audioVolumeValue.textContent, '40%');
     assert.equal(elements.crowdAmbienceValue.textContent, '10%');
+
+    await elements.pasteStreamBtn.listeners.click();
+    assert.equal(elements.streamUrl.value, 'https://soundcloud.com/missmelera/colourizon-168');
+    assert.deepEqual(elements.streamUrl.selection, [elements.streamUrl.value.length, elements.streamUrl.value.length]);
+    assert.match(elements.audioStatus.textContent, /URL pasted/);
+
+    context.navigator.clipboard.readText = async () => { throw new Error('denied'); };
+    await elements.pasteStreamBtn.listeners.click();
+    assert.match(elements.audioStatus.textContent, /Clipboard access was blocked/);
+
+    delete context.navigator.clipboard.readText;
+    await elements.pasteStreamBtn.listeners.click();
+    assert.match(elements.audioStatus.textContent, /Press and hold/);
 });
 
 test('multiplayer stops initial failures and bounds cancellable reconnects', () => {
@@ -308,7 +330,12 @@ function createMultiplayerHarness() {
         addEventListener(type, fn) { (this.listeners[type] ||= []).push(fn); }
         fire(type, event = {}) { for (const fn of this.listeners[type] || []) fn(event); }
         getSenders() { return this.senders; }
-        addTrack(track) { this.senders.push({ track }); queueMicrotask(() => this.fire('negotiationneeded')); }
+        addTrack(track) {
+            const sender = { track, replaceTrack: async next => { sender.track = next; } };
+            this.senders.push(sender);
+            queueMicrotask(() => this.fire('negotiationneeded'));
+            return sender;
+        }
         removeTrack(sender) { sender.track = null; queueMicrotask(() => this.fire('negotiationneeded')); }
         async setLocalDescription() {
             const type = this.signalingState === 'have-remote-offer' ? 'answer' : 'offer';
@@ -382,6 +409,11 @@ test('voice negotiates whichever guest enables the mic first, and renegotiates a
     await settle();
     assert.equal(b.peers.get('a').pc, bPc);
     assert.equal(bPc.closed, undefined);
+    assert.equal(bPc.getSenders()[0].track, null);
+    await b.enableVoice();
+    await settle();
+    assert.equal(bPc.getSenders().length, 1, 'unmuting reuses the same sender');
+    assert.equal(bPc.getSenders()[0].track.stopped, undefined, 'the fresh capture is attached');
 });
 
 test('a dropped relay socket reports every peer as gone and shared music never carries local URLs', () => {
@@ -498,8 +530,12 @@ function loadAvatarManager() {
         BABYLON, performance: { now: () => now },
         AudioUtils: loadClassic('js/audioUtils.js').window.AudioUtils
     });
-    const manager = new window.AvatarManager({ scene: {}, materialFactory: null });
-    return { manager, AvatarManager: window.AvatarManager, created, advance: ms => { now += ms; } };
+    const observers = new Set();
+    const scene = { onAfterAnimationsObservable: {
+        add: fn => { observers.add(fn); return fn; }, remove: fn => observers.delete(fn)
+    } };
+    const manager = new window.AvatarManager({ scene, materialFactory: null });
+    return { manager, AvatarManager: window.AvatarManager, created, observers, advance: ms => { now += ms; } };
 }
 
 test('remote avatars stand on the floor under the sender eye and snap on their first sample', () => {
@@ -532,6 +568,63 @@ test('remote avatar turns follow the shortest arc', () => {
     manager.update(0);
     manager.update(undefined);
     assert.equal(peer.root.rotation.y, before, 'no frame step means no motion');
+});
+
+test('network presence sends both eye-relative controllers only in VR and retains desktop cadence', () => {
+    const { window } = loadClassic('js/club/07-animation-core.js', { VRClubEffects: class {} });
+    const club = Object.create(window.VRClubAnimationCore.prototype);
+    const samples = [];
+    club.networkManager = { connected: true, sendState: state => samples.push(JSON.parse(JSON.stringify(state))) };
+    club.camera = { position: { x: 1, y: 1.7, z: 2 }, rotation: { y: 0.2 } };
+    const camera = { position: { x: 0, y: 0, z: 0 }, globalPosition: { x: 5, y: 4.7, z: -10 },
+        rotationQuaternion: { toEulerAngles: () => ({ y: 0.8 }) } };
+    club.vrHelper = { baseExperience: { camera } };
+    club.isInVRMode = true;
+    const left = { x: 4.6, y: 4.9, z: -9.6, fx: 0, fy: 0, fz: 1, ux: 0, uy: 1, uz: 0 };
+    const right = { ...left, x: 5.4, y: 4.3 };
+    club._handPose = side => side === 'left' ? left : right;
+    club.updateNetworkPresence({ time: 1, dt: 1 / 60 });
+    assert.ok(Math.abs(samples[0].hands.left.x + 0.4) < 1e-8);
+    assert.ok(Math.abs(samples[0].hands.right.y + 0.4) < 1e-8);
+    assert.equal(samples[0].hands.left.fz, 1);
+    assert.equal(samples[0].y, 4.7);
+    club.updateNetworkPresence({ time: 1.02, dt: 1 / 60 });
+    assert.equal(samples.length, 1);
+    club._handPose = side => side === 'left' ? left : null;
+    club.updateNetworkPresence({ time: 1.06, dt: 1 / 60 });
+    assert.equal(samples[1].hands.right, null);
+    club.isInVRMode = false;
+    club.updateNetworkPresence({ time: 1.12, dt: 1 / 60 });
+    assert.equal(samples.length, 2, 'desktop cadence is slower');
+    club.updateNetworkPresence({ time: 1.17, dt: 1 / 60 });
+    assert.deepEqual(samples[2], { x: 1, y: 1.7, z: 2, rotY: 0.2, hands: null });
+});
+
+test('remote hands interpolate, expire, override gesture clips only while tracked, and unregister on disposal', () => {
+    const { manager, observers } = loadAvatarManager();
+    const hand = { x: -0.3, y: 0.1, z: 0.4, fx: 0, fy: 0, fz: 1, ux: 0, uy: 1, uz: 0 };
+    const state = { x: 5, y: 1.7, z: -8, rotY: 0, hands: { left: hand, right: null } };
+    manager.updatePeerState('p', 'Pat', state);
+    const peer = manager.remotes.get('p');
+    manager.update(1 / 60);
+    assert.equal(peer.hands.left.x, -0.3);
+    const calls = [];
+    peer.person = { arms: { updateTrackedArms: (...args) => calls.push(args) }, groups: { Idle: {} }, current: 'Wave' };
+    manager._play = (_, clip) => calls.push(clip);
+    manager._updateClip(peer);
+    assert.equal(calls.at(-1), 'Idle', 'a real hand pose wins over a canned wave');
+    for (const observer of observers) observer();
+    assert.equal(calls.at(-1)[0], peer.hands, 'IK runs in the after-animation phase');
+    manager.updatePeerState('p', null, { ...state, hands: { left: { ...hand, x: 0.3 }, right: null } });
+    manager.update(1 / 60);
+    assert.ok(peer.hands.left.x > -0.3 && peer.hands.left.x < 0.3, 'a new sample is smoothed');
+    manager.update(0.51);
+    assert.equal(peer.hands.left, null, 'a missing tracking feed releases the arm');
+    manager.updatePeerState('p', null, { ...state, hands: undefined });
+    assert.equal(peer.handTargets.left, null, 'a desktop or old-client packet clears the targets');
+    manager.removePeer('p');
+    manager.dispose();
+    assert.equal(observers.size, 0);
 });
 
 test('name tags and emoji never write depth, so desktop SSR cannot turn them black; tags are small and can be switched off', () => {
@@ -1748,7 +1841,7 @@ test('the listener tilts with the head instead of staying upright', () => {
     assert.ok(Math.abs(ctx.listener.upY.value - Math.cos(roll)) < 1e-9);
 });
 
-test('disposing the club stops every audio source and closes the AudioContext', () => {
+test('disposing the club releases VR access, stops every audio source and closes the AudioContext', () => {
     const { club, started } = createAudioHarness();
     club.audioElement = { src: 'blob:x', pause() { this.paused = true; }, removeAttribute() {}, load() {} };
     let vrClickRemoved = false;
@@ -1766,7 +1859,11 @@ test('disposing the club stops every audio source and closes the AudioContext', 
         VRClubCore: class {}, log: { info() {}, warn() {} }, URL: { revokeObjectURL() {} },
         document: { removeEventListener() {} }
     });
+    const xrStates = [];
+    window.VRPayment = { onXRStateChange: active => xrStates.push(active) };
     window.VRClubLifecycle.prototype.dispose.call(club);
+    window.VRClubLifecycle.prototype.dispose.call(club);
+    assert.deepEqual(xrStates, [false], 'teardown must stop lease renewal exactly once');
     assert.equal(started.size, 0, 'the crowd ambience source is still running after dispose');
     assert.equal(ctx.state, 'closed');
     assert.equal(club.audioContext, null);
@@ -4258,6 +4355,11 @@ test('VR comfort swaps mutually exclusive movement and teleportation features wi
     options.customRegistrationConfigurations.find(r => r.forceHandedness === 'right')
         .axisChangedHandler({ x: 0.5, y: 0 }, axes, options);
     assert.equal(axes.rotateX, 0.5);
+    club._vrSocialWheel = { open: true };
+    options.customRegistrationConfigurations.find(r => r.forceHandedness === 'right')
+        .axisChangedHandler({ x: -0.8, y: 0 }, axes, options);
+    assert.equal(axes.rotateX, 0, 'the social wheel consumes right-stick rotation at the input handler');
+    club._vrSocialWheel = null;
     assert.equal(club.vrHelper.baseExperience.camera.applyGravity, false, 'the walking-surface follow owns VR height, not camera gravity');
     assert.equal(saved.get('vrclub.vrComfort'), '0');
 
@@ -4286,8 +4388,52 @@ test('VR comfort swaps mutually exclusive movement and teleportation features wi
     assert.equal(club.vrHelper.teleportation.teleportationEnabled, false);
 });
 
+test('social wheel maps stick directions, paginates, and restores turning only after centering', async () => {
+    const { window } = loadClassic('js/club/10-ui.js', { VRClubAnimationFinish: class {} });
+    const club = Object.create(window.VRClubUI.prototype);
+    const movement = { rotationEnabled: false };
+    const teleport = { rotationEnabled: false };
+    club._vrSocialWheel = {
+        page: 'home', offset: 0, selected: -1, open: true, x: 0, y: 0,
+        mesh: { setEnabled(on) { this.enabled = on; } },
+        armed: true, busy: false,
+        turning: [{ feature: movement, enabled: true }, { feature: teleport, enabled: false }]
+    };
+    club._drawVRSocialWheel = () => {};
+    club.pulseHaptic = () => {};
+    club._moveVRSocialWheel(0, -1);
+    assert.equal(club._socialWheelItems()[club._vrSocialWheel.selected].label, 'CHAT');
+    club._moveVRSocialWheel(1, 0);
+    assert.equal(club._socialWheelItems()[club._vrSocialWheel.selected].label, 'REACTIONS');
+    club._moveVRSocialWheel(0, 1);
+    assert.equal(club._socialWheelItems()[club._vrSocialWheel.selected].label, 'MICROPHONE');
+    club._closeVRSocialWheel();
+    assert.equal(movement.rotationEnabled, false, 'closing on a deflected stick must not turn the guest');
+    club._moveVRSocialWheel(0, 0);
+    assert.equal(movement.rotationEnabled, true);
+    assert.equal(teleport.rotationEnabled, false, 'restore the actual previous setting');
+    club._vrSocialWheel.open = true;
+    club._vrSocialWheel.armed = false;
+    club._moveVRSocialWheel(1, 0);
+    assert.equal(club._vrSocialWheel.selected, -1, 'a held stick cannot select twice');
+    club._moveVRSocialWheel(0, 0);
+    club._moveVRSocialWheel(1, 0);
+    assert.equal(club._socialWheelItems()[club._vrSocialWheel.selected].label, 'REACTIONS');
+    club._closeVRSocialWheel(true);
+    assert.equal(movement.rotationEnabled, true, 'forced lifecycle cleanup restores turning without waiting for center');
+    club._vrQuickMenuPageDefinitions = () => Array.from({ length: 12 }, (_, n) => ({ label: `Item ${n}` }));
+    club._vrSocialWheel.page = 'gestures';
+    club._vrSocialWheel.offset = 1;
+    assert.equal(club._socialWheelItems()[0].label, 'Item 5');
+    assert.ok(club._socialWheelItems().some(item => item.more));
+    assert.equal(club._socialWheelItems().length, 8);
+    club._vrSocialWheel.page = 'chatAudience';
+    club._vrSocialWheel.offset = 0;
+    assert.equal(club._socialWheelItems().at(-2).target, 'chat', 'recipient selection returns to the chat phrases');
+});
+
 test('Enter VR waits for background model loading, with a ceiling', async () => {
-    const run = async ({ settleModels }) => {
+    const run = async ({ settleModels, supported = true }) => {
         const timers = [];
         const button = {
             disabled: false, textContent: '', title: '',
@@ -4298,7 +4444,7 @@ test('Enter VR waits for background model loading, with a ceiling', async () => 
         const { window } = loadClassic('js/club/10-ui.js', {
             VRClubAnimationFinish: class {},
             document: { getElementById: id => (id === 'vrButton' ? button : null) },
-            navigator: { xr: { isSessionSupported: async () => true } },
+            navigator: { xr: { isSessionSupported: async () => supported } },
             setTimeout: (fn) => { timers.push(fn); return timers.length; },
             clearTimeout() {},
             BABYLON: { WebXRState: { IN_XR: 2, NOT_IN_XR: 3 } }
@@ -4312,7 +4458,7 @@ test('Enter VR waits for background model loading, with a ceiling', async () => 
         const whileLoading = { disabled: button.disabled, label: button.textContent };
         if (settleModels) resolveModels(); else timers.forEach(fn => fn());
         await flush(); await flush();
-        return { whileLoading, after: { disabled: button.disabled, label: button.textContent } };
+        return { whileLoading, after: { disabled: button.disabled, label: button.textContent }, hidden: button.hidden };
     };
 
     const loaded = await run({ settleModels: true });
@@ -4322,6 +4468,9 @@ test('Enter VR waits for background model loading, with a ceiling', async () => 
     const stalled = await run({ settleModels: false });
     assert.equal(stalled.whileLoading.disabled, true);
     assert.equal(stalled.after.disabled, false, 'a stalled load must not lock VR out');
+    assert.equal(loaded.hidden, false);
+    assert.equal((await run({ settleModels: true, supported: false })).hidden, true,
+        'incompatible devices must not show a VR entry option');
 });
 
 test('a dropped live stream reconnects with bounded backoff; files and bad URLs do not', async () => {
@@ -4738,7 +4887,7 @@ test('shipped club air keeps fog on and tints toward the look without changing h
         'fog density must ease, not snap');
 });
 
-test('music always starts on entry and a Resident episode is never remembered as the default', () => {
+test('Quest entry uses only explicitly saved music and ships no podcast picker', () => {
     const { AudioUtils } = loadClassic('js/audioUtils.js').window;
 
     // Episodes are resolved fresh from the feed; remembering one would pin the default to it.
@@ -4751,7 +4900,9 @@ test('music always starts on entry and a Resident episode is never remembered as
     // The entry flow is wired to them, and the old station is gone from the defaults.
     const ui = readFileSync(join(ROOT, 'js/ui-init.js'), 'utf8');
     assert.ok(!/sunshine-live/i.test(ui), 'the old default station is still referenced');
-    assert.match(ui, /player\.playRandom\(podcast\)/, 'ENTER must start a RANDOM episode of the chosen podcast');
+    assert.match(ui, /library\.current\(\)/, 'ENTER checks user-saved music');
+    assert.match(ui, /if \(!item\)/, 'fresh entry must not download music');
+    assert.doesNotMatch(ui, /ensurePodcastPlayer|Podcasts\./, 'Quest must not initialise a podcast player');
     assert.doesNotMatch(ui, /playResidentFrom|fetchPodcastEpisodes|RESIDENT_PODCAST/, 'the old in-file queue is back');
     // A club has music when you walk in: there is no opt-out left to read, so ENTER must not branch on one.
     assert.doesNotMatch(ui, /shouldPlayOnEntry|radioOnEntry/, 'the music opt-in is gone; ENTER always starts the music');
@@ -4765,11 +4916,10 @@ test('music always starts on entry and a Resident episode is never remembered as
     assert.doesNotMatch(splash, /splashRadioOnEntry|splash-podcast|workers\.dev|podbean|soundcloud|cattaneo|melera/i,
         'the splash must not carry a music toggle, the podcast picker or the servers behind it');
     // The choice and the disclosure both still exist, in the Audio menu and the credits.
-    assert.match(html, /id="podcastResidentBtn"[^>]*aria-checked="true"/, 'Hernan Cattaneo is the default podcast');
-    assert.match(html, /id="podcastColourizonBtn"[^>]*aria-checked="false"/);
+    assert.doesNotMatch(html, /id="podcastResidentBtn"|id="podcastColourizonBtn"/);
+    assert.match(html, /id="savedSets"/);
     const credits = html.match(/<details id="modelCredits">([\s\S]*?)<\/details>/)[1];
-    assert.match(credits, /podcast\.hernancattaneo\.com/, 'the credits must name the Resident feed');
-    assert.match(credits, /SoundCloud/, 'the credits must name where Colourizon comes from');
+    assert.match(credits, /No music, podcasts or third-party sound recordings are included/);
     assert.match(credits, /IP address/, 'the credits must keep the streaming privacy disclosure');
 });
 
@@ -5607,7 +5757,7 @@ test('VJ panel toggles are allow-listed rather than written by DOM attribute nam
 test('PWA manifest declares an installable configuration', () => {
     const manifest = JSON.parse(readFileSync(join(ROOT, 'manifest.json'), 'utf8'));
     assert.equal(manifest.name, 'NOCTURNE - Virtual Nightclub');
-    assert.equal(manifest.display, 'fullscreen');
+    assert.equal(manifest.display, 'standalone');
     // `id` pins app identity so a future start_url change does not create a second
     // installed app; `scope` bounds the SW-controlled navigation surface.
     assert.ok(manifest.id, 'manifest.json must declare an `id`');
@@ -6702,7 +6852,7 @@ test('a seek or a pause by the room host is published; a guest never publishes; 
     let message = '';
     quiet.showErrorMessage = text => { message = text; };
     assert.equal(quiet.toggleAudioPlayback(), false);
-    assert.match(message, /Nothing is playing/);
+    assert.match(message, /No music yet/);
 });
 
 test('the VR seek bar maps a pointer position to a fraction, drags and commits on release', () => {
@@ -6780,21 +6930,20 @@ test('the VR Music page: its seek row is free, every button is wired, and the ac
     const music = club._vrQuickMenuPageDefinitions('music');
     assert.deepEqual([...music.slice(0, 3)], [null, null, null], 'the first row belongs to the seek bar');
     assert.deepEqual([...music.slice(3).map(item => item.action)],
-        ['seek', 'playPause', 'seek', 'podcast', 'podcast', 'randomEpisode', 'latestEpisode', 'back', 'close']);
+        ['seek', 'playPause', 'seek', 'setStep', 'savedSet', 'setStep', 'musicSetup', 'back', 'close']);
     assert.deepEqual([...music.filter(item => item && item.action === 'seek').map(item => item.delta)], [-60, 60]);
-    assert.deepEqual([...music.filter(item => item && item.action === 'podcast').map(item => item.podcast)], ['resident', 'colourizon']);
+    assert.deepEqual([...music.filter(item => item && item.action === 'setStep').map(item => item.delta)], [-1, 1]);
 
     // Actions.
     const log = [];
     const player = {
-        selectedId: () => 'colourizon',
-        switchTo: async id => { log.push(['switchTo', id]); },
-        playRandom: async () => { log.push(['random']); },
-        playLatest: async () => { log.push(['latest']); }
+        current: () => ({ name: 'My set' }),
+        step: delta => { log.push(['step', delta]); },
+        play: async () => { log.push(['play']); }
     };
     const toasts = [];
     Object.assign(club, {
-        podcastPlayer: player,
+        musicLibrary: player,
         pulseHaptic() {}, _refreshVRQuickMenu() {},
         showErrorMessage: text => toasts.push(text),
         seekAudioBy: delta => { log.push(['seekBy', delta]); return true; },
@@ -6802,28 +6951,24 @@ test('the VR Music page: its seek row is free, every button is wired, and the ac
     });
     await club._runVRMusicAction({ action: 'seek', delta: -60 });
     await club._runVRMusicAction({ action: 'playPause' });
-    await club._runVRMusicAction({ action: 'podcast', podcast: 'resident' });
-    await club._runVRMusicAction({ action: 'randomEpisode' });
-    await club._runVRMusicAction({ action: 'latestEpisode' });
-    assert.deepEqual(log, [['seekBy', -60], ['toggle'], ['switchTo', 'resident'], ['random'], ['latest']]);
-    assert.ok(toasts.some(text => /Miss Melera/.test(text)), 'the toast names the artist whose set is being found');
+    await club._runVRMusicAction({ action: 'setStep', delta: 1 });
+    await club._runVRMusicAction({ action: 'savedSet' });
+    assert.deepEqual(log, [['seekBy', -60], ['toggle'], ['step', 1], ['play']]);
 
     // Failures are reported, never thrown; a missing player is explained.
-    player.playRandom = async () => { throw new Error('feed down'); };
-    await club._runVRMusicAction({ action: 'randomEpisode' });
+    player.play = async () => { throw new Error('feed down'); };
+    await club._runVRMusicAction({ action: 'savedSet' });
     assert.match(toasts.at(-1), /feed down/);
-    club.podcastPlayer = null;
-    await club._runVRMusicAction({ action: 'latestEpisode' });
+    club.musicLibrary = null;
+    await club._runVRMusicAction({ action: 'savedSet' });
     assert.match(toasts.at(-1), /not ready/);
     club.seekAudioBy = () => false;
     await club._runVRMusicAction({ action: 'seek', delta: 60 });
     assert.match(toasts.at(-1), /Nothing to seek/);
 
     // The page's button states.
-    club.podcastPlayer = player; // colourizon is chosen
-    assert.equal(club._isVRQuickMenuButtonActive({ action: 'podcast', podcast: 'colourizon' }), true);
-    assert.equal(club._isVRQuickMenuButtonActive({ action: 'podcast', podcast: 'resident' }), false);
-    assert.equal(club._vrQuickMenuButtonValue({ action: 'podcast' }, true), 'SELECTED');
+    club.musicLibrary = player;
+    assert.equal(club._vrQuickMenuButtonValue({ action: 'savedSet' }, true), 'MY SET');
     club.audioElement = fakeAudio({ paused: true });
     assert.equal(club._vrQuickMenuButtonValue({ action: 'playPause' }, club._isVRQuickMenuButtonActive({ action: 'playPause' })), 'PAUSED');
     club.audioElement.paused = false;
@@ -6840,22 +6985,22 @@ test('clock labels read h:mm:ss and survive garbage', () => {
     for (const bad of [NaN, Infinity, -5, null, undefined, 'x']) assert.equal(AudioUtils.formatClock(bad), bad === Infinity ? '0:00' : '0:00', String(bad));
 });
 
-test('the DJ at the decks follows the podcast: one load per DJ, a clean swap, queued switches and safe ids', async () => {
+test('generic DJs: one load per DJ, a clean swap, queued switches and safe ids', async () => {
     const BABYLON = makeBabylonStub();
     const { window } = loadClassic('js/club/11-audio-crowd.js', { BABYLON, VRClubUI: class {} });
     const Crowd = window.VRClubAudioCrowd;
 
     // The looks: two people, each with its own file, height and tints; unknown ids are refused as own keys only.
-    assert.deepEqual(Object.keys(Crowd.DJ_LOOKS), ['hernan', 'melera']);
-    assert.match(Crowd.DJ_LOOKS.hernan.url, /club-dj-hernan\.glb$/);
-    assert.match(Crowd.DJ_LOOKS.melera.url, /club-dj-melera\.glb$/);
+    assert.deepEqual(Object.keys(Crowd.DJ_LOOKS), ['male', 'female']);
+    assert.match(Crowd.DJ_LOOKS.male.url, /club-dj-male\.glb$/);
+    assert.match(Crowd.DJ_LOOKS.female.url, /club-dj-female\.glb$/);
     for (const bad of ['__proto__', 'constructor', 'toString', '', null, undefined, 7]) assert.equal(Crowd.djLook(bad), null, String(bad));
     const hair = id => Crowd.DJ_LOOKS[id].hair;
     // Hernan Cattaneo: half-long dark brown hair. Miss Melera: long light blond hair (their press photos).
-    assert.ok(hair('hernan').r < 0.35 && hair('hernan').g < 0.2 && hair('hernan').b < 0.12 && hair('hernan').r > hair('hernan').b, 'Hernan Cattaneo has dark brown hair');
-    assert.ok(hair('melera').r > 0.8 && hair('melera').g > 0.7 && hair('melera').b > 0.45 && hair('melera').r > hair('melera').b, 'Miss Melera has light blond hair');
-    assert.ok(Crowd.DJ_LOOKS.hernan.garment.r < 0.15, 'Hernan wears a dark tee');
-    const tee = Crowd.DJ_LOOKS.melera.garment;
+    assert.ok(hair('male').r < 0.35 && hair('male').g < 0.2 && hair('male').b < 0.12 && hair('male').r > hair('male').b);
+    assert.ok(hair('female').r > 0.8 && hair('female').g > 0.7 && hair('female').b > 0.45 && hair('female').r > hair('female').b);
+    assert.ok(Crowd.DJ_LOOKS.male.garment.r < 0.15);
+    const tee = Crowd.DJ_LOOKS.female.garment;
     assert.ok(tee.r > 0.3 && tee.r < 0.6, 'Miss Melera wears a mid-grey tee');
 
     const spawned = [], disposed = [], loads = [];
@@ -6877,45 +7022,45 @@ test('the DJ at the decks follows the podcast: one load per DJ, a clean swap, qu
     });
 
     // A switch requested while the club is still being built waits for init and does not race it.
-    const early = club.setDJ('melera');
+    const early = club.setDJ('female');
     await flush();
     assert.equal(spawned.length, 0, 'the DJ must wait for the club to finish building');
     initDone();
     assert.equal(await early, true);
     assert.equal(spawned.length, 1);
-    assert.deepEqual({ ...spawned[0] }, { url: Crowd.DJ_LOOKS.melera.url, height: 1.68, speed: 0.55, clip: 'Idle_Loop', y: 0.5, z: -19.4 });
+    assert.deepEqual({ ...spawned[0] }, { url: Crowd.DJ_LOOKS.female.url, height: 1.68, speed: 0.55, clip: 'Idle_Loop', y: 0.5, z: -19.4 });
     assert.equal(club.npcAvatars.filter(npc => npc.name === 'djPerformer').length, 1);
 
     // The same DJ again does nothing; the other one replaces the first completely.
-    assert.equal(await club.setDJ('melera'), true);
+    assert.equal(await club.setDJ('female'), true);
     assert.equal(spawned.length, 1);
-    assert.equal(await club.setDJ('hernan'), true);
+    assert.equal(await club.setDJ('male'), true);
     assert.equal(spawned.length, 2);
     assert.equal(club.npcAvatars.filter(npc => npc.name === 'djPerformer').length, 1, 'exactly one DJ at the decks');
-    assert.deepEqual(disposed, [`collider:${Crowd.DJ_LOOKS.melera.url}`, `entry:${Crowd.DJ_LOOKS.melera.url}`], 'the previous DJ is disposed entirely');
-    assert.equal(club._djId, 'hernan');
+    assert.deepEqual(disposed, [`collider:${Crowd.DJ_LOOKS.female.url}`, `entry:${Crowd.DJ_LOOKS.female.url}`], 'the previous DJ is disposed entirely');
+    assert.equal(club._djId, 'male');
     assert.ok(club.shadowRefreshes >= 2, 'the contact shadow follows the new DJ');
 
     // Switching back reuses the loaded file; quick switches end on the last one.
-    club.setDJ('melera'); club.setDJ('hernan'); await club.setDJ('melera');
-    assert.equal(club._djId, 'melera');
+    club.setDJ('female'); club.setDJ('male'); await club.setDJ('female');
+    assert.equal(club._djId, 'female');
     assert.equal(loads.length, 2, 'each DJ file is loaded once');
-    assert.deepEqual(loads.map(load => load[0]), [Crowd.DJ_LOOKS.melera.url, Crowd.DJ_LOOKS.hernan.url]);
-    assert.equal(loads[0][1], Crowd.DJ_LOOKS.melera.garment);
-    assert.equal(loads[0][2], Crowd.DJ_LOOKS.melera.hair);
+    assert.deepEqual(loads.map(load => load[0]), [Crowd.DJ_LOOKS.female.url, Crowd.DJ_LOOKS.male.url]);
+    assert.equal(loads[0][1], Crowd.DJ_LOOKS.female.garment);
+    assert.equal(loads[0][2], Crowd.DJ_LOOKS.female.hair);
 
     // Refused ids leave the DJ alone; a failed load keeps the current one; a disposed club does nothing.
     assert.equal(await club.setDJ('__proto__'), false);
-    assert.equal(club._djId, 'melera');
-    club._djContainers.hernan = null;
+    assert.equal(club._djId, 'female');
+    club._djContainers.male = null;
     club._loadAvatarSource = async () => null;
-    assert.equal(await club.setDJ('hernan'), false, 'a DJ whose file cannot load never replaces the working one');
-    assert.equal(club._djId, 'melera');
+    assert.equal(await club.setDJ('male'), false, 'a DJ whose file cannot load never replaces the working one');
+    assert.equal(club._djId, 'female');
     club._disposed = true;
-    assert.equal(await club.setDJ('hernan'), false);
+    assert.equal(await club.setDJ('male'), false);
 
-    // Until a podcast is chosen the first DJ is Hernan Cattaneo's; afterwards the chosen podcast's.
-    assert.equal(Object.create(Crowd.prototype)._initialDJId(), 'hernan');
+    // The generic choice is local and never reads a historical podcast preference.
+    assert.equal(Object.create(Crowd.prototype)._initialDJId(), 'male');
     const store = new Map();
     window.Podcasts = loadPodcasts();
     const storage = { getItem: key => store.get(key) ?? null };
@@ -6924,10 +7069,43 @@ test('the DJ at the decks follows the podcast: one load per DJ, a clean swap, qu
     const withStorage = loadClassic('js/club/11-audio-crowd.js', { BABYLON, VRClubUI: class {}, localStorage: storage });
     withStorage.window.Podcasts = window.Podcasts;
     const club2 = Object.create(withStorage.window.VRClubAudioCrowd.prototype);
-    assert.equal(club2._initialDJId(), 'hernan');
-    store.set('vrclub.podcast', 'colourizon');
-    assert.equal(club2._initialDJId(), 'melera');
+    assert.equal(club2._initialDJId(), 'male');
+    store.set('vrclub.questDJ', 'female');
+    assert.equal(club2._initialDJId(), 'female');
     assert.ok(chooser);
+});
+
+test('a generic DJ choice persists while the DJ is hidden and applies when they return', async () => {
+    const store = new Map();
+    const storage = { getItem: key => store.get(key) ?? null, setItem: (key, value) => store.set(key, value) };
+    const { window } = loadClassic('js/club/11-audio-crowd.js', {
+        BABYLON: makeBabylonStub(), VRClubUI: class {}, localStorage: storage
+    });
+    const club = Object.create(window.VRClubAudioCrowd.prototype);
+    let visible = false, loaded = 0;
+    Object.assign(club, {
+        _djId: 'male', npcAvatars: [],
+        isPeopleVisible: () => visible,
+        showErrorMessage: message => assert.fail(message),
+        setDJ: async id => {
+            if (!visible) return false;
+            loaded++;
+            club._djId = id;
+            return true;
+        }
+    });
+    assert.equal(await club.chooseDJ('female'), true);
+    assert.equal(loaded, 0);
+    assert.equal(store.get('vrclub.questDJ'), 'female');
+    visible = true;
+    club._applyDJVisibility();
+    await Promise.resolve();
+    assert.equal(loaded, 1);
+    assert.equal(club._djId, 'female');
+    await assert.rejects(club.chooseDJ('__proto__'), /Choose Male DJ/);
+    club.setDJ = async () => false;
+    await assert.rejects(club.chooseDJ('male'), /could not load/);
+    assert.equal(store.get('vrclub.questDJ'), 'female');
 });
 
 test('avatar materials take their hair and jacket tints only where they belong', () => {
@@ -6959,8 +7137,8 @@ test('the DJ character files: one idle clip, six draws, the right hair, and the 
         // Hernan Cattaneo: the guest file's beard is cut out and Hair_Long, shortened to shoulder length and with its
         // front (bangs and face-framing locks) removed, goes over the short cap (+548 triangles net). Both DJs wear the
         // 3,324-triangle headphones.
-        'club-dj-hernan.glb': { from: 'club-guest-male.glb', extra: [3500, 4200], hair: 'Hair_SimpleParted' },
-        'club-dj-melera.glb': { from: 'club-guest-female.glb', extra: [3000, 3700], hair: 'Hair_Long' }
+        'club-dj-male.glb': { from: 'club-guest-male.glb', extra: [3500, 4200], hair: 'Hair_SimpleParted' },
+        'club-dj-female.glb': { from: 'club-guest-female.glb', extra: [3000, 3700], hair: 'Hair_Long' }
     };
     for (const [file, expected] of Object.entries(files)) {
         const json = readGlbJson(`js/models/avatars/${file}`);
@@ -7178,7 +7356,7 @@ test('VR menu: lighting and music buttons read HOST ONLY for a guest, and travel
     const club = Object.create(proto);
     club.multiplayer = { following: true };
     club.graphicsTier = 'ultra';
-    for (const owned of [{ action: 'seek' }, { action: 'playPause' }, { action: 'podcast' }, { action: 'autoShow' }, { action: 'reset' },
+    for (const owned of [{ action: 'seek' }, { action: 'playPause' }, { action: 'savedSet' }, { action: 'autoShow' }, { action: 'reset' },
         { action: 'cycle', control: 'changeColor' }, { control: 'lightsActive' }, { control: 'strobesActive' }]) {
         assert.equal(proto._vrQuickMenuButtonValue.call(club, owned, true), 'HOST ONLY', JSON.stringify(owned));
     }
@@ -7514,6 +7692,7 @@ test('VR menu: unavailable buttons are drawn disabled and say why; the chat page
     club.multiplayer = {
         connected: false, following: false, chat: [], chatUnread: 0, duckForVoice: true,
         isHost: () => false, pendingMusicInfo: () => null, blockedList: () => [],
+        audienceLabel: () => 'Everyone',
         sendChat: text => { sent.push(text); return true; }, setDuckForVoice(v) { this.duckForVoice = v; }
     };
     const common = { back: { label: 'BACK', action: 'back' }, close: { label: 'CLOSE', action: 'close' } };
@@ -7531,16 +7710,45 @@ test('VR menu: unavailable buttons are drawn disabled and say why; the chat page
     assert.equal(proto._isVRButtonDisabled.call(club, { control: 'photosensitiveSafeMode' }), false, 'Safe Mode is always the guest\'s own');
 
     const chat = proto._vrNetPageDefinitions.call(club, 'chat', common);
-    assert.deepEqual([...chat.slice(0, 2).map(b => b.phrase)], ['Hi!', 'Great track!']);
+    assert.equal(chat[0].target, 'chatAudience');
+    assert.deepEqual([...chat.filter(b => b.op === 'phrase').map(b => b.phrase)], ['Hi!', 'Great track!']);
     assert.ok(chat.length <= 12);
-    proto._runVRNetworkAction.call(club, chat[1]);
+    proto._runVRNetworkAction.call(club, chat[2]);
     assert.deepEqual([...sent], ['Great track!']);
     const duck = proto._vrNetPageDefinitions.call(club, 'safety', common).find(b => b.op === 'duck');
     assert.ok(duck, 'LOWER MUSIC is on the safety page');
     proto._runVRNetworkAction.call(club, duck);
     assert.equal(club.multiplayer.duckForVoice, false);
     club.multiplayer.chat = [{ name: 'Bo', text: 'hello', self: false }];
-    assert.equal(proto._vrNetSubtitle.call(club, 'chat'), 'BO: HELLO', 'the chat page shows the last message received');
+    assert.equal(proto._vrNetSubtitle.call(club, 'chat'), 'TO: EVERYONE | BO: HELLO', 'the chat page shows the audience and last message');
+});
+
+test('VR recipient pages fit all seven peers and delegate separate chat and voice selections', async () => {
+    const { window } = loadClassic('js/club/10-ui.js', { VRClubAnimationFinish: class {}, BABYLON: {},
+        log: { info() {}, warn() {}, error() {} }, document: {}, ClubMultiplayer: class {} });
+    const club = Object.create(window.VRClubUI.prototype);
+    const calls = [];
+    club.showErrorMessage = () => {};
+    club.multiplayer = {
+        connected: true, chatAudience: ['p1'], voiceAudience: [],
+        people: () => Array.from({ length: 7 }, (_, i) => ({ id: `p${i + 1}`, name: `Guest ${i + 1}` })),
+        setAudience: (scope, ids) => calls.push([scope, ids]),
+        toggleAudiencePeer: (scope, id) => calls.push([scope, id]),
+        audienceLabel: scope => scope === 'voice' ? 'Nobody selected' : 'Guest 1'
+    };
+    const common = { back: { action: 'back' }, close: { action: 'close' } };
+    for (const scope of ['voice', 'chat']) {
+        const buttons = club._vrNetPageDefinitions(`${scope}Audience`, common);
+        assert.ok(buttons.length <= 12);
+        assert.equal(buttons.filter(b => b.op === 'audiencePeer').length, 7);
+        await club._runVRNetworkAction(buttons.find(b => b.op === 'audiencePeer'));
+        await club._runVRNetworkAction(buttons.find(b => b.op === 'audienceClear'));
+        await club._runVRNetworkAction(buttons.find(b => b.op === 'audienceAll'));
+        assert.match(club._vrNetSubtitle(`${scope}Audience`), /^TO: /);
+    }
+    assert.deepEqual(JSON.parse(JSON.stringify(calls)), [['voice', 'p1'], ['voice', []], ['voice', null],
+        ['chat', 'p1'], ['chat', []], ['chat', null]]);
+    assert.ok(club._vrNetPageDefinitions('online', common).length <= 12);
 });
 
 // ---------------------------------------------------------------------------

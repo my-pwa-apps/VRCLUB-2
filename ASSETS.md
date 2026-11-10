@@ -2,6 +2,22 @@
 
 Every binary shipped in this repository, with its licence and provenance.
 
+## Quest distribution profile
+
+The `Quest` branch builds a user-music-only candidate. No podcast catalogue is loaded,
+no podcast relay is contacted, and no music recording is bundled. The male/female DJs
+are fictional CC0 characters, selected locally, not named artists or endorsements.
+The three historical Mixamo GLBs remain in the source repository but are not referenced,
+loaded or copied to `dist/`. Their former slot ids now use CC0 crowd models.
+`js/podcasts.js` and the optional Worker's historical podcast utility are also not part
+of the Quest web build. Do not distribute the source tree as the Quest product.
+
+The production build includes this register, the app MIT `LICENSE`, and `licenses/`
+(Babylon's exact upstream Apache 2.0 licence, CC BY 4.0, CC0, and third-party notices).
+The Credits & licences disclosure is reachable from VR COMFORT → CREDITS / LICENCES,
+which returns to the setup panel. Keep these credits and licences in every package.
+An app purchase does not revoke recipients' CC BY rights over the attributed assets.
+
 The MIT licence in `LICENSE` covers the **source code only**. The assets below
 are third-party works under their own terms, and several carry attribution
 obligations that must be satisfied in the running product (see `#modelCredits`
@@ -17,7 +33,7 @@ in `index.html`).
 
 | File | Title | Creator | Licence | Attribution shown in-app |
 |------|-------|---------|---------|--------------------------|
-| `js/models/djgear/source/pioneer_DJ_console.glb` | Pioneer DJ Console | TwoPixels.studio (<https://sketchfab.com/twopixels.studio>) | CC BY 4.0 | Yes |
+| `js/models/djgear/source/pioneer_DJ_console.glb` | [Pioneer DJ Console](https://sketchfab.com/3d-models/pioneer-dj-console-0ba527fa6b164c34aa050dcecbaa2ffb) | TwoPixels.studio (<https://sketchfab.com/twopixels.studio>) | CC BY 4.0 | Yes, with source and modification notice |
 | `js/models/paspeakers/source/stage_speaker___black.glb` | [Stage Speaker — Black](https://sketchfab.com/3d-models/stage-speaker-black-f3209a6a45b844df92560099f982a508) | Sousinho (<https://sketchfab.com/sousinho>) | CC BY 4.0 | Yes, including source and derivative notice |
 | `js/models/bassbin/source/bass_bin_3.glb` | [Bass Bin 3 - Subwoofer](https://sketchfab.com/3d-models/bass-bin-3-subwoofer-0f5b16da5e704357aa94fbf632a88455) | darksoundlab (<https://sketchfab.com/darksoundlab>) | CC BY 4.0 | Yes, including source and derivative notice |
 | `js/models/barstool/source/bar_stool.glb` | [Metal Stool 03](https://polyhaven.com/a/metal_stool_03) | Flo Tasser, Poly Haven | CC0 1.0 | Credited as courtesy |
@@ -117,8 +133,8 @@ these three images before stripping the embedded copies.
 |------|--------|---------|
 | `js/models/avatars/club-dancer-female.glb` | Quaternius Universal Base Characters + Modular Character Outfits - Fantasy + Universal Animation Library (`Dance_Loop`) | CC0 1.0 |
 | `js/models/avatars/club-dancer-male.glb` | Quaternius Universal Base Characters + Modular Character Outfits - Fantasy + Universal Animation Library (`Dance_Loop`) | CC0 1.0 |
-| `js/models/avatars/club-dj-hernan.glb` | Derived from `club-guest-male.glb` by `scripts/build-dj-glbs.mjs`: its beard cut out, the Universal Base Characters' `Hair_Long` added (shortened to shoulder length) over the short cap, headphones added (below), one clip kept (`Idle_Loop`). The DJ for Hernan Cattaneo's podcast; its hair is dark brown and its top dark grey through a runtime tint | CC0 1.0 |
-| `js/models/avatars/club-dj-melera.glb` | Derived from `club-guest-female.glb` by `scripts/build-dj-glbs.mjs`: headphones added (below), one clip kept (`Idle_Loop`). The DJ for Miss Melera's podcast; its hair is light blond and its top grey through a runtime tint | CC0 1.0 |
+| `js/models/avatars/club-dj-male.glb` | Fictional male DJ, derived from `club-guest-male.glb`: beard removed, shortened Universal Base Characters `Hair_Long` added over the cap, CC0 headphones added, `Idle_Loop` retained. Dark-brown hair and grey top through runtime tints | CC0 1.0 |
+| `js/models/avatars/club-dj-female.glb` | Fictional female DJ, derived from `club-guest-female.glb`: CC0 headphones added, `Idle_Loop` retained. Blond hair and grey top through runtime tints | CC0 1.0 |
 | `js/models/avatars/club-guest-female.glb` | Quaternius Universal Base Characters + Modular Character Outfits - Fantasy (Ranger outfit without its hood and pauldron) + Universal Animation Library (`Dance_Loop`, `Idle_Talking_Loop`, `Idle_Loop`) + Universal Animation Library 2 (`Yes`, `Idle_FoldArms_Loop`, `Idle_TalkingPhone_Loop`). At runtime it is the bartender (black outfit through a tint); it is also the source the DJ and crowd builds derive from | CC0 1.0 |
 | `js/models/avatars/club-guest-male.glb` | As `club-guest-female.glb`, male. Not loaded at runtime any more (the guests are the `club-crowd-*` people); kept as the source `scripts/build-dj-glbs.mjs` and `scripts/build-crowd-glbs.mjs` derive from | CC0 1.0 |
 | `js/models/avatars/Hip Hop Dancing.glb` | Adobe Mixamo character and hip-hop animation | Mixamo terms of use |
@@ -197,7 +213,7 @@ The checked-in GLBs were combined with `scripts/build-avatar-glb.mjs` and then r
 and skinned parts that share a skin and a material merged into one mesh (about six draw calls
 per character instead of a dozen). The skin, joints, weights and clips are unchanged.
 
-The three Mixamo-derived GLBs are retained to provide distinct authored dance motion.
+The three Mixamo-derived GLBs are retained in the historical source only; Quest does not ship them.
 They are not covered by this repository's MIT licence. Adobe permits Mixamo characters
 and animations in projects under its published terms, but redistribution of editable or
 extractable raw character files may be restricted. Confirm that shipping these GLBs is
@@ -251,7 +267,12 @@ Provenance URLs and SHA-384 integrity hashes for all four are recorded in
 
 These are tracked in `BACKLOG.md` and must be closed before any public release:
 
-1. **Mixamo characters**: redistribution clearance for the three raw GLBs remains
+1. **Mixamo characters (excluded from Quest)**: redistribution clearance for the three raw GLBs remains
    unconfirmed; see the character section above. The Stage Speaker creator/source
    gap is resolved: the user supplied the original listing, identifying Sousinho
    and CC BY 4.0, and the in-app credit includes both links and the derivative notice.
+2. **Provenance evidence**: retain the original graffiti licence metadata/download records and identify
+   the exact Poly Haven wall/ceiling sets before a commercial release. Their recorded licences permit
+   commercial use; this is an evidence gap, not a finding that they require payment.
+3. **Non-copyright rights**: asset licences do not confer brand/trademark or artist endorsement rights.
+   The Quest UI does not name artists; review any prominent product branding before store marketing.

@@ -32,6 +32,61 @@ function join(room, name = 'Guest') {
     return { ws, session };
 }
 
+test('room world time is shared with late joiners and survives handover, but resets when empty', () => {
+    const room = new ClubRoom({});
+    const a = join(room), b = join(room);
+    const world = a.ws.last('welcome').world;
+    assert.equal(world.v, 1);
+    assert.deepEqual(b.ws.last('welcome').world, world);
+    a.ws.message({ type: 'host-transfer', target: b.session.id });
+    assert.deepEqual(room.world, world);
+    b.ws.message({ type: 'ping', time: 42 });
+    assert.deepEqual(b.ws.last('pong'), { type: 'pong', time: 42, serverTime: b.ws.last('pong').serverTime });
+    assert.ok(b.ws.last('pong').serverTime >= world.startedAt);
+    assert.equal(a.ws.last('pong'), undefined, 'clock replies are private to the requesting socket');
+    room._onClose(a.ws, a.session);
+    assert.deepEqual(room.world, world);
+    room._onClose(b.ws, b.session);
+    assert.equal(room.world, null);
+    const c = join(room);
+    assert.notStrictEqual(c.ws.last('welcome').world, world);
+    room._onClose(c.ws, c.session);
+});
+
+test('selected chat is delivered only to distinct selected visible guests, with sender fixed by the relay', () => {
+    const room = new ClubRoom({});
+    const a = join(room, 'A'), b = join(room, 'B'), c = join(room, 'C'), d = join(room, 'D');
+    const e = join(room, 'E');
+    assert.equal(a.ws.last('welcome').targetedChat, true);
+    d.session.blocked.add(a.session.pid);
+    a.ws.message({ type: 'chat', id: c.session.id, restricted: false, text: 'private',
+        targets: [b.session.id, b.session.id, e.session.id, a.session.id, d.session.id, 'missing'] });
+    assert.deepEqual(b.ws.last('chat'), { type: 'chat', id: a.session.id, text: 'private', restricted: true });
+    assert.equal(b.ws.sent.filter(m => m.type === 'chat').length, 1);
+    assert.deepEqual(e.ws.last('chat'), b.ws.last('chat'), 'every selected group member receives it');
+    for (const guest of [a, c, d]) assert.equal(guest.ws.last('chat'), undefined);
+    a.ws.message({ type: 'chat', text: 'public' });
+    assert.equal(c.ws.last('chat').text, 'public', 'legacy broadcasts still work');
+    assert.equal(d.ws.last('chat'), undefined, 'blocking still wins');
+    b.ws.emit('close');
+    a.ws.message({ type: 'chat', text: 'after departure', targets: [b.session.id] });
+    assert.equal(c.ws.last('chat').text, 'public', 'a departed target never becomes a broadcast');
+});
+
+test('empty and malformed chat target lists never broadcast', () => {
+    for (const targets of [[], null, 'everyone', [42], [{}], Array(9).fill('id'), ['x'.repeat(65)]]) {
+        const room = new ClubRoom({});
+        const a = join(room), b = join(room);
+        a.ws.message({ type: 'chat', text: 'must not leak', targets });
+        assert.equal(b.ws.last('chat'), undefined);
+    }
+    const room = new ClubRoom({});
+    const a = join(room), b = join(room);
+    a.session.blocked.add(b.session.pid);
+    a.ws.message({ type: 'chat', text: 'blocked', targets: [b.session.id] });
+    assert.equal(b.ws.last('chat'), undefined);
+});
+
 test('relay welcomes, announces joins, and hands host to the next guest on leave', () => {
     const room = new ClubRoom({});
     const a = join(room, 'A');
@@ -127,6 +182,31 @@ test('state samples are finite, bounded and carry a normalised yaw', () => {
     assert.equal(sanitizeState(null), null);
 });
 
+test('tracked hands are bounded eye-relative poses with normalised orientation and survive relay/late join', () => {
+    const hand = { x: -0.3, y: -0.2, z: 0.4, fx: 0, fy: 0, fz: 1.1, ux: 0, uy: 0.9, uz: 0, secret: 'drop' };
+    const state = { x: 4, y: 4.7, z: -10, rotY: 0.7, hands: { left: hand, right: null } };
+    const cleaned = sanitizeState(state);
+    assert.deepEqual(cleaned.hands.left, { x: -0.3, y: -0.2, z: 0.4, fx: 0, fy: 0, fz: 1, ux: 0, uy: 1, uz: 0 });
+    assert.equal(cleaned.hands.right, null);
+    for (const invalid of [{ ...hand, x: 2 }, { ...hand, x: Infinity }, { ...hand, y: '0.1' },
+        { ...hand, fx: 0, fy: 0, fz: 0 }, { ...hand, ux: 0, uy: 0, uz: 1 }, { ...hand, fx: 10 }]) {
+        assert.equal(sanitizeState({ ...state, hands: { left: invalid } }).hands.left, null);
+    }
+    assert.equal(sanitizeState({ x: 0, y: 1.7, z: 0 }).hands, undefined, 'old clients still send position only');
+    const room = new ClubRoom({});
+    const a = join(room), b = join(room);
+    a.ws.message({ type: 'state', state });
+    assert.deepEqual(b.ws.last('state').state, cleaned);
+    const c = join(room);
+    assert.deepEqual(c.ws.last('welcome').peers.find(p => p.id === a.session.id).state.hands, cleaned.hands);
+    b.session.blocked.add(a.session.pid);
+    const count = b.ws.sent.length;
+    a.ws.message({ type: 'state', state });
+    assert.equal(b.ws.sent.length, count, 'blocks hide controller poses too');
+    a.ws.message({ type: 'state', state: { x: 4, y: 4.7, z: -10, rotY: 0.7 } });
+    assert.equal(c.ws.last('state').state.hands, undefined, 'desktop/exit clears tracking');
+});
+
 test('rtc-signal is relayed only to a different, existing peer', () => {
     const room = new ClubRoom({});
     const a = join(room);
@@ -176,7 +256,7 @@ test('origins: production and private-network pages are allowed, other sites are
 
     const custom = { ...env, ALLOWED_ORIGINS: 'https://club.example' };
     const res = await relay.default.fetch(new Request('https://relay.example/', {
-        headers: { Origin: 'https://club.example' }
+        headers: { Origin: 'https://club.example', Upgrade: 'websocket' }
     }), custom);
     assert.equal(res.status, 200);
 });
@@ -336,7 +416,7 @@ test('the stream route refuses anything but one Miss Melera mp3 and one simple r
 
 test('the socket relay is unchanged: paths outside /podcast still need the room route', async () => {
     const env = { CLUB_ROOM: { idFromName: name => name, get: id => ({ fetch: async () => new Response(`room:${id}`) }) } };
-    const response = await relay.default.fetch(new Request(`${RELAY}/?room=abc`, { headers: { Origin: ORIGIN } }), env);
+    const response = await relay.default.fetch(new Request(`${RELAY}/?room=abc`, { headers: { Origin: ORIGIN, Upgrade: 'websocket' } }), env);
     assert.equal(await response.text(), 'room:abc');
     assert.equal((await relay.default.fetch(new Request(`${RELAY}/health`), env)).status, 200);
 });
@@ -506,6 +586,60 @@ test('moderation passes to the next host when the host leaves, and the lock and 
     assert.equal(c.session, null, 'still locked');
     a.ws.message({ type: 'lock', locked: false });
     assert.ok(joinAs(room, 'C', 4).session);
+});
+
+test('explicit host handover keeps everyone connected, preserves room state and moves authority immediately', () => {
+    const room = new ClubRoom({});
+    const host = joinAs(room, 'Host', 1), next = joinAs(room, 'Next', 2), other = joinAs(room, 'Other', 3);
+    assert.equal(host.ws.sent[0].hostTransfer, true);
+    host.ws.message({ type: 'music', url: 'https://audio.example/set.mp3', playing: true, position: 18 });
+    host.ws.message({ type: 'show', m: 'manual', fx: { lightsActive: true } });
+    host.ws.message({ type: 'lock', locked: true });
+    room.banned.add(pidOf(9));
+    const music = room.musicState, show = room.showState;
+    next.ws.message({ type: 'host-transfer', target: other.session.id });
+    for (const target of [null, 1, 'missing', host.session.id]) host.ws.message({ type: 'host-transfer', target });
+    assert.equal(room.hostId, host.session.id);
+    host.session.buckets['host-transfer'] = new TokenBucket(relay.RATE_LIMITS['host-transfer']);
+    host.ws.message({ type: 'host-transfer', target: next.session.id });
+    assert.equal(room.hostId, next.session.id);
+    assert.equal(room.sessions.size, 3);
+    for (const guest of [host, next, other]) {
+        assert.equal(guest.ws.last('host').id, next.session.id);
+        assert.equal(guest.ws.closed, null);
+    }
+    assert.equal(room.musicState, music);
+    assert.equal(room.showState, show);
+    assert.equal(room.locked, true);
+    assert.ok(room.banned.has(pidOf(9)));
+    host.ws.message({ type: 'lock', locked: false });
+    assert.equal(room.locked, true, 'the old host lost authority without leaving');
+    next.ws.message({ type: 'lock', locked: false });
+    assert.equal(room.locked, false);
+    host.ws.emit('close');
+    assert.equal(room.hostId, next.session.id, 'the former host leaving must not replace the new host');
+    next.ws.emit('close');
+    assert.equal(room.hostId, other.session.id, 'automatic handover still works');
+});
+
+test('host transfer respects two-way blocks, disappeared targets and its token bucket', () => {
+    const room = new ClubRoom({});
+    const host = joinAs(room, 'Host', 1), next = joinAs(room, 'Next', 2);
+    next.ws.message({ type: 'block', pid: host.session.pid });
+    host.ws.message({ type: 'host-transfer', target: next.session.id });
+    assert.equal(room.hostId, host.session.id);
+    next.ws.message({ type: 'unblock', pid: host.session.pid });
+    host.ws.message({ type: 'block', pid: next.session.pid });
+    host.ws.message({ type: 'host-transfer', target: next.session.id });
+    assert.equal(room.hostId, host.session.id);
+    host.ws.message({ type: 'unblock', pid: next.session.pid });
+    host.ws.message({ type: 'host-transfer', target: next.session.id });
+    assert.equal(room.hostId, host.session.id, 'the third rapid request is throttled');
+    assert.equal(host.session.dropped, 1);
+    host.session.buckets['host-transfer'] = new TokenBucket(relay.RATE_LIMITS['host-transfer']);
+    next.ws.emit('close');
+    host.ws.message({ type: 'host-transfer', target: next.session.id });
+    assert.equal(room.hostId, host.session.id, 'a departed guest cannot be made host');
 });
 
 test('the secret uid never leaves the relay: others see a hash that cannot be guessed from the public id', async () => {

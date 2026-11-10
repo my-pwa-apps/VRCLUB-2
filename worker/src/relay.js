@@ -8,10 +8,10 @@
  *
  * Message protocol (all JSON, one object per frame):
  *   client -> server
- *     { type: 'state', state: {x,y,z,rotY} }        - throttled position/facing sample (y = eye height)
+ *     { type: 'state', state: {x,y,z,rotY,hands?} } - eye position/facing; hands are eye-relative positions and world forward/up vectors
  *     { type: 'emoji', emoji: '🎉' }                  - one-shot reaction (allow-listed)
  *     { type: 'gesture', gesture: 'wave'|'nod'|'dance'|'stop' } - body language (allow-listed; 'dance' runs until 'stop')
- *     { type: 'chat', text }                          - a typed message (at most 200 characters, control characters removed)
+ *     { type: 'chat', text, targets? }                - typed message; optional explicit recipient session IDs (empty/invalid never broadcasts)
  *     { type: 'avatar', pool? }                       - ask for a different random avatar, optionally from 'women', 'men' or 'any'
  *     { type: 'music', url, playing, position, podcast?, title? } - host only; shared track state (http(s) only)
  *     { type: 'show', m, mv, cue, ... }               - host only; the light show (see sanitizeShow)
@@ -20,15 +20,17 @@
  *     { type: 'block', pid } / { type: 'unblock', pid } - two-way invisibility: neither sees, hears or signals the other
  *     { type: 'kick', target } / { type: 'ban', target } - host only; `target` is a session id
  *     { type: 'lock', locked: true|false }            - host only; a locked room refuses new guests
- *     { type: 'ping' }                                - a heartbeat every 10 s; a client that has pinged and then goes silent for 30 s is closed (4013), so a vanished host is replaced promptly
+ *     { type: 'host-transfer', target }              - host only; give another visible guest control without disconnecting
+ *     { type: 'ping', time? }                         - heartbeat every 10 s; optional monotonic timestamp for clock compensation; silence for 30 s closes a pinger (4013)
  *   server -> client
- *     { type: 'welcome', id, pid, avatar, hostId, locked, serverTime, peers:[{id,pid,name,avatar,state}], music, show }
+ *     { type: 'welcome', id, pid, avatar, hostId, locked, serverTime, world:{v:1,startedAt,seed}, targetedChat:true, hostTransfer:true, peers:[{id,pid,name,avatar,state}], music, show }
+ *     { type: 'pong', time, serverTime }              - a timestamped ping reply to its sender only
  *     { type: 'join', id, pid, name, avatar }
  *     { type: 'leave', id }
  *     { type: 'state', id, state }
  *     { type: 'emoji', id, emoji }
  *     { type: 'gesture', id, gesture }
- *     { type: 'chat', id, text }
+ *     { type: 'chat', id, text, restricted? }
  *     { type: 'avatar', id, avatar }
  *     { type: 'music', url, playing, position, updatedAt, podcast, title }
  *     { type: 'show', ... }
@@ -71,6 +73,7 @@
  */
 
 import { handlePodcast } from './podcast.js';
+import { handleRoomDirectory, publishRoom, privateRoomName, ROOM_DIRECTORY_REFRESH } from './roomDirectory.js';
 
 export const MAX_NAME_LENGTH = 32;
 export const MAX_ROOM_NAME_LENGTH = 64;
@@ -139,6 +142,7 @@ export const RATE_LIMITS = Object.freeze({
     kick: { rate: 1, burst: 3 },
     ban: { rate: 1, burst: 3 },
     lock: { rate: 1, burst: 3 },
+    'host-transfer': { rate: 0.5, burst: 2 },
     chat: { rate: 0.5, burst: 4 },
     ping: { rate: 1, burst: 3 }
 });
@@ -194,13 +198,31 @@ export function sanitizeState(state) {
         return Number.isFinite(n) ? Math.max(-MAX_COORDINATE, Math.min(MAX_COORDINATE, n)) : 0;
     };
     const rot = Number(state.rotY);
-    return {
+    const result = {
         x: coord(state.x),
         y: coord(state.y),
         z: coord(state.z),
         // Normalised to (-PI, PI] so every receiver interpolates along the short arc.
         rotY: Number.isFinite(rot) ? Math.atan2(Math.sin(rot), Math.cos(rot)) : 0
     };
+    if (state.hands && typeof state.hands === 'object') {
+        result.hands = { left: sanitizeHand(state.hands.left), right: sanitizeHand(state.hands.right) };
+    }
+    return result;
+}
+
+function sanitizeHand(hand) {
+    if (!hand || typeof hand !== 'object') return null;
+    const keys = ['x', 'y', 'z', 'fx', 'fy', 'fz', 'ux', 'uy', 'uz'];
+    if (keys.some(key => typeof hand[key] !== 'number' || !Number.isFinite(hand[key]))) return null;
+    if (Math.hypot(hand.x, hand.y, hand.z) > 1.5) return null;
+    const f = Math.hypot(hand.fx, hand.fy, hand.fz), u = Math.hypot(hand.ux, hand.uy, hand.uz);
+    if (f < 0.5 || f > 1.5 || u < 0.5 || u > 1.5) return null;
+    const dot = (hand.fx * hand.ux + hand.fy * hand.uy + hand.fz * hand.uz) / (f * u);
+    if (Math.abs(dot) > 0.2) return null;
+    return { x: hand.x, y: hand.y, z: hand.z,
+        fx: hand.fx / f, fy: hand.fy / f, fz: hand.fz / f,
+        ux: hand.ux / u, uy: hand.uy / u, uz: hand.uz / u };
 }
 
 export function sanitizeMusicUrl(value) {
@@ -278,24 +300,33 @@ export async function derivePid(uid) {
 }
 
 export class ClubRoom {
-    constructor(state) {
+    constructor(state, env = {}) {
         this.state = state;
+        this.env = env;
+        this._roomName = null;
+        this._directoryWrite = Promise.resolve();
+        this._directoryUpdatedAt = 0;
         /** @type {Map<WebSocket, {id: string, pid: string, name: string, avatar: string, avatarPool: string, blocked: Set<string>, lastState: object|null, buckets: object, dropped: number}>} */
         this.sessions = new Map();
         this.hostId = null;
         this.musicState = null; // { url, playing, position, updatedAt, podcast, title }
         this.showState = null;  // the host's latest light-show frame (sanitizeShow)
+        this.world = null;
         this.locked = false;
         this.banned = new Set();
         this._sweeper = null;
     }
 
     async fetch(request) {
+        if (new URL(request.url).pathname === '/directory-status') {
+            return Response.json({ people: this.sessions.size, locked: this.locked });
+        }
         if (request.headers.get('Upgrade') !== 'websocket') {
             return new Response('expected a websocket upgrade', { status: 426 });
         }
 
         const url = new URL(request.url);
+        this._roomName = (url.searchParams.get('room') || 'lobby').slice(0, MAX_ROOM_NAME_LENGTH);
         const name = sanitizeName(url.searchParams.get('name'));
         // A secret per browser, kept in its localStorage. Without one (an old client) the guest is simply anonymous
         // for this connection: it can neither be blocked nor banned across reconnects.
@@ -356,6 +387,9 @@ export class ClubRoom {
 
         const id = crypto.randomUUID();
         const now = Date.now();
+        if (!this.sessions.size) {
+            this.world = { v: 1, startedAt: now, seed: crypto.getRandomValues(new Uint32Array(1))[0] };
+        }
         const buckets = {};
         for (const [type, limit] of Object.entries(RATE_LIMITS)) buckets[type] = new TokenBucket(limit, now);
         const session = { id, pid, name, avatar: this._pickAvatar(null, avatarPool), avatarPool, blocked: new Set(), lastState: null, buckets, dropped: 0, lastSeen: now, pinger: false };
@@ -379,11 +413,15 @@ export class ClubRoom {
             hostId: this.hostId,
             locked: this.locked,
             serverTime: now,
+            world: this.world,
+            targetedChat: true,
+            hostTransfer: true,
             peers,
             music: this.musicState,
             show: this.showState
         });
         this._relay(session, { type: 'join', id, pid, name, avatar: session.avatar }, ws);
+        this._publishDirectory();
 
         ws.addEventListener('message', (evt) => this._onMessage(ws, session, evt));
         const onClose = () => this._onClose(ws, session);
@@ -438,7 +476,21 @@ export class ClubRoom {
                 // Typed messages for guests who would rather not talk. Only to people who can see the sender (block
                 // is two-way), never stored, and the relay names the sender: a client cannot claim to be someone else.
                 const text = sanitizeChat(msg.text);
-                if (text) this._relay(session, { type: 'chat', id: session.id, text }, ws);
+                if (!text) return;
+                if (msg.targets === undefined) {
+                    this._relay(session, { type: 'chat', id: session.id, text }, ws);
+                } else {
+                    // Explicit but invalid/empty audiences must never fall back to a room broadcast.
+                    if (!Array.isArray(msg.targets) || msg.targets.length > MAX_ROOM_SIZE ||
+                        msg.targets.some(id => typeof id !== 'string' || id.length > 64)) return;
+                    for (const id of new Set(msg.targets)) {
+                        const targetWs = this._findSocketById(id);
+                        const target = targetWs && this.sessions.get(targetWs);
+                        if (target && target !== session && this._visible(session, target)) {
+                            this._send(targetWs, { type: 'chat', id: session.id, text, restricted: true });
+                        }
+                    }
+                }
                 break;
             }
 
@@ -531,12 +583,26 @@ export class ClubRoom {
             case 'ping':
                 // A client that pings is held to it: see _sweep. One that never has (an older build) is left alone.
                 session.pinger = true;
+                if (Number.isFinite(msg.time) && msg.time >= 0 && msg.time <= Number.MAX_SAFE_INTEGER) {
+                    this._send(ws, { type: 'pong', time: msg.time, serverTime: Date.now() });
+                }
                 break;
+
+            case 'host-transfer': {
+                if (session.id !== this.hostId || typeof msg.target !== 'string' || msg.target === session.id) return;
+                const targetWs = this._findSocketById(msg.target);
+                const target = targetWs && this.sessions.get(targetWs);
+                if (!target || !this._visible(session, target)) return;
+                this.hostId = target.id;
+                this._broadcast({ type: 'host', id: target.id });
+                break;
+            }
 
             case 'lock':
                 if (session.id !== this.hostId) return;
                 this.locked = !!msg.locked;
                 this._broadcast({ type: 'room', locked: this.locked });
+                this._publishDirectory();
                 break;
 
             default:
@@ -578,6 +644,7 @@ export class ClubRoom {
             this._onClose(ws, session);
         }
         if (!this.sessions.size && this._sweeper) { clearInterval(this._sweeper); this._sweeper = null; }
+        if (this.sessions.size && now - this._directoryUpdatedAt >= ROOM_DIRECTORY_REFRESH) this._publishDirectory();
     }
 
     _startSweeper() {
@@ -602,10 +669,21 @@ export class ClubRoom {
             this.hostId = null;
             this.musicState = null;
             this.showState = null;
+            this.world = null;
             this.locked = false;
             this.banned.clear();
         }
         this._relay(session, { type: 'leave', id: session.id });
+        this._publishDirectory();
+    }
+
+    _publishDirectory() {
+        if (!this.env.DB || !this._roomName || privateRoomName(this._roomName)) return;
+        const room = this._roomName, people = this.sessions.size, locked = this.locked;
+        this._directoryUpdatedAt = Date.now();
+        this._directoryWrite = this._directoryWrite.then(() => publishRoom(this.env.DB, room, people, locked))
+            .catch(error => { console.error('[Rooms] Presence update failed', { name: error.name }); });
+        this.state.waitUntil(this._directoryWrite);
     }
 
     _findSocketById(id) {
@@ -646,6 +724,10 @@ export default {
         // The podcast routes (feed and episode stream) answer the same allow-listed origins.
         const podcast = await handlePodcast(request, url, new URL(origin).origin);
         if (podcast) return podcast;
+        if (url.pathname === '/directory-status') return new Response('not found', { status: 404 });
+        const directory = await handleRoomDirectory(request, env, new URL(origin).origin);
+        if (directory) return directory;
+        if (request.headers.get('Upgrade') !== 'websocket') return new Response('expected a websocket upgrade', { status: 426 });
 
         const room = (url.searchParams.get('room') || 'lobby').slice(0, MAX_ROOM_NAME_LENGTH);
         const id = env.CLUB_ROOM.idFromName(room);

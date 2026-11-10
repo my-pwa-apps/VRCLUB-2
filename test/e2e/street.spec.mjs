@@ -2,7 +2,7 @@ import { test, expect } from '@playwright/test';
 import { enterClub, expectHealthyRuntime, useQuestHarness } from './support.mjs';
 import { renderFrames } from './xr-measure.mjs';
 
-useQuestHarness();
+useQuestHarness({ music: true });
 
 /** 60 s of mono white noise: broadband, so any low-pass shows up as a change in where its energy sits. */
 function noiseWav(seconds = 60, sampleRate = 22050) {
@@ -194,8 +194,8 @@ test('the street is drawn only while the guest is near the entrance, and the air
 
 test('outside the street door only the low bass of the music is heard', async ({ page }) => {
     test.setTimeout(600_000);
-    await page.unroute('https://mcdn.podbean.com/**');
-    await page.route('https://mcdn.podbean.com/**', route => route.fulfill({
+    await page.unroute('https://audio.example/**');
+    await page.route('https://audio.example/**', route => route.fulfill({
         status: 200,
         contentType: 'audio/wav',
         headers: { 'Access-Control-Allow-Origin': '*' },

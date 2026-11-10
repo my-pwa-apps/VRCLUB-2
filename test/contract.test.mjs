@@ -75,17 +75,54 @@ test('every stylesheet referenced by index.html exists on disk', () => {
     }
 });
 
-test('non-production deployments are not indexable', () => {
+test('search and social metadata identify the canonical production experience', () => {
+    const title = html.match(/<title>([^<]+)<\/title>/)?.[1] || '';
+    const description = html.match(/<meta name="description" content="([^"]+)">/)?.[1] || '';
+    assert.match(title, /WebXR Virtual Nightclub/);
+    assert.ok(title.length >= 30 && title.length <= 65, `search title should be concise, found ${title.length} characters`);
+    assert.ok(description.length >= 120 && description.length <= 170,
+        `search description should be specific without truncating badly, found ${description.length} characters`);
+    assert.match(html, /<link rel="canonical" href="https:\/\/nocturne\.mitwee\.nl\/">/);
+    assert.match(html, /<meta name="robots" content="index, follow, max-image-preview:large,/);
+    assert.match(html, /<meta property="og:url" content="https:\/\/nocturne\.mitwee\.nl\/">/);
+    assert.match(html, /<meta property="og:image" content="https:\/\/nocturne\.mitwee\.nl\/icons\/social-preview\.png">/);
+    assert.match(html, /<meta name="twitter:card" content="summary_large_image">/);
+    assert.equal([...html.matchAll(/<h1\b/g)].length, 1, 'the indexable page needs exactly one H1');
+    assert.match(html, /itemtype="https:\/\/schema\.org\/WebApplication"/);
+    const seoHead = html.slice(0, html.indexOf('</head>'));
+    const overview = html.match(/<section class="experience-overview"[\s\S]*?<\/section>/)?.[0] || '';
+    assert.doesNotMatch(`${seoHead}\n${overview}`, /Meta Quest/,
+        'SEO should target WebXR-compatible headsets rather than one headset brand');
+    assert.match(`${seoHead}\n${overview}`, /compatible VR headset/i);
+
+    const preview = readFileSync(join(ROOT, 'icons', 'social-preview.png'));
+    assert.equal(preview.readUInt32BE(16), 1200, 'social preview width must match its declared metadata');
+    assert.equal(preview.readUInt32BE(20), 630, 'social preview height must match its declared metadata');
+});
+
+test('robots and sitemap expose only the canonical production URL', () => {
     const robots = readFileSync(join(ROOT, 'robots.txt'), 'utf8');
+    const sitemap = readFileSync(join(ROOT, 'sitemap.xml'), 'utf8');
+    assert.match(robots, /^User-agent: \*\r?\nAllow: \//);
+    assert.match(robots, /Sitemap: https:\/\/nocturne\.mitwee\.nl\/sitemap\.xml/);
+    assert.match(sitemap, /<loc>https:\/\/nocturne\.mitwee\.nl\/<\/loc>/);
+    assert.equal([...sitemap.matchAll(/<loc>/g)].length, 1, 'only the app shell is an indexable HTML page');
+});
+
+test('Google Search Console verification is deployed at the site root', () => {
+    const filename = 'googledd48f5e8f45ab4e2.html';
+    const verification = readFileSync(join(ROOT, filename), 'utf8').trim();
     const build = readFileSync(join(ROOT, 'scripts', 'build.mjs'), 'utf8');
-    const headers = readFileSync(join(ROOT, '_headers'), 'utf8');
-    assert.match(html, /<meta name="robots" content="noindex, nofollow, noarchive">/);
-    assert.match(robots.trim(), /^User-agent: \*\r?\nDisallow: \/$/);
-    assert.match(headers, /X-Robots-Tag: noindex, nofollow, noarchive/);
-    assert.match(build, /cp\(path\.join\(root, 'robots\.txt'\), path\.join\(dist, 'robots\.txt'\)\)/,
-        'production build must copy the crawler policy to the site root');
-    assert.ok(!existsSync(join(ROOT, 'googledd48f5e8f45ab4e2.html')),
-        'Google verification belongs only on the Quest production branch');
+    assert.equal(verification, `google-site-verification: ${filename}`);
+    assert.match(build, new RegExp(`cp\\(path\\.join\\(root, '${filename}'\\), path\\.join\\(dist, '${filename}'\\)\\)`),
+        'production build must copy the Search Console verification file to the site root');
+});
+
+test('the production builder minifies the CSS asset', () => {
+    const build = readFileSync(join(ROOT, 'scripts', 'build.mjs'), 'utf8');
+    assert.match(build, /loader:\s*'css'/, 'build must pass CSS through the minifier');
+    assert.match(build, /minify:\s*true/, 'build must minify CSS');
+    assert.match(build, /digest\(css\)/, 'the immutable CSS name must hash minified bytes');
 });
 
 test('script load order honours the dependency contract', () => {
@@ -340,22 +377,25 @@ test('no first-party code fetches from a third-party origin', () => {
             }
         });
     }
-    // The default radio stream is inherently third-party and user-replaceable. The
-    // Resident podcast feed is read only when the guest clicks its button, never at
-    // startup, and is listed in the CSP's connect-src.
+    // These are user-triggered media rather than startup dependencies. SoundCloud is
+    // loaded only in its official iframe player after a guest submits a page URL.
     const filtered = offenders.filter(o => !o.includes('stream.sunshine-live.de') &&
-        !o.includes('https://podcast.hernancattaneo.com/feed.xml'));
+        !o.includes('https://podcast.hernancattaneo.com/feed.xml') &&
+        !o.includes('https://w.soundcloud.com/player/'));
     assert.deepEqual(filtered, [],
         `vendor these instead of loading them from a third-party origin:\n${filtered.join('\n')}`);
 });
 
-test('the CSP does not grant script-src to any third-party origin', () => {
+test('the CSP permits only self and the opt-in official SoundCloud Widget API script', () => {
     const csp = html.match(/http-equiv="Content-Security-Policy"\s+content="([^"]+)"/s)?.[1];
     assert.ok(csp, 'no meta CSP found');
     const scriptSrc = csp.match(/script-src([^;]*);/)?.[1] ?? '';
-    assert.ok(!/https?:\/\//.test(scriptSrc), `script-src allows a remote origin: ${scriptSrc.trim()}`);
+    assert.equal(scriptSrc.trim(), "'self' https://w.soundcloud.com/player/api.js",
+        'do not grant an entire third-party origin script access');
     assert.ok(!/unsafe-inline|unsafe-eval/.test(scriptSrc), `script-src is not strict: ${scriptSrc.trim()}`);
     assert.ok(!/frame-ancestors/.test(csp), 'frame-ancestors is ignored in a meta CSP - send it as an HTTP header');
+    const frameSrc = csp.match(/frame-src([^;]*);/)?.[1]?.trim();
+    assert.equal(frameSrc, 'https://w.soundcloud.com', 'only the official SoundCloud player may be framed');
 });
 
 test('no first-party JS file leaves debug logging switched on', () => {
@@ -523,12 +563,16 @@ test('types/vrclub.d.ts declares only classes and methods that exist', () => {
     const dts = readFileSync(join(ROOT, 'types/vrclub.d.ts'), 'utf8');
     const sources = Object.fromEntries(jsFiles.map(f => [f, readFileSync(join(ROOT, f), 'utf8')]));
     const allSource = Object.values(sources).join('\n');
+    const bridge = sources['js/club_hyperrealistic.js'];
+    const mixinNames = [...bridge.matchAll(/Object\.assign\(VRClub\.prototype,([^;]+)\);/g)]
+        .flatMap(match => [...match[1].matchAll(/window\.(\w+)/g)].map(item => item[1]));
     const problems = [];
     for (const [, name, body] of dts.matchAll(/export declare class (\w+)[^{]*\{([\s\S]*?)\n\}/g)) {
         if (!new RegExp(`window\\.${name}\\s*=`).test(allSource)) problems.push(`${name} is not exported on window`);
-        // VRClub is assembled from js/club/* plus the LED pattern mixin.
+        // Include the actual public mixins as well as the inherited source layers.
         const owner = name === 'VRClub'
-            ? Object.entries(sources).filter(([f]) => f.startsWith('js/club') || f === 'js/ledPatterns.js').map(([, s]) => s).join('\n')
+            ? Object.entries(sources).filter(([f, s]) => f.startsWith('js/club') ||
+                mixinNames.some(mixin => new RegExp(`window\\.${mixin}\\s*=`).test(s))).map(([, s]) => s).join('\n')
             : Object.values(sources).find(s => new RegExp(`(class|const) ${name}\\b`).test(s)) || '';
         for (const [, method] of body.matchAll(/^\s+(?:static\s+)?(\w+)\s*(?:<[^>]*>)?\(/gm)) {
             if (method === 'constructor') continue;
