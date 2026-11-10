@@ -17,10 +17,10 @@ test('portable fixture presets, static finishes and shared restroom mechanics re
         club.toggleLightControl('cycleLaserBrightness');
         club.toggleLightControl('cycleLedBrightness');
         club.toggleLightControl('cycleSheetBrightness');
-        club.toggleLightControl('saveLightingPreset');
+        club._runVJDeskPreset({ kind: 'presetSave' });
         const saved = club.lightingPresets.slots[0];
         club.spotBrightness = 0;
-        club.toggleLightControl('recallLightingPreset');
+        club._runVJDeskPreset({ kind: 'presetRecall' });
         f.action('lid', 0, false);
         f.action('tap', 0, true);
         f.action('flush', 0);
