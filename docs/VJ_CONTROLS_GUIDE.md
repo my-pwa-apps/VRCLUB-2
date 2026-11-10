@@ -24,6 +24,17 @@ be evaluated on the target device, not inferred from desktop screenshots.
 
 ## Overview
 
+### Strobe fixtures
+
+The four strobes use the Unity club's fixture design and placement: two on each
+side truss at x = +/-7.6 m, y = 7.6 m, z = -9.2/-14.8 m, aimed at (0, 1.7, -12).
+Each has a dark rectangular casing, inset reflector and visible resting tube.
+Only the front emitter and the existing glare flash; the casing stays dark.
+Casings, reflectors and tubes share instance draws. This copies geometry and
+placement only: flash patterns, timing, intensity, Safe Mode and the room-wide
+flash governor remain the web implementation. No Unity flash lights are added.
+Desktop and emulated-XR checks do not establish physical-headset appearance or cost.
+
 ### Independent spots, rows and columns
 
 Open **Show / Lights / Individual spots, rows and columns**, **VR Lights / Spot Rig**,
