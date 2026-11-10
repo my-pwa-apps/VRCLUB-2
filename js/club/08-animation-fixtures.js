@@ -574,7 +574,6 @@ class VRClubAnimationFixtures extends VRClubAnimationCore {
                     const g = this._updateSpotBeamGeometry(spot, i, direction, time, dtScale, speedMultiplier);
                     const st = this._updateSpotBeamAppearance(spot, i, time, globalPhase, audioSpeedMultiplier, g);
                     this._updateSpotLightPool(spot, i, direction, time, g, st);
-                    this._updateSpotGoboProjection(spot, g, st);
                 }
                 
                 // CRITICAL: Hide beams when lights are off (no beams without light source!)

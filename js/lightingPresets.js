@@ -62,6 +62,9 @@ class LightingPresets {
                 || !['match', 'analogous', 'complement', 'triad', 'follow'].includes(c.lh)
                 || !Number.isInteger(c.mbi) || c.mbi < 0 || c.mbi > 63) throw new Error('Invalid lighting palette');
             if (legacy) {
+                delete preset.fx.goboEnabled;
+                delete preset.fx.goboPatternIndex;
+                delete preset.fx.goboRotationSpeed;
                 preset.fx.spotPrismActive = false;
             }
             if (legacy || previous) preset.fx.fogBurstMode = 'auto';

@@ -103,7 +103,7 @@ test('recall restores independent heads, colours, timing, brightness and sheet s
     assert.equal(follower.club.strobeSync, 'bar');
 });
 
-test('prism presets round-trip and production gobo presets retain their projected shapes', () => {
+test('prism presets round-trip and legacy gobo presets load without reviving projected shapes', () => {
     const h = harness();
     h.club.spotPrismActive = true;
     h.presets.save(0);
@@ -118,14 +118,12 @@ test('prism presets round-trip and production gobo presets retain their projecte
     Object.assign(old.slots[0].fx, { goboEnabled: true, goboPatternIndex: 9, goboRotationSpeed: -1 });
     h.presets.import(JSON.stringify(old));
     assert.equal(h.presets.slots[0].fx.spotPrismActive, false);
-    assert.equal(h.presets.slots[0].fx.goboEnabled, true);
+    assert.equal('goboEnabled' in h.presets.slots[0].fx, false);
     h.club.goboEnabled = false;
-    h.club.setGoboEnabled = value => { h.club.goboEnabled = value; };
-    h.club.goboPatterns = Array(10).fill('circle');
-    h.club.setGoboPattern = value => { h.club.goboPatternIndex = value; };
+    h.club.setGoboEnabled = () => { throw new Error('Legacy gobo must not be enabled'); };
     assert.equal(h.presets.recall(0), true);
     assert.equal(h.club.spotPrismActive, false);
-    assert.equal(h.club.goboEnabled, true);
+    assert.equal(h.club.goboEnabled, false);
     const invalid = JSON.parse(JSON.stringify(old));
     invalid.slots[0].fx.goboPatternIndex = 99;
     assert.throws(() => h.presets.import(JSON.stringify(invalid)));
