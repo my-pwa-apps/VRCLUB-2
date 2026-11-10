@@ -36,18 +36,26 @@ class LightingPresets {
         delete preBrightnessSchema.ledWallBrightness;
         const previousSchema = { ...preBrightnessSchema };
         delete previousSchema.fogBurstMode;
-        const legacySchema = { ...previousSchema, goboEnabled: 'b', goboPatternIndex: [0, 31], goboRotationSpeed: [-10, 10] };
-        delete legacySchema.spotPrismActive;
         for (const preset of data.slots) {
             if (preset === null) continue;
-            const legacy = exact(preset.fx, Object.keys(legacySchema));
+            const fx = preset.fx;
+            const retiredKeys = ['goboEnabled', 'goboPatternIndex', 'goboRotationSpeed'];
+            if (fx && typeof fx === 'object' && retiredKeys.some(key => Object.hasOwn(fx, key))) {
+                if (typeof fx.goboEnabled !== 'boolean' || !Number.isInteger(fx.goboPatternIndex)
+                    || fx.goboPatternIndex < 0 || fx.goboPatternIndex > 31
+                    || !Number.isFinite(fx.goboRotationSpeed) || Math.abs(fx.goboRotationSpeed) > 10) {
+                    throw new Error('Invalid retired gobo settings');
+                }
+                for (const key of retiredKeys) delete fx[key];
+                if (!Object.hasOwn(fx, 'spotPrismActive')) fx.spotPrismActive = false;
+            }
             const previous = exact(preset.fx, Object.keys(previousSchema));
             const preBrightness = exact(preset.fx, Object.keys(preBrightnessSchema));
             if (!exact(preset, ['name', 'fx', 'colour']) || typeof preset.name !== 'string'
                 || preset.name.trim() !== preset.name || !preset.name || preset.name.length > 32
                 || /[\p{C}\p{Zl}\p{Zp}]/u.test(preset.name)
-                || (!legacy && !previous && !preBrightness && !exact(preset.fx, Object.keys(schema)))) throw new Error('A preset has an invalid name or incomplete lighting settings');
-            for (const [key, spec] of Object.entries(legacy ? legacySchema : previous ? previousSchema : preBrightness ? preBrightnessSchema : schema)) {
+                || (!previous && !preBrightness && !exact(preset.fx, Object.keys(schema)))) throw new Error('A preset has an invalid name or incomplete lighting settings');
+            for (const [key, spec] of Object.entries(previous ? previousSchema : preBrightness ? preBrightnessSchema : schema)) {
                 const value = preset.fx[key];
                 if (spec === 'b' ? typeof value !== 'boolean' : typeof spec[0] === 'string' ? !spec.includes(value)
                     : !Number.isFinite(value) || value < spec[0] || value > spec[1]
@@ -61,14 +69,8 @@ class LightingPresets {
                 || typeof c.hl !== 'boolean' || !['analogous', 'complementary', 'triad'].includes(c.pal)
                 || !['match', 'analogous', 'complement', 'triad', 'follow'].includes(c.lh)
                 || !Number.isInteger(c.mbi) || c.mbi < 0 || c.mbi > 63) throw new Error('Invalid lighting palette');
-            if (legacy) {
-                delete preset.fx.goboEnabled;
-                delete preset.fx.goboPatternIndex;
-                delete preset.fx.goboRotationSpeed;
-                preset.fx.spotPrismActive = false;
-            }
-            if (legacy || previous) preset.fx.fogBurstMode = 'auto';
-            if (legacy || previous || preBrightness) {
+            if (previous) preset.fx.fogBurstMode = 'auto';
+            if (previous || preBrightness) {
                 preset.fx.spotBrightness = 1;
                 preset.fx.laserBrightness = 1;
                 preset.fx.ledWallBrightness = 1;

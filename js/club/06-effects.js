@@ -163,11 +163,6 @@ class VRClubEffects extends VRClubFixtures {
             // shadow maps this file used to give spot2/spot5 were rendered every frame
             // (1024², ~134 casters each) and sampled by no material at all.
             
-            // UPGRADE: SpotLight.projectionTexture support (physically correct gobo projection)
-            // Near/far define the frustum for texture projection (like shadow mapping)
-            spot.projectionTextureLightNear = 0.5;
-            spot.projectionTextureLightFar = 25;
-            
             // Enabled for life and dimmed by intensity. Enabling or disabling a light
             // changes the light slots of every lit material: each cue change recompiled
             // 17-20 shader variants (measured 0.4-1.1 s freezes), and each toggle walked

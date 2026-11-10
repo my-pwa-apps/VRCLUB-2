@@ -1547,12 +1547,12 @@ class VRClubAnimationCore extends VRClubEffects {
                         break;
                         
                     case 'build':
-                        // BUILD → TENSION: Increase intensity with gobos only
+                        // BUILD → TENSION: Increase intensity with moving heads only
                         this.lightingPhase = 'tension';
                         this.targetEnergy = 0.75;
                         
-                        // GOBOS ONLY - fast sweeping, no lasers yet (save for later)
-                        this.lightsActive = true;  // Gobos featured
+                        // Fast sweeping, no lasers yet.
+                        this.lightsActive = true;
                         this.lasersActive = false; // Lasers OFF - save for their moment
                         this.mirrorBallActive = false;
                         this.strobesActive = false;
@@ -1571,7 +1571,7 @@ class VRClubAnimationCore extends VRClubEffects {
                         this.fogBurstInterval = 6;
                         
                         this.currentShowMode = 'spotlights';
-                        log.info('⚡ TENSION: Gobos intensify - Crossed beams building');
+                        log.info('⚡ TENSION: Moving heads intensify - Crossed beams building');
                         break;
                         
                     case 'tension':
@@ -1582,7 +1582,7 @@ class VRClubAnimationCore extends VRClubEffects {
                         this.vjDropTimer = time;
                         
                         // MAXIMUM CHAOS - Laser sheet + strobes
-                        this.lightsActive = false; // Gobos off for laser sheet
+                        this.lightsActive = false; // Moving heads off for laser sheet
                         this.lasersActive = false; // Ceiling lasers off
                         this.mirrorBallActive = false;
                         this.strobesActive = true; // STROBES FIRE
@@ -1663,12 +1663,12 @@ class VRClubAnimationCore extends VRClubEffects {
                         break;
                         
                     case 'breakdown':
-                        // BREAKDOWN → ATMOSPHERIC: Slow gobos only - dreamy
+                        // BREAKDOWN → ATMOSPHERIC: Slow moving heads only - dreamy
                         this.lightingPhase = 'atmospheric';
                         this.targetEnergy = 0.35;
                         
-                        // GOBOS ONLY - ethereal slow movement after disco moment
-                        this.lightsActive = true;   // Slow ethereal gobos
+                        // Ethereal slow movement after the disco moment.
+                        this.lightsActive = true;
                         this.lasersActive = false;  // No lasers
                         this.mirrorBallActive = false; // Mirror ball had its moment
                         this.strobesActive = false;
@@ -1687,7 +1687,7 @@ class VRClubAnimationCore extends VRClubEffects {
                         this.fogBurstInterval = 20;
                         
                         this.currentShowMode = 'spotlights';
-                        log.info('✨ ATMOSPHERIC: Ethereal gobos - Dreamlike sweeps');
+                        log.info('✨ ATMOSPHERIC: Ethereal moving heads - Dreamlike sweeps');
                         break;
                         
                     case 'atmospheric':
@@ -1714,12 +1714,12 @@ class VRClubAnimationCore extends VRClubEffects {
                         break;
                         
                     case 'laser_tunnel':
-                        // LASER TUNNEL → GROOVE: Transition to gobos-only hypnotic groove
+                        // LASER TUNNEL → GROOVE: Transition to a moving-head-only hypnotic groove
                         this.lightingPhase = 'groove';
                         this.targetEnergy = 0.6;
                         
-                        // GOBOS ONLY for groove - lasers had their moment
-                        this.lightsActive = true;   // Gobos take over
+                        // Moving heads only for groove - lasers had their moment.
+                        this.lightsActive = true;
                         this.lasersActive = false;  // Lasers OFF - contrast after laser tunnel
                         this.mirrorBallActive = false;
                         this.strobesActive = false;
@@ -1739,7 +1739,7 @@ class VRClubAnimationCore extends VRClubEffects {
                         this.fogBurstInterval = 15;
                         
                         this.currentShowMode = 'spotlights';
-                        log.info('🎵 GROOVE: Gobos-only hypnosis after laser intensity');
+                        log.info('🎵 GROOVE: Moving-head hypnosis after laser intensity');
                         break;
                         
                     case 'groove':
@@ -1747,9 +1747,9 @@ class VRClubAnimationCore extends VRClubEffects {
                         this.lightingPhase = 'euphoria';
                         this.targetEnergy = 0.85;
                         
-                        // MIRROR BALL FEATURED - solo star with subtle gobos
+                        // MIRROR BALL FEATURED - solo star with subtle moving heads
                         // This is THE disco moment - mirror ball deserves focus
-                        this.lightsActive = true;   // Slow gobos complement
+                        this.lightsActive = true;   // Slow moving heads complement
                         this.lasersActive = false;  // Lasers OFF - would overpower reflections
                         this.mirrorBallActive = true; // THE STAR
                         this.strobesActive = false; // No strobes - pure vibes

@@ -1,5 +1,10 @@
 # VR Club — AI Coding Agent Instructions
 
+Moving heads have normal beams and the optional multi-beam filter only. Do not
+restore projected gobo controls, textures, meshes or shared fixture fields.
+Preset imports validate and discard retired gobo fields from complete older
+schemas while preserving the other settings, including the multi-beam choice.
+
 > **Accuracy contract**: this file describes the code as it exists. If you change the
 > architecture, update this file in the same commit. A previous version of this document
 > described a `js/systems/` module layer and `ModelLoader.createInstance()` APIs that do
