@@ -1,7 +1,72 @@
 import { test, expect } from '@playwright/test';
 import { enterClub, expectHealthyRuntime, useQuestHarness } from './support.mjs';
+import { ClubRoom } from '../../worker/src/relay.js';
 
 useQuestHarness();
+
+test('online Go to options stay clear of social buttons, reactions and chat at every viewport', async ({ page, context }) => {
+    const room = new ClubRoom({});
+    await context.routeWebSocket(/layout\.example/, route => {
+        const socket = {
+            accept() {}, addEventListener() {},
+            send: data => route.send(data), close: (code, reason) => route.close({ code, reason })
+        };
+        const session = room._acceptSession(socket, 'Layout tester');
+        route.onMessage(data => room._onMessage(socket, session, { data }));
+        route.onClose(() => room._onClose(socket, session));
+    });
+    await enterClub(page);
+    await page.evaluate(() => {
+        window.vrClub.engine.stopRenderLoop();
+        window.vrClub.multiplayer.connect({
+            serverUrl: 'wss://layout.example', room: 'private-layout', name: 'Layout tester'
+        });
+    });
+    await expect(page.locator('#socialBar')).toBeVisible();
+    for (const [width, height] of [[1280, 720], [720, 560], [360, 640], [320, 568], [640, 360]]) {
+        await page.setViewportSize({ width, height });
+        for (const expanded of [false, true]) {
+            if (expanded) await page.locator('#cameraPresetToggle').click();
+            for (const popup of [null, 'React', 'Chat']) {
+                if (popup) await page.locator(`#social${popup}`).click();
+                const layout = await page.evaluate(() => {
+                    const travel = document.getElementById('cameraControls').getBoundingClientRect();
+                    const social = document.getElementById('socialBar').getBoundingClientRect();
+                    const controls = [...document.querySelectorAll('#cameraControls button, .social-buttons button')]
+                        .filter(button => button.getClientRects().length);
+                    return {
+                        gap: travel.top - social.bottom,
+                        onScreen: [travel, social].every(rect => rect.left >= 0 && rect.right <= window.innerWidth
+                            && rect.top >= 0 && rect.bottom <= window.innerHeight),
+                        clickable: controls.every(button => {
+                            const rect = button.getBoundingClientRect();
+                            return button.contains(document.elementFromPoint(
+                                rect.left + rect.width / 2, rect.top + rect.height / 2));
+                        })
+                    };
+                });
+                expect(layout, `${width}x${height}, expanded=${expanded}, popup=${popup}`).toEqual({
+                    gap: 8, onScreen: true, clickable: true
+                });
+                if (popup) await page.keyboard.press('Escape');
+            }
+            if (expanded) {
+                await page.locator('#cameraPresetToggle').click();
+                await expect(page.locator('#cameraPresetGrid')).toBeHidden();
+            }
+        }
+    }
+    await page.locator('#cameraPresetToggle').click();
+    await page.locator('[data-camera-preset="danceFloor"]').click();
+    await expect(page.locator('#cameraPresetGrid')).toBeHidden();
+    await expect(page.locator('#cameraPresetToggle')).toBeFocused();
+    await page.evaluate(() => window.vrClub.multiplayer.disconnect());
+    await expect(page.locator('#socialBar')).toBeHidden();
+    const bottom = await page.locator('#cameraControls').evaluate(element =>
+        window.innerHeight - element.getBoundingClientRect().bottom);
+    expect(bottom).toBe(20);
+    await expectHealthyRuntime(page);
+});
 
 test('desktop and phone panels retain consistent state, keyboard navigation and dialog boundaries', async ({ page }) => {
     page.setDefaultTimeout(20_000);

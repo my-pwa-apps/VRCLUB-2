@@ -93,6 +93,7 @@ const VENUE_RESTROOM = {
 
 const VENUE_VESTIBULE = {
     halfWidth: 3.85,
+    clubDoorHalfWidth: 2,
     wallZ: 0.25,     // outer face of the front wall
     farZ: 6.0,       // inner face of the street wall
     // The club is a basement. The street, and the vestibule's floor at the street door, stand this far above the

@@ -72,6 +72,108 @@ const limbLengths = rig => ({
     lower: dist(pos(rig, 'lowerarm_l'), pos(rig, 'hand_l'))
 });
 
+test('whole-person frustum culling preserves geometry bounds and uses each eye and reflection camera', async () => {
+    const { rig, B, scene, engine } = await loadRig();
+    const root = rig.root, meshes = rig.meshes;
+    const original = meshes.map(mesh => mesh.getBoundingInfo());
+    const bounds = sandbox().AvatarRig.enableFrustumCulling(root, meshes);
+    assert.ok(bounds);
+    assert.ok(meshes.every((mesh, i) => !mesh.alwaysSelectAsActiveMesh && mesh.getBoundingInfo() === original[i]));
+    const camera = new B.FreeCamera('eye', new B.Vector3(0, 1.7, -5), scene);
+    const visible = (x, z, targetZ) => {
+        camera.position.set(x, 1.7, z);
+        camera.setTarget(new B.Vector3(0, 1.5, targetZ));
+        camera.getViewMatrix(true);
+        camera.getProjectionMatrix(true);
+        const planes = B.Frustum.GetPlanes(camera.getTransformationMatrix());
+        return meshes.every(mesh => {
+            mesh.computeWorldMatrix(true);
+            return mesh.isInFrustum(planes);
+        });
+    };
+    assert.equal(visible(-0.032, -5, 0), true);
+    assert.equal(visible(0.032, -5, 0), true);
+    assert.equal(visible(0, 5, 0), true, 'the mirror sees the person from the opposite direction');
+    root.position.x = 100;
+    assert.equal(visible(0, -5, 0), false, 'an entirely offscreen person is not submitted');
+    root.position.x = 0;
+    root.rotation.y = Math.PI / 2;
+    rig.setEyeHeight(2);
+    assert.equal(visible(0, -5, 0), true, 'refitting and turning keep the culling envelope attached');
+    const pose = makePose(), inverse = new B.Matrix(), point = new B.Vector3();
+    for (const eyeY of [0.65, 1.2, 2]) {
+        for (const lean of [0, 0.6]) {
+            pose.eyeY = eyeY; pose.lean = lean;
+            pose.left = { x: -1.5, y: 2.8, z: -7, fx: 0, fy: 1, fz: 0, ux: 0, uy: 0, uz: 1 };
+            pose.right = { x: 1.5, y: 0.5, z: -8, fx: 0, fy: 1, fz: 0, ux: 0, uy: 0, uz: 1 };
+            rig.update(DT, pose);
+            root.computeWorldMatrix(true);
+            root.getChildTransformNodes(false).forEach(node => node.computeWorldMatrix(true));
+            root.getWorldMatrix().invertToRef(inverse);
+            rig.entry.skeletons.forEach(skeleton => skeleton.prepare(true));
+            for (const mesh of meshes) {
+                mesh.computeWorldMatrix(true);
+                mesh.refreshBoundingInfo(true);
+                for (const corner of mesh.getBoundingInfo().boundingBox.vectorsWorld) {
+                    B.Vector3.TransformCoordinatesToRef(corner, inverse, point);
+                    assert.ok(bounds.boundingBox.minimum.x <= point.x && point.x <= bounds.boundingBox.maximum.x
+                        && bounds.boundingBox.minimum.y <= point.y && point.y <= bounds.boundingBox.maximum.y
+                        && bounds.boundingBox.minimum.z <= point.z && point.z <= bounds.boundingBox.maximum.z,
+                    `crouch/reach escapes: ${JSON.stringify({ eyeY, lean, mesh: mesh.name, point: point.asArray(),
+                        min: bounds.boundingBox.minimum.asArray(), max: bounds.boundingBox.maximum.asArray() })}`);
+                }
+            }
+        }
+    }
+    rig.dispose(); scene.dispose(); engine.dispose();
+});
+
+test('whole-person culling bounds contain animated skin across the shipped NPC cast and every clip', async () => {
+    const files = [
+        ...readdirSync(join(ROOT, 'js/models/avatars'))
+            .filter(file => /^club-crowd-(?:[fm]\d+|bouncer)\.glb$/.test(file))
+            .map(file => join(ROOT, 'js/models/avatars', file)),
+        ...readdirSync(join(ROOT, 'js/models/characters')).filter(file => file.endsWith('.glb'))
+            .map(file => join(ROOT, 'js/models/characters', file))
+    ];
+    for (const file of files) {
+        const { B, scene, engine, container, box } = await loadContainer(file);
+        container.animationGroups.forEach(group => group.stop());
+        const entry = container.instantiateModelsToScene(name => name, false, { doNotInstantiate: true });
+        const root = entry.rootNodes[0], meshes = root.getChildMeshes().filter(mesh => mesh.getTotalVertices());
+        root.position.set(1, 3, -12);
+        root.rotationQuaternion = null;
+        root.rotation.y = 0.7;
+        root.scaling.setAll(1.05);
+        const envelope = box.AvatarRig.enableFrustumCulling(root, meshes);
+        assert.ok(envelope, file);
+        const min = envelope.boundingBox.minimum, max = envelope.boundingBox.maximum;
+        const inverse = root.getWorldMatrix().clone().invert(), point = new B.Vector3();
+        const nodes = root.getChildTransformNodes(false);
+        for (const group of entry.animationGroups) {
+            group.start(false); group.pause();
+            for (let sample = 0; sample <= 12; sample++) {
+                group.goToFrame(group.from + (group.to - group.from) * sample / 12);
+                nodes.forEach(node => node.computeWorldMatrix(true));
+                entry.skeletons.forEach(skeleton => skeleton.prepare(true));
+                for (const mesh of meshes) {
+                    mesh.computeWorldMatrix(true);
+                    mesh.refreshBoundingInfo(true);
+                    for (const corner of mesh.getBoundingInfo().boundingBox.vectorsWorld) {
+                        B.Vector3.TransformCoordinatesToRef(corner, inverse, point);
+                        assert.ok(point.x >= min.x - 1e-4 && point.x <= max.x + 1e-4
+                            && point.y >= min.y - 1e-4 && point.y <= max.y + 1e-4
+                            && point.z >= min.z - 1e-4 && point.z <= max.z + 1e-4,
+                        `${file} ${group.name} sample ${sample}: animated skin escapes its culling envelope`);
+                    }
+                }
+            }
+            group.stop();
+        }
+        entry.dispose(); scene.dispose(); engine.dispose();
+    }
+});
+
 test('single-mesh avatar head is re-skinned immediately for mirror and first-person passes', async () => {
     const { rig, scene, engine } = await loadRig('club-crowd-m1.glb', {
         eyeHeight: 1.7, hideHead: true, allowCustomSkeleton: true

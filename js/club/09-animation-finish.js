@@ -10,7 +10,7 @@ const strobeRingIndex = (count, index) => count === 4 ? STROBE_RING_4[index] : i
 class VRClubAnimationFinish extends VRClubAnimationFixtures {
     /**
      * Strobe patterns, in the order the controls step through them. 'all' fires every corner together, 'chase' is the
-     * show's own (a clockwise grid step on the beat, improvised when free-running); the others are the classic club
+     * show's own (clockwise around the room on the beat, improvised when free-running); the others are the classic club
      * sequences and each flashes ONE sequence step per burst, under the same three-flashes-a-second room limit.
      */
     static get STROBE_PATTERNS() {
@@ -68,6 +68,7 @@ class VRClubAnimationFinish extends VRClubAnimationFixtures {
         if (n === 1) { out.push(0); return out; }
         const s = Math.max(0, step | 0);
         switch (pattern) {
+            case 'chase':
             case 'circle': out.push(strobeRingIndex(n, s % n)); return out;
             case 'reverse': out.push(strobeRingIndex(n, (n - 1) - (s % n))); return out;
             case 'pingpong': {
@@ -183,13 +184,12 @@ class VRClubAnimationFinish extends VRClubAnimationFixtures {
                     const pattern = this.strobePattern || 'all';
                     let targets = null;   // null = every strobe
                     if (pattern === 'chase') {
-                        let chaseIndex;
                         if (this.strobes.length === 1) {
-                            chaseIndex = 0;
+                            targets = [0];
                         } else if (syncDue !== null) {
                             // On the grid the chase must read as a pattern, not a dice roll.
                             this._strobeChaseStep = ((Number.isInteger(this._strobeChaseStep) ? this._strobeChaseStep : -1) + 1) % this.strobes.length;
-                            chaseIndex = this._strobeChaseStep;
+                            targets = VRClubAnimationFinish.strobeTargets('chase', this.strobes.length, this._strobeChaseStep);
                         } else {
                             // Pick any corner except the previous one. This reads as
                             // improvised without allowing one fixture to double-hit.
@@ -198,11 +198,11 @@ class VRClubAnimationFinish extends VRClubAnimationFixtures {
                                 this._lastStrobeChaseIndex < this.strobes.length
                                 ? this._lastStrobeChaseIndex : -1;
                             const candidateCount = this.strobes.length - (last >= 0 ? 1 : 0);
-                            chaseIndex = Math.floor(Math.random() * candidateCount);
+                            let chaseIndex = Math.floor(Math.random() * candidateCount);
                             if (last >= 0 && chaseIndex >= last) chaseIndex++;
+                            targets = [chaseIndex];
                         }
-                        this._lastStrobeChaseIndex = chaseIndex;
-                        targets = [chaseIndex];
+                        this._lastStrobeChaseIndex = targets[0];
                     } else if (pattern !== 'all' && VRClubAnimationFinish.STROBE_PATTERNS.includes(pattern)) {
                         this._strobePatternStep = (Number.isInteger(this._strobePatternStep) ? this._strobePatternStep : -1) + 1;
                         targets = VRClubAnimationFinish.strobeTargets(pattern, this.strobes.length, this._strobePatternStep,

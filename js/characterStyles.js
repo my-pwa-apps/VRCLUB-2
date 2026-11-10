@@ -286,12 +286,7 @@ window.CharacterStyles = {
             light.includedOnlyMeshes = light.includedOnlyMeshes.filter(mesh => !oldMeshes.has(mesh));
             this._extendAccentLight(light, next.meshes);
         }
-        if (npc.smoke) {
-            for (const key of ['wisp', 'exhale']) if (npc.smoke[key]) npc.smoke[key].dispose();
-            for (const key of ['cigarette', 'ember', 'mouth', 'breath']) if (npc.smoke[key]) npc.smoke[key].dispose();
-            npc.smoke = null;
-            npc.smokeProp = null;
-        }
+        this._disposeCharacterSmoke(npc);
         const current = npc.animations[0];
         const clip = current && current.name.slice(npc.name.length + 1);
         const phase = current && current.animatables[0] ? current.animatables[0].masterFrame : null;
@@ -316,6 +311,15 @@ window.CharacterStyles = {
         npc.root.setEnabled(enabled);
         if (npc.collider) npc.collider.setEnabled(enabled);
         window.VRClubAudioCrowd._setAnimating(npc, enabled);
+    },
+
+    _disposeCharacterSmoke(npc) {
+        const smoke = npc && npc.smoke;
+        if (!smoke) return;
+        for (const key of ['wisp', 'exhale']) if (smoke[key]) smoke[key].dispose(false);
+        for (const key of ['cigarette', 'ember', 'mouth', 'breath']) if (smoke[key]) smoke[key].dispose();
+        npc.smoke = null;
+        npc.smokeProp = null;
     },
 
     _rebindCharacterProps() {

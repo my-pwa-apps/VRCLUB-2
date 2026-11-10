@@ -748,6 +748,10 @@ test('Quest 3 emulation enters WebXR, registers controllers, and restores deskto
             .flatMap(root => root.getChildMeshes())
             .filter(mesh => mesh.name.toLowerCase().includes('truss'));
         const activeMeshes = new Set(club.scene.getActiveMeshes().data);
+        const cameras = club.scene.activeCamera.rigCameras?.length
+            ? club.scene.activeCamera.rigCameras : [club.scene.activeCamera];
+        const frustums = cameras.map(camera => BABYLON.Frustum.GetPlanes(camera.getTransformationMatrix()));
+        const visibleNpcMeshes = npcMeshes.filter(mesh => frustums.some(planes => mesh.isInFrustum(planes)));
         const trussMaterials = [...new Set(trussMeshes.map(mesh => mesh.material).filter(Boolean))];
         const emissiveFloor = material => material.emissiveColor
             ? Math.min(material.emissiveColor.r, material.emissiveColor.g, material.emissiveColor.b)
@@ -756,8 +760,9 @@ test('Quest 3 emulation enters WebXR, registers controllers, and restores deskto
         return {
             enabledNpcCount: enabledNpcs.length,
             npcMeshCount: npcMeshes.length,
-            npcMeshesAlwaysActive: npcMeshes.every(mesh => mesh.alwaysSelectAsActiveMesh),
-            npcMeshesActive: npcMeshes.every(mesh => activeMeshes.has(mesh)),
+            npcMeshesUseCulling: npcMeshes.every(mesh => !mesh.alwaysSelectAsActiveMesh),
+            visibleNpcMeshCount: visibleNpcMeshes.length,
+            visibleNpcMeshesActive: visibleNpcMeshes.every(mesh => activeMeshes.has(mesh)),
             // Avatars keep their authored (zero) emission; in aerial-only cues the
             // hemispheric ambient floor is what keeps silhouettes above display black.
             vrAmbientFloor: club.scene.getLightByName('ambient').intensity -
@@ -772,8 +777,9 @@ test('Quest 3 emulation enters WebXR, registers controllers, and restores deskto
     });
     expect(sustainedVisibility.enabledNpcCount).toBeGreaterThanOrEqual(7);
     expect(sustainedVisibility.npcMeshCount).toBeGreaterThan(0);
-    expect(sustainedVisibility.npcMeshesAlwaysActive).toBe(true);
-    expect(sustainedVisibility.npcMeshesActive).toBe(true);
+    expect(sustainedVisibility.npcMeshesUseCulling).toBe(true);
+    expect(sustainedVisibility.visibleNpcMeshCount).toBeGreaterThan(0);
+    expect(sustainedVisibility.visibleNpcMeshesActive).toBe(true);
     expect(sustainedVisibility.vrAmbientFloor).toBeGreaterThanOrEqual(-0.005);
     expect(sustainedVisibility.nearbyAnimationsRunning).toBe(true);
     expect(sustainedVisibility.trussMeshCount).toBeGreaterThanOrEqual(20);

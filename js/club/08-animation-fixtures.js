@@ -40,7 +40,7 @@ class VRClubAnimationFixtures extends VRClubAnimationCore {
         this._flushLedWall();
     }
 
-    /** Copy each panel's colour into the wall texture (one texel per panel); the wall is a single draw. */
+    /** Copy each panel's colour into its own texel; the wall remains a single draw. */
     _flushLedWall() {
         const wall = this._ledWall;
         if (!wall || !this.ledPanels) return;

@@ -71,7 +71,7 @@ test('the club stays inside its render-submission and texture-budget ceilings', 
     const desktopBudget = await snapshotResourceBudget(page, 20);
     console.log('BUDGET_DESKTOP', JSON.stringify(desktopBudget));
 
-    // The wall is one mesh fed by a 21x10 texture, not one plane per panel.
+    // The 210 physical tiles share one mesh and one uniform-colour texel each.
     expect(desktopBudget.ledPanels).toBe(210);
     expect(desktopBudget.ledWallMeshes).toBe(1);
     // Signs are two merged meshes sharing one atlas; every enabled character has a contact shadow.

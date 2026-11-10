@@ -169,16 +169,16 @@ class VRClubAvatars extends window.VRClubAudio {
                 // are depth-tested against whatever group 0 already wrote.
                 mesh.renderingGroupId = 0;
                 mesh.isPickable = false;
-                // Skinned GLB bounds are authored from the bind pose and are not
-                // reliable for stereo frustum culling after animation advances.
-                // The balanced VR tier has only seven characters, so keeping these
-                // meshes active is cheaper than characters disappearing per eye.
+                // Kept active until the whole-person motion envelope is installed below.
                 mesh.alwaysSelectAsActiveMesh = true;
                 meshes.push(mesh);
             });
         });
         if (container.character || container.characterSourceId) {
             window.AvatarDetails.applyNPC(meshes, container.character, this.materialFactory, name, container.characterSourceId);
+        }
+        if (typeof AvatarRig !== 'undefined' && AvatarRig.enableFrustumCulling) {
+            AvatarRig.enableFrustumCulling(root, meshes);
         }
 
         // A multi-clip GLB (the leather-jacket guests) carries every pose it can strike. Keep the one this guest plays and drop

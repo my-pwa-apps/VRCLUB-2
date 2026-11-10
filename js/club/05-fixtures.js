@@ -189,13 +189,8 @@ class VRClubFixtures extends VRClubEnvironment {
 
         // ONE mesh for the whole wall. It used to be 210 separate planes, each with its own material:
         // 210 draw calls, half of everything drawn in a frame, and twice that in a headset (once per
-        // eye). The geometry is unchanged: the same 210 quads at the same positions with the same
-        // dark seams between them. What changed is how a panel gets its colour: every panel samples
-        // one texel of a 21x10 texture (all four of its corners share the texel's centre, so the
-        // panel is a flat colour, exactly as before), and the patterns still write
-        // `panel.material.emissiveColor` as they always did; _flushLedWall() copies those colours
-        // into the texture once per frame. The glow layer reads the same emissive texture, so the
-        // wall still glows in each panel's own colour.
+        // eye). Each quad remains one physical tile with its original position and seam. Each panel
+        // samples its own texel from the shared texture, so its live pattern colour fills the panel.
         const quadW = (panelWidth - 0.12) / 2;   // Larger physical gap (was -0.05) so VR bloom can't bridge tiles;
         const quadH = (panelHeight - 0.12) / 2;  // real walls have a ~6-10 mm bezel per 60 cm tile, so a clear ~6 cm dark seam
         const count = cols * rows;
@@ -214,10 +209,11 @@ class VRClubFixtures extends VRClubEnvironment {
 
                 // Faces -Z, toward the dance floor.
                 const corners = [[-quadW, -quadH], [quadW, -quadH], [quadW, quadH], [-quadW, quadH]];
+                const uv = [(col + 0.5) / cols, (row + 0.5) / rows];
                 for (let k = 0; k < 4; k++) {
                     positions.set([x + corners[k][0], y + corners[k][1], z], (v + k) * 3);
                     normals.set([0, 0, -1], (v + k) * 3);
-                    uvs.set([(col + 0.5) / cols, (row + 0.5) / rows], (v + k) * 2);
+                    uvs.set(uv, (v + k) * 2);
                 }
                 indices.set([v, v + 1, v + 2, v, v + 2, v + 3], index * 6);
 
@@ -241,11 +237,13 @@ class VRClubFixtures extends VRClubEnvironment {
         wallData.indices = indices;
         wallData.applyToMesh(wall);
 
-        // One texel per panel. Float where the GPU samples it (so a colour above 1.0 still drives the
-        // glow as it did), else 8-bit, which the on-screen clamp makes visually identical.
+        // One texel per physical panel. Float where the GPU samples it (so a colour above 1.0
+        // still drives the glow as it did), else 8-bit, which the on-screen clamp makes identical.
         const caps = this.engine.getCaps();
         const useFloat = !!caps.textureFloat;
-        const wallBuffer = useFloat ? new Float32Array(count * 4) : new Uint8Array(count * 4);
+        const wallBuffer = useFloat
+            ? new Float32Array(cols * rows * 4)
+            : new Uint8Array(cols * rows * 4);
         const wallTexture = new BABYLON.RawTexture(
             wallBuffer, cols, rows, BABYLON.Constants.TEXTUREFORMAT_RGBA, this.scene,
             false, false, BABYLON.Constants.TEXTURE_NEAREST_SAMPLINGMODE,

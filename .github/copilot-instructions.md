@@ -250,6 +250,13 @@ Rules when editing it:
   draws (`Mesh.render` is still called, which is misleading). A per-guest tinted copy was
   measured at 38 new shader effects and ~3 s of invisibility for three guests.
 - No per-frame allocation, and nothing in it may toggle a light or touch a material.
+- `AvatarRig.enableFrustumCulling(root, meshes)` installs one conservative root-space
+  motion envelope for shipped NPCs and ordinary procedural rigs (including the local
+  mannequin), tested against animated skin across the shipped cast.
+  It leaves geometry bounds intact for sizing and
+  fitting, and tests the actual render pass's frustum (eyes and mirror separately).
+  Do not restore bind-pose culling or unconditional activity. Uploaded/fallback rigs,
+  remote guests and the first-person/mirror double retain their existing policy.
 - VR hands are written against the WebXR pointer pose (forward and up) and have only been
   exercised with synthetic poses. Check them on a headset before trusting the roll.
 - `test/rig.test.mjs` runs the real Babylon and the real GLB headless (no stubs, because a
@@ -707,11 +714,12 @@ dust `updateFunction` by `_installAirLighting()`) brightens and tints them in mo
 laser and mirror-ball beams, laser sheets, the LED wall, mirror-ball reflections and actual strobe bursts.
 The dust sprites are 3–12 mm glints, not literal physical dust grain sizes; their LED, reflected and strobe
 responses are attenuated. The moving-head contribution uses a Henyey-Greenstein phase term and smoke
-feeds each beam's `_mediumDensity` back into its alpha. It edits the colour for one frame only
-(the colour gradient recomputes it), allocates nothing, and is **desktop only**: a synthetic
-desktop CPU pass with 1,400 motes and six beams measured ~0.3 ms without the wall/mirror and ~1.14 ms
-with both; headset cost is unmeasured.
-Do not enable it in VR without a headset capture.
+feeds each desktop beam's `_mediumDensity` back into its alpha. It edits the colour for one frame only
+(the colour gradient recomputes it) and allocates nothing. Desktop evaluates every particle. VR evaluates
+one third of room haze/dust particles per frame, rotating the sample across frames; nozzle plumes remain
+full-rate. A desktop pass with 1,400 motes and six beams measured ~0.3 ms without the wall/mirror and ~1.14 ms
+with both; a single full-size room pass measured ~0.69 ms on Quest 3S, so the headset path deliberately
+uses the rotating sample. Re-measure it on a physical headset before increasing the sample rate.
 No light currently owns a `ShadowGenerator`: the two it had sat outside every material's
 slots, so no shadow was ever sampled. Instead, grounding and dynamic shadow projection use two
 thin-instanced ground-decal batches (`contactShadows` for characters, updated by
@@ -1671,7 +1679,11 @@ It is built from the CC0 Quaternius *Downtown City MegaKit (Standard)*, which is
   the windows' `emissiveIntensity` (1.7) were tuned in the real pipeline: the club's grade (ACES, contrast 1.2, vignette)
   crushes a dim scene, and values that look right in a bare Babylon viewer are four times too dark here.
 - **It costs nothing indoors.** `updateCityDistrict()` (called from `_beginFrame()`) disables the whole root unless the guest is
-  forward of `z -8` (hysteresis: it hides again below `-10`). It stays enabled while `_cityWarm` so `scene.whenReadyAsync()` compiles
+  forward of `z -8` (hysteresis: it hides again below `-10`) and a conservative
+  horizontal sight line can cross both entrance openings (`CityLayout.canSeeStreet`).
+  This hides the street behind the restroom/front walls, not a possibly visible
+  doorway at the dance preset. `VenueLayout.vestibule.clubDoorHalfWidth` owns the
+  club opening used by both the wall geometry and this test. It stays enabled while `_cityWarm` so `scene.whenReadyAsync()` compiles
   every material before the VR button wakes. The street loads at the END of `modelLoadPromise`, so "Preparing VR..." covers its
   parse stall; a failed load only leaves the street door shut (`createCityDistrict()` never rejects).
 - **Outdoors.** `CityLayout.exteriorAmount(x, z)` (0 in the club and vestibule, 1 outside, a smoothstep through the door) is the single
@@ -2268,6 +2280,9 @@ guest's host-owned buttons and inputs, remembering any that were already disable
 **The social bar** (`#socialBar`, `initSocialBar` in `js/ui-init.js`): Mic / React / Chat at the bottom of the screen,
 only while in a room and never in VR. React opens the emoji and gestures; Chat opens the log and a message field; a
 message that arrives while it is closed peeks above the bar for 6 s and counts on the button. The live mic is red.
+Go to and the social bar share the bottom-anchored `#bottomControls` flex stack:
+social controls stay above the actual travel-menu height, including its expanded phone grid.
+Keep them in normal flow within that stack, not independently positioned with fixed bottom offsets.
 Keyboard: **M** toggles the mic and **T** opens the chat, in a room; they work while a button has focus (only Space and
 Enter belong to a focused button) and never while typing in a field.
 

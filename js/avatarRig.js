@@ -29,6 +29,51 @@
 class AvatarRig {
     static _seq = 0;
 
+    /**
+     * Shipped humanoids have bounded motion but bind-pose mesh bounds do not contain their raised arms.
+     * Cull the whole person against a padded root-space envelope, leaving geometry bounds intact for sizing,
+     * picking and rig fitting. Each render pass supplies its own frustum (including each eye and the mirror).
+     */
+    static enableFrustumCulling(root, meshes) {
+        root.computeWorldMatrix(true);
+        const inverse = root.getWorldMatrix().clone().invert();
+        const min = new BABYLON.Vector3(Infinity, Infinity, Infinity);
+        const max = new BABYLON.Vector3(-Infinity, -Infinity, -Infinity);
+        const point = new BABYLON.Vector3();
+        for (const mesh of meshes) {
+            if (!mesh.getTotalVertices()) continue;
+            mesh.computeWorldMatrix(true);
+            for (const corner of mesh.getBoundingInfo().boundingBox.vectorsWorld) {
+                BABYLON.Vector3.TransformCoordinatesToRef(corner, inverse, point);
+                min.minimizeInPlace(point);
+                max.maximizeInPlace(point);
+            }
+        }
+        const height = max.y - min.y;
+        if (!(height > 0) || !Number.isFinite(height)) {
+            console.warn('Avatar culling unavailable: no finite body bounds.', root.name);
+            return;
+        }
+        const reach = height * 0.75;
+        min.x -= reach; min.z -= reach; min.y -= height * 0.5;
+        max.x += reach; max.z += reach; max.y += height * 0.5;
+        const bounds = new BABYLON.BoundingInfo(min, max);
+        let lastUpdate = -1;
+        const inFrustum = planes => {
+            const world = root.getWorldMatrix();
+            if (world.updateFlag !== lastUpdate) {
+                bounds.update(world);
+                lastUpdate = world.updateFlag;
+            }
+            return bounds.isInFrustum(planes);
+        };
+        for (const mesh of meshes) {
+            mesh.alwaysSelectAsActiveMesh = false;
+            mesh.isInFrustum = inFrustum;
+        }
+        return bounds;
+    }
+
     /** Bones the rig drives, by their name in the dancer skeleton. */
     static BONES = [
         'root', 'pelvis', 'spine_01', 'spine_02', 'spine_03', 'neck_01', 'Head',
@@ -351,6 +396,7 @@ class AvatarRig {
 
         this._measure(options.eyeHeight || 1.7);
         this._measureHeadphones();
+        if (!allowCustom) AvatarRig.enableFrustumCulling(root, this.meshes);
         this.ok = true;
     }
 
