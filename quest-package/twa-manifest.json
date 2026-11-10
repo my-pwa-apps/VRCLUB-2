@@ -1,0 +1,36 @@
+{
+  "packageId": "nocturne.vrnightclub",
+  "host": "sidequest-nocturne.mitwee.nl",
+  "name": "NOCTURNE - Your Virtual Nightclub",
+  "launcherName": "NOCTURNE",
+  "display": "standalone",
+  "orientation": "any",
+  "themeColor": "#030308",
+  "backgroundColor": "#030308",
+  "startUrl": "/?immersive=1",
+  "iconUrl": "https://sidequest-nocturne.mitwee.nl/icons/icon-512.png",
+  "maskableIconUrl": "https://sidequest-nocturne.mitwee.nl/icons/icon-maskable-512.png",
+  "webManifestUrl": "https://sidequest-nocturne.mitwee.nl/manifest.json",
+  "signingKey": {
+    "path": "C:\\PrivateSigning\\nocturne.keystore",
+    "alias": "nocturne"
+  },
+  "appVersion": "1.1.0",
+  "appVersionName": "1.1.0",
+  "appVersionCode": 1,
+  "fallbackType": "customtabs",
+  "features": {},
+  "enableNotifications": false,
+  "splashScreenFadeOutDuration": 300,
+  "enableSiteSettingsShortcut": true,
+  "shortcuts": [],
+  "isChromeOSOnly": false,
+  "isMetaQuest": true,
+  "horizonOSAppMode": "immersive",
+  "fingerprints": [
+    {
+      "value": "84:13:FE:45:F6:B3:1A:C8:AE:B6:52:B2:48:9F:D4:0C:A2:8F:2B:23:D0:C0:18:95:FE:78:93:F9:E5:CC:85:F0"
+    }
+  ],
+  "minSdkVersion": 23
+}

@@ -1,0 +1,14 @@
+[
+  {
+    "relation": [
+      "delegate_permission/common.handle_all_urls"
+    ],
+    "target": {
+      "namespace": "android_app",
+      "package_name": "nocturne.vrnightclub",
+      "sha256_cert_fingerprints": [
+        "84:13:FE:45:F6:B3:1A:C8:AE:B6:52:B2:48:9F:D4:0C:A2:8F:2B:23:D0:C0:18:95:FE:78:93:F9:E5:CC:85:F0"
+      ]
+    }
+  }
+]

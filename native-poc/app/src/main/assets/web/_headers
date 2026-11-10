@@ -1,0 +1,27 @@
+# Security headers for static hosts (Cloudflare Pages, Netlify).
+#
+# scripts/serve.mjs sends these itself, but the README recommends deploying dist/
+# to static hosting - where nothing sends frame-ancestors or X-Frame-Options at
+# all, leaving a WebXR app clickjackable. This file closes that gap; the meta CSP
+# in index.html cannot, because browsers ignore frame-ancestors in a <meta> tag.
+
+/*
+  Content-Security-Policy: frame-ancestors 'none'
+  X-Frame-Options: DENY
+  X-Content-Type-Options: nosniff
+  Referrer-Policy: no-referrer
+  Strict-Transport-Security: max-age=31536000; includeSubDomains
+
+# Content-hashed bundles are immutable by construction.
+/assets/*
+  Cache-Control: public, max-age=31536000, immutable
+
+# Worker scripts must never be pinned: updateViaCache defaults to 'imports', so a
+# long max-age here makes service-worker updates impossible to ship.
+/sw.js
+  Cache-Control: no-cache
+/serviceworker.js
+  Cache-Control: no-cache
+
+/index.html
+  Cache-Control: no-cache

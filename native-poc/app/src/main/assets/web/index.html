@@ -1,0 +1,809 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+
+    <!-- Content Security Policy.
+         There are no inline <script> blocks and no on* handlers in this document, so
+         script-src stays strict (no 'unsafe-inline', no 'unsafe-eval').
+         'unsafe-inline' is still required for style-src, but no longer by app code:
+         first-party JS builds all DOM with createElement/textContent and a contract test
+         forbids innerHTML-family sinks in js/. The vendored Babylon runtime itself
+         injects <style> elements with runtime-computed CSS (WebXR enter/exit button,
+         default loading screen, audio unmute button), which neither a hash nor a nonce
+         can cover without patching the pinned bundle.
+         (Note: element.style.foo = ... writes are CSSOM, not blocked by style-src.)
+         media-src is deliberately open to https:/blob: because the whole point of the
+         app is that the user pastes an arbitrary internet radio URL or drops a local file.
+         frame-src allows only SoundCloud's official player. It is created after a guest
+         explicitly submits a SoundCloud page URL; VR Club never extracts its audio.
+
+         connect-src allows immersive-web.github.io because Babylon's WebXR controller
+         layer fetches the input-profiles catalogue from there when a session starts. It
+         is NOT in the startup critical path - blocking it only costs controller models -
+         but blocking it also logs a CSP violation on every VR entry.
+
+         No podcast or music catalogue is bundled. Music links are supplied by the guest;
+         media-src allows their audio. No audio proxy is used.
+
+         connect-src also allows the ws:/wss: schemes (any origin) for the optional
+         multiplayer relay: the Cloudflare Worker URL is a user-supplied setting (see
+         the Multiplayer panel / js/networkClient.js), not a fixed origin known at
+         build time, so it cannot be pinned to one hostname here. WebRTC's own
+         signaling (SDP/ICE) is negotiated through that same relay; the resulting
+         peer-to-peer audio connection is exempt from connect-src by the Fetch spec.
+
+         script-src is 'self' only: the Babylon.js runtime is vendored under js/vendor/
+         (see scripts/vendor.manifest.json) rather than loaded from a CDN, so there is no
+         third-party origin left in the critical path.
+
+         frame-ancestors is NOT listed here: browsers ignore it when delivered via <meta>
+         and log a console error for it. It is sent as a real HTTP header by
+         scripts/serve.mjs and by the committed static-host header files instead. -->
+    <meta http-equiv="Content-Security-Policy" content="
+        default-src 'self';
+        base-uri 'none';
+        object-src 'none';
+        form-action 'none';
+        script-src 'self';
+        style-src 'self' 'unsafe-inline';
+        img-src 'self' data: blob:;
+        font-src 'self' data:;
+        media-src 'self' blob: https: http:;
+        frame-src https://w.soundcloud.com;
+        connect-src 'self' blob: https://immersive-web.github.io ws: wss:;
+        worker-src 'self' blob:;
+    ">
+    <meta name="referrer" content="no-referrer">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+    <meta name="description" content="Immersive VR nightclub for Meta Quest 3S with professional lighting, DJ booth, and audio-reactive visuals">
+    
+    <!-- Quest 3S / WebXR Optimization -->
+    <meta name="mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    
+    <!-- Performance Hints: the Babylon runtime is the critical path and is same-origin. -->
+    <link rel="preload" href="js/vendor/babylon.js" as="script">
+    
+    <title>NOCTURNE - Virtual Nightclub Experience</title>
+    
+    <link rel="manifest" href="manifest.json">
+    <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='0.9em' font-size='90'>🎧</text></svg>">
+    <link rel="apple-touch-icon" href="icons/icon-192.png?v=20261009-1">
+    <link rel="stylesheet" href="assets/styles-a1a5f7374d09.css">
+</head>
+<body>
+    <!-- Splash Screen -->
+    <div id="splashScreen" role="dialog" aria-modal="true" aria-labelledby="splashTitle">
+        
+        <div class="splash-content">
+            <!-- The wordmark is the club's own neon sign, in its own letterforms (a cut O, a stemless R,
+                 an E of three bars). The `d` is NocturneLogo.path() from js/nocturneLogo.js, inlined so the
+                 logo is in the first paint; a unit test fails if the two ever drift apart. -->
+            <h2 class="splash-title" id="splashTitle">
+                <svg class="splash-wordmark" viewBox="-6 -9 1028.6 118" role="img" aria-label="NOCTURNE" focusable="false">
+                    <path d="M4.4 100V0L85.3 100V0M138.8 48A51.5 48.6 0 0 1 241.6 48M138.8 54A51.5 48.6 0 0 0 241.6 54M355.4 4.4H333.3A45.6 45.6 0 0 0 333.3 95.6H355.4M405.9 4.4H492.2M449.05 0V100M540.7 0V54.4A41.2 41.2 0 0 0 623.1 54.4V0M677.5 4.4H727A20.6 23.05 0 0 1 727 50.5H694.2M705.4 50.5L749.4 100M807.3 100V0L888.2 100V0M943.1 4.4H1016.6M943.1 50.5H1004.9M943.1 95.6H1016.6" />
+                </svg>
+            </h2>
+
+            <div class="splash-subtitle">Immersive Virtual Nightclub Experience</div>
+
+            <!-- WCAG 2.3.1 (Three Flashes). The show uses strobes, so the
+                 warning and the mitigation must both be reachable BEFORE anything renders,
+                 not buried in a panel the user can only open after the flashing starts. -->
+            <div class="splash-warning" role="note">
+                <strong>Photosensitivity warning</strong>
+                <span>This experience contains flashing lights and strobe effects.</span>
+            </div>
+            <button class="splash-toggle" id="splashSafeModeBtn" type="button" aria-pressed="false">
+                Photosensitive Safe Mode: <span id="splashSafeModeState">OFF</span>
+            </button>
+
+            <!-- The label says what it does; there is no hint paragraph and no tooltip behind it. -->
+            <button class="splash-toggle" id="splashVRComfortBtn" type="button" aria-pressed="false">
+                VR Comfort — Teleport &amp; Snap Turn: <span id="splashVRComfortState">OFF</span>
+            </button>
+
+            <button class="splash-button" id="enterClubBtn" type="button">
+                ENTER CLUB
+            </button>
+
+            <p class="splash-hint splash-controls">
+                Move with <kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd> and the mouse ·
+                load a radio stream or your own audio file ·
+                open the VJ desk ·
+                jump between viewpoints
+            </p>
+
+            <p class="splash-hint splash-credits">
+                3D models and textures by TwoPixels.studio, Sousinho, darksoundlab and karlwirbelwind
+                (<a href="https://creativecommons.org/licenses/by/4.0/" target="_blank" rel="noopener noreferrer">CC BY 4.0</a>)
+                and Poly Haven (CC0). Titles, sources and changes: <strong>Credits</strong>, bottom left in the club.
+            </p>
+
+            <div class="splash-loading" id="splashLoading">
+                <div class="splash-spinner"></div>
+                <div id="splashLoadingStage" aria-live="polite">Preparing renderer...</div>
+                <div class="splash-progress" role="progressbar" aria-label="Club loading progress"
+                     aria-valuemin="0" aria-valuemax="100" aria-valuenow="0">
+                    <div id="splashProgressBar" class="splash-progress-bar"></div>
+                </div>
+            </div>
+        </div>
+    </div>
+    
+    <main id="mainExperience" inert>
+    <h1 class="visually-hidden">NOCTURNE virtual nightclub</h1>
+    <canvas id="canvas" class="hidden" tabindex="0"
+            aria-label="Club scene. Use W, A, S, D or the arrow keys to move and drag with the mouse to look around."></canvas>
+    
+    <!-- VJ Toggle Button -->
+    <button id="vjToggle" type="button" title="Show controls" aria-label="Open show controls" aria-expanded="false" aria-controls="vjMenu"><span aria-hidden="true">🎛️</span><span class="toggle-word" aria-hidden="true">Show</span></button>
+    
+    <!-- VJ Control Menu.
+         Deliberately NOT role="dialog": these are non-modal disclosure panels layered
+         over a live scene the user keeps watching. role="dialog" makes screen readers
+         announce a modal context and imply a focus trap that (correctly) does not exist.
+         The trigger carries aria-expanded/aria-controls, which is the right contract. -->
+    <div id="vjMenu" class="panel hidden" role="group" aria-labelledby="vjMenuTitle">
+        <div class="panel-header">
+            <h2 class="panel-title" id="vjMenuTitle" tabindex="-1">
+                <span aria-hidden="true">🎛️</span>
+                <span>VJ Controls</span>
+            </h2>
+            <div class="panel-header-actions">
+                <button class="panel-btn-icon" id="vjMinimize" type="button" title="Minimize" aria-label="Minimize VJ panel" aria-expanded="true"><span aria-hidden="true">−</span></button>
+                <button class="panel-btn-icon" id="vjClose" type="button" title="Close" aria-label="Close VJ panel"><span aria-hidden="true">×</span></button>
+            </div>
+        </div>
+        
+        <div class="vj-content">
+            <!-- Accessibility & Comfort.
+                 FIRST section by design: the strobes are on by default, so the control
+                 that turns them off must be above the fold on every viewport. -->
+            <div class="vj-section">
+                <div class="vj-section-title">♿ Accessibility &amp; Comfort</div>
+                <p class="vj-help">For you only: Safe Mode turns off every strobe and flash, VR Comfort makes headset movement gentler, Haptics lets the controllers buzz to the bass.</p>
+                <div class="vj-button-grid">
+                    <button class="vj-button" id="vjSafeModeBtn" type="button" aria-pressed="false" title="Photosensitive Safe Mode — disables ALL strobes and bright flashes. Recommended for users with photosensitive epilepsy or migraine.">SAFE MODE</button>
+                    <button class="vj-button" id="vjVRComfortBtn" type="button" aria-pressed="false" title="On: teleport and snap turn. Off: left stick walks toward your gaze, right stick turns smoothly.">VR COMFORT</button>
+                    <button class="vj-button" id="vjBassHapticsBtn" type="button" aria-pressed="false" title="Optional controller vibration for bass and control feedback.">HAPTICS</button>
+                </div>
+            </div>
+
+            <!-- Who is in the club. A personal, local choice (not the host's), so it stays live in someone
+                 else's room: see initRoomGuestLock's keep list. -->
+            <div class="vj-section">
+                <div class="vj-section-title">🧍 Who is in the club</div>
+                <p class="vj-help">For you only: send a group of people home to get the room to yourself. Bystanders are everyone who is not dancing — the guests at the sides, the bartender, and the doorman and the queue outside. A lit button means they are here.</p>
+                <div class="vj-button-grid">
+                    <button class="vj-button active" id="vjPeopleDancers" type="button" aria-pressed="true" data-people="dancers">DANCERS</button>
+                    <button class="vj-button active" id="vjPeopleBystanders" type="button" aria-pressed="true" data-people="bystanders">BYSTANDERS</button>
+                    <button class="vj-button active" id="vjPeopleDJ" type="button" aria-pressed="true" data-people="dj">DJ</button>
+                </div>
+                <button class="vj-button vj-button-wide active" id="vjPeopleAll" type="button" aria-pressed="true" data-people="all">EVERYONE</button>
+            </div>
+
+            <!-- Main Toggles -->
+            <div class="vj-section">
+                <div class="vj-section-title">💡 Main Controls</div>
+                <p class="vj-help">Switch the club's lights and effects on or off. A lit button is on.</p>
+                <div class="vj-button-grid">
+                    <button class="vj-button active" type="button" aria-pressed="true" data-control="lightsActive">LIGHTS</button>
+                    <button class="vj-button" type="button" aria-pressed="false" data-control="lasersActive">LASERS</button>
+                    <button class="vj-button active" type="button" aria-pressed="true" data-control="ledWallActive">LED WALL</button>
+                    <button class="vj-button" type="button" aria-pressed="false" data-control="ledMonochrome">B&amp;W WALL</button>
+                    <button class="vj-button active" type="button" aria-pressed="true" data-control="strobesActive">STROBES</button>
+                    <button class="vj-button" type="button" aria-pressed="false" data-control="mirrorBallActive">MIRROR BALL</button>
+                    <button class="vj-button" type="button" aria-pressed="false" data-control="laserSheetActive">LASER SHEET</button>
+                    <button class="vj-button" type="button" aria-pressed="false" data-control="smokeActive">SMOKE</button>
+                </div>
+                <button class="vj-button vj-button-wide" id="vjResetBtn" type="button" title="Restore every VJ control to its documented default.">↺ RESET TO DEFAULTS</button>
+            </div>
+            
+            <!-- Spotlight Controls -->
+            <div class="vj-section">
+                <div class="vj-section-title">🔦 Spotlight Settings</div>
+                <p class="vj-help">The moving spotlights over the dance floor: their colour, movement mode, aim path, and speed.</p>
+                <div class="vj-button-grid">
+                    <button class="vj-button" type="button" data-control="changeColor">COLOR</button>
+                    <button class="vj-button" type="button" data-control="cycleSpotMode">MODE: STROBE+SWEEP</button>
+                    <button class="vj-button" type="button" data-control="cyclePattern">AIM PATH: RANDOM</button>
+                    <button class="vj-button" type="button" aria-pressed="true" data-control="spotStrobeActive" title="Enable rapid flashes from the moving-head beams when the selected mode includes strobing.">SPOT FLASH</button>
+                </div>
+                <div class="vj-slider-container">
+                    <input type="range" class="vj-slider" id="spotSpeed" min="0.1" max="2.0" step="0.1" value="1.0"
+                           aria-labelledby="spotSpeedLabel" aria-valuetext="1.0x"
+                           title="Adjust animation speed for all lighting effects">
+                    <div class="vj-slider-label">
+                        <span id="spotSpeedLabel">Speed</span>
+                        <span id="spotSpeedValue">1.0x</span>
+                    </div>
+                </div>
+            </div>
+            
+            <!-- Gobo Filter Controls -->
+            <div class="vj-section">
+                <div class="vj-section-title">🎭 Projected Gobo Images</div>
+                <p class="vj-help">A gobo replaces each spotlight's soft pool with a rotating image projected where its beam meets the floor or wall. Open means the normal soft pool.</p>
+                <div class="vj-button-grid">
+                    <button class="vj-button" type="button" aria-pressed="false" data-control="goboActive">PROJECT GOBO</button>
+                    <button class="vj-button" type="button" data-control="cycleGoboPattern">IMAGE: OPEN</button>
+                    <button class="vj-button" type="button" data-control="reverseGoboSpin">REVERSE SPIN</button>
+                </div>
+                <div class="vj-slider-container">
+                    <input type="range" class="vj-slider" id="goboSpeed" min="-2.0" max="2.0" step="0.1" value="1.0"
+                           aria-labelledby="goboSpeedLabel" aria-valuetext="1.0x"
+                           title="Gobo rotation speed (negative = reverse)">
+                    <div class="vj-slider-label">
+                        <span id="goboSpeedLabel">Image Spin</span>
+                        <span id="goboSpeedValue">1.0x</span>
+                    </div>
+                </div>
+            </div>
+            
+            <!-- Mirror Ball Controls -->
+            <div class="vj-section">
+                <div class="vj-section-title">🪩 Mirror Ball</div>
+                <p class="vj-help">The colour of the light on the mirror ball.</p>
+                <button class="vj-button vj-button-wide" type="button" data-control="changeMirrorBallColor">CHANGE COLOR</button>
+            </div>
+
+            <!-- Graphics Quality -->
+            <div class="vj-section">
+                <div class="vj-section-title">🎨 Graphics Quality</div>
+                <p class="vj-help">Higher looks better; lower runs smoother on a slow computer or headset.</p>
+                <button class="vj-button vj-button-wide" type="button" data-control="cycleGraphicsQuality" title="Cycle render quality: BALANCED / HIGH / ULTRA. Ultra adds screen-space reflections, contact-hardening shadows, motion blur and supersampling (desktop only).">QUALITY: AUTO</button>
+            </div>
+
+            <!-- Show Director: the composed, beat-locked light show -->
+            <div class="vj-section">
+                <div class="vj-section-title">🎭 Light Show</div>
+                <p class="vj-help">When on, the lights change by themselves with the music. Touching a light control above takes over by hand for a while.</p>
+                <button class="vj-button vj-button-wide" type="button" aria-pressed="true" data-control="toggleShow" title="NOCTURNE — the composed, beat-locked light show. When on, cues advance on musical bars and phrases instead of a wall-clock timer. Turn off to hand the rig back to the legacy auto-cycler.">SHOW: ON</button>
+                <div class="vj-button-grid">
+                    <button class="vj-button" type="button" data-control="nextMovement" title="Skip to the next movement of the show (ARRIVAL / PULSE / ASCENT / IGNITION / AFTERGLOW).">NEXT MOVEMENT</button>
+                    <button class="vj-button" type="button" data-control="showCountdown" title="Fire THE COUNTDOWN: four bars of escalating strobe into one beat of total blackout, then the drop.">COUNTDOWN</button>
+                </div>
+                <div class="vj-slider-label vj-slider-label-secondary">
+                    <span>Now playing</span>
+                    <span id="showMovementReadout">I · ARRIVAL</span>
+                </div>
+            </div>
+
+            <!-- VJ Director: Live Macros (the buttons every VJ has on a console) -->
+            <div class="vj-section">
+                <div class="vj-section-title">🎬 Live Macros</div>
+                <p class="vj-help">One-press moments for the dance floor, like a real lighting desk.</p>
+                <div class="vj-button-grid">
+                    <button class="vj-button" id="vjDropBtn" type="button" title="Slam to DROP scene on the next beat (peak look + strobes + crossed beams). Shortcut: F">DROP</button>
+                    <button class="vj-button" id="vjBlackoutBtn" type="button" title="Kill all lights for one bar — perfect tension before a drop. Shortcut: B">BLACKOUT</button>
+                    <button class="vj-button" id="vjLockBtn" type="button" title="Snap all moving heads straight down at the dance floor center.">LOCK</button>
+                    <button class="vj-button" id="vjTapBtn" type="button" title="Tap on each beat to set the BPM. 4+ taps for accuracy.">TAP TEMPO</button>
+                </div>
+                <div class="vj-slider-container">
+                    <input type="range" class="vj-slider" id="vjMasterSlider" min="0" max="1" step="0.01" value="1"
+                           aria-labelledby="vjMasterLabel" aria-valuetext="100%"
+                           title="Master intensity — fader for the whole rig (one knob).">
+                    <div class="vj-slider-label">
+                        <span id="vjMasterLabel">Master</span>
+                        <span id="vjMasterValue">100%</span>
+                    </div>
+                </div>
+                <div class="vj-slider-label vj-slider-label-secondary">
+                    <span>BPM (auto)</span>
+                    <span id="vjBpmReadout">128</span>
+                </div>
+            </div>
+        </div>
+    </div>
+    
+    <!-- Enter VR. Promoted to a top-level control: burying the headline action of a
+         WebXR app behind an unlabelled gear icon meant nobody on a Quest found it. -->
+    <button id="vrButton" type="button" title="Enter immersive VR">🥽 Enter VR</button>
+    
+    <!-- Audio Toggle Button -->
+    <button id="audioToggle" type="button" title="Audio Stream" aria-label="Open audio stream panel" aria-expanded="false" aria-controls="audioMenu"><span aria-hidden="true">🎵</span><span class="toggle-word" aria-hidden="true">Music</span></button>
+    
+    <!-- Audio Upload Menu. See the note on #vjMenu for why this is not role="dialog". -->
+    <div id="audioMenu" class="panel hidden" role="group" aria-labelledby="audioMenuTitle">
+        <div class="panel-header">
+            <h2 class="panel-title" id="audioMenuTitle" tabindex="-1">
+                <span aria-hidden="true">🎵</span>
+                <span>Your Music</span>
+            </h2>
+            <div class="panel-header-actions">
+                <button class="panel-btn-icon" id="audioMinimize" type="button" title="Minimize" aria-label="Minimize audio panel" aria-expanded="true"><span aria-hidden="true">−</span></button>
+                <button class="panel-btn-icon" id="audioClose" type="button" title="Close" aria-label="Close audio panel"><span aria-hidden="true">×</span></button>
+            </div>
+        </div>
+        
+        <div class="audio-content">
+            <!-- Now playing -->
+            <div class="audio-section">
+                <div id="audioNowPlaying" class="audio-now-playing" role="status" aria-live="polite">No audio yet</div>
+            </div>
+
+            <!-- User-provided music only -->
+            <div class="audio-section">
+                <div class="vj-section-title">Choose a file or paste a URL</div>
+                <p class="network-help">Use a local audio file, paste a direct HTTPS MP3, M4A, OGG or audio-stream link, or paste a SoundCloud track/set page to use its official player. YouTube and Spotify page URLs are not playable audio. Direct audio hosts must allow CORS. No music is included.</p>
+                <div class="audio-input-group">
+                    <input type="url" class="audio-input" id="streamUrl" placeholder="Paste stream URL (https://...)"
+                              inputmode="url" autocomplete="off"
+                           aria-label="Audio stream URL">
+                    <button class="audio-button" id="playStreamBtn" type="button">
+                        <span aria-hidden="true">▶️</span>
+                        <span id="playStreamBtnLabel">Save &amp; play</span>
+                    </button>
+                </div>
+                <div class="audio-file-upload">
+                    <input type="file" id="audioFileInput" class="audio-file-input" accept="audio/*">
+                    <label for="audioFileInput" class="audio-file-label">
+                        Choose Audio File
+                    </label>
+                </div>
+                <div id="audioFileName" class="audio-file-name"></div>
+                <div id="soundCloudPlayer" class="soundcloud-player" hidden>
+                    <p class="network-help">SoundCloud plays in its official player. Use its controls for position and volume. Beat-synced lights, spatial audio and room sharing are unavailable for this source.</p>
+                </div>
+            </div>
+
+            <div class="audio-section">
+                <label for="setName">Set name (optional)</label>
+                <input class="audio-input" id="setName" maxlength="60" placeholder="A name you will recognise in VR">
+                <label for="savedSets">Saved sets on this device</label>
+                <select class="audio-input" id="savedSets" aria-label="Saved sets"></select>
+                <div class="audio-input-group">
+                    <button class="audio-button" id="playSavedSetBtn" type="button">Play saved set</button>
+                    <button class="audio-button" id="removeSavedSetBtn" type="button">Remove saved set</button>
+                </div>
+                <p class="network-help">Save up to eight sets and choose them from the VR Music menu. Only sets you save here can resume on entry. Links stay on this device; the audio host receives your IP when you play. Share music in a room only when you have permission.</p>
+                <label for="djStyle">DJ at the decks</label>
+                <select class="audio-input" id="djStyle">
+                    <option value="male">Male DJ</option>
+                    <option value="female">Female DJ</option>
+                </select>
+            </div>
+
+            <!-- Position in the episode: only for something with a length (an episode or a file), not a live stream -->
+            <div class="audio-section audio-seek" id="audioSeekSection" hidden>
+                <input type="range" class="vj-slider" id="audioSeek" min="0" max="1000" step="1" value="0"
+                       aria-label="Position in the audio" aria-valuetext="0:00 of 0:00" title="Drag to go forward or back">
+                <div class="audio-seek-times">
+                    <button class="audio-seek-skip" id="audioSeekBack" type="button" aria-label="Back 30 seconds" title="Back 30 seconds">−30s</button>
+                    <span><span id="audioSeekElapsed">0:00</span> / <span id="audioSeekTotal">0:00</span></span>
+                    <button class="audio-seek-skip" id="audioSeekForward" type="button" aria-label="Forward 30 seconds" title="Forward 30 seconds">+30s</button>
+                </div>
+            </div>
+            
+            <!-- Volume -->
+            <div class="audio-section">
+                <div class="vj-slider-container">
+                    <input type="range" class="vj-slider" id="audioVolume" min="0" max="1" step="0.01" value="1"
+                           aria-labelledby="audioVolumeLabel" aria-valuetext="100%" title="Music playback volume">
+                    <div class="vj-slider-label">
+                        <span id="audioVolumeLabel">Music</span>
+                        <span id="audioVolumeValue">100%</span>
+                    </div>
+                </div>
+            </div>
+
+            <div class="audio-section">
+                <div class="vj-slider-container">
+                    <input type="range" class="vj-slider" id="crowdAmbience" min="0" max="1" step="0.01" value="1"
+                           aria-labelledby="crowdAmbienceLabel" aria-valuetext="100%" title="Crowd ambience level">
+                    <div class="vj-slider-label">
+                        <span id="crowdAmbienceLabel">Ambience</span>
+                        <span id="crowdAmbienceValue">100%</span>
+                    </div>
+                </div>
+            </div>
+            
+            <!-- Status -->
+            <div id="audioStatus" class="audio-status hidden" role="status" aria-live="polite" aria-atomic="true"></div>
+        </div>
+    </div>
+    
+    <!-- Multiplayer Menu. See the note on #vjMenu for why this is not role="dialog". -->
+    <div id="networkMenu" class="panel hidden" role="group" aria-labelledby="networkMenuTitle">
+        <div class="panel-header">
+            <h2 class="panel-title" id="networkMenuTitle" tabindex="-1">
+                <span aria-hidden="true">👥</span>
+                <span>Multiplayer</span>
+            </h2>
+            <div class="panel-header-actions">
+                <button class="panel-btn-icon" id="networkMinimize" type="button" title="Minimize" aria-label="Minimize multiplayer panel" aria-expanded="true"><span aria-hidden="true">−</span></button>
+                <button class="panel-btn-icon" id="networkClose" type="button" title="Close" aria-label="Close multiplayer panel"><span aria-hidden="true">×</span></button>
+            </div>
+        </div>
+
+        <div class="audio-content">
+            <div class="audio-section">
+                <div id="networkStatus" class="audio-now-playing" role="status" aria-live="polite">Not in a room</div>
+            </div>
+
+            <!-- Step 1, before joining: who you are and which room. Everything a first-time visitor needs, nothing else. -->
+            <div class="audio-section" id="networkJoin">
+                <div class="vj-section-title">Join a room</div>
+                <p class="network-help">Meet other people in the club: you will see each other, and can talk, type and react.</p>
+                <label class="network-field" for="networkName">Your name</label>
+                <input type="text" class="audio-input" id="networkName" maxlength="32" autocomplete="nickname">
+                <label class="network-field" for="networkRoom">Room</label>
+                <input type="text" class="audio-input" id="networkRoom" maxlength="64" autocomplete="off"
+                       placeholder="lobby" aria-describedby="networkRoomHelp">
+                <p class="network-help" id="networkRoomHelp">Leave it on <strong>lobby</strong> to meet anyone, or type the 6-digit code a friend gave you.</p>
+                <button class="audio-button network-primary" id="networkConnectBtn" type="button">
+                    <span aria-hidden="true">🚪</span>
+                    <span id="networkConnectBtnLabel">Join room</span>
+                </button>
+                <button class="audio-button" id="networkPrivateRoom" type="button" title="Start a room with a random 6-digit code, then share the code">
+                    <span aria-hidden="true">🔒</span>
+                    <span>Start a private room</span>
+                </button>
+                <details class="network-advanced">
+                    <summary>Advanced: relay server</summary>
+                    <label class="network-field" for="networkServerUrl">Relay server address</label>
+                    <input type="url" class="audio-input" id="networkServerUrl" inputmode="url" autocomplete="off"
+                           placeholder="wss://your-worker.workers.dev">
+                    <p class="network-help">Only change this if you run your own relay (see the README).</p>
+                </details>
+            </div>
+
+            <!-- In a room: everything below is only shown while connected. -->
+            <div class="audio-section" id="networkRoomActions" hidden>
+                <p class="network-help" id="networkRoomInfo"></p>
+                <div class="network-row">
+                    <button class="audio-button" id="networkInviteBtn" type="button">
+                        <span aria-hidden="true">🔗</span>
+                        <span>Copy invite link</span>
+                    </button>
+                    <button class="audio-button network-danger" id="networkLeaveBtn" type="button">
+                        <span aria-hidden="true">🚪</span>
+                        <span>Leave room</span>
+                    </button>
+                </div>
+            </div>
+
+            <!-- Shared music consent: a guest's browser only fetches the host's stream
+                 after the guest opts in, because it discloses their IP to that server. -->
+            <div class="audio-section" id="networkListenAlong" hidden>
+                <div id="networkMusicInfo" class="network-help" role="status" aria-live="polite"></div>
+                <button class="audio-button network-primary" id="networkListenAlongBtn" type="button">
+                    <span aria-hidden="true">🎧</span>
+                    <span>Listen along</span>
+                </button>
+            </div>
+
+            <div class="audio-section" id="networkTalk" hidden>
+                <div class="vj-section-title">🎤 Talk</div>
+                <button class="audio-button network-primary" id="networkMicBtn" type="button" aria-pressed="false">
+                    <span aria-hidden="true">🎤</span>
+                    <span id="networkMicBtnLabel">Turn my microphone on</span>
+                </button>
+                <button class="vj-button network-wide" type="button" id="networkDuck" aria-pressed="true"
+                        title="While your microphone is on, or someone is talking, the music is turned down so you can hear each other">Lower the music while people talk: ON</button>
+                <button class="vj-button network-wide" type="button" id="networkOpenChat">💬 Type a message instead</button>
+                <p class="network-help">Tip: press <kbd>M</kbd> for the microphone and <kbd>T</kbd> to type.</p>
+            </div>
+
+            <div class="audio-section" id="networkReact" hidden>
+                <div class="vj-section-title">😀 React</div>
+                <div class="vj-button-grid" id="networkEmojiGrid">
+                    <button class="vj-button" type="button" data-emoji="🎉" aria-label="Party" title="Party">🎉</button>
+                    <button class="vj-button" type="button" data-emoji="🔥" aria-label="Fire" title="Fire">🔥</button>
+                    <button class="vj-button" type="button" data-emoji="❤️" aria-label="Love" title="Love">❤️</button>
+                    <button class="vj-button" type="button" data-emoji="😂" aria-label="Laugh" title="Laugh">😂</button>
+                    <button class="vj-button" type="button" data-emoji="👋" aria-label="Hi" title="Hi">👋</button>
+                    <button class="vj-button" type="button" data-emoji="🙌" aria-label="Hands up" title="Hands up">🙌</button>
+                    <button class="vj-button" type="button" data-emoji="💃" aria-label="Dance" title="Dance">💃</button>
+                    <button class="vj-button" type="button" data-emoji="🕺" aria-label="Dance" title="Dance">🕺</button>
+                </div>
+                <div class="vj-button-grid" id="networkGestureGrid">
+                    <button class="vj-button" type="button" data-gesture="wave" title="Your character waves">👋 Wave</button>
+                    <button class="vj-button" type="button" data-gesture="nod" title="Your character nods yes">🙂 Nod</button>
+                    <button class="vj-button" type="button" data-gesture="dance" aria-pressed="false" title="Your character dances until you walk away">🕺 Dance</button>
+                </div>
+                <button class="vj-button network-wide" type="button" id="networkAutoNod" aria-pressed="true"
+                        title="In VR, nodding your head makes your character nod">Nod your head to nod (VR): ON</button>
+            </div>
+
+            <div class="audio-section" id="networkPeople" hidden>
+                <div class="vj-section-title">👥 People here</div>
+                <div id="networkPeerCount" class="network-help">Nobody else yet</div>
+                <ul id="networkPeopleList" class="network-people" aria-label="Guests in this room"></ul>
+            </div>
+
+            <!-- How others see you. The pool is chosen before or after joining and remembered. -->
+            <div class="audio-section" id="networkAvatarPool">
+                <div class="vj-section-title">🧍 How others see you</div>
+                <p class="network-help">You get a random character. Choose who it can be:</p>
+                <div class="audio-podcasts" role="radiogroup" aria-label="Which random characters you can get">
+                    <button class="audio-podcast-choice" type="button" role="radio" aria-checked="true" data-avatar-pool="any">Anyone</button>
+                    <button class="audio-podcast-choice" type="button" role="radio" aria-checked="false" data-avatar-pool="women">Women</button>
+                    <button class="audio-podcast-choice" type="button" role="radio" aria-checked="false" data-avatar-pool="men">Men</button>
+                </div>
+                <div id="networkAvatarSection" hidden>
+                    <div id="networkAvatar" class="network-help" role="status" aria-live="polite"></div>
+                    <button class="audio-button" id="networkAvatarBtn" type="button">
+                        <span aria-hidden="true">🎲</span>
+                        <span>Give me another character</span>
+                    </button>
+                </div>
+            </div>
+
+            <!-- Social safety. Block, mute and personal space are this guest's own; kick, ban and lock are the host's. -->
+            <div class="audio-section" id="networkSafety">
+                <div class="vj-section-title">🛡️ Safety and comfort</div>
+                <div class="vj-button-grid">
+                    <button class="vj-button" type="button" id="networkPersonalSpace" aria-pressed="true"
+                            title="Hide anyone who comes within arm's length of you">Personal space: ON</button>
+                    <button class="vj-button" type="button" id="networkNameTags" aria-pressed="true"
+                            title="Show each person's name above their head">Name tags: ON</button>
+                    <button class="vj-button" type="button" id="networkMuteAll" aria-pressed="false" hidden
+                            title="Silence every voice in the room">Mute everyone: OFF</button>
+                </div>
+                <p class="network-help" id="networkSafetyNote">Personal space hides anyone who comes within arm's length. To stop seeing and hearing one person, use <strong>Block</strong> next to their name: it works both ways and is remembered.</p>
+                <div class="vj-section-title">Blocked</div>
+                <ul id="networkBlockedList" class="network-people" aria-label="People you have blocked"></ul>
+            </div>
+
+            <!-- Only the room's host sees this. -->
+            <div class="audio-section" id="networkHostTools" hidden>
+                <div class="vj-section-title">👑 Host tools</div>
+                <p class="network-help">You are the host: your music and lights are what everyone gets.</p>
+                <button class="vj-button network-wide" type="button" id="networkLockRoom" aria-pressed="false"
+                        title="Stop anyone new from joining this room">Lock room: OFF</button>
+            </div>
+        </div>
+    </div>
+    <!-- Multiplayer Toggle Button -->
+    <button id="networkToggle" type="button" title="Multiplayer" aria-label="Open multiplayer panel" aria-expanded="false" aria-controls="networkMenu"><span aria-hidden="true">👥</span><span class="toggle-word" aria-hidden="true">People</span></button>
+
+    <!-- Camera Controls -->
+    <div id="cameraControls">
+        <button id="cameraPresetToggle" class="camera-controls-toggle" type="button"
+                title="Camera viewpoints" aria-label="Show camera viewpoints"
+                aria-expanded="false" aria-controls="cameraPresetGrid"><span aria-hidden="true">📷</span><span class="toggle-word" aria-hidden="true">Go to</span></button>
+        <div class="preset-grid" id="cameraPresetGrid" hidden>
+            <button type="button" data-camera-preset="arrival" title="Enter the room with the full club opening ahead">🚪 Arrival</button>
+            <button type="button" data-camera-preset="danceFloor" title="Stand among the crowd with the stage filling your view">💃 Floor</button>
+            <button type="button" data-camera-preset="djBooth" title="Take the DJ's view across the decks and dance floor">🎧 Booth</button>
+            <button type="button" data-camera-preset="lightingGallery" title="Look across the room beneath the lighting rig">💡 Lights</button>
+            <button type="button" data-camera-preset="balcony" title="Stand on the steel balcony above the dance floor">🪜 Balcony</button>
+            <button type="button" data-camera-preset="street" title="Step out through the street door onto the avenue">🌃 Street</button>
+        </div>
+    </div>
+
+    <!-- The things you do in a room, one press away: talk, react, type. Only shown while in a room (and never in VR,
+         where the quick menu's TALK / REACT / CHAT row does the same). -->
+    <div id="socialBar" class="social-bar" role="toolbar" aria-label="Talk, react and chat" hidden>
+        <div id="socialPeek" class="social-peek" role="status" aria-live="polite" hidden></div>
+        <div id="socialReactTray" class="social-pop" hidden>
+            <div class="social-pop-title">React</div>
+            <div class="social-emoji-row">
+                <button type="button" data-emoji="🎉" aria-label="Party" title="Party">🎉</button>
+                <button type="button" data-emoji="🔥" aria-label="Fire" title="Fire">🔥</button>
+                <button type="button" data-emoji="❤️" aria-label="Love" title="Love">❤️</button>
+                <button type="button" data-emoji="😂" aria-label="Laugh" title="Laugh">😂</button>
+                <button type="button" data-emoji="👋" aria-label="Hi" title="Hi">👋</button>
+                <button type="button" data-emoji="🙌" aria-label="Hands up" title="Hands up">🙌</button>
+                <button type="button" data-emoji="💃" aria-label="Dance" title="Dance">💃</button>
+                <button type="button" data-emoji="🕺" aria-label="Dance" title="Dance">🕺</button>
+            </div>
+            <div class="social-gesture-row">
+                <button type="button" data-gesture="wave">👋 Wave</button>
+                <button type="button" data-gesture="nod">🙂 Nod</button>
+                <button type="button" data-gesture="dance" aria-pressed="false">🕺 Dance</button>
+            </div>
+        </div>
+        <div id="socialChatBox" class="social-pop" hidden>
+            <div class="social-pop-title">Chat with the room</div>
+            <ol id="socialChatLog" class="social-chat-log" aria-label="Messages" aria-live="polite"></ol>
+            <form id="socialChatForm" class="social-chat-form">
+                <input type="text" id="socialChatInput" class="audio-input" maxlength="200" autocomplete="off"
+                       placeholder="Type a message and press Enter" aria-label="Message to everyone in the room">
+                <button type="submit" class="audio-button">Send</button>
+            </form>
+        </div>
+        <div class="social-buttons">
+            <button type="button" id="socialMic" class="social-btn" aria-pressed="false" title="Turn your microphone on or off (M)">
+                <span class="social-icon" aria-hidden="true">🎤</span><span class="social-label" id="socialMicLabel">Mic off</span>
+            </button>
+            <button type="button" id="socialReact" class="social-btn" aria-expanded="false" aria-controls="socialReactTray" title="Send an emoji, wave or dance">
+                <span class="social-icon" aria-hidden="true">😀</span><span class="social-label">React</span>
+            </button>
+            <button type="button" id="socialChat" class="social-btn" aria-expanded="false" aria-controls="socialChatBox" title="Type a message to the room (T)">
+                <span class="social-icon" aria-hidden="true">💬</span><span class="social-label">Chat</span>
+                <span class="social-badge" id="socialChatBadge" hidden></span>
+            </button>
+        </div>
+    </div>
+    
+    <!-- Asset attribution. CC BY 4.0 §3(a)(1) requires creator, title, a link to the
+         material and a link to the licence; §3(a)(2) allows any reasonable manner based on
+         the medium. A collapsed disclosure keeps all of it one click away without covering
+         the scene, and the splash names every CC BY creator before entry. Full provenance
+         for every shipped binary is recorded in ASSETS.md. -->
+    <details id="modelCredits">
+        <summary class="credits-title">ⓘ Credits &amp; licences</summary>
+        <div class="credits-body">
+        <div class="credits-heading"><strong>3D models and textures</strong></div>
+        <div>
+            • <a href="https://sketchfab.com/3d-models/pioneer-dj-console-0ba527fa6b164c34aa050dcecbaa2ffb" target="_blank" rel="noopener noreferrer" class="credit-link">"Pioneer DJ Console"</a>
+            by <a href="https://sketchfab.com/twopixels.studio" target="_blank" rel="noopener noreferrer" class="credit-link">TwoPixels.studio</a>
+            — <a href="https://creativecommons.org/licenses/by/4.0/" target="_blank" rel="noopener noreferrer" class="credit-link">CC BY 4.0</a>
+            (geometry processed and textures resized)
+        </div>
+        <div>
+            • Characters, outfits and animation libraries by
+            <a href="https://quaternius.com/" target="_blank" rel="noopener noreferrer" class="credit-link">Quaternius</a>
+            — CC0. Recoloured, combined, retargeted and extended with club-authored animations.
+            Male and female DJs are fictional characters, not artist endorsements.
+        </div>
+        <div>
+            • <a href="https://opengameart.org/content/headphones" target="_blank" rel="noopener noreferrer" class="credit-link">"Headphones"</a>
+            by nisu — CC0 (resized, reshaped, textured and rigged).
+        </div>
+        <div>
+            • <a href="https://sketchfab.com/3d-models/stage-speaker-black-f3209a6a45b844df92560099f982a508" target="_blank" rel="noopener noreferrer" class="credit-link">"Stage Speaker — Black"</a>
+            by <a href="https://sketchfab.com/sousinho" target="_blank" rel="noopener noreferrer" class="credit-link">Sousinho</a>
+            — <a href="https://creativecommons.org/licenses/by/4.0/" target="_blank" rel="noopener noreferrer" class="credit-link">CC BY 4.0</a>
+            (optimized textures)
+        </div>
+        <div>
+            • <a href="https://sketchfab.com/3d-models/bass-bin-3-subwoofer-0f5b16da5e704357aa94fbf632a88455" target="_blank" rel="noopener noreferrer" class="credit-link">"Bass Bin 3 - Subwoofer"</a>
+            by <a href="https://sketchfab.com/darksoundlab" target="_blank" rel="noopener noreferrer" class="credit-link">darksoundlab</a>
+            — <a href="https://creativecommons.org/licenses/by/4.0/" target="_blank" rel="noopener noreferrer" class="credit-link">CC BY 4.0</a>
+            (optimized textures)
+        </div>
+        <div>
+            • Bar: "Metal Stool 03" by Flo Tasser and "Dark Wood" by Rob Tuytel,
+            <a href="https://polyhaven.com/" target="_blank" rel="noopener noreferrer" class="credit-link">Poly Haven</a>
+            — CC0
+        </div>
+        <div>
+            • Mezzanine: "Metal Plate" and "Metal Plate 02" by Rob Tuytel,
+            <a href="https://polyhaven.com/" target="_blank" rel="noopener noreferrer" class="credit-link">Poly Haven</a>
+            — CC0
+        </div>
+        <div>
+            • Venue surfaces and reflection environment: Poly Haven, CC0.
+            "Concrete Floor Damaged 01" and wood/metal surfaces by Rob Tuytel;
+            "Empty Warehouse 01" by Sergej Majboroda. Converted and packed for the app.
+        </div>
+        <div>
+            • Street: "Downtown City MegaKit", "Car Pack" and "Ultimate House Interior Pack"
+            by <a href="https://quaternius.com/" target="_blank" rel="noopener noreferrer" class="credit-link">Quaternius</a>
+            — CC0
+        </div>
+        <div>
+            • Graffiti: "Decal - Graffiti Textures"
+            <a href="https://sketchfab.com/3d-models/cco-decal-graffiti-textures-37d78e03040041bdb9158c7ce4aa7cd8" target="_blank" rel="noopener noreferrer" class="credit-link">1</a>,
+            <a href="https://sketchfab.com/3d-models/decal-graffiti-textures-4b3bc244cccf4acb8d402372d8ce1db0" target="_blank" rel="noopener noreferrer" class="credit-link">2</a>,
+            <a href="https://sketchfab.com/3d-models/decal-graffiti-textures-69a07e3d256e4b0490ac49e99ac57896" target="_blank" rel="noopener noreferrer" class="credit-link">3</a>,
+            <a href="https://sketchfab.com/3d-models/cco-decal-graffiti-textures-19b3096fbd9a424484f78b58368a9b8a" target="_blank" rel="noopener noreferrer" class="credit-link">4</a>,
+            <a href="https://sketchfab.com/3d-models/decal-graffiti-textures-86d7a89828364880b5397081350455a7" target="_blank" rel="noopener noreferrer" class="credit-link">5</a>
+            by <a href="https://sketchfab.com/karlwirbelwind" target="_blank" rel="noopener noreferrer" class="credit-link">karlwirbelwind</a>
+            — <a href="https://creativecommons.org/licenses/by/4.0/" target="_blank" rel="noopener noreferrer" class="credit-link">CC BY 4.0</a>
+            (textures trimmed and packed into one atlas)
+        </div>
+        <div class="credits-heading"><strong>Music</strong></div>
+        <div>
+            No music, podcasts or third-party sound recordings are included.
+            Crowd ambience and reverb are generated by the app.
+            Use audio you own or have permission to play and share.
+        </div>
+        <div class="credits-note">
+            Links you choose are fetched directly from the audio host, which receives your IP address.
+            Local files stay on your device. In a multiplayer room, the host's music URL and playback position
+            are shared through the relay; guests must choose Listen along before contacting that audio host.
+        </div>
+        <div class="credits-heading"><strong>Software</strong></div>
+        <div>Babylon.js and its loaders/procedural textures — Apache License 2.0.
+            <a href="licenses/babylon-apache-2.0.txt" target="_blank" rel="noopener noreferrer" class="credit-link">Licence</a>.
+            <a href="LICENSE" target="_blank" rel="noopener noreferrer" class="credit-link">App source licence (MIT)</a>.
+            <a href="licenses/THIRD-PARTY-NOTICES.txt" target="_blank" rel="noopener noreferrer" class="credit-link">Third-party notices</a>.
+            <a href="ASSETS.md" target="_blank" rel="noopener noreferrer" class="credit-link">Asset register</a>.
+            <a href="licenses/cc-by-4.0.txt" target="_blank" rel="noopener noreferrer" class="credit-link">CC BY 4.0</a>.
+            <a href="licenses/cc0-1.0.txt" target="_blank" rel="noopener noreferrer" class="credit-link">CC0</a>.
+        </div>
+        </div>
+    </details>
+    </main>
+    
+    <!-- Babylon.js runtime - vendored, same-origin, version-pinned in
+         scripts/vendor.manifest.json. `npm run check:sri` re-verifies these bytes
+         against the recorded hashes and against the upstream CDN.
+         Refresh with: npm run vendor:babylon -- --force -->
+    <script src="js/vendor/babylon.js"></script>
+    <script src="js/vendor/babylonjs.proceduralTextures.min.js"></script>
+
+    <!-- glTF Loader Plugin (REQUIRED for loading .glb 3D models) -->
+    <script src="js/vendor/babylonjs.loaders.min.js"></script>
+    
+    <!-- Shared asset cache primitives (IndexedDB + fetch timeout + in-flight dedup).
+         MUST load before textureLoader.js and modelLoader.js, which depend on it. -->
+    
+    
+    <!-- Podcast catalogue, choice, random pick and queue behind both the Audio menu and the VR menu (needs audioUtils + assetCache). -->
+    
+
+    <!-- Texture Loader (loads before club script) -->
+    
+    
+    <!-- Model Loader (CDJs, Mixer, PA Speakers) -->
+    
+    
+    <!-- Material Factory (centralized material creation) -->
+    
+    
+    <!-- Light Factory (centralized light creation) -->
+    
+
+    <!-- VJ Director (beat-locked palette + macros). MUST load before club script. -->
+    
+
+    <!-- Show Director ("NOCTURNE" beat-locked cue engine). Depends on the beat
+         clock published by VJDirector, so it MUST load after it and before the
+         club script that instantiates both. -->
+    
+
+    <!-- LED wall pattern library. Mixed into VRClub.prototype by the club script. -->
+    
+
+    <!-- Bar dressing: bottle shapes, shelf stocking and the label atlas (pure data, no club dependency). -->
+    
+
+    <!-- The NOCTURNE wordmark as path geometry. Pure data; the club's signage strokes it onto canvas
+         and the splash <svg> above carries the same `d` (a unit test fails if the two drift apart). -->
+    
+
+    <!-- Entrance vestibule and bar, mixed into VRClub.prototype by club_hyperrealistic.js (needs barProps). -->
+    
+
+    <!-- Steel mezzanine and stair along the left wall, mixed into VRClub.prototype (borrows venueDressing's builder). -->
+    
+
+    <!-- The street outside the club (a baked GLB from three CC0 Quaternius packs), its sky and skyline, and the audio/fog
+         "outdoors" amount, mixed into VRClub.prototype (borrows venueDressing's builder). -->
+    
+
+    <!-- The VJ desk at the DJ table: two touch panels (the show, the lights), mixed into VRClub.prototype. -->
+    
+
+    <!-- Procedural player body: the shared dancer skeleton posed from where a guest is,
+         looks and (in VR) holds their hands. Used for the local guest and remote guests. -->
+    
+    
+    
+
+    <!-- Multiplayer: WebSocket/WebRTC client (no Babylon dependency) and the
+         Babylon-side remote-avatar/voice/emoji renderer it drives. Both are opt-in -
+         VRClub only creates instances once a guest connects from the Multiplayer panel. -->
+    
+    
+    
+
+    <!-- VRClub implementation layers. Each extends the previous class; keep this order. -->
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+
+    <!-- VR Club Main Application -->
+    
+    
+    <!-- UI Initialization (splash screen, VJ controls, audio, multiplayer) -->
+    
+    <script src="assets/app-6865cb45ef91.js"></script>
+</body>
+</html>
