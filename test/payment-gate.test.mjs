@@ -1,6 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
+import { readClubSource } from './club-sources.mjs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import vm from 'node:vm';
@@ -554,7 +555,7 @@ test('VR entry checks the prepared lease synchronously and keeps enterXRAsync in
             setTimeout: fn => { queueMicrotask(fn); return 1; }, clearTimeout() {},
             Promise, BABYLON: { WebXRState: { IN_XR: 2, NOT_IN_XR: 0 } }
         });
-        vm.runInContext(readFileSync(join(ROOT, 'js', 'club', '10-ui.js'), 'utf8'), context);
+        vm.runInContext(readClubSource(join(ROOT, 'js', 'club', '10-ui.js')), context);
         const club = { isInVRMode: false, modelLoadPromise: Promise.resolve(), scene: { whenReadyAsync: () => Promise.resolve() } };
         window.VRClubUI.prototype._setupVRButton.call(club, { baseExperience });
         await button.listeners.click();

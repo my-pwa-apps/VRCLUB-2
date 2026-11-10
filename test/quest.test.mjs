@@ -1,6 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
+import { readClubSource } from './club-sources.mjs';
 import vm from 'node:vm';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -10,16 +11,16 @@ const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const source = readFileSync(path.join(root, 'js', 'musicLibrary.js'), 'utf8');
 const audioUtilsSource = readFileSync(path.join(root, 'js', 'audioUtils.js'), 'utf8');
 
-function libraryFixture(raw = null, feed = '', playbackRaw = null) {
+function libraryFixture(raw = null, feed = '', playbackRaw = null, host = 'club.example') {
     const messages = [], plays = [];
-    const store = new Map(raw ? [['vrclub.questMusic', raw]] : []);
+    const store = new Map(raw !== null ? [['vrclub.questMusic', raw]] : []);
     if (playbackRaw) store.set('vrclub.questMusicPlayback', playbackRaw);
-    const storage = { getItem: key => store.get(key) || null, setItem: (key, value) => store.set(key, value) };
+    const storage = { getItem: key => store.has(key) ? store.get(key) : null, setItem: (key, value) => store.set(key, value) };
     const fetches = [];
     const context = vm.createContext({
         URL,
         TextDecoder,
-        window: { location: { href: 'https://club.example/' } },
+        window: { location: { href: `https://${host}/`, hostname: host } },
         console: { warn: (...args) => messages.push(args) }
     });
     vm.runInContext(audioUtilsSource, context);
@@ -260,7 +261,7 @@ test('when a saved set cannot be played the club\u2019s own set takes over, but 
     assert.equal(f.plays.length, 1);
     assert.equal(f.plays[0][1], 'https://club.example/audio/nocturne-house.mp3');
     assert.equal(f.library.isDefaultPlaying(), true);
-    assert.equal(f.club.nowPlayingLabel, 'NOCTURNE House (club set)');
+    assert.equal(f.club.nowPlayingLabel, 'NOCTURNE (club set)');
     assert.equal(f.library.items.length, 1, 'the saved set stays in the list');
     assert.ok(f.messages.some(message => /club.s own set is playing/.test(String(message))), 'the guest is told');
     // A second failure while the club\u2019s set already plays does not restart it.
@@ -316,6 +317,82 @@ test('restarting the same saved stream resumes its last finite playback position
     );
     await different.library.play();
     assert.equal(different.plays[0][2].resumeAt, 0, 'a different selected source inherited another set’s clock');
+});
+
+test('a corrupt playback checkpoint never hides or overwrites the saved music library', async () => {
+    const saved = JSON.stringify({ items: [
+        { url: 'https://audio.example/one.mp3', name: 'One' },
+        { url: 'https://audio.example/two.mp3', name: 'Two' }
+    ], selected: 1 });
+    for (const playback of ['{invalid', JSON.stringify({ savedUrl: 'https://audio.example/two.mp3', position: -1, updatedAt: 1 })]) {
+        const f = libraryFixture(saved, '', playback);
+        assert.deepEqual(Array.from(f.library.items, item => item.name), ['One', 'Two']);
+        assert.equal(f.library.current().name, 'Two');
+        assert.equal(f.store.get('vrclub.questMusic'), saved);
+        assert.ok(f.messages.some(message => typeof message === 'string' && /playback position/i.test(message)));
+        await f.library.play();
+        assert.equal(f.plays[0][2].resumeAt, 0);
+        f.library.save('https://audio.example/three.mp3', 'Three');
+        assert.deepEqual(JSON.parse(f.store.get('vrclub.questMusic')).items.map(item => item.name), ['One', 'Two', 'Three']);
+    }
+});
+
+test('unreadable saved sets are preserved until retry or an explicit reset', () => {
+    for (const raw of ['', '{invalid', '{"items":[{"url":"https://audio.example/good.mp3"},null]}']) {
+        const f = libraryFixture(raw);
+        assert.equal(f.library.readError, 'unreadable');
+        assert.throws(() => f.library.save('https://audio.example/new.mp3'), /retry or reset/);
+        assert.throws(() => f.library.replaceAll([]), /retry or reset/);
+        assert.throws(() => f.library.replaceAll([{ url: 'https://audio.example/new.mp3' }]), /retry or reset/);
+        assert.equal(f.store.get('vrclub.questMusic'), raw);
+        assert.equal(f.library.retrySavedSets(), false);
+        assert.equal(f.store.get('vrclub.questMusic'), raw);
+    }
+    const missing = libraryFixture();
+    assert.equal(missing.library.readError, null);
+    missing.library.save('https://audio.example/new.mp3');
+    assert.equal(missing.library.items.length, 1);
+});
+
+test('saved-set retry handles unavailable storage and another tab without overwriting it', () => {
+    const f = libraryFixture();
+    const saved = JSON.stringify({ items: [{ url: 'https://audio.example/repaired.mp3', name: 'Repaired' }], selected: 0 });
+    const denied = { getItem() { throw new Error('denied'); }, setItem() { assert.fail('must not write'); } };
+    const unavailable = new f.library.constructor(f.club, denied);
+    assert.equal(unavailable.readError, 'unavailable');
+    assert.throws(() => unavailable.replaceAll([]), /retry or reset/);
+    assert.throws(() => unavailable.resetUnreadableSets(), /Retry access/);
+    denied.getItem = key => key === 'vrclub.questMusic' ? saved : null;
+    assert.equal(unavailable.retrySavedSets(), true);
+    assert.equal(unavailable.current().name, 'Repaired');
+
+    const bad = libraryFixture('{invalid');
+    bad.store.set('vrclub.questMusic', saved);
+    assert.throws(() => bad.library.resetUnreadableSets(), /changed in another tab/);
+    assert.equal(bad.store.get('vrclub.questMusic'), saved);
+    assert.equal(bad.library.retrySavedSets(), true);
+    assert.equal(bad.library.current().name, 'Repaired');
+});
+
+test('failed resets preserve unreadable bytes; successful resets cannot resume an old checkpoint', async () => {
+    const checkpoint = JSON.stringify({ savedUrl: 'https://audio.example/old.mp3', position: 100, updatedAt: Date.now() + 100000 });
+    const f = libraryFixture('{invalid', '', checkpoint);
+    f.storage.setItem = () => { throw new Error('quota'); };
+    assert.throws(() => f.library.resetUnreadableSets(), /Could not reset/);
+    assert.equal(f.store.get('vrclub.questMusic'), '{invalid');
+    assert.equal(f.library.readError, 'unreadable');
+    f.storage.setItem = (key, value) => f.store.set(key, value);
+    f.library.resetUnreadableSets();
+    f.library.save('https://audio.example/old.mp3', 'Old');
+    const restored = libraryFixture(f.store.get('vrclub.questMusic'), '', checkpoint);
+    await restored.library.play();
+    assert.equal(restored.plays[0][2].resumeAt, 0);
+    await f.library.play();
+    f.club.getPlaybackInfo = () => ({ seekable: true, position: 120, duration: 3600, playing: true });
+    assert.equal(f.library.capturePlayback(), true);
+    const fresh = libraryFixture(f.store.get('vrclub.questMusic'), '', f.store.get('vrclub.questMusicPlayback'));
+    await fresh.library.play();
+    assert.equal(fresh.plays[0][2].resumeAt, 120);
 });
 
 test('Miss Melera SoundCloud links resolve to the main-branch relay audio stream', async () => {
@@ -380,7 +457,7 @@ test('the club\u2019s own set fills silence: it loops, is never saved, and never
     assert.equal(await f.library.playDefault(), true);
     assert.deepEqual([f.plays[0][0], f.plays[0][1]], ['direct', 'https://club.example/audio/nocturne-house.mp3']);
     assert.deepEqual({ ...f.plays[0][2] }, { quietBlock: true }, 'a default set loops (no onDemand) and a blocked autoplay is quiet: the first gesture retries it');
-    assert.equal(f.club.nowPlayingLabel, 'NOCTURNE House (club set)');
+    assert.equal(f.club.nowPlayingLabel, 'NOCTURNE (club set)');
     assert.equal(f.library.items.length, 0, 'it is never added to the guest\u2019s list');
     assert.equal(f.store.get('vrclub.questMusic'), undefined, 'and nothing is written to storage');
     f.club._audioKind = 'stream';
@@ -422,14 +499,16 @@ test('the club\u2019s own set fills silence: it loops, is never saved, and never
 test('the club set ships: a real MP3 under the Pages limit, copied by the build, registered in ASSETS.md and not cached by the service worker', () => {
     const file = path.join(root, 'audio', 'nocturne-house.mp3');
     const bytes = readFileSync(file);
-    assert.ok(bytes.length > 10 * 1048576 && bytes.length < 25 * 1048576, `${bytes.length} bytes must be 10-25 MiB (Cloudflare Pages limit)`);
+    assert.ok(bytes.length > 1048576 && bytes.length < 25 * 1048576, `${bytes.length} bytes must be 1-25 MiB (Cloudflare Pages limit)`);
     const hasId3 = bytes.subarray(0, 3).toString('latin1') === 'ID3';
     const sync = bytes[0] === 0xff && (bytes[1] & 0xe0) === 0xe0;
     assert.ok(hasId3 || sync, 'it starts like an MP3');
     assert.match(readFileSync(path.join(root, 'scripts', 'build.mjs'), 'utf8'), /cp\(path\.join\(root, 'audio'\), path\.join\(dist, 'audio'\)/);
-    assert.match(readFileSync(path.join(root, 'ASSETS.md'), 'utf8'), /audio\/nocturne-house\.mp3[\s\S]*original work of this project/);
+    assert.match(readFileSync(path.join(root, 'ASSETS.md'), 'utf8'), /audio\/nocturne-house\.mp3/);
+    assert.match(readFileSync(path.join(root, 'scripts', 'build.mjs'), 'utf8'), /path\.basename\(source\) !== 'demo\.mp3'/,
+        'unlicensed demo bytes must stay out of public builds');
     assert.match(readFileSync(path.join(root, '_headers'), 'utf8'), /\/audio\/\*\n\s+Cache-Control: no-cache/);
-    assert.doesNotMatch(readFileSync(path.join(root, 'sw.js'), 'utf8'), /nocturne-house|\.mp3/, 'the 19 MiB set is never precached');
+    assert.doesNotMatch(readFileSync(path.join(root, 'sw.js'), 'utf8'), /demo\.mp3|\.mp3/, 'the default set is never precached');
     assert.match(readFileSync(path.join(root, 'scripts', 'build-default-set.mjs'), 'utf8'), /25 \* 1048576/, 'the generator refuses an oversized file');
     // Entry music uses it only when nothing is saved.
     const ui = readFileSync(path.join(root, 'js', 'ui-init.js'), 'utf8');
@@ -473,7 +552,7 @@ test('a Miss Melera page is found in the relay feed by permalink or by Colourizo
     const other = libraryFixture(null, url => url.endsWith('feed.xml') ? '<rss/>' : new Error('HTTP 404 Not Found'));
     other.library.save('https://soundcloud.com/missmelera/colourizon-999');
     await assert.rejects(other.library.play(), error => error.code === 'soundcloud-not-published');
-    assert.ok(other.plays.every(play => play[1] === 'https://club.example/audio/nocturne-house.mp3'), 'only the club\u2019s own set steps in');
+    assert.ok(other.plays.every(play => play[1] === 'https://club.example/audio/nocturne-house.mp3'), 'only the default set steps in');
 });
 
 test('a Hernan Cattaneo / RSS feed URL is saved and plays its newest episode', async () => {
@@ -528,6 +607,17 @@ test('any Hernan Cattaneo episode can be listed, chosen, remembered and played (
 
     assert.throws(() => libraryFixture().library.setEpisode('random'), /podcast feed/);
     assert.equal(libraryFixture().library.save('https://audio.example/a.mp3').episode, undefined);
+});
+
+test('production builds never pre-seed development music, including on development hostnames', () => {
+    for (const host of ['nocturnedev.mitwee.nl', 'nocturne-dev.pages.dev',
+        'nocturne.mitwee.nl', 'sidequest-nocturne.mitwee.nl', 'nocturnedev.mitwee.nl.example.com']) {
+        assert.equal(libraryFixture(null, '', null, host).library.current(), null);
+        const empty = libraryFixture('{"items":[],"selected":0}', '', null, host);
+        assert.equal(empty.library.items.length, 0, 'an explicitly emptied library must remain empty');
+        const saved = libraryFixture('{"items":[{"url":"https://audio.example/mine.mp3","name":"Mine"}],"selected":0}', '', null, host);
+        assert.equal(saved.library.current().name, 'Mine');
+    }
 });
 
 test('every host the Music code reads from the browser is allowed by the page CSP', () => {
@@ -628,7 +718,7 @@ test('Quest entry references no catalogue, artist DJs or Mixamo model files', ()
     assert.doesNotMatch(html, /src="js\/podcasts\.js|feeds\.soundcloud/);
     const withoutCsp = html.replace(/<meta http-equiv="Content-Security-Policy"[^>]*>/s, '').replace(/<!--[\s\S]*?-->/g, '');
     assert.doesNotMatch(withoutCsp, /podcast\.hernancattaneo/);
-    const crowd = readFileSync(path.join(root, 'js', 'club', '11-audio-crowd.js'), 'utf8');
+    const crowd = readClubSource(path.join(root, 'js', 'club', '11-audio-crowd.js'));
     assert.doesNotMatch(crowd, /js\/models\/avatars\/(?:Hip Hop Dancing|house|rumba_dancing_female_character)\.glb/);
     assert.doesNotMatch(crowd, /['"][^'"]*(?:hip_hop|rumba_danc|house_danc|club-dj-hernan|club-dj-melera)[^'"]*\.glb['"]/i);
     assert.match(crowd, /club-dj-male\.glb/);

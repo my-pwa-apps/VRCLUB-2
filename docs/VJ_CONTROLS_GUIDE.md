@@ -24,7 +24,90 @@ be evaluated on the target device, not inferred from desktop screenshots.
 
 ## Overview
 
+### Independent spots, rows and columns
+
+Open **Show / Lights / Individual spots, rows and columns**, **VR Lights / Spot Rig**,
+or **SPOT RIG** on the desk's Lights panel. **EDIT GROUP** cycles through all six
+heads, three front/middle/rear rows, left/right columns and six individual heads.
+The selection is personal navigation; changing a setting is host-owned in a room.
+
+- **GROUP ON/OFF** dims the selected heads without switching real GPU lights off.
+- **GROUP COLOUR** chooses a palette colour or follows the shared **SPOT COLOUR**.
+  A custom group colour releases **MATCH ALL COLOURS**; matching again overrides
+  individual colours without changing their saved group settings.
+- **GROUP MOVEMENT** follows the rig, moves independently, points down, sweeps in
+  mirror pairs, crosses, or uses Row Wave, Row Fans or Row Call / Response.
+  These are also whole-rig aim-path options. Grouped row aims follow musical time,
+  rather than multiplying absolute time by the movement-speed slider: a wave/fan
+  cycle is eight bars, and call/response is a six-bar open/return/hold phrase.
+- **SEQUENCE** offers Steady, head/row/column Chase and head/row/column Fill.
+  Chase fades one group out as the next lights; Fill adds groups and then fades
+  them all out before restarting. Explicitly disabled heads stay dark.
+  Sequences carry the shared spot colour; Steady restores individual colours.
+- **STEP EVERY** selects 1, 2, 4 or 8 beats. Fast one-beat sequences stride to
+  alternate beats above 150 BPM. Changes fade rather than create another flash
+  source. Safe Mode uses slower fades and a 45% sequence-level ceiling.
+- **RESET SPOT RIG** restores every head to on/follow colour/follow movement,
+  Steady and two-beat steps; it does not reset other fixtures.
+
+Automatic spotlight looks include paired row chases, alternating columns
+and row fills. Each new look resets specialized head settings. A manual group
+edit takes the lights under the normal hold/return policy. Master blackout and
+Safe Mode remain authoritative across lenses, beams, pools, gobos and lighting.
+Room frames carry group settings and a timestamped musical position in automatic
+and manual modes. Late joiners follow the host's sequence; handover keeps its
+current phase, and leaving/blocking restores local group settings. Older clients
+ignore these optional fields. This uses the existing flat show protocol; no relay
+deployment is required. Network phase is approximate, not sample-exact.
+Physical-headset appearance and frame cost remain unmeasured.
+
+### Row choreography in the automatic show
+
+The reference clip informed the principle of coordinated groups and contrast, not
+a copied rig or cue sequence. The existing six heads do the work; no new lights,
+meshes, screens or video playback are added.
+
+- **Pulse / Row Wave:** warm mirrored pairs sweep slowly through the room, each
+  row following the previous one by one bar. A 16-bar cue gives the eight-bar
+  wave two complete cycles, against a restrained complementary wall.
+- **Pulse and Ignition / Row Conversation:** coloured front/rear pairs open,
+  return and hold in turn. A still white middle pair anchors the scene. The
+  groove version includes four full six-bar phrases (24 bars); the 12-bar peak
+  version offers two phrases of quieter spatial recovery after the brief layered hit.
+- **Ascent / Row Build:** nested fans accumulate one row per bar, hold the whole
+  rig, then fade out and rebuild. The wall supports the heads rather than
+  competing at full strength, with four complete fill cycles over 16 bars.
+  The breakdown rise uses a faster two-beat fill
+  with the same coordinated fans, still without strobes.
+- **Sideways** passes the spot colour between paired rows; **Chromatic Room**
+  answers with alternating columns. Both are attached to enabled spot cues.
+- **Afterglow / Drift Away** recalls the delayed wave at lower intensity, leaving
+  the mirror-ball, sheet and sunrise passages to provide space and contrast.
+
+All structural cue changes remain bar-locked. The row movement itself is
+continuous, with smooth departures/returns and no restart on a slow frame.
+Safe Mode retains the choreography, suppresses strobes and softens/dims sequence
+changes; master zero still blacks out every spot surface. Grouped motion shares
+the host's musical clock even when its sequence is Steady.
+
 ### Automatic Show Balance
+
+The pace mixes short energetic cuts with occasional longer spatial passages:
+Arrival's closing First Light lasts 16 bars, Pulse's row conversation 24, Ascent's row build
+16, Ignition's row conversation 12, and Afterglow's sheet 16. At 124 BPM these
+are about 31, 46, 31, 23 and 31 seconds respectively. Brief two-bar peak hits,
+sequence step rates, strobe limits, countdowns and breakdown detection are
+unchanged; the whole show is not slowed down.
+
+**HOLD THIS LOOK** in the desktop Show panel or VR Show page, and **HOLD LOOK**
+on the desk's Show panel, keeps the current cue running indefinitely. Beams,
+patterns, beat response and colour-preserving movement continue: this is not
+a frozen frame. Press the same control again or **AUTO SHOW** to release it;
+cue advancement resumes on a bar boundary. It does not change the saved
+after-a-change policy, and that policy's timer cannot expire this explicit hold.
+Countdowns and other set-pieces must finish before a look can be held.
+Light edits, another section, reset or a new countdown supersede the hold.
+Only the host can hold the room's show; guests follow its existing cue frames.
 
 The automatic show favors one headline fixture at a time. Mirror-ball cues keep
 the LED wall, moving heads and lasers dark. Layered peak cues last two bars;

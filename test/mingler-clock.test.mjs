@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { readFileSync } from 'node:fs';
+import { readClubSource } from './club-sources.mjs';
 import vm from 'node:vm';
 import { createRequire } from 'node:module';
 
@@ -10,7 +10,7 @@ function load() {
     const window = {};
     const context = vm.createContext({ window, BABYLON, VRClubUI: class {}, console });
     for (const file of ['venueDressing', 'mezzanine', 'minglerClock', 'club/11-audio-crowd']) {
-        vm.runInContext(readFileSync(new URL(`../js/${file}.js`, import.meta.url), 'utf8'), context);
+        vm.runInContext(readClubSource(new URL(`../js/${file}.js`, import.meta.url)), context);
     }
     const club = new window.VRClubAudioCrowd(), route = club._minglerRoute(), slots = club._guestSlots();
     const create = seed => new window.MinglerClock(route, seed,

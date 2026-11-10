@@ -6,6 +6,7 @@ import { performance } from 'node:perf_hooks';
 import assert from 'node:assert/strict';
 import vm from 'node:vm';
 import { readFileSync } from 'node:fs';
+import { readClubSource } from './club-sources.mjs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -400,7 +401,7 @@ test('host transfer is advertised, host-only, targets a visible person and waits
 test('the VR person page delegates host transfer, confirms a second press, hides it for guests and disables old relays', async () => {
     const { mp, context, window, socket } = connectedController(undefined, { hostTransfer: true });
     context.VRClubAnimationFinish = class {};
-    vm.runInContext(readFileSync(join(ROOT, 'js/club/10-ui.js'), 'utf8'), context);
+    vm.runInContext(readClubSource(join(ROOT, 'js/club/10-ui.js')), context);
     const ui = Object.create(window.VRClubUI.prototype);
     ui._multiplayer = () => mp;
     ui.isFollowingHost = () => mp.following;
@@ -666,7 +667,7 @@ test('dispose releases the session and detaches from the club', () => {
 });
 
 test('the VR menu and the DOM panel only call the controller; neither writes a block or a kick itself', () => {
-    const vr = readFileSync(join(ROOT, 'js/club/10-ui.js'), 'utf8');
+    const vr = readClubSource(join(ROOT, 'js/club/10-ui.js'));
     const dom = readFileSync(join(ROOT, 'js/ui-init.js'), 'utf8');
     const start = vr.indexOf('_runVRNetworkAction');
     assert.ok(start > 0);
@@ -685,8 +686,10 @@ function fakeRig(club) {
     const calls = [];
     club.vjManualMode = false;
     club.showDirector = {
+        program: 'nocturne',
         follower: false,
         enabled: true,
+        setProgram(program) { this.program = program; },
         setFollower(on) { this.follower = on; },
         isDriving() { return this.enabled && !club.vjManualMode; },
         snapshot() { return { mv: 'pulse', cue: 1, cb: 2, sp: null, spt: null, spb: 0, bib: 0, bar: 8 }; },
@@ -701,11 +704,235 @@ function fakeRig(club) {
     return calls;
 }
 
+function spotController() {
+    const env = makeController();
+    fakeRig(env.club);
+    env.context.VRClubAnimationCore = class {};
+    vm.runInContext(readFileSync(join(ROOT, 'js/club/08-animation-fixtures.js'), 'utf8'), env.context);
+    env.context.VRClubAnimationFinish = class extends env.window.VRClubAnimationFixtures {
+        static STROBE_PATTERNS = ['all', 'chase'];
+    };
+    vm.runInContext(readClubSource(join(ROOT, 'js/club/10-ui.js')), env.context);
+    env.club.spotRigBeat = env.window.VRClubAnimationFixtures.prototype.spotRigBeat;
+    env.club.spotSequenceBeat = env.window.VRClubAnimationFixtures.prototype.spotSequenceBeat;
+    env.club.resetSpotRig = env.window.VRClubUI.prototype.resetSpotRig;
+    env.club.resetSpotRig();
+    env.club.vjBPM = 120;
+    env.club.vjDirector.beatNumber = 300;
+    env.club.barPhase = 0.125;
+    return env;
+}
+
+test('spot rig: real relay sanitization retains every head and the timestamped beat in automatic and manual frames', async () => {
+    const { sanitizeShow, MAX_SHOW_FIXTURES } = await import('../worker/src/relay.js');
+    const { mp, club } = spotController();
+    mp.connect({ serverUrl: 'wss://relay.example', room: 'r' });
+    const socket = FakeSocket.instances.at(-1);
+    socket.receive({ type: 'welcome', id: 'me', hostId: 'me', peers: [{ id: 'p1', name: 'Bo' }] });
+    club.spotSequence = 4;
+    club.spotHead0Color = 2;
+    club.spotHead3Enabled = false;
+    club.spotHead5Motion = 1;
+    club.spotPrismActive = true;
+    for (const manual of [false, true]) {
+        club.vjManualMode = manual;
+        const frame = mp._buildShowFrame();
+        const retained = sanitizeShow(frame);
+        assert.equal(retained.m, manual ? 'manual' : 'show');
+        assert.equal(retained.fx.spotSequence, 4);
+        assert.equal(retained.fx.spotHead0Color, 2);
+        assert.equal(retained.fx.spotHead3Enabled, false);
+        assert.equal(retained.fx.spotHead5Motion, 1);
+        assert.equal(retained.fx.spotPrismActive, true);
+        assert.equal(retained.fx.spotSequenceBeat, 300.5);
+        assert.equal(retained.fx.spotSequenceBpm, 120);
+        assert.equal(retained.fx.spotSequenceAt, frame.fx.spotSequenceAt, 'numeric epoch milliseconds would be clamped by the relay');
+        assert.ok(Object.keys(retained.fx).length <= MAX_SHOW_FIXTURES);
+    }
+    mp.disconnect();
+});
+
+test('spot rig: shared frames retain the rendered sequence phase after a missed detector beat', async () => {
+    const { sanitizeShow } = await import('../worker/src/relay.js');
+    const { mp, club } = spotController();
+    mp.connect({ serverUrl: 'wss://relay.example', room: 'r' });
+    FakeSocket.instances.at(-1).receive({ type: 'welcome', id: 'me', hostId: 'me', peers: [{ id: 'p1', name: 'Bo' }] });
+    club.spotSequence = 4;
+    club._spotSequenceClock = { sequence: 4, beat: 301.5, time: performance.now() / 1000 };
+    const frame = sanitizeShow(mp._buildShowFrame());
+    assert.ok(Math.abs(frame.fx.spotSequenceBeat - 301.5) < 0.05, 'published the stalled detector instead of the visible row phase');
+    mp.disconnect();
+});
+
+test('aesthetic program and sheet settings survive relay sanitization in both show modes', async () => {
+    const { sanitizeShow } = await import('../worker/src/relay.js');
+    const { mp, club } = connectedController();
+    fakeRig(club);
+    club.showDirector.program = 'aesthetic';
+    club.laserSheetSpeed = 1.5;
+    club.laserSheetBrightness = 0.25;
+    Object.assign(club, { spotBrightness: 0.5, laserBrightness: 2, ledWallBrightness: 1.5 });
+    for (const manual of [false, true]) {
+        club.vjManualMode = manual;
+        const frame = sanitizeShow(mp._buildShowFrame());
+        assert.equal(frame.fx.showProgram, 'aesthetic');
+        assert.equal(frame.fx.laserSheetSpeed, 1.5);
+        assert.equal(frame.fx.laserSheetBrightness, 0.25);
+        assert.equal(frame.fx.spotBrightness, 0.5);
+        assert.equal(frame.fx.laserBrightness, 2);
+        assert.equal(frame.fx.ledWallBrightness, 1.5);
+    }
+    mp._applyFixtures({ laserSheetSpeed: 100, laserSheetBrightness: -2 }, true);
+    assert.equal(club.laserSheetSpeed, 2);
+    assert.equal(club.laserSheetBrightness, 0);
+    mp._applyFixtures({ spotBrightness: 9, laserBrightness: -1, ledWallBrightness: 1.75, laserSheetBrightness: 3 }, true);
+    assert.equal(club.spotBrightness, 2);
+    assert.equal(club.laserBrightness, 0);
+    assert.equal(club.ledWallBrightness, 1.75);
+    assert.equal(club.laserSheetBrightness, 3);
+});
+
+test('aesthetic program switches force cue application, promotion retains it and departure restores local sheet settings', () => {
+    const { mp, club } = spotController();
+    const calls = [];
+    club.showDirector.program = 'nocturne';
+    club.showDirector.setProgram = function (program) { this.program = program; };
+    club.showDirector.applyRemote = (frame, force) => calls.push(force);
+    club.laserSheetSpeed = 0.5;
+    club.laserSheetBrightness = 0.75;
+    club.spotBrightness = 0.5;
+    mp.connect({ serverUrl: 'wss://relay.example', room: 'r' });
+    const socket = FakeSocket.instances.at(-1);
+    socket.receive({ type: 'welcome', id: 'me', hostId: 'p1', peers: [{ id: 'p1', name: 'Host' }] });
+    const frame = { type: 'show', m: 'show', mv: 'arrival', cue: 0,
+        fx: { showProgram: 'aesthetic', laserSheetSpeed: 2, laserSheetBrightness: 0.25, spotBrightness: 2 } };
+    socket.receive({ ...frame, fx: { ...frame.fx, showProgram: 'nocturne' } });
+    socket.receive(frame);
+    assert.equal(calls.at(-1), true, 'a program change reapplies even the same movement and cue index');
+    assert.equal(club.showDirector.program, 'aesthetic');
+    mp.disconnect();
+    assert.equal(club.showDirector.program, 'nocturne');
+    assert.equal(club.laserSheetSpeed, 0.5);
+    assert.equal(club.laserSheetBrightness, 0.75);
+    assert.equal(club.spotBrightness, 0.5);
+    mp.connect({ serverUrl: 'wss://relay.example', room: 'r' });
+    const next = FakeSocket.instances.at(-1);
+    next.receive({ type: 'welcome', id: 'me', hostId: 'p1', peers: [{ id: 'p1', name: 'Host' }] });
+    next.receive(frame);
+    next.receive({ type: 'host', id: 'me' });
+    assert.equal(club.showDirector.program, 'aesthetic');
+    assert.equal(club.laserSheetSpeed, 2);
+    assert.equal(club.laserSheetBrightness, 0.25);
+    assert.equal(club.spotBrightness, 2);
+    mp.disconnect();
+});
+
+test('row choreography: steady grouped aims and individual overrides retain the host clock through the real relay sanitizer', async () => {
+    const { sanitizeShow } = await import('../worker/src/relay.js');
+    const { mp, club } = spotController();
+    mp.connect({ serverUrl: 'wss://relay.example', room: 'r' });
+    const socket = FakeSocket.instances.at(-1);
+    socket.receive({ type: 'welcome', id: 'me', hostId: 'me', peers: [{ id: 'p1', name: 'Bo' }] });
+    club.spotlightPattern = 0;
+    assert.equal(mp._buildShowFrame().fx.spotSequenceAt, undefined);
+    for (const manual of [false, true]) {
+        club.vjManualMode = manual;
+        for (const individual of [false, true]) {
+            club.spotlightPattern = individual ? 0 : 5;
+            club.spotHead0Motion = individual ? 7 : 0;
+            const frame = sanitizeShow(mp._buildShowFrame());
+            assert.equal(frame.fx.spotSequence, 0);
+            assert.equal(frame.fx.spotSequenceBeat, 300.5);
+            assert.equal(frame.fx.spotSequenceBpm, 120);
+            assert.equal(frame.fx.spotSequenceAt.length, 24);
+            assert.equal(frame.fx.spotHead0Motion, individual ? 7 : 0);
+        }
+    }
+    mp.disconnect();
+});
+
+test('spot rig: a late welcome applies groups without overriding automatic fixtures; leaving restores local groups', () => {
+    const { mp, club } = spotController();
+    club.spotPrismActive = false;
+    club.spotHead0Color = 3;
+    club.lightsActive = true;
+    mp.connect({ serverUrl: 'wss://relay.example', room: 'r' });
+    const socket = FakeSocket.instances.at(-1);
+    socket.receive({ type: 'welcome', id: 'me', hostId: 'p1', peers: [{ id: 'p1', name: 'Host' }],
+        show: { m: 'show', mv: 'pulse', cue: 1, fx: {
+            spotSequence: 2, spotSequenceRate: 4, spotHead0Enabled: false, spotHead0Color: 2,
+            spotHead5Motion: 1, spotPrismActive: true, goboEnabled: true, goboPatternIndex: 2,
+            lightsActive: false, spotlightPattern: 3,
+            spotSequenceBeat: 17.5, spotSequenceAt: new Date().toISOString(), spotSequenceBpm: 180
+        } } });
+    assert.equal(club.spotSequence, 2);
+    assert.equal(club.spotHead0Enabled, false);
+    assert.equal(club.spotHead0Color, 2);
+    assert.equal(club.spotHead5Motion, 1);
+    assert.equal(club.spotPrismActive, true);
+    assert.equal(club.goboEnabled, undefined);
+    assert.equal(club.lightsActive, true, 'the extra group metadata overrode an automatic cue');
+    assert.ok(club._spotRemoteBeat >= 17.5 && club._spotRemoteBeat < 17.7);
+    assert.equal(club._spotRemoteBpm, 180, 'a guest not listening to host music still needs the same sequence cadence');
+    mp.disconnect();
+    assert.equal(club.spotSequence, 0);
+    assert.equal(club.spotHead0Color, 3);
+    assert.equal(club.spotHead0Enabled, true);
+    assert.equal(club.spotPrismActive, false);
+});
+
+test('automatic show master follows the host, survives promotion, and restores after leaving', async () => {
+    const { sanitizeShow } = await import('../worker/src/relay.js');
+    const { mp, club } = spotController();
+    club.vjDirector.showMasterIntensity = 0.7;
+    mp.connect({ serverUrl: 'wss://relay.example', room: 'r' });
+    const socket = FakeSocket.instances.at(-1);
+    socket.receive({ type: 'welcome', id: 'me', hostId: 'p1', peers: [{ id: 'p1', name: 'Host' }] });
+    socket.receive({ type: 'show', m: 'show', mv: 'pulse', cue: 1, fx: { vjMaster: 0 } });
+    assert.equal(club.vjDirector.showMasterIntensity, 0);
+    socket.receive({ type: 'show', m: 'show', mv: 'pulse', cue: 1, fx: {} });
+    assert.equal(club.vjDirector.showMasterIntensity, 1, 'older hosts default to full show master');
+    socket.receive({ type: 'show', m: 'show', mv: 'pulse', cue: 1, fx: { vjMaster: 0.4 } });
+    socket.receive({ type: 'host', id: 'me' });
+    assert.equal(club.vjDirector.showMasterIntensity, 0.4);
+    assert.equal(sanitizeShow(mp._buildShowFrame()).fx.vjMaster, 0.4);
+    socket.receive({ type: 'host', id: 'p1' });
+    socket.receive({ type: 'show', m: 'show', mv: 'pulse', cue: 1, fx: { vjMaster: 0.2 } });
+    mp.disconnect();
+    assert.equal(club.vjDirector.showMasterIntensity, 0.4, 'leaving restores the pre-following level');
+});
+
+test('spot rig: promotion preserves the visible sequence phase and settings; old hosts and malformed values cannot leave stale overrides', () => {
+    const { mp, club } = spotController();
+    mp.connect({ serverUrl: 'wss://relay.example', room: 'r' });
+    const socket = FakeSocket.instances.at(-1);
+    socket.receive({ type: 'welcome', id: 'me', hostId: 'p1', peers: [{ id: 'p1', name: 'Host' }] });
+    socket.receive({ type: 'show', m: 'manual', fx: {
+        spotSequence: 3, spotSequenceRate: 4, spotHead5Color: 8, spotHead5Motion: 1,
+        spotHead0Enabled: 'false', spotHead0Color: '2', spotHead0Motion: NaN,
+        spotSequenceBeat: 17.5, spotSequenceAt: new Date().toISOString()
+    } });
+    assert.equal(club.spotHead0Enabled, true);
+    assert.equal(club.spotHead0Color, -1);
+    assert.equal(club.spotHead0Motion, 0);
+    const before = club.spotRigBeat();
+    socket.receive({ type: 'host', id: 'me' });
+    assert.ok(Math.abs(club.spotRigBeat() - before) < 0.01, 'handover jumped to an unrelated local beat count');
+    assert.equal(club.spotSequence, 3);
+    assert.equal(club.spotHead5Color, 8);
+    socket.receive({ type: 'host', id: 'p1' });
+    socket.receive({ type: 'show', m: 'manual', fx: { spotlightPattern: 1 } });
+    assert.equal(club.spotSequence, 0);
+    assert.equal(club.spotHead5Color, -1);
+    assert.equal(club.spotPrismActive, false);
+    mp.disconnect();
+});
+
 function attachPerformance(env) {
     env.context.localStorage = env.storage;
     env.context.VRClubUI = class {};
     for (const file of ['js/club/01-core.js', 'js/club/11-audio-crowd.js']) {
-        vm.runInContext(readFileSync(join(ROOT, file), 'utf8'), env.context, { filename: file });
+        vm.runInContext(readClubSource(join(ROOT, file)), env.context, { filename: file });
     }
     const proto = env.window.VRClubAudioCrowd.prototype;
     for (const name of ['_djEffectsState', 'djEffectsSnapshot', '_applySharedDJEffects', 'resetDJEffects',
@@ -841,7 +1068,9 @@ test('under manual control the host publishes its console and never the director
     const frame = socket.last('show');
     assert.equal(frame.m, 'manual');
     assert.ok(!('mv' in frame));
-    assert.deepEqual({ ...frame.fx }, { lightsActive: true, lasersActive: false, laserSpeed: 1.5, spotlightMode: 2, ledPattern: 7, vjMaster: 0.8 });
+    assert.deepEqual({ ...frame.fx }, { lightsActive: true, lasersActive: false, laserSpeed: 1.5, spotlightMode: 2, ledPattern: 7, vjMaster: 0.8, spotPrismActive: false,
+        showProgram: 'nocturne', laserSheetSpeed: 1, laserSheetBrightness: 1,
+        spotBrightness: 1, laserBrightness: 1, ledWallBrightness: 1 });
 });
 
 test('a lone host sends nothing, and a newcomer is brought in at once', () => {
@@ -1144,7 +1373,7 @@ test('disposing the multiplayer controller aborts an outstanding room lookup', a
 test('every room-browser page fits all twelve VR slots including navigation and close', () => {
     const { mp, context, window } = makeController();
     context.VRClubAnimationFinish = class {};
-    vm.runInContext(readFileSync(join(ROOT, 'js/club/10-ui.js'), 'utf8'), context);
+    vm.runInContext(readClubSource(join(ROOT, 'js/club/10-ui.js')), context);
     const ui = Object.create(window.VRClubUI.prototype);
     ui._multiplayer = () => mp;
     const common = { back: { action: 'back' }, close: { action: 'close' } };
@@ -1164,7 +1393,7 @@ test('every room-browser page fits all twelve VR slots including navigation and 
 });
 
 test('every control that changes the room\'s music or lights is gated for a guest, on every surface', () => {
-    const ui = readFileSync(join(ROOT, 'js/club/10-ui.js'), 'utf8');
+    const ui = readClubSource(join(ROOT, 'js/club/10-ui.js'));
     const dom = readFileSync(join(ROOT, 'js/ui-init.js'), 'utf8');
     const podcasts = readFileSync(join(ROOT, 'js/podcasts.js'), 'utf8');
     const body = (source, signature) => {
@@ -1175,7 +1404,7 @@ test('every control that changes the room\'s music or lights is gated for a gues
     for (const [name, what] of [['seekAudioTo(seconds) {', 'music'], ['setAudioPlayback(playing) {', 'music'],
         ['toggleAudioPlayback() {', 'music'], ['stopAudioPlayback() {', 'music'], ['async stepAudioSource(delta) {', 'music'],
         ['async startAudioFolder(fileList, options = {}) {', 'music'], ['_beginVRSeek(pickResult) {', 'music'],
-        ['async _runVRMusicAction(button) {', 'music']]) {
+        ['async _runVRMusicAction(button) {', 'music'], ['toggleShowLookHold() {', 'lights']]) {
         assert.match(body(ui, name), new RegExp(`guardHostControl\\('${what}'\\)`), `${name} is not gated`);
     }
     const activate = body(ui, '_activateVRQuickMenuButton(button) {');

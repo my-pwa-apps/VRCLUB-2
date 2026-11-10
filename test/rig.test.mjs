@@ -8,7 +8,8 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync, readdirSync } from 'node:fs';
-import { join, dirname } from 'node:path';
+import { readClubSource } from './club-sources.mjs';
+import { join, dirname, isAbsolute } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { performance } from 'node:perf_hooks';
 import { TextDecoder, TextEncoder } from 'node:util';
@@ -47,7 +48,7 @@ async function loadContainer(glb) {
     const B = box.BABYLON;
     const engine = new B.NullEngine();
     const scene = new B.Scene(engine);
-    const bytes = readFileSync(join(ROOT, 'js/models/avatars', glb));
+    const bytes = readFileSync(isAbsolute(glb) ? glb : join(ROOT, 'js/models/avatars', glb));
     const container = await B.SceneLoader.LoadAssetContainerAsync(
         '', `data:application/octet-stream;base64,${bytes.toString('base64')}`, scene, null, '.glb');
     return { B, scene, engine, container, box };
@@ -69,6 +70,162 @@ const limbLengths = rig => ({
     calf: dist(pos(rig, 'calf_l'), pos(rig, 'foot_l')),
     upper: dist(pos(rig, 'upperarm_l'), pos(rig, 'lowerarm_l')),
     lower: dist(pos(rig, 'lowerarm_l'), pos(rig, 'hand_l'))
+});
+
+test('whole-person frustum culling preserves geometry bounds and uses each eye and reflection camera', async () => {
+    const { rig, B, scene, engine } = await loadRig();
+    const root = rig.root, meshes = rig.meshes;
+    const original = meshes.map(mesh => mesh.getBoundingInfo());
+    const bounds = sandbox().AvatarRig.enableFrustumCulling(root, meshes);
+    assert.ok(bounds);
+    assert.ok(meshes.every((mesh, i) => !mesh.alwaysSelectAsActiveMesh && mesh.getBoundingInfo() === original[i]));
+    const camera = new B.FreeCamera('eye', new B.Vector3(0, 1.7, -5), scene);
+    const visible = (x, z, targetZ) => {
+        camera.position.set(x, 1.7, z);
+        camera.setTarget(new B.Vector3(0, 1.5, targetZ));
+        camera.getViewMatrix(true);
+        camera.getProjectionMatrix(true);
+        const planes = B.Frustum.GetPlanes(camera.getTransformationMatrix());
+        return meshes.every(mesh => {
+            mesh.computeWorldMatrix(true);
+            return mesh.isInFrustum(planes);
+        });
+    };
+    assert.equal(visible(-0.032, -5, 0), true);
+    assert.equal(visible(0.032, -5, 0), true);
+    assert.equal(visible(0, 5, 0), true, 'the mirror sees the person from the opposite direction');
+    root.position.x = 100;
+    assert.equal(visible(0, -5, 0), false, 'an entirely offscreen person is not submitted');
+    root.position.x = 0;
+    root.rotation.y = Math.PI / 2;
+    rig.setEyeHeight(2);
+    assert.equal(visible(0, -5, 0), true, 'refitting and turning keep the culling envelope attached');
+    const pose = makePose(), inverse = new B.Matrix(), point = new B.Vector3();
+    for (const eyeY of [0.65, 1.2, 2]) {
+        for (const lean of [0, 0.6]) {
+            pose.eyeY = eyeY; pose.lean = lean;
+            pose.left = { x: -1.5, y: 2.8, z: -7, fx: 0, fy: 1, fz: 0, ux: 0, uy: 0, uz: 1 };
+            pose.right = { x: 1.5, y: 0.5, z: -8, fx: 0, fy: 1, fz: 0, ux: 0, uy: 0, uz: 1 };
+            rig.update(DT, pose);
+            root.computeWorldMatrix(true);
+            root.getChildTransformNodes(false).forEach(node => node.computeWorldMatrix(true));
+            root.getWorldMatrix().invertToRef(inverse);
+            rig.entry.skeletons.forEach(skeleton => skeleton.prepare(true));
+            for (const mesh of meshes) {
+                mesh.computeWorldMatrix(true);
+                mesh.refreshBoundingInfo(true);
+                for (const corner of mesh.getBoundingInfo().boundingBox.vectorsWorld) {
+                    B.Vector3.TransformCoordinatesToRef(corner, inverse, point);
+                    assert.ok(bounds.boundingBox.minimum.x <= point.x && point.x <= bounds.boundingBox.maximum.x
+                        && bounds.boundingBox.minimum.y <= point.y && point.y <= bounds.boundingBox.maximum.y
+                        && bounds.boundingBox.minimum.z <= point.z && point.z <= bounds.boundingBox.maximum.z,
+                    `crouch/reach escapes: ${JSON.stringify({ eyeY, lean, mesh: mesh.name, point: point.asArray(),
+                        min: bounds.boundingBox.minimum.asArray(), max: bounds.boundingBox.maximum.asArray() })}`);
+                }
+            }
+        }
+    }
+    rig.dispose(); scene.dispose(); engine.dispose();
+});
+
+test('whole-person culling bounds contain animated skin across the shipped NPC cast and every clip', async () => {
+    const files = [
+        ...readdirSync(join(ROOT, 'js/models/avatars'))
+            .filter(file => /^club-crowd-(?:[fm]\d+|bouncer)\.glb$/.test(file))
+            .map(file => join(ROOT, 'js/models/avatars', file)),
+        ...readdirSync(join(ROOT, 'js/models/characters')).filter(file => file.endsWith('.glb'))
+            .map(file => join(ROOT, 'js/models/characters', file))
+    ];
+    for (const file of files) {
+        const { B, scene, engine, container, box } = await loadContainer(file);
+        container.animationGroups.forEach(group => group.stop());
+        const entry = container.instantiateModelsToScene(name => name, false, { doNotInstantiate: true });
+        const root = entry.rootNodes[0], meshes = root.getChildMeshes().filter(mesh => mesh.getTotalVertices());
+        root.position.set(1, 3, -12);
+        root.rotationQuaternion = null;
+        root.rotation.y = 0.7;
+        root.scaling.setAll(1.05);
+        const envelope = box.AvatarRig.enableFrustumCulling(root, meshes);
+        assert.ok(envelope, file);
+        const min = envelope.boundingBox.minimum, max = envelope.boundingBox.maximum;
+        const inverse = root.getWorldMatrix().clone().invert(), point = new B.Vector3();
+        const nodes = root.getChildTransformNodes(false);
+        for (const group of entry.animationGroups) {
+            group.start(false); group.pause();
+            for (let sample = 0; sample <= 12; sample++) {
+                group.goToFrame(group.from + (group.to - group.from) * sample / 12);
+                nodes.forEach(node => node.computeWorldMatrix(true));
+                entry.skeletons.forEach(skeleton => skeleton.prepare(true));
+                for (const mesh of meshes) {
+                    mesh.computeWorldMatrix(true);
+                    mesh.refreshBoundingInfo(true);
+                    for (const corner of mesh.getBoundingInfo().boundingBox.vectorsWorld) {
+                        B.Vector3.TransformCoordinatesToRef(corner, inverse, point);
+                        assert.ok(point.x >= min.x - 1e-4 && point.x <= max.x + 1e-4
+                            && point.y >= min.y - 1e-4 && point.y <= max.y + 1e-4
+                            && point.z >= min.z - 1e-4 && point.z <= max.z + 1e-4,
+                        `${file} ${group.name} sample ${sample}: animated skin escapes its culling envelope`);
+                    }
+                }
+            }
+            group.stop();
+        }
+        entry.dispose(); scene.dispose(); engine.dispose();
+    }
+});
+
+test('single-mesh avatar head is re-skinned immediately for mirror and first-person passes', async () => {
+    const { rig, scene, engine } = await loadRig('club-crowd-m1.glb', {
+        eyeHeight: 1.7, hideHead: true, allowCustomSkeleton: true
+    });
+    assert.ok(rig.ok);
+    assert.equal(rig.headMeshes.length, 0);
+    const skeleton = rig.entry.skeletons[0];
+    const head = skeleton.bones.find(bone => bone.getTransformNode() === rig.bone.Head);
+    assert.ok(head);
+    const scale = () => {
+        const m = head.getAbsoluteTransform().m;
+        return Math.hypot(m[0], m[1], m[2]);
+    };
+    skeleton.prepare(true);
+    const hidden = scale();
+    rig.setHeadVisible(true);
+    const revealed = scale();
+    rig.setHeadVisible(false);
+    const restored = scale();
+    assert.ok(revealed > hidden * 1000, `mirror head was not revealed: ${hidden} -> ${revealed}`);
+    assert.ok(restored < revealed / 1000, `first-person head was not hidden again: ${revealed} -> ${restored}`);
+    rig.dispose();
+    scene.dispose();
+    engine.dispose();
+});
+
+test('eye-height refitting preserves avatar facing after turning, including a hidden mirror head', async () => {
+    const files = ['club-dancer-male.glb', 'club-crowd-m1.glb'];
+    if (process.env.VRCLUB_TEST_PERSONAL_AVATAR) files.push(process.env.VRCLUB_TEST_PERSONAL_AVATAR);
+    for (const file of files) {
+        for (const yaw of [Math.PI / 2, Math.PI, -Math.PI / 2]) {
+            const { rig, scene, engine } = await loadRig(file, {
+                eyeHeight: 1.7, hideHead: true, allowCustomSkeleton: true
+            });
+            assert.ok(rig.ok);
+            const yaw0 = rig.yaw0, yawDir = rig.yawDir, sideL = rig.sideL;
+            const pose = { ...makePose(), bodyYaw: yaw, headYaw: yaw };
+            rig.update(DT, pose);
+            const rotation = rig.root.rotation.y;
+            rig.setEyeHeight(1.8);
+            assert.ok(Math.abs(rig.yaw0 - yaw0) < 1e-5, `${file}: refitting changed bind facing at ${yaw}`);
+            assert.equal(rig.yawDir, yawDir, `${file}: refitting reversed turn direction`);
+            assert.equal(rig.sideL, sideL, `${file}: refitting swapped physical sides`);
+            pose.eyeY = 1.8;
+            rig.update(DT, pose);
+            assert.ok(Math.abs(rig.root.rotation.y - rotation) < 1e-5, `${file}: calibration turned the body away from the mirror`);
+            assert.equal(rig._headVisible, false);
+            rig.dispose();
+            scene.dispose();
+            engine.dispose();
+        }
+    }
 });
 
 test('every network avatar follows real left/right dance and wave targets after animation without stretching limbs', async () => {
@@ -183,8 +340,18 @@ test('the rig builds on every UE-skeleton body and stands at the requested eye h
 });
 
 test('a non-mannequin skeleton is refused instead of half-posed', async () => {
-    const { rig } = await loadRig('house.glb', { eyeHeight: 1.7 });
-    assert.equal(rig.ok, false, 'a Mixamo skeleton must not be driven as a mannequin');
+    const { rig, scene } = await loadRig('house.glb', { eyeHeight: 1.7 });
+    assert.equal(rig.ok, false, 'a Mixamo skeleton must not be driven as a mannequin without allowCustomSkeleton');
+    scene.dispose();
+    const custom = await loadRig('house.glb', { eyeHeight: 1.7, allowCustomSkeleton: true });
+    assert.equal(custom.rig.ok, true, 'a custom Mixamo / Ready Player Me .glb is driven when allowCustomSkeleton is enabled');
+    const Performer = vm.runInContext('DJPerformer', sandbox());
+    const desk = { cx: 0, near: -18.89, far: -18.35, top: 1.54, halfWidth: 0.51 };
+    const dj = new Performer({ x: 0, z: desk.near - 0.18, groundY: 0.5, eyeHeight: 1.7, desk, rng: () => 0.5 });
+    const music = { hasAudio: true, beatPhase: 0, bar: 0, energy: 0.7, drop: false, bpm: 126 };
+    for (let i = 0; i < 60; i++) custom.rig.update(DT, dj.update(DT, music, null));
+    assert.ok(Number.isFinite(pos(custom.rig, 'hand_l').x) && Number.isFinite(pos(custom.rig, 'hand_r').x));
+    custom.scene.dispose();
 });
 
 test('walking plants the stance foot, steps, keeps limbs rigid and stays cheap', async () => {
@@ -784,7 +951,7 @@ test('crowd animation reuses interpolation results without changing the real ske
     const { scene, container, B, box } = await loadContainer('club-crowd-f1.glb');
     if (typeof box.VRClubAudioCrowd?._reuseAnimationInterpolation !== 'function') {
         box.VRClubUI = class {};
-        vm.runInContext(readFileSync(join(ROOT, 'js/club/11-audio-crowd.js'), 'utf8'), box, {
+        vm.runInContext(readClubSource(join(ROOT, 'js/club/11-audio-crowd.js')), box, {
             filename: 'js/club/11-audio-crowd.js'
         });
     }
@@ -827,6 +994,75 @@ test('crowd animation reuses interpolation results without changing the real ske
 
 // The grooves are authored procedurally onto the modular rig (scripts/build-crowd-glbs.mjs) at 120 BPM with a beat on
 // every 0.5 s: measure them on the real skeleton, at the frames where the beats fall.
+test('dance arms keep their elbow hinge aligned instead of corkscrewing the upper arm and forearm', async () => {
+    for (const file of ['club-crowd-f1.glb', 'club-crowd-m1.glb', 'club-crowd-f2.glb', 'club-crowd-m7.glb',
+        join(ROOT, 'js', 'models', 'characters', 'nia.glb'), join(ROOT, 'js', 'models', 'characters', 'tao.glb')]) {
+        const { scene, engine, container, B } = await loadContainer(file);
+        container.animationGroups.forEach(group => group.stop());
+        const nodes = container.transformNodes;
+        const node = name => nodes.find(n => n.name === name);
+        const position = name => {
+            const n = node(name);
+            n.computeWorldMatrix(true);
+            return n.getAbsolutePosition().clone();
+        };
+        const rotation = name => {
+            const n = node(name);
+            n.computeWorldMatrix(true);
+            const q = new B.Quaternion();
+            n.getWorldMatrix().decompose(undefined, q);
+            return q;
+        };
+        const rotate = (v, q) => v.applyRotationQuaternion(q);
+        const rest = {};
+        for (const side of ['L', 'R']) {
+            const upper = `UpperArm.${side}`, lower = `LowerArm.${side}`, wrist = `Wrist.${side}`;
+            const axis = position(lower).subtract(position(upper)).normalize();
+            const hinge = B.Vector3.Cross(axis, position(wrist).subtract(position(lower)).normalize()).normalize();
+            rest[side] = { hinge, axis: position(wrist).subtract(position(lower)).normalize(),
+                upper: rotation(upper), lower: rotation(lower), wrist: rotation(wrist) };
+        }
+        for (const group of container.animationGroups.filter(g => g.name.startsWith('Groove_') || g.name === 'Dance_Loop')) {
+            const previousRotations = new Map();
+            group.start(false);
+            group.pause();
+            for (let frame = group.from; frame <= group.to; frame += 3) {
+                group.goToFrame(frame);
+                for (const side of ['L', 'R']) {
+                    const upper = `UpperArm.${side}`, lower = `LowerArm.${side}`, wrist = `Wrist.${side}`;
+                    const a = position(lower).subtract(position(upper)).normalize();
+                    const b = position(wrist).subtract(position(lower)).normalize();
+                    const hinge = B.Vector3.Cross(a, b).normalize();
+                    for (const part of ['upper', 'lower']) {
+                        const current = rotation(part === 'upper' ? upper : lower);
+                        const key = `${side}.${part}`, previous = previousRotations.get(key);
+                        if (previous) {
+                            const turn = 2 * Math.acos(Math.min(1, Math.abs(B.Quaternion.Dot(previous, current))));
+                            assert.ok(turn < 0.65, `${file} ${group.name} ${key} frame ${frame}: arm snaps ${(turn * 180 / Math.PI).toFixed(1)} degrees`);
+                        }
+                        previousRotations.set(key, current);
+                        const q = current.multiply(B.Quaternion.Inverse(rest[side][part]));
+                        const alignment = B.Vector3.Dot(rotate(rest[side].hinge, q), hinge);
+                        const minimum = part === 'lower' && group.name.startsWith('Groove_') ? Math.cos(76 * Math.PI / 180) : 0.98;
+                        assert.ok(alignment > minimum, `${file} ${group.name} ${side} ${part} frame ${frame}: elbow hinge twisted (${alignment.toFixed(3)})`);
+                    }
+                    const lowerDelta = rotation(lower).multiply(B.Quaternion.Inverse(rest[side].lower));
+                    const wristDelta = rotation(wrist).multiply(B.Quaternion.Inverse(rest[side].wrist));
+                    const relative = B.Quaternion.Inverse(lowerDelta).multiply(wristDelta);
+                    const angle = 2 * Math.atan2(relative.x * rest[side].axis.x + relative.y * rest[side].axis.y + relative.z * rest[side].axis.z, relative.w);
+                    const roll = Math.abs(Math.atan2(Math.sin(angle), Math.cos(angle)));
+                    if (group.name.startsWith('Groove_')) {
+                        assert.ok(roll < 61 * Math.PI / 180, `${file} ${group.name} ${side} frame ${frame}: wrist takes all palm roll (${(roll * 180 / Math.PI).toFixed(1)} degrees)`);
+                    }
+                }
+            }
+            group.stop();
+        }
+        scene.dispose();
+        engine.dispose();
+    }
+});
+
 test('the crowd grooves: on the beat where it matters, feet planted, hands where they should be, seamless loops', async () => {
     const GROOVES = {
         Groove_Bounce: 8, Groove_SideTap: 8, Groove_Clap: 2, Groove_ClapUp: 2, Groove_Pump: 8, Groove_Twist: 4, Groove_HandsUp: 4,

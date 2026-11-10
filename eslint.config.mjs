@@ -172,7 +172,7 @@ export default [
     },
     {
         // First-party browser scripts (classic, shared global scope).
-        files: ['js/**/*.js'],
+        files: ['js/**/*.js', 'broadcast/**/*.js'],
         languageOptions: {
             ecmaVersion: 2023,
             sourceType: 'script',
@@ -230,12 +230,14 @@ export default [
                 WebSocket: 'readonly',
                 Request: 'readonly',
                 Response: 'readonly',
+                Headers: 'readonly',
                 URL: 'readonly',
                 fetch: 'readonly',
                 TextDecoder: 'readonly',
                 TextEncoder: 'readonly',
                 URLSearchParams: 'readonly',
                 AbortController: 'readonly',
+                AbortSignal: 'readonly',
                 setTimeout: 'readonly',
                 clearTimeout: 'readonly',
                 btoa: 'readonly',

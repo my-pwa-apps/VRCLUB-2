@@ -189,13 +189,8 @@ class VRClubFixtures extends VRClubEnvironment {
 
         // ONE mesh for the whole wall. It used to be 210 separate planes, each with its own material:
         // 210 draw calls, half of everything drawn in a frame, and twice that in a headset (once per
-        // eye). The geometry is unchanged: the same 210 quads at the same positions with the same
-        // dark seams between them. What changed is how a panel gets its colour: every panel samples
-        // one texel of a 21x10 texture (all four of its corners share the texel's centre, so the
-        // panel is a flat colour, exactly as before), and the patterns still write
-        // `panel.material.emissiveColor` as they always did; _flushLedWall() copies those colours
-        // into the texture once per frame. The glow layer reads the same emissive texture, so the
-        // wall still glows in each panel's own colour.
+        // eye). Each quad remains one physical tile with its original position and seam. Each panel
+        // samples its own texel from the shared texture, so its live pattern colour fills the panel.
         const quadW = (panelWidth - 0.12) / 2;   // Larger physical gap (was -0.05) so VR bloom can't bridge tiles;
         const quadH = (panelHeight - 0.12) / 2;  // real walls have a ~6-10 mm bezel per 60 cm tile, so a clear ~6 cm dark seam
         const count = cols * rows;
@@ -214,10 +209,11 @@ class VRClubFixtures extends VRClubEnvironment {
 
                 // Faces -Z, toward the dance floor.
                 const corners = [[-quadW, -quadH], [quadW, -quadH], [quadW, quadH], [-quadW, quadH]];
+                const uv = [(col + 0.5) / cols, (row + 0.5) / rows];
                 for (let k = 0; k < 4; k++) {
                     positions.set([x + corners[k][0], y + corners[k][1], z], (v + k) * 3);
                     normals.set([0, 0, -1], (v + k) * 3);
-                    uvs.set([(col + 0.5) / cols, (row + 0.5) / rows], (v + k) * 2);
+                    uvs.set(uv, (v + k) * 2);
                 }
                 indices.set([v, v + 1, v + 2, v, v + 2, v + 3], index * 6);
 
@@ -241,11 +237,13 @@ class VRClubFixtures extends VRClubEnvironment {
         wallData.indices = indices;
         wallData.applyToMesh(wall);
 
-        // One texel per panel. Float where the GPU samples it (so a colour above 1.0 still drives the
-        // glow as it did), else 8-bit, which the on-screen clamp makes visually identical.
+        // One texel per physical panel. Float where the GPU samples it (so a colour above 1.0
+        // still drives the glow as it did), else 8-bit, which the on-screen clamp makes identical.
         const caps = this.engine.getCaps();
         const useFloat = !!caps.textureFloat;
-        const wallBuffer = useFloat ? new Float32Array(count * 4) : new Uint8Array(count * 4);
+        const wallBuffer = useFloat
+            ? new Float32Array(cols * rows * 4)
+            : new Uint8Array(cols * rows * 4);
         const wallTexture = new BABYLON.RawTexture(
             wallBuffer, cols, rows, BABYLON.Constants.TEXTUREFORMAT_RGBA, this.scene,
             false, false, BABYLON.Constants.TEXTURE_NEAREST_SAMPLINGMODE,
@@ -375,10 +373,10 @@ class VRClubFixtures extends VRClubEnvironment {
         this._fogParticleTexture = particleTexture; // Store for reuse
         
         // === FOG MACHINE POSITIONS ===
-        // Mounted on front truss (z=-8) on left and right sides
+        // Mounted on front truss (z=-8) on left and right sides, turned inward toward the dance floor (-Z, z=-12)
         const fogMachinePositions = [
-            { x: -6, y: 7.8, z: -8, rotY: Math.PI - 0.3 },
-            { x: 6, y: 7.8, z: -8, rotY: Math.PI + 0.3 }
+            { x: -6, y: 7.8, z: -8, rotY: Math.PI - 0.3 },   // Left fog machine, angled inward toward dance floor
+            { x: 6, y: 7.8, z: -8, rotY: Math.PI + 0.3 }     // Right fog machine, angled inward toward dance floor
         ];
         
         this.fogMachines = [];
@@ -446,7 +444,7 @@ class VRClubFixtures extends VRClubEnvironment {
             // Status LED
             const ledMat = this.materialFactory.createStandardMaterial(`fogMachineLED${i}`, {
                 mutable: true, // colour written at runtime
-                emissiveColor: [0, 0.8, 0], // Green when ready
+                emissiveColor: [0, 0.3, 0], // Subtle green when ready
                 disableLighting: true
             });
             const led = BABYLON.MeshBuilder.CreateSphere(`fogMachineLED${i}`, {
@@ -460,70 +458,78 @@ class VRClubFixtures extends VRClubEnvironment {
             led.doNotSyncBoundingInfo = true;
             
             // === FOG PARTICLE EMITTER ===
-            // Directional burst from nozzle position
+            // Directional plume from nozzle on the dance-floor side of the front truss (z = -8.15)
             const fogEmitter = new BABYLON.ParticleSystem(
                 `fogEmitter${i}`, this.tierSettings.fogParticleCapacity, this.scene);
             fogEmitter.particleTexture = particleTexture;
             
-            // Get world position of nozzle for emitter
-            const nozzleWorldPos = new BABYLON.Vector3(pos.x + 0.15 * Math.sin(pos.rotY),
-                pos.y - 0.25, pos.z + 0.15 * Math.cos(pos.rotY));
+            // World position of the angled nozzle mouth (turned toward -Z dance floor)
+            const nozzleWorldPos = new BABYLON.Vector3(
+                pos.x + 0.15 * Math.sin(pos.rotY),
+                pos.y - 0.25,
+                pos.z + 0.15 * Math.cos(pos.rotY)
+            );
             fogEmitter.emitter = nozzleWorldPos;
             
-            // Small emit box at nozzle
-            fogEmitter.minEmitBox = new BABYLON.Vector3(-0.05, -0.05, -0.05);
-            fogEmitter.maxEmitBox = new BABYLON.Vector3(0.05, 0.05, 0.05);
+            // 12 cm nozzle aperture box
+            fogEmitter.minEmitBox = new BABYLON.Vector3(-0.06, -0.06, -0.06);
+            fogEmitter.maxEmitBox = new BABYLON.Vector3(0.06, 0.06, 0.06);
             
-            // Fog colors (White/gray smoke with slight blue tint)
-            fogEmitter.color1 = new BABYLON.Color4(0.85, 0.85, 0.9, 0.12);
-            fogEmitter.color2 = new BABYLON.Color4(0.9, 0.9, 0.95, 0.09);
-            fogEmitter.colorDead = new BABYLON.Color4(0.5, 0.5, 0.6, 0.0);
+            // Unlit base colour is dark club air (zero self-brightness): plumes only light up from active club lighting
+            fogEmitter.color1 = new BABYLON.Color4(0.035, 0.04, 0.055, 0.22);
+            fogEmitter.color2 = new BABYLON.Color4(0.03, 0.035, 0.05, 0.18);
+            fogEmitter.colorDead = new BABYLON.Color4(0.02, 0.025, 0.035, 0.0);
             
-            // Start small, expand as fog disperses
-            fogEmitter.minSize = 0.3;
-            fogEmitter.maxSize = 2.5;
+            // Compact at nozzle, billowing as the jet disperses across the floor
+            fogEmitter.minSize = 0.65;
+            fogEmitter.maxSize = 2.4;
             fogEmitter.minScaleX = 1.0;
-            fogEmitter.maxScaleX = 2.0;
+            fogEmitter.maxScaleX = 1.6;
             fogEmitter.minScaleY = 1.0;
-            fogEmitter.maxScaleY = 2.0;
+            fogEmitter.maxScaleY = 1.6;
             
-            // Lifetime - fog hangs in the air
+            // Lifetime (with updateSpeed = 0.008, 4..7.5 units is ~8..15 real seconds)
             fogEmitter.minLifeTime = 4.0;
-            fogEmitter.maxLifeTime = 8.0;
+            fogEmitter.maxLifeTime = 7.5;
             
-            // Emission rate (VJ controlled)
-            fogEmitter.emitRate = 30; // Start with active haze (real clubs run fog machines continuously)
+            // Emission rate (VJ controlled). Leave manualEmitCount at default (-1) so Babylon uses emitRate;
+            // setting manualEmitCount = 0 puts Babylon's ParticleSystem into manual mode with 0 particles!
+            fogEmitter.emitRate = 55;
             fogEmitter.blendMode = BABYLON.ParticleSystem.BLENDMODE_STANDARD;
             
-            // Direction - angled downward and toward center of dance floor
-            const centerDir = i === 0 ? 0.4 : -0.4; // Left machine aims right, right aims left
+            // Direction - angled downward and inward into the dance floor (toward z = -12)
+            const centerDir = i === 0 ? 0.4 : -0.4; // Left machine aims right (+X), right aims left (-X)
             fogEmitter.direction1 = new BABYLON.Vector3(centerDir - 0.18, -0.75, -0.70);
             fogEmitter.direction2 = new BABYLON.Vector3(centerDir + 0.18, -0.45, -0.40);
             
-            // Velocity
-            fogEmitter.minEmitPower = 2.0;
-            fogEmitter.maxEmitPower = 4.0;
+            // Velocity — strong jet from the nozzle into the room
+            fogEmitter.minEmitPower = 2.6;
+            fogEmitter.maxEmitPower = 4.4;
             
-            // Physics - fog slowly falls and disperses
-            fogEmitter.gravity = new BABYLON.Vector3(0, -0.3, 0);
+            // Physics - gentle downward drift as the cooled plume settles
+            fogEmitter.gravity = new BABYLON.Vector3(0, -0.15, 0);
             
-            // Rotation for natural turbulence
-            fogEmitter.minAngularSpeed = -1.0;
-            fogEmitter.maxAngularSpeed = 1.0;
+            // Rotation for natural billow turbulence
+            fogEmitter.minAngularSpeed = -0.35;
+            fogEmitter.maxAngularSpeed = 0.35;
             
-            // Size growth over lifetime (fog expands)
-            fogEmitter.addSizeGradient(0, 0.3);
-            fogEmitter.addSizeGradient(0.3, 1.2);
-            fogEmitter.addSizeGradient(0.7, 2.0);
-            fogEmitter.addSizeGradient(1.0, 2.5);
+            // Size growth over lifetime (nozzle jet -> billowing cloud)
+            fogEmitter.addSizeGradient(0.0, 0.25);
+            fogEmitter.addSizeGradient(0.3, 0.95);
+            fogEmitter.addSizeGradient(0.7, 1.75);
+            fogEmitter.addSizeGradient(1.0, 2.45);
             
-            // Alpha fade over lifetime
-            fogEmitter.addColorGradient(0, new BABYLON.Color4(0.9, 0.9, 0.95, 0.12));
-            fogEmitter.addColorGradient(0.4, new BABYLON.Color4(0.85, 0.85, 0.9, 0.075));
-            fogEmitter.addColorGradient(0.8, new BABYLON.Color4(0.7, 0.7, 0.8, 0.03));
-            fogEmitter.addColorGradient(1.0, new BABYLON.Color4(0.5, 0.5, 0.6, 0.0));
+            // 6-key alpha/colour envelope: unlit dark fog density profile; colour and brightness come solely from club lights
+            fogEmitter.addColorGradient(0.00, new BABYLON.Color4(0.035, 0.04, 0.055, 0.00));
+            fogEmitter.addColorGradient(0.05, new BABYLON.Color4(0.035, 0.04, 0.055, 0.22));
+            fogEmitter.addColorGradient(0.22, new BABYLON.Color4(0.035, 0.04, 0.055, 0.18));
+            fogEmitter.addColorGradient(0.50, new BABYLON.Color4(0.03, 0.035, 0.05, 0.12));
+            fogEmitter.addColorGradient(0.82, new BABYLON.Color4(0.025, 0.03, 0.04, 0.05));
+            fogEmitter.addColorGradient(1.00, new BABYLON.Color4(0.02, 0.025, 0.035, 0.00));
             
             fogEmitter.updateSpeed = 0.008;
+            fogEmitter.preWarmCycles = 120;
+            fogEmitter.preWarmStepOffset = 2;
             fogEmitter.start();
             
             // Store references
@@ -597,8 +603,8 @@ class VRClubFixtures extends VRClubEnvironment {
         
         // === AIRBORNE DUST MOTES ===
         // Haze makes a beam visible as a solid volume; individual glinting motes are
-        // what make it read as real air. They are tiny, additive and slow, so they cost
-        // almost nothing but remove the "smooth CG cone" look from every fixture.
+        // what make it read as real air. Tiny additive sprites represent visible glints,
+        // not the physical size of individual airborne dust grains.
         const moteCapacity = this.graphicsTier === 'ultra' ? 1400
             : this.graphicsTier === 'high' ? 900 : 400;
         this.dustMotes = new BABYLON.ParticleSystem("dustMotes", moteCapacity, this.scene);
@@ -617,8 +623,8 @@ class VRClubFixtures extends VRClubEnvironment {
         });
         this.dustMotes.preWarmCycles = 600;
         this.dustMotes.preWarmStepOffset = 3;
-        this.dustMotes.minSize = 0.012;
-        this.dustMotes.maxSize = 0.05;
+        this.dustMotes.minSize = 0.003;
+        this.dustMotes.maxSize = 0.012;
         this.dustMotes.minLifeTime = 6.0;
         this.dustMotes.maxLifeTime = 14.0;
         this.dustMotes.emitRate = moteCapacity / 10;
@@ -634,7 +640,7 @@ class VRClubFixtures extends VRClubEnvironment {
         if (typeof this._installAirLighting === 'function') this._installAirLighting();
         
         // Initialize fog machine state
-        this.smokeActive = false;
+        this.smokeActive = true;
         this.fogBurstMode = 'auto'; // 'auto', 'burst', 'continuous'
         this.fogIntensity = 1.0; // 0.0 to 2.0
         this.lastFogBurst = 0;

@@ -3,12 +3,13 @@ import assert from 'node:assert/strict';
 import vm from 'node:vm';
 import { readFileSync } from 'node:fs';
 import { Blob } from 'node:buffer';
+import { readClubSource } from './club-sources.mjs';
 
 function classic(file, additions = {}) {
     const box = { console: { warn() {}, log() {} }, URL, Blob, AbortController, performance, ...additions };
     box.window = box;
     vm.createContext(box);
-    vm.runInContext(readFileSync(new URL(`../${file}`, import.meta.url), 'utf8'), box);
+    vm.runInContext(readClubSource(new URL(`../${file}`, import.meta.url)), box);
     return box;
 }
 function storage(entries = {}) {
@@ -92,7 +93,7 @@ test('complete legacy brightness presets migrate only missing trims to neutral w
     assert.equal(presets.slots[0].fx.spotBrightness, 1);
     assert.equal(store.getItem(LightingPresets.KEY), legacy, 'migration must not write without a save');
     delete slots[0].fx.laserSheetBrightness;
-    assert.throws(() => LightingPresets.parse(JSON.stringify({ version: 1, slots })), /Incomplete/);
+    assert.throws(() => LightingPresets.parse(JSON.stringify({ version: 1, slots })), /incomplete/i);
 });
 
 test('corrupt saved links block house playback and writes; retry/reset cannot overwrite another tab', async () => {

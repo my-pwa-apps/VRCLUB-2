@@ -3,6 +3,81 @@ import { enterClub, enterVR, expectHealthyRuntime, useQuestHarness } from './sup
 
 useQuestHarness();
 
+test('LED wall contains walking, tracked headset motion and queued steps, recovering a player already behind it', async ({ page }) => {
+    test.setTimeout(600_000);
+    await enterClub(page);
+    const desktop = await page.evaluate(async () => {
+        const club = window.vrClub, camera = club.camera;
+        await club.modelLoadPromise;
+        club.engine.stopRenderLoop();
+        camera.position.set(0, 2.2, -19.4);
+        club._walkLevel = 0.5;
+        for (let i = 0; i < 10; i++) {
+            camera.cameraDirection.set(0, 0, -1);
+            camera._updatePosition();
+            club._updateWalkSurface();
+        }
+        const walking = camera.position.z;
+        camera.position.set(0, 2.2, -20.8);
+        club._updateWalkSurface();
+        const recovered = { z: camera.position.z, floor: club._walkLevel };
+        club.engine.runRenderLoop(club._renderLoop);
+        return { walking, recovered };
+    });
+    expect(desktop.walking).toBeGreaterThan(-20);
+    expect(desktop.recovered.z).toBeGreaterThan(-20);
+    expect(desktop.recovered.floor).toBe(0.5);
+    await enterVR(page);
+    const vr = await page.evaluate(async () => {
+        const club = window.vrClub, camera = club.vrHelper.baseExperience.camera;
+        const device = window.__iwerDevice;
+        const next = () => new Promise(resolve => club.scene.onAfterRenderObservable.addOnce(resolve));
+        club.setVRComfortMode(false);
+        const contain = club._containLEDWall;
+        let crossed = 0;
+        club._containLEDWall = function (cam) {
+            if (cam === camera && cam.position.z < -20) crossed++;
+            return contain.call(this, cam);
+        };
+        try {
+            device.position.set(0, 1.6, 0);
+            for (let i = 0; i < 4; i++) await next();
+            camera.position.set(0, 2.1, -19.4);
+            for (let i = 0; i < 4; i++) await next();
+            // Physical movement is not a cameraDirection step, so the mesh collider alone cannot contain it.
+            device.position.z = 3;
+            for (let i = 0; i < 8; i++) await next();
+            if (!crossed) {
+                device.position.z = 0;
+                for (let i = 0; i < 4; i++) await next();
+                camera.position.set(0, 2.1, -19.4);
+                for (let i = 0; i < 4; i++) await next();
+                device.position.z = -3;
+                for (let i = 0; i < 8; i++) await next();
+            }
+            const tracked = { z: camera.position.z, floor: club._walkLevel, crossed };
+            camera.position.set(0, 2.1, -20.8);
+            camera._deferOnly = true;
+            camera._deferredUpdated = true;
+            camera._deferredPositionUpdate.copyFrom(camera.position);
+            club._updateVRWalkSurface(camera);
+            const recovery = { z: camera.position.z, queued: camera._deferredPositionUpdate.z, floor: club._walkLevel };
+            for (let i = 0; i < 8; i++) await next();
+            return { tracked, recovery, afterFrames: camera.position.z };
+        } finally {
+            club._containLEDWall = contain;
+        }
+    });
+    expect(vr.tracked.crossed, 'the test must actually drive a tracked pose through the wall').toBeGreaterThan(0);
+    expect(vr.tracked.z).toBeGreaterThan(-20);
+    expect(vr.tracked.floor).toBe(0.5);
+    expect(vr.recovery.z).toBeGreaterThan(-20);
+    expect(vr.recovery.queued).toBeGreaterThan(-20);
+    expect(vr.recovery.floor).toBe(0.5);
+    expect(vr.afterFrames).toBeGreaterThan(-20);
+    await expectHealthyRuntime(page);
+});
+
 // The DJ stage is a 0.5 m riser (x -3..3, z -20..-16). Invisible 2 m blocks used to stand either side of it and forced
 // guests round by set routes; in a headset a walker went straight into the stage at floor level and was inside it until
 // a jump landed on top. It is now stepped onto, from any side, on foot.

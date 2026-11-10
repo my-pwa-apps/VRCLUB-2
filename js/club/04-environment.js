@@ -390,7 +390,7 @@ class VRClubEnvironment extends VRClubRendering {
             // Adjust for darker, more industrial look
             ceilingMat.baseColor = new BABYLON.Color3(0.25, 0.25, 0.28); // Darker industrial concrete
             ceilingMat.roughness = 0.88;
-            ceilingMat.metallic = 1;
+            ceilingMat.metallic = 1; // The packed metallic channel is zero for concrete.
             ceilingMat.environmentIntensity = 0.15; // Subtle light reflections from below
             if (this.concreteTextures.ceiling.normal) this.concreteTextures.ceiling.normal.level = 0.3;
         }

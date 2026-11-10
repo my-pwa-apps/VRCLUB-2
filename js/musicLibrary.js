@@ -5,7 +5,7 @@ class MusicLibrary {
     static PLAYBACK_KEY = 'vrclub.questMusicPlayback';
     static MAX_SETS = 8;
     /** The club's own generated set, served from this site (so it is first-party and the audio analyser can read it). */
-    static DEFAULT_SET = Object.freeze({ path: 'audio/nocturne-house.mp3', name: 'NOCTURNE House (club set)' });
+    static DEFAULT_SET = Object.freeze({ path: 'audio/nocturne-house.mp3', name: 'NOCTURNE (club set)' });
     static COLOURIZON_FEED_PATH = '/podcast/colourizon/feed.xml';
     static SOUNDCLOUD_RESOLVE_PATH = '/soundcloud/resolve';
     static DEFAULT_NAMES = new Set(['SoundCloud set', 'Resident by Hernan Cattaneo']);
@@ -451,7 +451,7 @@ class MusicLibrary {
         return { count: next.length, skipped, changed };
     }
 
-    /** The club's own set (scripts/build-default-set.mjs): an absolute URL on the page's own origin, never saved to the list. */
+    /** The default set: an absolute URL on the page's own origin, never saved to the list. */
     defaultItem() {
         return {
             url: new URL(MusicLibrary.DEFAULT_SET.path, window.location.href).href,
@@ -465,13 +465,15 @@ class MusicLibrary {
     }
 
     /**
-     * Plays the club's own original set so nobody stands in a silent club. It only ever fills silence: it does nothing when
+     * Plays the default set so nobody stands in a silent club. It only ever fills silence: it does nothing when
      * the guest has saved sets (that is what plays), in someone else's room (the host owns the music), or when something
      * is already playing. It is not saved, so it never appears in, or overwrites, the guest's list, and it loops.
      */
     async playDefault() {
         const club = this.club;
         if (this.readError) return false;
+        if (club.liveInput?.active) return false;
+        if (club.multiplayer?.hasLiveEvent) return false;
         if (this.items.length || (club.isFollowingHost && club.isFollowingHost())) return false;
         const info = club.getPlaybackInfo ? club.getPlaybackInfo() : null;
         const item = this.defaultItem();
@@ -547,8 +549,10 @@ class MusicLibrary {
      * Returns whether the club's set started. It never throws: this is the safety net.
      */
     async fallBackToDefault(error) {
+        if (this.club.liveInput?.active) return false;
         if (error && error.name === 'NotAllowedError') return false;
         const club = this.club;
+        if (club.multiplayer?.hasLiveEvent) return false;
         try {
             if (club.isFollowingHost && club.isFollowingHost()) return false;
             const item = this.defaultItem();

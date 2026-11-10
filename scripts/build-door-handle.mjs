@@ -1,8 +1,9 @@
 import { readFileSync, writeFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { createHash } from 'node:crypto';
-import { NodeIO, Document } from '@gltf-transform/core';
+import { NodeIO } from '@gltf-transform/core';
 import { ALL_EXTENSIONS } from '@gltf-transform/extensions';
+import { Document } from '@gltf-transform/core';
 
 const input = process.argv[2];
 if (!input) throw new Error('Usage: node scripts/build-door-handle.mjs <downloaded Door Handle 3.glb>');
@@ -17,7 +18,7 @@ const matrix = node.getWorldMatrix();
 const sourcePositions = primitive.getAttribute('POSITION');
 const sourceNormals = primitive.getAttribute('NORMAL');
 const positions = [], normals = [], point = [], normal = [];
-// Rosette centre and rear mounting face measured on the verified source.
+// The rosette centre lies at local x -1.9912; its rear mounting face is local y +0.9252.
 const mountX = (-3.0345091819763184 - 0.9478949308395386) / 2 * matrix[0];
 const mountZ = -0.9252030253410339 * matrix[0];
 for (let i = 0; i < sourcePositions.getCount(); i++) {

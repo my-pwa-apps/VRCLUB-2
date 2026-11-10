@@ -7,34 +7,52 @@ window.CharacterCatalog = {
             "description": "Middle-aged woman, fuller build, knee-length violet halter dress",
             "height": 1.66,
             "eye": [
-                -0.0004248162731528339,
-                1.516707497674066,
-                0.13112303137779235
+                4.686245864006077e-8,
+                1.526495472951369,
+                0.13205654442310333
             ],
+            "printSurfaces": {
+                "original": false,
+                "casual": true,
+                "smart": false
+            },
+            "footwearStyle": "heels",
             "procedural": false,
             "url": "./js/models/characters/nia.glb"
         },
         "luca": {
             "label": "Luca",
-            "description": "Adult man, lean build, white T-shirt and jeans, longer hair",
+            "description": "Adult man, lean build, ivory long-sleeve top and dark trousers, longer hair",
             "height": 1.79,
             "eye": [
-                0.0006419527721968789,
-                1.668809198044442,
-                0.14287425100803375
+                0.0010188728393543379,
+                1.6682607872145518,
+                0.14209092676639556
             ],
+            "printSurfaces": {
+                "original": true,
+                "casual": true,
+                "smart": false
+            },
+            "footwearStyle": "original",
             "procedural": false,
             "url": "./js/models/characters/luca.glb"
         },
         "robin": {
             "label": "Robin",
-            "description": "Nonbinary adult, short fuller build, mustard jacket and trousers",
+            "description": "Nonbinary adult, short fuller build, charcoal jacket and trousers",
             "height": 1.67,
             "eye": [
                 -0.00009742805636242698,
                 1.5324408349237948,
                 0.13488855481147766
             ],
+            "printSurfaces": {
+                "original": false,
+                "casual": true,
+                "smart": false
+            },
+            "footwearStyle": "original",
             "procedural": false,
             "url": "./js/models/characters/robin.glb"
         },
@@ -47,6 +65,12 @@ window.CharacterCatalog = {
                 1.5803628852290492,
                 0.13064220070838928
             ],
+            "printSurfaces": {
+                "original": false,
+                "casual": true,
+                "smart": false
+            },
+            "footwearStyle": "original",
             "procedural": false,
             "url": "./js/models/characters/tao.glb"
         },
@@ -55,58 +79,88 @@ window.CharacterCatalog = {
             "description": "Adult woman, athletic build, burgundy shift dress, ponytail",
             "height": 1.62,
             "eye": [
-                0.0007904717629706442,
-                1.4933082350978146,
-                0.12528301298618316
+                0.00149843092683865,
+                1.5046946950580762,
+                0.12623905658721923
             ],
+            "printSurfaces": {
+                "original": false,
+                "casual": true,
+                "smart": false
+            },
+            "footwearStyle": "pumps",
             "procedural": false,
             "url": "./js/models/characters/sofia.glb"
         },
         "asha": {
             "label": "Asha",
-            "description": "Adult woman, lean athletic build, amber tiered dress, bob",
+            "description": "Adult woman, lean athletic build, bronze high-neck crop top and cargo trousers, curled-under bob",
             "height": 1.76,
             "eye": [
-                0.0008889138326048851,
-                1.6281201171874997,
-                0.1330116194486618
+                0.0013741138636281657,
+                1.6339071361642135,
+                0.1349315744638443
             ],
+            "printSurfaces": {
+                "original": false,
+                "casual": true,
+                "smart": false
+            },
+            "footwearStyle": "heels",
             "procedural": false,
             "url": "./js/models/characters/asha.glb"
         },
         "diego": {
             "label": "Diego",
-            "description": "Adult man, athletic build, russet T-shirt and trousers, longer hair",
+            "description": "Adult man, athletic build, russet T-shirt and trousers, short textured hair",
             "height": 1.81,
             "eye": [
-                0.0001127178349146033,
-                1.6747256750013775,
-                0.1421460908651352
+                -0.0008801948500885817,
+                1.662691204320817,
+                0.1410801362991333
             ],
+            "printSurfaces": {
+                "original": true,
+                "casual": true,
+                "smart": false
+            },
+            "footwearStyle": "original",
             "procedural": false,
             "url": "./js/models/characters/diego.glb"
         },
         "iris": {
             "label": "Iris",
-            "description": "Adult woman, tall slender build, copper bob, light tee and shorts",
+            "description": "Adult woman, tall slender build, copper inverted bob, stone halter top and cargo trousers",
             "height": 1.83,
             "eye": [
-                0.000012431862867540199,
-                1.689611100488239,
-                0.13678895950317382
+                -0.0005608386709354818,
+                1.7046691179275513,
+                0.13801468431949615
             ],
+            "printSurfaces": {
+                "original": false,
+                "casual": true,
+                "smart": false
+            },
+            "footwearStyle": "loafers",
             "procedural": false,
             "url": "./js/models/characters/iris.glb"
         },
         "eden": {
             "label": "Eden",
-            "description": "Adult woman, athletic build, plum strapless ruffle dress, bob",
+            "description": "Adult woman, athletic build, plum midi halter dress, bob",
             "height": 1.74,
             "eye": [
-                0.0005970565543975681,
-                1.619059581309557,
-                0.1357770663499832
+                0.0012596722306876366,
+                1.6171130229686865,
+                0.13569896936416626
             ],
+            "printSurfaces": {
+                "original": false,
+                "casual": true,
+                "smart": false
+            },
+            "footwearStyle": "pumps",
             "procedural": false,
             "url": "./js/models/characters/eden.glb"
         },
@@ -119,6 +173,12 @@ window.CharacterCatalog = {
                 1.57363896710532,
                 0.1338494223356247
             ],
+            "printSurfaces": {
+                "original": true,
+                "casual": true,
+                "smart": false
+            },
+            "footwearStyle": "original",
             "procedural": false,
             "url": "./js/models/characters/ren.glb"
         },
@@ -131,6 +191,12 @@ window.CharacterCatalog = {
                 1.63422901399674,
                 0.13660199463367462
             ],
+            "printSurfaces": {
+                "original": false,
+                "casual": true,
+                "smart": false
+            },
+            "footwearStyle": "original",
             "procedural": false,
             "url": "./js/models/characters/felix.glb"
         },
@@ -143,6 +209,12 @@ window.CharacterCatalog = {
                 1.6576127926508588,
                 0.13150748133659362
             ],
+            "printSurfaces": {
+                "original": false,
+                "casual": true,
+                "smart": false
+            },
+            "footwearStyle": "original",
             "procedural": false,
             "url": "./js/models/characters/kai.glb"
         },
@@ -155,18 +227,30 @@ window.CharacterCatalog = {
                 1.5744720813704696,
                 0.13066726446151733
             ],
+            "printSurfaces": {
+                "original": true,
+                "casual": true,
+                "smart": false
+            },
+            "footwearStyle": "original",
             "procedural": false,
             "url": "./js/models/characters/jonas.glb"
         },
         "mara": {
             "label": "Mara",
-            "description": "Adult woman, tall broad build, copper braid, rose blouse and skirt",
+            "description": "Adult woman, tall broad build, copper braid, rose halter dress",
             "height": 1.79,
             "eye": [
-                -0.002498946928729614,
-                1.642857313156128,
-                0.15145736455917358
+                0.00162706006732252,
+                1.6607150060159188,
+                0.15330165147781372
             ],
+            "printSurfaces": {
+                "original": false,
+                "casual": true,
+                "smart": false
+            },
+            "footwearStyle": "pumps",
             "procedural": false,
             "url": "./js/models/characters/mara.glb"
         },
@@ -179,54 +263,84 @@ window.CharacterCatalog = {
                 1.7387523903991235,
                 0.1430589210987091
             ],
+            "printSurfaces": {
+                "original": false,
+                "casual": true,
+                "smart": false
+            },
+            "footwearStyle": "original",
             "procedural": false,
             "url": "./js/models/characters/ellis.glb"
         },
         "amara": {
             "label": "Amara",
-            "description": "Young adult woman, fuller build, afro",
+            "description": "Adult woman, fuller build, afro, midnight cut-out dress",
             "height": 1.64,
             "eye": [
-                0.00041933928150683696,
-                1.5000429928302765,
-                0.11668113142251968
+                -0.0004498279720012638,
+                1.5103560941559926,
+                0.11750594049692153
             ],
+            "printSurfaces": {
+                "original": false,
+                "casual": true,
+                "smart": false
+            },
+            "footwearStyle": "pumps",
             "procedural": false,
             "url": "./js/models/characters/amara.glb"
         },
         "malik": {
             "label": "Malik",
-            "description": "Adult man, muscular build, green T-shirt and jeans",
+            "description": "Adult man, muscular build, forest fitted shirt and trousers",
             "height": 1.85,
             "eye": [
-                -0.0008402161347942466,
-                1.7170017101825814,
-                0.1413247239589691
+                -0.0012849966899074316,
+                1.716772441206307,
+                0.14167347073554992
             ],
+            "printSurfaces": {
+                "original": false,
+                "casual": true,
+                "smart": false
+            },
+            "footwearStyle": "original",
             "procedural": false,
             "url": "./js/models/characters/malik.glb"
         },
         "mei": {
             "label": "Mei",
-            "description": "Older woman, silver bob, blouse and skirt",
+            "description": "Older woman, silver inverted bob with bangs, blouse and skirt",
             "height": 1.59,
             "eye": [
-                -0.001568548404611648,
-                1.4682381719350812,
-                0.15072328865528106
+                -0.0010593998673799863,
+                1.4765324721465243,
+                0.15227397799491882
             ],
+            "printSurfaces": {
+                "original": false,
+                "casual": true,
+                "smart": false
+            },
+            "footwearStyle": "loafers",
             "procedural": false,
             "url": "./js/models/characters/mei.glb"
         },
         "rosa": {
             "label": "Rosa",
-            "description": "Adult woman, curvy build, coral T-shirt and denim shorts",
+            "description": "Adult woman, curvy build, blunt bob with bangs, graphite camisole and tiered mini skirt",
             "height": 1.73,
             "eye": [
-                0.0005571790423025103,
-                1.5938013441422405,
-                0.13620246469974517
+                -0.0017904744524022817,
+                1.5980493089427117,
+                0.13680907607078552
             ],
+            "printSurfaces": {
+                "original": false,
+                "casual": true,
+                "smart": false
+            },
+            "footwearStyle": "pumps",
             "procedural": false,
             "url": "./js/models/characters/rosa.glb"
         },
@@ -239,6 +353,12 @@ window.CharacterCatalog = {
                 1.6656187283687103,
                 0.1408556354045868
             ],
+            "printSurfaces": {
+                "original": false,
+                "casual": true,
+                "smart": false
+            },
+            "footwearStyle": "original",
             "procedural": false,
             "url": "./js/models/characters/samir.glb"
         },
@@ -247,10 +367,16 @@ window.CharacterCatalog = {
             "description": "Adult woman, shorter curvy build, red keyhole dress, ponytail",
             "height": 1.61,
             "eye": [
-                0.0006657198278440324,
-                1.4992213911480374,
-                0.13154176890850067
+                0.0008810813952651287,
+                1.4961999389860363,
+                0.13156266033649444
             ],
+            "printSurfaces": {
+                "original": false,
+                "casual": true,
+                "smart": false
+            },
+            "footwearStyle": "heels",
             "procedural": false,
             "url": "./js/models/characters/luz.glb"
         },
@@ -263,18 +389,30 @@ window.CharacterCatalog = {
                 1.7269958418768798,
                 0.14609215676784515
             ],
+            "printSurfaces": {
+                "original": false,
+                "casual": true,
+                "smart": false
+            },
+            "footwearStyle": "original",
             "procedural": false,
             "url": "./js/models/characters/ari.glb"
         },
         "leila": {
             "label": "Leila",
-            "description": "Adult woman, flowing teal camisole dress, long hair",
+            "description": "Adult woman, flowing teal camisole dress, blunt bob with bangs",
             "height": 1.7,
             "eye": [
-                -0.00006484131639202266,
-                1.5667243043581642,
-                0.13155664026737213
+                -0.0009241214600102653,
+                1.5706707773537474,
+                0.13186300814151763
             ],
+            "printSurfaces": {
+                "original": false,
+                "casual": true,
+                "smart": false
+            },
+            "footwearStyle": "loafers",
             "procedural": false,
             "url": "./js/models/characters/leila.glb"
         },
@@ -287,6 +425,12 @@ window.CharacterCatalog = {
                 1.73029897271133,
                 0.1389901441335678
             ],
+            "printSurfaces": {
+                "original": false,
+                "casual": true,
+                "smart": false
+            },
+            "footwearStyle": "original",
             "procedural": false,
             "url": "./js/models/characters/kwame.glb"
         },
@@ -295,58 +439,88 @@ window.CharacterCatalog = {
             "description": "Adult woman, petite build, blue fluted halter dress, long hair",
             "height": 1.55,
             "eye": [
-                0.0012072826845242724,
-                1.4391881122308618,
-                0.12982297956943512
+                0.0003286953694347683,
+                1.4360336846318742,
+                0.12973841547966003
             ],
+            "printSurfaces": {
+                "original": false,
+                "casual": true,
+                "smart": false
+            },
+            "footwearStyle": "pumps",
             "procedural": false,
             "url": "./js/models/characters/hana.glb"
         },
         "owen": {
             "label": "Owen",
-            "description": "Adult man, sturdy build, denim-style button shirt and trousers",
+            "description": "Adult man, sturdy build, tucked T-shirt and cargo trousers",
             "height": 1.82,
             "eye": [
-                0.0013892791266071408,
-                1.6666050491661861,
-                0.14303792536258697
+                0.001288894289994943,
+                1.666890691308414,
+                0.14306625247001648
             ],
+            "printSurfaces": {
+                "original": false,
+                "casual": true,
+                "smart": false
+            },
+            "footwearStyle": "original",
             "procedural": false,
             "url": "./js/models/characters/owen.glb"
         },
         "alex": {
             "label": "Alex",
-            "description": "Nonbinary adult, androgynous build, amber cropped T-shirt and trousers",
+            "description": "Nonbinary adult, androgynous build, short textured hair, amber keyhole tank and cargo trousers",
             "height": 1.72,
             "eye": [
-                0.0006697431388424653,
-                1.5884147795235244,
-                0.13482515037059783
+                0.00003744515124708126,
+                1.5895635455846788,
+                0.13490254700183868
             ],
+            "printSurfaces": {
+                "original": false,
+                "casual": true,
+                "smart": false
+            },
+            "footwearStyle": "loafers",
             "procedural": false,
             "url": "./js/models/characters/alex.glb"
         },
         "vera": {
             "label": "Vera",
-            "description": "Older woman, fuller build, silver braid, charcoal blouse and skirt",
+            "description": "Older woman, fuller build, silver braid, charcoal knit sweater and tailored trousers",
             "height": 1.69,
             "eye": [
-                -0.0005364558526447824,
-                1.5487624100276398,
-                0.1561010879278183
+                -0.0008043230286446104,
+                1.5645323087429175,
+                0.15773429989814758
             ],
+            "printSurfaces": {
+                "original": false,
+                "casual": true,
+                "smart": false
+            },
+            "footwearStyle": "loafers",
             "procedural": false,
             "url": "./js/models/characters/vera.glb"
         },
         "noah": {
             "label": "Noah",
-            "description": "Adult man, short fuller build, teal T-shirt and jeans",
+            "description": "Adult man, short fuller build, short textured hair, teal polo and tailored trousers",
             "height": 1.64,
             "eye": [
-                0.0013836419158097758,
-                1.5069841477606034,
-                0.1310040158033371
+                0.000021774568321072506,
+                1.503001623293933,
+                0.13066435873508453
             ],
+            "printSurfaces": {
+                "original": false,
+                "casual": true,
+                "smart": false
+            },
+            "footwearStyle": "original",
             "procedural": false,
             "url": "./js/models/characters/noah.glb"
         },
@@ -359,6 +533,12 @@ window.CharacterCatalog = {
                 1.6578516995205599,
                 0.13988691091537475
             ],
+            "printSurfaces": {
+                "original": false,
+                "casual": true,
+                "smart": false
+            },
+            "footwearStyle": "original",
             "procedural": false,
             "url": "./js/models/characters/river.glb"
         },
@@ -367,10 +547,16 @@ window.CharacterCatalog = {
             "description": "Middle-aged woman, medium build, teal blouse and skirt, dark bob",
             "height": 1.68,
             "eye": [
-                0.0008419965760725934,
-                1.5328328103730173,
-                0.14327767014503479
+                -0.00046026312253054483,
+                1.5497580416062295,
+                0.14492964267730712
             ],
+            "printSurfaces": {
+                "original": false,
+                "casual": true,
+                "smart": false
+            },
+            "footwearStyle": "loafers",
             "procedural": true,
             "url": "./js/models/characters/sana.glb"
         },
@@ -383,18 +569,30 @@ window.CharacterCatalog = {
                 1.7816565309252061,
                 0.14349880337715148
             ],
+            "printSurfaces": {
+                "original": false,
+                "casual": true,
+                "smart": false
+            },
+            "footwearStyle": "original",
             "procedural": false,
             "url": "./js/models/characters/idris.glb"
         },
         "jin": {
             "label": "Jin",
-            "description": "Mature fictional male DJ, lean build, ear-length dark hair, charcoal crew-neck tee and jeans",
+            "description": "Mature fictional male DJ, lean face, dark loosely parted wavy hair curling around the ears and nape, charcoal crew-neck tee and jeans",
             "height": 1.78,
             "eye": [
-                0.0007051047239754687,
-                1.6556611157752377,
-                0.13913952827453613
+                0.0007568247084106726,
+                1.6504253625869754,
+                0.1386937302350998
             ],
+            "printSurfaces": {
+                "original": true,
+                "casual": true,
+                "smart": false
+            },
+            "footwearStyle": "original",
             "procedural": true,
             "url": "./js/models/characters/jin.glb"
         },
@@ -403,10 +601,16 @@ window.CharacterCatalog = {
             "description": "Adult fictional female DJ, slender build, long side-parted blonde hair, charcoal tee and jeans",
             "height": 1.68,
             "eye": [
-                0.0012978981107924917,
-                1.5489163290370598,
-                0.13372894644737243
+                -0.0017656387542100524,
+                1.5549952422871307,
+                0.1349034857749939
             ],
+            "printSurfaces": {
+                "original": true,
+                "casual": true,
+                "smart": false
+            },
+            "footwearStyle": "heels",
             "procedural": true,
             "url": "./js/models/characters/zara.glb"
         }

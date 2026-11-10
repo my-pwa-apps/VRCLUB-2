@@ -1,7 +1,51 @@
 import { test, expect } from '@playwright/test';
-import { enterClub, expectHealthyRuntime, useQuestHarness } from './support.mjs';
+import { enterClub, enterVR, expectHealthyRuntime, useQuestHarness } from './support.mjs';
+import { renderFrames } from './xr-measure.mjs';
 
 useQuestHarness();
+
+test('whole-person culling submits visible NPCs and rejects offscreen people in desktop and XR views', async ({ page }) => {
+    await enterClub(page);
+    await page.evaluate(() => window.vrClub.modelLoadPromise);
+    const check = () => page.evaluate(() => {
+        const club = window.vrClub, scene = club.scene;
+        const camera = scene.activeCamera;
+        const eyes = camera.rigCameras?.length ? camera.rigCameras : [camera];
+        const frustums = eyes.map(eye => BABYLON.Frustum.GetPlanes(eye.getTransformationMatrix()));
+        const active = new Set(scene.getActiveMeshes().data.slice(0, scene.getActiveMeshes().length));
+        const meshes = club.npcAvatars.filter(npc => npc.root.isEnabled())
+            .flatMap(npc => npc.meshes).filter(mesh => mesh.isVisible && mesh.isEnabled() && mesh.getTotalVertices());
+        const expected = meshes.filter(mesh => frustums.some(planes => mesh.isInFrustum(planes)));
+        return {
+            total: meshes.length, visible: expected.length,
+            missing: expected.filter(mesh => !active.has(mesh)).map(mesh => mesh.name),
+            submitted: meshes.filter(mesh => active.has(mesh)).length,
+            forced: meshes.filter(mesh => mesh.alwaysSelectAsActiveMesh).map(mesh => mesh.name)
+        };
+    });
+    for (const xr of [false, true]) {
+        if (xr) await enterVR(page, { floorPosition: [0, 0, -12] });
+        for (const yaw of [0, Math.PI / 2, Math.PI, -Math.PI / 2]) {
+            await page.evaluate(([immersive, angle]) => {
+                if (immersive) window.__iwerDevice.quaternion.set(0, Math.sin(angle / 2), 0, Math.cos(angle / 2));
+                else {
+                    window.vrClub.camera.position.set(0, 1.7, -12);
+                    window.vrClub.camera.rotation.set(0, angle, 0);
+                }
+            }, [xr, yaw]);
+            await renderFrames(page, 3);
+            const result = await check();
+            expect(result.total).toBeGreaterThan(0);
+            expect(result.forced).toEqual([]);
+            expect(result.missing, `${xr ? 'XR' : 'desktop'} yaw ${yaw}`).toEqual([]);
+            expect(result.submitted).toBe(result.visible);
+            if (Math.abs(yaw) === Math.PI / 2) {
+                expect(result.submitted, 'entirely offscreen characters should not submit draws').toBeLessThan(result.total);
+            }
+        }
+    }
+    await expectHealthyRuntime(page);
+});
 
 // Street people animate only while they could matter: held when clearly behind the viewer, resumed from the same frame long
 // before they come into view, and never held while inside the camera's real frustum. Their raw `Idle` clip also loses its

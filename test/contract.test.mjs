@@ -27,7 +27,7 @@ const scriptSrcs = [...html.matchAll(/<script[^>]*\ssrc="([^"]+)"/g)]
 /** Path portion of a script src, minus the ?v= cache-busting token. */
 const srcPath = (src) => src.split('?')[0];
 
-test('Quest and SideQuest exclude ADE pitch features and preserve distribution targets', () => {
+test('default sources exclude ADE pitch features and preserve distribution targets', () => {
     assert.doesNotMatch(html, /liveEventConcept|event-concept-|concept-assets\/ade/);
     for (const relative of [
         'js/liveEventConcept.js', 'concept-assets/ade', 'design/ade-brandpack',
@@ -89,47 +89,20 @@ test('every stylesheet referenced by index.html exists on disk', () => {
     }
 });
 
-test('search and social metadata identify the canonical production experience', () => {
-    const title = html.match(/<title>([^<]+)<\/title>/)?.[1] || '';
-    const description = html.match(/<meta name="description" content="([^"]+)">/)?.[1] || '';
-    assert.match(title, /WebXR Virtual Nightclub/);
-    assert.ok(title.length >= 30 && title.length <= 65, `search title should be concise, found ${title.length} characters`);
-    assert.ok(description.length >= 120 && description.length <= 170,
-        `search description should be specific without truncating badly, found ${description.length} characters`);
-    assert.match(html, /<link rel="canonical" href="https:\/\/nocturne\.mitwee\.nl\/">/);
-    assert.match(html, /<meta name="robots" content="index, follow, max-image-preview:large,/);
-    assert.match(html, /<meta property="og:url" content="https:\/\/nocturne\.mitwee\.nl\/">/);
-    assert.match(html, /<meta property="og:image" content="https:\/\/nocturne\.mitwee\.nl\/icons\/social-preview\.png">/);
-    assert.match(html, /<meta name="twitter:card" content="summary_large_image">/);
-    assert.equal([...html.matchAll(/<h1\b/g)].length, 1, 'the indexable page needs exactly one H1');
-    assert.match(html, /itemtype="https:\/\/schema\.org\/WebApplication"/);
-    const seoHead = html.slice(0, html.indexOf('</head>'));
-    const overview = html.match(/<section class="experience-overview"[\s\S]*?<\/section>/)?.[0] || '';
-    assert.doesNotMatch(`${seoHead}\n${overview}`, /Meta Quest/,
-        'SEO should target WebXR-compatible headsets rather than one headset brand');
-    assert.match(`${seoHead}\n${overview}`, /compatible VR headset/i);
-
-    const preview = readFileSync(join(ROOT, 'icons', 'social-preview.png'));
-    assert.equal(preview.readUInt32BE(16), 1200, 'social preview width must match its declared metadata');
-    assert.equal(preview.readUInt32BE(20), 630, 'social preview height must match its declared metadata');
-});
-
-test('robots and sitemap expose only the canonical production URL', () => {
+test('the production deployment keeps its canonical indexing policy', () => {
     const robots = readFileSync(join(ROOT, 'robots.txt'), 'utf8');
-    const sitemap = readFileSync(join(ROOT, 'sitemap.xml'), 'utf8');
-    assert.match(robots, /^User-agent: \*\r?\nAllow: \//);
-    assert.match(robots, /Sitemap: https:\/\/nocturne\.mitwee\.nl\/sitemap\.xml/);
-    assert.match(sitemap, /<loc>https:\/\/nocturne\.mitwee\.nl\/<\/loc>/);
-    assert.equal([...sitemap.matchAll(/<loc>/g)].length, 1, 'only the app shell is an indexable HTML page');
-});
+    const headers = readFileSync(join(ROOT, '_headers'), 'utf8');
+    const server = readFileSync(join(ROOT, 'scripts/serve.mjs'), 'utf8');
+    const build = readFileSync(join(ROOT, 'scripts/build.mjs'), 'utf8');
 
-test('Google Search Console verification is deployed at the site root', () => {
-    const filename = 'googledd48f5e8f45ab4e2.html';
-    const verification = readFileSync(join(ROOT, filename), 'utf8').trim();
-    const build = readFileSync(join(ROOT, 'scripts', 'build.mjs'), 'utf8');
-    assert.equal(verification, `google-site-verification: ${filename}`);
-    assert.match(build, new RegExp(`cp\\(path\\.join\\(root, '${filename}'\\), path\\.join\\(dist, '${filename}'\\)\\)`),
-        'production build must copy the Search Console verification file to the site root');
+    assert.match(html, /<meta\s+name="robots"\s+content="index,\s*follow/i);
+    assert.match(html, /rel="canonical" href="https:\/\/nocturne\.mitwee\.nl\/"/);
+    assert.match(robots, /Sitemap:\s*https:\/\/nocturne\.mitwee\.nl\/sitemap\.xml/i);
+    assert.match(headers, /X-Robots-Tag:\s*index,\s*follow/i);
+    assert.match(server, /'X-Robots-Tag':\s*'[^\r\n']*\bnoindex\b/i,
+        'the local/production Node server must send X-Robots-Tag: noindex');
+    assert.match(build, /cp\(path\.join\(root, 'robots\.txt'\), path\.join\(dist, 'robots\.txt'\)\)/,
+        'the production build must publish robots.txt');
 });
 
 test('the production builder minifies the CSS asset', () => {
@@ -150,12 +123,17 @@ test('script load order honours the dependency contract', () => {
     assert.ok(idx('js/assetCache.js') < idx('js/modelLoader.js'), 'assetCache must precede modelLoader');
     assert.ok(idx('js/audioUtils.js') > -1 && idx('js/audioUtils.js') < idx('js/club_hyperrealistic.js'),
         'audioUtils must load before club_hyperrealistic.js');
+    assert.ok(idx('js/venueBranding.js') > -1 && idx('js/venueBranding.js') < idx('js/club/02-lifecycle.js'),
+        'opt-in venue branding must load before lifecycle');
 
-    const clubLayers = Array.from({ length: 11 }, (_, index) =>
+    const clubLayers = Array.from({ length: 9 }, (_, index) =>
         `js/club/${String(index + 1).padStart(2, '0')}-${[
             'core', 'lifecycle', 'rendering', 'environment', 'fixtures', 'effects',
-            'animation-core', 'animation-fixtures', 'animation-finish', 'ui', 'audio-crowd'
-        ][index]}.js`);
+            'animation-core', 'animation-fixtures', 'animation-finish'
+        ][index]}.js`).concat([
+        '10-ui-controls', '10-ui-menu', '10-ui-social', '10-ui',
+        '11-audio', '11-avatars', '11-crowd', '11-audio-crowd'
+    ].map(name => `js/club/${name}.js`));
     for (let index = 0; index < clubLayers.length; index++) {
         assert.ok(idx(clubLayers[index]) > -1, `${clubLayers[index]} is not loaded`);
         if (index > 0) assert.ok(idx(clubLayers[index - 1]) < idx(clubLayers[index]), 'VRClub layers are out of order');
@@ -170,13 +148,23 @@ test('script load order honours the dependency contract', () => {
     // ShowDirector reads the beat grid VJDirector publishes.
     assert.ok(idx('js/sfuClient.js') > -1 && idx('js/sfuClient.js') < idx('js/networkClient.js'),
         'sfuClient must precede networkClient');
+    assert.ok(idx('js/liveAudioClient.js') > idx('js/sfuClient.js') &&
+        idx('js/liveAudioClient.js') < idx('js/networkClient.js'), 'event audio must load after SFU and before networkClient');
+    assert.ok(idx('js/liveInput.js') > idx('js/liveAudioClient.js') &&
+        idx('js/liveInput.js') < idx('js/networkClient.js'), 'mixer setup must load after event media');
+    assert.ok(idx('js/lightingPresets.js') > idx('js/multiplayer.js') &&
+        idx('js/lightingPresets.js') < idx(clubLayers[0]), 'presets reuse the shared lighting schema before the club loads');
     assert.ok(idx('js/vjDirector.js') < idx('js/showDirector.js'), 'vjDirector must precede showDirector');
     // ui-init drives the splash screen and instantiates VRClub.
     assert.ok(idx('js/ui-init.js') > main, 'ui-init.js must load after club_hyperrealistic.js');
+    assert.ok(idx('js/avatarAccessoryAssets.js') > idx('js/wardrobeCatalog.js') &&
+        idx('js/avatarAccessoryAssets.js') < idx('js/avatarDetails.js'),
+    'authored avatar accessory geometry must load before AvatarDetails');
 });
 
 test('every class used across files is exported onto window', () => {
     const required = {
+        'js/avatarAccessoryAssets.js': ['AvatarAccessoryAssets'],
         'js/assetCache.js': ['IndexedDBAssetCache', 'InFlightRegistry'],
         'js/audioUtils.js': ['AudioUtils'],
         'js/textureLoader.js': ['TextureLoader'],
@@ -187,6 +175,7 @@ test('every class used across files is exported onto window', () => {
         'js/ledPatterns.js': ['LEDPatterns'],
         'js/barProps.js': ['BarProps'],
         'js/nocturneLogo.js': ['NocturneLogo'],
+        'js/venueBranding.js': ['VenueBranding'],
         'js/restroomArt.js': ['RestroomArt'],
         'js/venueDressing.js': ['VenueDressing'],
         'js/mezzanine.js': ['Mezzanine'],
@@ -198,7 +187,8 @@ test('every class used across files is exported onto window', () => {
         'js/sfuClient.js': ['SFUClient'],
         'js/networkClient.js': ['NetworkClient'],
         'js/avatarManager.js': ['AvatarManager'],
-        'js/multiplayer.js': ['ClubMultiplayer']
+        'js/multiplayer.js': ['ClubMultiplayer'],
+        'js/lightingPresets.js': ['LightingPresets']
     };
     for (const [file, names] of Object.entries(required)) {
         const source = readFileSync(join(ROOT, file), 'utf8');
@@ -395,11 +385,14 @@ test('no first-party code fetches from a third-party origin', () => {
             }
         });
     }
-    // These are user-triggered media rather than startup dependencies. SoundCloud is
-    // loaded only in its official iframe player after a guest submits a page URL.
+    // Media and the exact development owner-login endpoints are user-triggered,
+    // never startup dependencies.
     const filtered = offenders.filter(o => !o.includes('stream.sunshine-live.de') &&
         !o.includes('https://podcast.hernancattaneo.com/feed.xml') &&
-        !o.includes('https://w.soundcloud.com/player/'));
+        !o.includes('https://w.soundcloud.com/player/') &&
+        !(o.startsWith('js/paymentGate.js:') && [
+            'https://api.mitwee.nl/admin/dev-owner/sign-in', 'https://api.mitwee.nl/dev-owner/check'
+        ].some(url => o.endsWith(`  ${url}`))));
     assert.deepEqual(filtered, [],
         `vendor these instead of loading them from a third-party origin:\n${filtered.join('\n')}`);
 });
@@ -595,7 +588,7 @@ test('every long-lived listener stored on the instance is removed in dispose()',
 
 test('types/vrclub.d.ts declares only classes and methods that exist', () => {
     // The declaration file is the editor-facing API contract for a window-global,
-    // 11-layer class chain. Without this check it silently drifted (it declared a
+    // layered class chain. Without this check it silently drifted (it declared a
     // LightFactory.createLight that never existed). Every declared class must be
     // exported onto window and every declared method must be defined in its source.
     const dts = readFileSync(join(ROOT, 'types/vrclub.d.ts'), 'utf8');

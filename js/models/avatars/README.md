@@ -23,10 +23,11 @@ provenance and archive hashes are recorded in `ASSETS.md`.
 | `club-crowd-f1..f8.glb`, `club-crowd-m1..m9.glb` | The dance floor, the side-wall guests and the queue outside the street door: 17 different people | Quaternius Modular Women / Men, recoloured: every skin tone, black, brown, auburn, blond and silver hair, casual, punk, formal and suit outfits | `Dance_Loop`; the six guests (f6-f8, m4, m6, m8) also carry `Idle_Loop`, `Idle_Talking_Loop`, `Idle_FoldArms_Loop` and `Idle_TalkingPhone_Loop`; f7 additionally carries the procedural `Idle_Railing_Loop`; m6 carries the procedural `Drink_Loop`, `Smoke_Loop` and his own `Idle_Railing_Loop`; the eleven floor dancers carry the eight procedural `Groove_*` moves (`js/crowdDance.js`) | ~1.0 MB each |
 | `club-crowd-bouncer.glb` | The bouncer at the street door (`_streetSlots()`); never a player avatar | Modular Men Suit: espresso skin, black hair, black suit, shirt and tie | as the guests; plays `Idle_Loop` | ~1.0 MB |
 
-The crowd people are one skinned mesh and one material each, coloured per vertex; see the next section. The three
-Mixamo files in this folder (`Hip Hop Dancing.glb`, `house.glb`, `rumba_dancing_female_character.glb`) are the
-historical source-only files, excluded from Quest. Their legacy slots now use CC0
-`club-crowd-m1`, `club-crowd-m9` and `club-crowd-f4`, respectively.
+The crowd people are one skinned mesh and one material each, coloured per vertex; see the next section. The
+historical `house.glb` Mixamo file remains only as a real-rig regression fixture in
+`test/rig.test.mjs`; it is excluded from production builds. The unused Mixamo hip-hop and
+rumba source files were removed. The former slots now use CC0 `club-crowd-m1`, `club-crowd-m9`
+and `club-crowd-f4`.
 
 A multi-clip file carries several clips. `_spawnAvatar(..., { clip })` keeps the one a slot asks for and
 disposes the rest, so a guest evaluates one animation like everyone else; with no `clip` a multi-clip

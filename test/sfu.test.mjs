@@ -6,7 +6,7 @@ import { ClubRoom } from '../worker/src/relay.js';
 import { mediaTransport } from '../worker/src/sfu.js';
 import { roomCapacity } from '../worker/src/roomDirectory.js';
 
-const SDP = 'v=0\r\nm=audio 9 UDP/TLS/RTP/SAVPF 111\r\n';
+const SDP = 'v=0\r\nm=audio 9 UDP/TLS/RTP/SAVPF 111\r\na=rtpmap:111 opus/48000/2\r\n';
 const { Event, EventTarget, performance } = globalThis;
 const env = { MEDIA_TRANSPORT: 'sfu', SFU_APP_ID: 'development-app', SFU_APP_SECRET: 'test-only-secret', ROOM_CAPACITY: '32' };
 
@@ -424,7 +424,10 @@ class PC extends EventTarget {
         this.transceivers = [];
     }
     addTransceiver(track) {
-        const transceiver = { mid: '0', sender: { track, replaceTrack: async replacement => { transceiver.sender.track = replacement; } } };
+        const transceiver = { mid: '0', sender: { track,
+            getParameters: () => ({ encodings: [{}] }),
+            setParameters: async parameters => { transceiver.sender.parameters = parameters; },
+            replaceTrack: async replacement => { transceiver.sender.track = replacement; } } };
         this.transceivers.push(transceiver);
         return transceiver;
     }

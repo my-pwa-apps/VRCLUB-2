@@ -22,6 +22,38 @@ test('fresh Quest entry contacts no music provider, plays the club\u2019s own se
     await expectHealthyRuntime(page);
 });
 
+test('a corrupt playback checkpoint leaves saved sets available after entry', async ({ page }) => {
+    await page.addInitScript(() => {
+        localStorage.setItem('vrclub.questMusic', JSON.stringify({
+            items: [{ url: 'https://audio.example/e2e/set.mp3', name: 'Saved set' }], selected: 0
+        }));
+        localStorage.setItem('vrclub.questMusicPlayback', '{invalid');
+    });
+    await enterClub(page);
+    await page.locator('#audioToggle').click();
+    await expect(page.locator('#savedSets')).toContainText('Saved set');
+    expect(await page.evaluate(() => JSON.parse(localStorage.getItem('vrclub.questMusic')).items.length)).toBe(1);
+    await expectHealthyRuntime(page);
+});
+
+test('unreadable saved sets require an explicit confirmed reset', async ({ page }) => {
+    await page.addInitScript(() => localStorage.setItem('vrclub.questMusic', '{invalid'));
+    await enterClub(page);
+    await page.locator('#audioToggle').click();
+    await expect(page.locator('#savedSets')).toContainText('Saved sets unavailable');
+    await expect(page.locator('#musicRecoveryMessage')).toContainText('permanently erase');
+    await page.locator('#retrySavedSets').click();
+    expect(await page.evaluate(() => localStorage.getItem('vrclub.questMusic'))).toBe('{invalid');
+    await page.locator('#resetSavedSets').click();
+    await expect(page.locator('#resetSavedSets')).toHaveText('Confirm permanent reset');
+    expect(await page.evaluate(() => localStorage.getItem('vrclub.questMusic'))).toBe('{invalid');
+    await page.locator('#resetSavedSets').click();
+    await expect(page.locator('#musicRecovery')).toBeHidden();
+    await expect(page.locator('#savedSets')).toContainText('No saved sets yet');
+    expect(await page.evaluate(() => JSON.parse(localStorage.getItem('vrclub.questMusic')).items)).toEqual([]);
+    await expectHealthyRuntime(page);
+});
+
 test('VR setup and licences return to the panel and allow re-entry', async ({ page }) => {
     test.setTimeout(240_000);
     await test.step('launch setup panel', () => enterClub(page));

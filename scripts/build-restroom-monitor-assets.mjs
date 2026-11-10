@@ -3,7 +3,7 @@
 // CC BY 4.0 "Yamaha HS8 Studio Monitor" on Sketchfab and optimized with 512 px WebP PBR maps).
 //
 //   js/models/restroom/source/toilet.glb           Quaternius "Toilet" (CC0, poly.pizza/m/WAu50yGFVt). Porcelain
-//                                                  colour baked into COLOR_0 and flattened into 1 draw (402 triangles).
+//                                                  colour baked into COLOR_0; body, hinged lid and seat ring (3 draws, 658 triangles).
 //   js/models/restroom/source/bathroom_sink.glb    Quaternius "Bathroom Sink" (CC0, poly.pizza/m/OMCJDgMUui).
 //                                                  Porcelain basin and brushed-steel tap/trap baked into COLOR_0 and
 //                                                  merged into 1 draw (350 triangles).

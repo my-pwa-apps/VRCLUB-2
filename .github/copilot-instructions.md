@@ -1,6 +1,13 @@
 # VR Club — AI Coding Agent Instructions
 
-## Selective production venue/reliability additions
+## Shared production integration
+
+Shared QuestDev features include live events, performers/uploads, split eager
+UI/audio layers, Aesthetic smoke and NPC visibility checks. Production keeps its
+verified VR gate, production relay, canonical indexing and projected gobos.
+The gobo APIs live in `10-ui-controls.js`; VR exposes them on smoke settings.
+The separate development Worker configuration is tooling only: this branch's
+frontend has no development free-access bypass or pre-seeded music.
 
 `ModelLoader.loadAssetContainer(url, scene)` is the shared normal-avatar, wardrobe
 and editor parser entry point. It uses fingerprint-validated `loadOrDownloadModel`,
@@ -30,7 +37,8 @@ through missed detector beats and timestamped remote clocks. Spots/lasers/wall
 boost at most 2x, sheet 3x; Safe Mode caps boosts at 1x and all output honors master
 blackout. Preserve existing projected gobos alongside prism geometry.
 Smoke nozzles point into the room, both auto bursts use one musical cycle, and
-MAXIMUM increases bounded room-fill output without advanced scattering.
+MAXIMUM increases bounded room-fill output; shared desktop particle scattering
+remains disabled in VR.
 
 `RestroomInteractions` loads before VenueDressing, `LightingPresets` before club
 layers. The restroom coordinator is disposed with the club. Seat/lid/flush/tap
@@ -76,9 +84,11 @@ emits one minified, content-hashed production bundle with esbuild.
 6. loaders/factories (`textureLoader`, `modelLoader`, `materialFactory`, `lightFactory`)
 7. `js/vjDirector.js`, then `js/showDirector.js`
 8. `js/ledPatterns.js`, then `js/barProps.js` (bottle geometry and label atlas; no club dependency), then `js/restroomArt.js` (the restroom's painted poster atlas and placement plan; needs `js/nocturneLogo.js` only at paint time), then `js/venueDressing.js` (entrance stair hall, bar, lounge couch and restroom), `js/mezzanine.js` (steel balcony and stair, and the walking-surface follow) and `js/cityDistrict.js` (the street outside, at street level) and `js/vjDesk.js` (the VJ desk's show, lights and set-player touch panels at the DJ table), all mixed into `VRClub.prototype`
-   Then `js/characterCatalog.js` (generated CC0 adult cast and assignments) and `js/characterStyles.js` (room style, local performance override and live model replacement, mixed into `VRClub.prototype`), followed by `js/wardrobeCatalog.js`, `js/avatarAppearance.js` and `js/avatarEditor.js`.
-9. `js/playerHeight.js` (pure player-height maths), `js/avatarRig.js` (the local player's procedural body), `js/djPerformer.js` (the DJ's live set, posed through the rig), `js/crowdDance.js` (the crowd's choreographer), `js/minglerClock.js` (the shared room-time round), then `js/sfuClient.js`, `js/networkClient.js`, `js/avatarManager.js` and `js/multiplayer.js` (`ClubMultiplayer`) — optional multiplayer (no instance until a guest connects)
-10. `js/club/01-core.js` through `js/club/11-audio-crowd.js`, in numeric order
+   Then `js/characterCatalog.js` (generated licensed adult cast and assignments) and `js/characterStyles.js` (room style, local performance override and live model replacement, mixed into `VRClub.prototype`), followed by `js/wardrobeCatalog.js`, `js/avatarDetails.js`, `js/avatarAppearance.js` and `js/avatarEditor.js`.
+9. `js/playerHeight.js` (pure player-height maths), `js/avatarRig.js` (the local player's procedural body), `js/djPerformer.js` (the DJ's live set, posed through the rig), `js/crowdDance.js` (the crowd's choreographer), `js/minglerClock.js` (the shared room-time round), then `js/sfuClient.js`, `js/liveAudioClient.js` (event-owned music; no connection until admitted), `js/liveInput.js` (private mixer testing and explicit publishing), `js/networkClient.js`, `js/avatarManager.js` and `js/multiplayer.js` (`ClubMultiplayer`), then `js/lightingPresets.js` (validated local lighting snapshots reusing the multiplayer fixture schema).
+10. `js/club/01-core.js` through `09-animation-finish.js`, then `10-ui-controls.js`,
+    `10-ui-menu.js`, `10-ui-social.js`, `10-ui.js`, `11-audio.js`, `11-avatars.js`,
+    `11-crowd.js` and `11-audio-crowd.js` (all under `js/club/`), in that order
 11. `js/club_hyperrealistic.js` — final public `VRClub` bridge and LED mixin
 12. `js/paymentGate.js` — public `window.VRPayment`, verified access/device management and prepared VR leases
 13. `js/immersiveLaunch.js` — `window.ImmersiveLaunch`, the opt-in (`?immersive=1`) in-headset launch
@@ -95,7 +105,16 @@ suite fails if the tokens diverge. Production uses content-hashed app and CSS fi
 ### Shared branch integration
 
 Quest and SideQuest include the ADE branch's shared safety, SFU, character-style
-and owner-only DEV-room features, not its artwork, event dressing or pitch builds.
+and owner-only DEV-room features. Default builds exclude its artwork and pitch services.
+The development builder supports `--branding=nocturne|ade` (or `VRCLUB_BRANDING`),
+resolved/validated by `scripts/branding.mjs`; explicit CLI selection wins.
+`js/venueBranding.js`, loaded before lifecycle, adds ADE's existing yellow logo signs,
+DJ fascia and street flags only when built HTML has `data-branding="ade"`.
+Lifecycle waits for the artwork alongside model readiness and disposes it.
+Only opt-in builds copy `branding/ade/`; never infer this choice from hostnames,
+query strings, local storage, admission or event state. Keep NOCTURNE's splash,
+logo/show and all deployment/access/SFU paths unchanged. The ADE notice requires
+written artwork permission before public publication; no general licence is granted.
 Keep each distribution's existing deployment target, metadata and VR access gate.
 
 ```powershell
@@ -140,9 +159,42 @@ Shared caching primitives used by both loaders:
 
 Any new network-backed asset type should reuse these rather than hand-rolling IndexedDB.
 
+Venue texture sets are `restroomTiles` (1K), `restroomPlaster` (512), `stageRust`
+(512), and `brushedCeiling` (1K, replaces the active `ceiling` URL). Rebuild with
+`node scripts/build-venue-textures.mjs`; exact CC0 sources/hashes live in each
+set's `provenance.json` and ASSETS.md. `VenueLayout.restroom.tileHeight` is 1.5 m.
+Lower tile faces merge into one noncolliding opaque mesh over the original solid
+walls; hall-side finishes preserve the doorway and club-facing brick. The DJ
+platform keeps its original anti-slip top/collider; `djWoodWorktop` reuses bar wood
+2 mm above the unchanged table. Do not add lights or change contact heights.
+
+`ModelLoader.loadAssetContainer(url, scene)` shares `loadOrDownloadModel()`'s binary
+cache, fingerprint, 120-second body deadline and disposal signal, parses a temporary
+`.glb` blob, and revokes it on success/failure. Equipment, `_loadAvatarSource()` and
+`AvatarAppearance.loadPreview()` use it; the editor passes the club loader even for
+its separate preview scene. Standalone previews own/dispose a temporary loader.
+Catalog/crowd/DJ/wardrobe bytes use `VRClubModelCache`, not a second avatar database.
+Existing decoded-source sharing and wardrobe retirement remain mandatory; uploaded
+private/shared models retain their separate persistence and consent paths.
+
+Ceiling service pipes are merged once as `ceilingServicePipes`, with the same pipe
+material, world geometry and pick/collision behavior (three draws become one).
+Do not merge animated fixtures, interaction targets or separate visibility districts.
+
 ### `js/club/` and `js/club_hyperrealistic.js`
-The VRClub implementation is an 11-layer inheritance chain grouped by lifecycle,
+The VRClub implementation is a classic-script inheritance chain grouped by lifecycle,
 rendering, environment, fixtures, animation, UI, and audio/crowd responsibilities.
+The UI branch is `VRClubControls` → `VRClubMenu` → `VRClubSocialUI` → `VRClubUI`;
+the audio/crowd branch is `VRClubAudio` → `VRClubAvatars` → `VRClubCrowd` →
+`VRClubAudioCrowd`. These eagerly loaded modules preserve the final public class APIs
+and inherited static settings; do not lazy-load them or duplicate their methods.
+UI controls own lighting/host/safety gates, menu owns drawing and selection, social
+owns network pages and the wheel, and `10-ui.js` owns seats, pointer routing, music
+transport, comfort and camera travel. Audio owns the graph/detectors/acoustics,
+avatars owns sources/custom bodies/DJ, crowd owns placement/visibility/shadows/dance,
+and `11-audio-crowd.js` owns the bartender, bar regular, mingler and diagnostics.
+`test/club-sources.mjs` aggregates each branch for isolated stub-based harnesses;
+production still derives the full eager order only from `index.html`.
 Layers stay around 1,500 lines (`08-animation-fixtures.js` is the largest at ~1,600), and no
 function in `02-lifecycle.js` / `08-animation-fixtures.js` exceeds ~215 lines. `init()` and
 `updateSpotlights()` are orchestrators over named per-phase methods; add new phases as
@@ -222,11 +274,14 @@ legs, VR arms IK'd to the controllers with the hand taking the controller's orie
 crouch and flight from the same root-height maths, and the torso backing off as you look
 down (the body mesh is open at the neck). The body's height is the player's own eye height in a headset
 (`club._bodyEyeHeight()`: `playerEyeHeight` when known, else 1.7 m; desktop is always 1.7 m because its camera is).
-`_updateLocalPlayerBody` calls `rig.setEyeHeight(_easedBodyEyeHeight(dt))` every frame: the height approaches the target at 0.3 m/s (`_bodyEyeShown`, also what the mirror double uses via `_shownBodyEye()`), and the rig refits only past a 4 cm difference. The height
+`_updateLocalPlayerBody` calls `rig.setEyeHeight(_easedBodyEyeHeight(dt))` every frame: the height approaches the target at 0.3 m/s (`_bodyEyeShown`, also what the mirror double uses via `_shownBodyEye()`), and the rig refits only past a 4 cm difference. Refitting measures facing with root rotation reset to zero; measuring a player's current turn changes the bind-forward direction and can reverse the mirror body. The height
 comes from `js/playerHeight.js` (pure maths, `window.PlayerHeight`): while standing (not Seated mode, not on room
 furniture) `Mezzanine._trackPlayerHeight()` feeds each XR frame's head height to a `HeightEstimator` (80th percentile of
 a 90 s window), and an estimate under 1.35 m is taken for sitting and ignored, so somebody who sits without Seated mode
-keeps the standard body. VR menu MEASURE HEIGHT takes the median of the final second of a three-second stand. Both save
+keeps the standard body. VR menu MEASURE EYE HEIGHT takes the median of the final second of a three-second stand
+from the physical base reference space, without virtual surface offsets or Seated mode's lift. It measures eye
+height, not crown-to-floor stature; an unexpectedly low reading requires checking the headset's physical floor
+calibration, not adding a guessed stature offset. Both save
 `vrclub.playerEyeHeight`. Sitting on tagged room furniture sets `pose.seated`; that separately lowers the pelvis
 onto `seatY`, fixes the body to the furniture's facing and plants both feet on its floor.
 
@@ -253,6 +308,13 @@ Rules when editing it:
   draws (`Mesh.render` is still called, which is misleading). A per-guest tinted copy was
   measured at 38 new shader effects and ~3 s of invisibility for three guests.
 - No per-frame allocation, and nothing in it may toggle a light or touch a material.
+- `AvatarRig.enableFrustumCulling(root, meshes)` installs one conservative root-space
+  motion envelope for shipped NPCs and ordinary procedural rigs (including the local
+  mannequin), tested against animated skin across the shipped cast.
+  It leaves geometry bounds intact for sizing and
+  fitting, and tests the actual render pass's frustum (eyes and mirror separately).
+  Do not restore bind-pose culling or unconditional activity. Uploaded/fallback rigs,
+  remote guests and the first-person/mirror double retain their existing policy.
 - VR hands are written against the WebXR pointer pose (forward and up) and have only been
   exercised with synthetic poses. Check them on a headset before trusting the roll.
 - `test/rig.test.mjs` runs the real Babylon and the real GLB headless (no stubs, because a
@@ -300,13 +362,16 @@ faces), which rolls the palm about the fingers. Both claps keep the PALMS facing
 fingers forward and a little up in front of the chest; fingers up and thumbs back above the head), never the edges or
 backs of the hands; `Groove_ArmsWide` shows open palms up and `Groove_ArmsUp` palms forward. `test/rig.test.mjs` measures
 the palm normal on every dancer and fails if a clap's palms stop facing each other. `node scripts/build-crowd-glbs.mjs
---refresh-static --optimize` re-authors `REFRESHED_GROOVES` (every groove now) on the shipped dancers without the asset packs
+--refresh-static --optimize` re-authors `REFRESHED_GROOVES` (every groove now) and `Dance_Loop` from the local guest
+sources on the shipped dancers without the asset packs
 (and rebuilds the recoloured variants from them).
 - **Natural motion, not a metronome.** Three layers, each measured. (1) *Authoring*: `dip(beat)` is a bounce that lets go of
   the beat slowly and falls into the next faster (smooth through the beat), and the parts FOLLOW the hips by shifting it back
   (chest ~0.06 beat, head ~0.13, hands ~0.18: overlapping action). `Groove_Bounce`, `_SideTap` and `_Pump` are eight beats
   long and `_Twist` four: the weight and the head wander through the phrase, the bar line is pressed harder, a SideTap bar
-  starts on the other foot, and the Pump changes fists between two beats (never on one, so a fist is always up ON the beat).
+  starts on the other foot. Pump alternates overlapping, eased 1.5-beat raises and returns,
+  so one hand stays up ON every beat without the old quarter-second swaps and 44–59-degree arm snaps.
+  The real-rig regression also limits rotation per 50 ms to <0.65 rad.
   Contact moves (the claps) keep their beat-exact contact; only the body around them lags. (2) *Per dancer* (`createDancer`):
   `lag` (-0.02..+0.06 beat, up to ~30 ms at 120 BPM, mostly behind) so nobody is exactly on the grid, and `phaseOffset` (a
   whole beat of the move's phrase, drawn when the move changes) so a floor doing the same eight-beat move is not all stepping
@@ -423,10 +488,56 @@ that has genuinely moved (a mix landing late) back in once most recent candidate
 keep it and a real tempo/phase shift is still followed within a few beats.
 
 ### `js/showDirector.js` — "NOCTURNE"
+An additional selectable `aesthetic` program reuses the same beat/cue engine,
+structure-reading set-pieces and Safe Mode gates. NOCTURNE stays the default.
+SHOW STYLE on DOM, VR SHOW and the desk selects it explicitly and resumes auto.
+Its long single-hue spot passages use Static Down (aim 1) or Mirror Sweep (aim 2)
+with one-beat row chase/fill, including multi-beam-filter passages and occasional
+layered peaks. Aesthetic Mirror Sweep is down → inward → down, never outward;
+cue-local shared bar/beat position clocks four/eight-bar arcs at different fixed
+speeds. NOCTURNE and manual Mirror Sweep retain their existing motion.
+The wall alternates handed-colour breathing (index 5) and the Warehouse slot (19),
+whose aesthetic-only `patternAestheticShapes` renders eight abstract shape programs
+over four-bar phrases, with beat-stepped geometry and smooth level transitions.
+It uses only the handed colour, never Warehouse flashes/white stabs; above 150 BPM
+shapes step on alternate beats. Safe Mode lengthens fades and lowers the peak.
+Peak cues lift the wall to 0.9 and increase abstract shape level smoothly; Safe
+Mode retains its raw 0.4 ceiling. Immersive cue entries cycle five hue offsets,
+held through recomposition; followers retain the host's existing colour snapshot.
+The row sequence clock integrates tempo and gently follows small phase nudges,
+ignoring single missing detector beats. It never reverses or advances several
+rows in one frame; hidden-tab gaps/reset clocks re-anchor instead of catching up.
+The existing shared sequence timestamp publishes this smoothed phase, not the
+detector counter; abstracts use it too while a sequence runs.
+The prism carries the ordinary cone's exact emission, at 0.35 of its alpha,
+with the underlying cone at 0.25 visibility: no extra colour/opacity gains.
+No new wall playlist index, light, mesh or per-frame buffer allocation is added.
+Program choice travels in the existing `show.fx.showProgram` metadata;
+followers adopt it before resolving cues, and leaving restores the local program.
+Dense Aesthetic passages keep downward spots and the wall lit and use both existing
+smoke machines in beat-shared burst mode. Their `fogImmersion` (0..1) fills the
+existing EXP2 medium from actual bursts (1.6 s attack, 18 s dispersal), capped at
+three times normal indoor density; lit air scatters the active fixture colour.
+The automatic `cutToBlack` snapshot ID becomes SMOKE FILL in Aesthetic, and its
+countdown omits the final blackout. NOCTURNE and explicit master-zero remain unchanged.
+No new mesh, light or particle capacity is added; existing tier/output budgets apply.
+DENSE SHOW SMOKE FOR ME suppresses both extra density and burst-output boost locally,
+including as a room guest. This is homogeneous fog plus sprites, not simulated
+volumetric transport; physical-headset appearance and cost remain unmeasured.
+`laserSheetSpeed` (0.25..2 multiplier, still capped by `_poseLaserSheet` at 1.4)
+and `laserSheetBrightness` (0..3) are independent host-synced sheet controls.
+`spotBrightness`, `laserBrightness` and `ledWallBrightness` (0..2) are separate
+fixture trims, not cue levels or the whole-show master. DOM Effects and VR/desk
+LIGHTS → BRIGHTNESS / SHEET delegate to `FIXTURE_BRIGHTNESS_CONTROLS`.
+Trims survive automatic cues, travel in every show mode and restore on departure;
+presets retain them and migrate older complete schemas to neutral trims.
+Safe Mode caps boosts at 1 without losing settings; brightness cannot defeat blackout.
+These appearances and physical-headset comfort/cost are unmeasured.
+
 The composed light show, and **the single source of truth for fixture state** whenever
 `showDirector.isDriving()` is true (i.e. the show is enabled and `vjManualMode` is off).
 
-Structure: **23 looks** → **5 movements** (`arrival`, `pulse`, `ascent`, `ignition`,
+Structure: **composed looks** → **5 movements** (`arrival`, `pulse`, `ascent`, `ignition`,
 `afterglow`) → **4 set-pieces** (`countdown`, `cutToBlack`, `breakdown`, `release`). A look
 is a flat map of
 `VRClub` fixture properties; a `[from, to]` value is a ramp resolved across the cue's bar
@@ -434,6 +545,28 @@ span. Movements are ordered cue lists; the next movement is chosen from a smooth
 energy EMA, but only on a bar boundary and only after `minBars` have elapsed.
 
 Rules when editing:
+- Paired-row spot aims (indices 5-7: wave, fans, call/response) use `spotRigBeat()`,
+  not wall-clock time multiplied by a changing speed. The wave is eight bars with
+  a one-bar delay per row; call/response opens and returns over two bars, then holds
+  for four. The new `rowWave`, `rowConversation` and `rowBuild` cues are spot-owned
+  with a quiet LED accompaniment; the conversation keeps the middle pair white and
+  static. Keep negative-space solos and full-wall moments between them. Shared
+  beat/tempo timestamps must travel even in Steady when a grouped aim is selected,
+  including an individual head's override. All three VJ surfaces use the same aim
+  and movement lists. Tests measure pair symmetry, lag, hold continuity, angular
+  speed and actual cue rendering; headset comfort and cost remain unmeasured.
+- `columnFill` and `columnFillSweep` give the two physical columns twelve-bar
+  passages: left column, both columns, dark reset, with four beats per fill step.
+  The first holds straight down; the second combines Column Fill (sequence 5)
+  with Mirror Sweep (aim 2). That combination uses `spotRigBeat()` for a shared
+  twelve-bar sweep, identical within each column and mirrored between columns;
+  wall-clock time and speed ramps must not move its musical phase. Other manual
+  Mirror Sweep combinations retain their existing motion.
+- Mirror-ball incident beams and housing caches compare RGB values as well as
+  the source reference: palette fades can mutate a `Color3` in place. Reflected
+  colour updates on that same frame, even between VR geometry updates.
+  `_updateMirrorReflectionColors()` must not rebuild or upload instance matrices;
+  the tier's reflection-geometry cadence remains unchanged.
 - **All structural decisions happen in `_onBar()`, never mid-bar.** Landing changes off the
   musical grid is exactly the failure this class exists to fix.
 - An automatic countdown requires energy to rise by at least 0.035 over four bars.
@@ -463,7 +596,7 @@ Rules when editing:
   aurora wall instead of an empty room. `onPhotosensitiveModeChanged()` immediately
   recomposes the current automatic cue and countdown rung without taking over manual
   lighting. Never bypass this.
-- Keep the gobo/laser exclusivity rule — one aerial idea at a time, or the haze turns to soup.
+- Keep the laser/spotlight composition restrained: one aerial idea at a time, or the haze turns to soup.
 
 **Four places hand control over. All four must stay gated:**
 
@@ -508,6 +641,14 @@ rand, last)` answers it (ring order 0,1,3,2). A look's `strobePattern` still win
 one (`cycleStrobePattern`, VR EFFECTS, VJ panel, host-synced as `strobePatternIndex`) holds in manual mode or a held section.
 Step patterns run on a steady interval and the flash light follows the brightest strobe. Every pattern still claims
 `_tryClubFlash` (<= 3 flashes a second) and Safe Mode still clears `strobesActive`.
+**Show master and peak.** `VJDirector.showMasterIntensity` scales the composed automatic look without changing its
+cue smoothing; it defaults to 1, travels as `fx.vjMaster` in automatic host frames and restores the local setting
+when a follower leaves (promotion keeps the host's). Manual snapshots still capture `targetMasterIntensity`.
+The desktop PEAK NOW and VR SHOW → PEAK NOW call `VRClub.triggerShowPeak()`: the automatic show starts the
+one-bar release instead of letting the legacy scene writer fight the cue; manual control selects the legacy
+peak and enforces aerial exclusivity. COUNTDOWN remains the separate four-bar build. Safe Mode wins in both.
+The legacy VJ auto-scene picker also stands down in manual mode so it cannot change a held aim or fixture.
+
 **Hand control and the hold policy.** `vrclub.lightHold` = `{mode: 'resume'|'keep'|'shuffle', delay, shuffle}`
 (`VRClubCore.resolveLightHold`; delays `LIGHT_HOLD_DELAYS`, shuffle `LIGHT_SHUFFLE_SECONDS`). Any hand change calls
 `takeLightControl()` (every DOM VJ button in `HAND_CONTROLS` too). `resume` hands back after `delay` s
@@ -516,8 +657,25 @@ Step patterns run on a steady interval and the flash light follows the brightest
 used to rewrite spot, laser and mirror colours every 16 beats under a hand-picked colour. Picking a section by hand
 (`ShowDirector.pickSection/nextSection`, `isHeld()`) holds that look under the same policy; `_onBar` skips structure while
 held, and `releaseHold()` (Auto show, resume) lets it go. Followers (`remoteDriven`) never hold.
-**Smoke.** `_tintClubAir` eases `_smokeLevel` (1.6 s) from `smokeActive` and scales fog density, haze alpha, laser-sheet haze
-and beam medium density, so switching it off visibly clears the beams. Reads tolerate a missing `_smokeLevel` (bare stubs).
+**Smoke.** The desktop Effects panel, VR EFFECTS → SMOKE SETTINGS and desk LIGHTS → SETTINGS use shared host-gated
+`toggleLightControl` steppers for `fogIntensity` (0.5/1/1.5/2) and `fogBurstMode` (steady or steady + bursts);
+both steppers activate smoke, while the separate smoke switch leaves those choices intact.
+Manual Maximum doubles the existing machine rates (not capacities) and eases scene fog to three times normal density.
+The personal reduced-show-smoke choice suppresses both manual boosts; tier/effect budgets still apply.
+Stopped emitters restart when smoke is enabled. `_tintClubAir` eases `_smokeLevel` (1.6 s) from amount and
+burst strength and scales fog density, haze alpha, laser-sheet haze and beam medium density. Both machines fire together
+for three beats of every sixteen in auto mode, using `spotRigBeat` and the existing shared beat timestamp. Tier and
+effect-load particle limits remain in force. Show looks reset their mode to continuous unless explicitly burst, and include
+a clear-air passage; old lighting presets default to the former auto mode. The relay's flat fixture map carries the mode.
+Reads tolerate a missing `_smokeLevel` (bare stubs).
+**Random and independent moving heads** integrate elapsed time into `_spotMotionPhase`, rather than multiplying a changing
+speed by absolute time. Aim, pan and tilt are rate-limited; per-head independent overrides use the same path. The host
+shares the phase without adding it to presets. In every pattern the beam and light direction follow the animated physical
+head, not the uneased aim target. `_resolveSpotSurfaceHit()` forces the current yoke/head/lens transforms and places both
+the cone and the multi-beam filter just outside the centre of the lens face. Their near ends spread over the lens without
+exceeding its 0.17 m radius even under the beam's tilt stretch; the source end of the opacity gradient no longer fades to
+zero. The real-scene prism test checks alignment and aperture coverage through pattern transitions; headset appearance
+and the additional transform cost remain unmeasured.
 **Kick punch reaches the fixtures.** `club.kickDepth` (the look's `punch`, written by the
 director) × `beatEnvelope` gives `club.kickPulse` each frame, halved in Safe Mode. It lifts
 the moving-head intensity and beams, laser beams, laser-sheet glow, mirror-ball spin, and —
@@ -610,14 +768,33 @@ and a ~2 ms scene walk per toggle. `strobeFlash` stays disabled for life; the fl
 emissive lamp plus the ambient impulse.
 
 Smoke and dust are unlit sprites, so `_lightAirParticles()` (07, hooked into the haze and
-dust `updateFunction` by `_installAirLighting()`) brightens and tints the ones inside a
-moving-head cone with a Henyey-Greenstein phase term, makes dust visible only inside beams,
-and feeds each beam's `_mediumDensity` back into its alpha. It edits the colour for one
-frame only (the colour gradient recomputes it), allocates nothing, and is **desktop only**:
-~0.3 ms per pass on a desktop CPU, unmeasured on a Quest. Do not enable it in VR without a
-headset capture.
+dust `updateFunction` by `_installAirLighting()`) brightens and tints them in moving-head,
+laser and mirror-ball beams, laser sheets, the LED wall, mirror-ball reflections and actual strobe bursts.
+The dust sprites are 3–12 mm glints, not literal physical dust grain sizes; their LED, reflected and strobe
+responses are attenuated. The moving-head contribution uses a Henyey-Greenstein phase term and smoke
+feeds each desktop beam's `_mediumDensity` back into its alpha. It edits the colour for one frame only
+(the colour gradient recomputes it) and allocates nothing. Desktop evaluates every particle. VR evaluates
+one third of room haze/dust particles per frame, rotating the sample across frames; nozzle plumes remain
+full-rate. A desktop pass with 1,400 motes and six beams measured ~0.3 ms without the wall/mirror and ~1.14 ms
+with both; a single full-size room pass measured ~0.69 ms on Quest 3S, so the headset path deliberately
+uses the rotating sample. Re-measure it on a physical headset before increasing the sample rate.
 No light currently owns a `ShadowGenerator`: the two it had sat outside every material's
-slots, so no shadow was ever sampled.
+slots, so no shadow was ever sampled. Instead, grounding and dynamic shadow projection use two
+thin-instanced ground-decal batches (`contactShadows` for characters, updated by
+`_updateProjectedCharacterShadows()` to stretch and yaw away from active overhead spotlights,
+the mirror ball or strobes while anchoring the foot center; and static `venueContactShadows`
+built by `createVenueContactShadows()` for the DJ riser/table, bar, stools, couch, mezzanine
+columns and restroom fixtures), costing two draw calls total with zero shadow-map render passes.
+Character matrices reuse their Float32 buffer and upload only when its values change,
+including moving characters and raised walking surfaces. These are approximate
+grounding decals, not occlusion-correct cast shadows.
+The four mirror-ball pinspots (`createMirrorBall()`) align their cylindrical barrels, bezels,
+recessed condenser lenses and incident cones axially along local `+Y -> direction`, clamped to
+the front and rear trusses via merged `mirrorSpotTrussClamps` and `mirrorSpotRiggingMounts`.
+Bases join the rigging batch and all four rims share `mirrorSpotBezelMerged`
+(seven fewer geometry draws than separate bases/rims). The ball's facet emission
+obeys the whole-show master, including zero; do not restore an unscaled emission floor.
+Production never pre-seeds saved music, even on a development hostname.
 
 Keep the ambient preset's small nonzero specular contribution. Babylon's (observed on 8.30.5;
 the mirror-only e2e still guards it on 9.28.0) clear-coat path can read uninitialized pre-lighting vectors when only a zero-specular
@@ -922,8 +1099,31 @@ and fail `npm test`.
 
 ### Configurable character cast
 
+The detailed cast retains source-neutral facial expressions and a night-out wardrobe
+of fitted shirts, cropped tops, tailored layers, halter and cut-out dresses.
+Never paint or procedurally shape smiles, or bake them from generic face-shape sliders.
+Use expression changes only when verified official expression options are supplied
+for that avatar; none are currently integrated. The lightweight cast keeps its authored faces.
+`scripts/characters/generate.py` authors both base and optional wardrobe faces; rebuild
+both sources and production catalogs after changing their recipes. Standing-idle retargeting
+matches the source hip-to-neck direction rather than amplifying upper-spine pitch across
+different body proportions; contact, dance and work bends remain intentional.
+The DJ rig measures its headphone cup geometry in the Head frame and places its real palm
+on the shell through cue nods. See `ASSETS.md` and the character rig/retarget tests.
+
+Curated detailed outfits may combine separate tops and bottoms: source generation
+unions their body masks and merges them into the existing two garment colour regions.
+Measured eye landmarks use the source atlas cell recorded in each recipe, not an
+assumed 2x2 layout. Fashion pack hashes and attribution live in
+`design/characters/provenance.json`; Asha's crop top is explicitly CC BY 4.0 and its
+author-original source header hash is checked before generation. Unversioned CC-BY
+candidates and poorly fitting braid sources were not imported. New garments remain
+outside the procedural-print allow-list unless verified plain.
+
 **Personal wardrobe:** `AvatarAppearance` validates the complete versioned
-descriptor (base, hair, outfit and four hex colours), instantiates selected fitted
+descriptor (v1: base, hair, outfit and four hex colours; complete v2 additionally
+requires glasses, facialHair and hat, and permits bald hair; complete v3 adds
+`shoes` original/loafers/pumps/heels and `legwear` bare/sheer-black/sheer-nude), instantiates selected fitted
 parts with private factory materials and shared textures, and supplies preview
 models. `PersonalAppearance` is mixed into `VRClub`; it owns
 `vrclub.personalAppearance`, acknowledgement-based saves/resets and bounded,
@@ -936,10 +1136,50 @@ source materials. The relay's optional `appearanceSelection` capability validate
 and retains descriptors only in membership/avatar frames, not every pose.
 Older relays must report unsupported sharing. Source generation uses
 `AVATAR_WARDROBE=1`; `npm run build:wardrobe` emits 17 optional GLBs and their
-catalog. About 45 MiB is optional, downloaded per selected base; total deployed
-payload measures 159 MiB (CI ceiling 165 MiB; source asset audit ceiling 160 MiB).
+catalog. About 47.9 MiB is optional, downloaded per selected base; total deployed
+payload measures 163.6 MiB (CI ceiling 165 MiB; source asset audit ceiling 160 MiB).
 No upload or avatar service. Every outfit selects its own authored skin-occlusion
 mesh so covered skin never pokes through clothing.
+Four-channel vertex colours on those three source skins are shoe-occlusion
+masks, disabled visually. Footwear selection filters indices on instance-owned
+geometry; never edit shared geometry. Each shoe option includes the eyes, so
+switching shoes adds no draw. Hosiery is an opaque leg-weight-only vertex tint,
+not alpha blending, an extra mesh or a per-frame updater. Detailed women wear
+sock-free loafers, flat ballet pumps or heeled ankle boots; lightweight shoes
+stay authored. The `heels` label must say heeled ankle boots, not pumps.
+`AvatarDetails` fits original procedural glasses, beards/stubble and hats to
+the real head/face: one opaque skinned vertex-colour mesh, no new textures
+or per-frame updater. Head accessories preserve first-person/mirror hiding.
+That same mesh also carries restrained garment prints on selected NPC shirts
+and sweaters in both styles, and on personal Casual outfits. Original orbit/wave
+motifs and hand-authored Japanese 音 (sound) / 光 (light) use no downloaded font.
+`_printGeometry()` clips ink to actual garment triangles and interpolates their
+skin weights (including small natural neck blends), never weights a shirt to
+the head. Changing outfit/top colour rebuilds this static geometry only; it
+must not add another mesh, texture, per-frame projection or descriptor field.
+Tailored Smart outfits stay plain. Baked MakeHuman graphics on casual shirts
+02/04/06 are neutralised before atlas generation. Catalog `printSurfaces` is
+the detailed/wardrobe print allow-list; unknown garments receive no overlay.
+See ASSETS.md for dictionary and footwear sources.
+The editor upgrades v1/v2 drafts to complete v3, offers accessories in desktop/phone
+and a VR subpage (never over 12 buttons), and hides fitted hair under headwear.
+The client negotiates `appearanceAccessories` for v2+ and
+`appearanceFootwear` for v3 in the existing acknowledged avatar frame; never
+put those versions in a join URL to an unnegotiated relay.
+Deploy both frontend and relay; unsupported sharing must preserve the saved look.
+NPC assignments are deterministic in both styles. Detailed bouncer/Idris, Ellis and
+Ren are bald; the lightweight bouncer/m7 (and derived vm4) retain their original
+scalp and eyebrows/side hair, with crown geometry removed offline. Lightweight m4
+and its vm5 variant keep full hair; `--restore-hair` restores m4 from the matching
+m3 crown without changing its rig or clips.
+The avatar optimizer preserves height using referenced vertices only: discarded hair
+vertices must never stretch the visible scalp into a spike. The pack-free wardrobe
+refresh repairs the affected pre-existing scalp peaks before rebuilding variants.
+`AvatarDetails.phone()` fits the outside queue caller's single opaque phone
+mesh to the raised palm, parents it to the actual wrist and includes it in
+`npc.meshes` for scoped lights/visibility. Root disposal/style replacement owns
+it; never add a per-frame prop updater. Props above the head are excluded from
+player/preview body-sizing bounds.
 Wardrobe sources are shared while in use and retired after the final instance
 leaves; do not retain every visited base's decoded textures for the whole session.
 Physical-headset fit, controller feel and frame cost remain unmeasured.
@@ -960,7 +1200,8 @@ host restores this device's preference. No reload, reconnect, manual-light takeo
 or tier/count change is part of switching.
 
 `characterCatalog.js` is generated by `npm run build:characters` from 34 verified
-CC0 adult bases/recipes under source-only `design/characters/`. It contains literal
+CC0 adult bases/recipes with an attributed CC BY 4.0 crop top on Asha under source-only
+`design/characters/`. It contains literal
 asset URLs for the production allow-list, measured eye landmarks, unique NPC
 assignments (14 dancers, 8 guests, bartender, bouncer, 8 queue, two alternative DJs)
 and a separate seventeen-ID player mapping preserving women/men pools. The relay's
@@ -1022,9 +1263,26 @@ cloth appearance and GPU/CPU cost on a physical Quest are unmeasured.
   dance and idle clips. They are NOT on the UE mannequin: their rig is the 62-bone modular one (a `Body` bone
   carries the height and the legs hang from it, free-standing IK foot bones, arms-down bind pose, no dance clip),
   so `node scripts/build-crowd-glbs.mjs --women <dir> --men <dir> --optimize` retargets the clips offline: trunk
-  bones take the source's WORLD rotation delta from its bind pose, arms and legs are aimed along the source's
-  world bone directions (swing only, which is what lets a T-posed source drive a relaxed rig), and the foot
-  bones are placed at the end of the animated legs. The floor dancers also carry the procedural grooves (see
+  bones take the source's WORLD rotation delta from its bind pose, and legs follow the source's
+  world bone directions. Arms use shared offline `scripts/arm-frame.mjs` rotations to align BOTH the limb axis
+  and elbow hinge plane, not independent swing-only upper/lower rotations: the shipped `Groove_Bounce`
+  reproduced a ~54-degree hinge mismatch despite matching its joint positions.
+  `test/rig.test.mjs` enforces hinge alignment >0.98 for both arms across lightweight/detailed grooves and
+  `Dance_Loop`. Shared `armPronation()` puts 70% of palm roll into the forearm, capped at 75 degrees,
+  preserving the exact world palm target; the real-rig regression also bounds forearm rotation below
+  76 degrees and wrist roll below 61 degrees (detailed ArmsWide previously put up to 134 degrees
+  into the wrist). The >0.98 hinge check applies to the upper arm before that forearm pronation.
+  Default groove hands inherit forearm roll; explicit palm targets remain honored.
+  Foot bones are placed at the end of the animated legs.
+  `--refresh-static` also reauthors `Dance_Loop` from the local guest sources; after changing the arm frame,
+  rebuild lightweight people/variants first, then refresh existing detailed/wardrobe dance clips with
+  `node scripts\characters\build.mjs --refresh-dance` and
+  `node scripts\characters\build.mjs --wardrobe --refresh-dance`; this selective refresh preserves
+  artwork, hair, accessories and all nondance clips. Selective refresh prunes only unused
+  accessors/buffers, preserving anatomical helper nodes and all normals, UVs and wardrobe masks;
+  a pruning regression was found and fixed using the full suite.
+  This is offline authoring only: no runtime IK or per-frame allocation is added, and physical-headset
+  appearance remains unverified. The floor dancers also carry the procedural grooves (see
   `js/crowdDance.js` above). Each person is ONE mesh with ONE material and per-vertex
   colour (no textures, ~0.8 MB), where the Universal Base Characters cost about six draws. The cast, palettes
   and which people carry the guest clips live in that script's `CAST`; props (pistols, hats, crowns) are dropped.
@@ -1197,9 +1455,15 @@ cloth appearance and GPU/CPU cost on a physical Quest are unmeasured.
   and `female` (1.68 m) to `club-dj-male.glb` / `club-dj-female.glb`, built from CC0 Quaternius
   guests. `chooseDJ()` persists `vrclub.questDJ`; neither music nor remote podcast metadata selects
   a DJ. The male guest's beard is cut out by its exact vertices, and a Universal Base
-  Characters `Hair_Long`, shortened to shoulder length and trimmed of everything in front of the ears (its bangs read
-  as long eyebrows), goes over the short cap and shares its material, so
+  Characters `Hair_Long`, trimmed in front of the ears (its bangs read
+  as long eyebrows) and reworked into opaque nape waves, goes over the short cap and shares its material, so
   the optimiser still merges to ≤6 draws; optimise `club-dj-male.glb` and `club-dj-female.glb`.
+  The male also has softened cheek/jaw geometry and subtle age creases.
+  `node scripts/build-dj-glbs.mjs --refine-male` refreshes those changes idempotently without
+  source packs; the full build applies the same refinement. It preserves headphone geometry and bind matrices.
+  Detailed Jin separately uses age 0.82, mature male skin and `long01`-derived
+  `loose-nape-waves` (13 tapered curved clumps), preserving height, rig and three draws.
+  `AVATAR_ONLY=jin` limits both offline source generation and the character build to him.
   `setDJ(id)` queues behind `initPromise`, loads each DJ once, disposes the previous performer and
   collider, and tints garment and hair (`/^MI_Hair/`) on the DJ's own container so the crowd is
   unaffected. The DJ is then posed by `DJPerformer` through an `AvatarRig` (see `js/djPerformer.js` above); the GLB's
@@ -1215,8 +1479,12 @@ cloth appearance and GPU/CPU cost on a physical Quest are unmeasured.
   copies those colours into the wall's 21x10 emissive texture at the end of `updateLEDWallPass`.
   Do not split it back into per-panel meshes, and do not add a code path that writes a panel colour
   after that flush. The tiled wall collides, with one continuous invisible `ledWallCollider` immediately behind it
-  (it overlaps the side-wall collision volumes, and stays explicit in `_teleportBlockerMeshes()`) so the tile seams
-  cannot let somebody at the DJ spot fall behind the wall. The physical `djTable`, not an oversized
+  (overlapping the side-wall collision volumes and explicit in `_teleportBlockerMeshes()`).
+  `Mezzanine._containLEDWall()` constrains desktop/XR eyes and queued XR movement to its measured room-side
+  face plus body clearance, before surface following or a jump early-return. Tracked physical poses bypass
+  Babylon's camera collision solver; never rely on the backing mesh alone. A pose already behind it is returned
+  to the stage side so the guest cannot become trapped; the constraint adds no mesh and leaves other room surfaces alone.
+  The physical `djTable`, not an oversized
   invisible barrier across the booth front, blocks the decks; the one-metre platform margins remain open side paths
   into the operator position.
 - **PBR environment**: local `./js/vendor/environmentSpecular.env`. It used to be fetched
@@ -1338,6 +1606,26 @@ One Sketchfab *Bass Bin 3* (CC BY 4.0, darksoundlab) hangs under each flown spea
   Two invisible blocks (`_blockBassBins`) fence them. Headset cost is unmeasured.
 
 ### The restroom (`createRestroom()` in `js/venueDressing.js`, `js/restroomArt.js`)
+`js/restroomInteractions.js` loads after restroom art and before venue dressing.
+It owns the two hinged seats/lids, flush, 12-second taps and tracked-hand rinse
+visuals. Tank/tap controls and the moving parts use the existing guarded mouse/XR
+pointer path before furniture selection; closed lids/raised seats prevent sitting.
+Shared actions are acknowledged through `NetworkClient.sendRestroom` and the
+relay's optional `restroomInteractions` capability, never host-only or speculative.
+The relay retains room-local state across handover/late joins, rejects occupied
+seat/lid changes, limits flushes to one start per 15 seconds and resets an empty
+room. Old relays report unsupported controls. Water sound bypasses analysis and
+broadcast, follows Ambience, uses AudioUtils positions and scheduled stop deadlines.
+Dispose its texture, meshes and audio nodes with the club.
+The toilet is three draws (body, authored hinged lid and original seat ring);
+rebuild it through `scripts/build-restroom-monitor-assets.mjs`, never merge the
+hinges back into static geometry. Doors reuse the bar wood. Four instances of
+plaggy's CC0 Door Handle 3 are loaded once through the fingerprinted model cache,
+parented to hinges on both door faces, pickable and included in scoped lights and
+the mirror. `scripts/build-door-handle.mjs` strips maps and bakes the mounting
+origin; its provenance records the exact supplied source hash. Headset comfort,
+hand fit and performance are unmeasured.
+
 `VenueLayout.restroom` is the single source of truth for its coordinates: a tiled room off the front-left corner of the hall
 (x -12.75..-16.4, z -6.2..-1.2), two stalls along the back wall, two basins and vanity mirrors on the hall wall, entered through a
 1.8 m doorway in the left wall. Everything solid is merged per material by `_dressingBuilder()`; the toilets and basins are Quaternius
@@ -1349,11 +1637,13 @@ GLBs instanced once more, and `restroomLight` plus `restroomBackLight` are scope
   (`_scanRemoteToilets()` every 0.2 s, from the `seated` state frames guests already send, so no message is needed for that); or it
   was pushed shut by hand (`_doorsByHand`). **By hand**: the leaf, handle and lamp are pickable (`metadata.vrclubDoor`), and
   `_pressStallDoor()` (called from the pointer path before `_pressSeat`) toggles it, or stands up a guest sitting behind it; an
-  occupied door does not give (silently: its red lamp already says so). A hand push is **shared room state**: `NetworkClient.sendDoor()` sends
+  occupied door does not give and reports that the toilet is occupied; it never requests that a simulated occupant leave. A hand push is **shared room state**: `NetworkClient.sendDoor()` sends
   `{type:'door', door, shut}`; the relay (`worker/src/relay.js`, `MAX_DOORS`) lets any guest set it, relays it block-aware, keeps it
   for late joiners (`welcome.doors`) and clears it when the room empties; the client applies it with `setSharedDoor(s)` and resets
-  it on leaving the room. A shut door is solid (`checkCollisions`) except while somebody stands in its doorway, so it cannot trap
-  anyone; an ajar door is never solid. The lamp on the leaf is the lock: red only while somebody is sitting inside (this guest or a remote one), green otherwise, so a door closed by hand over a vacant toilet is not "locked". **The relay must be deployed for hand pushes to be
+  it on leaving the room. A shut door is solid (`checkCollisions`). Only a player already overlapping it when it finishes closing
+  gets clearance until first stepping clear; approaching a closed door never disables it. Collision changes update live XR
+  teleport blockers too. An ajar door is never solid. Occupied toilets also reject seat selection, including simulated occupants.
+  The lamp on the leaf is the lock: red only while somebody is sitting inside (this guest or a remote one), green otherwise, so a door closed by hand over a vacant toilet is not "locked". **The relay must be deployed for hand pushes to be
   seen by others** (an older relay drops the frame; the seat-driven doors need no relay change). Rule for new work: any visible
   change to the environment must be shared (derived from existing synced state, a relay-held room state like this, or host-owned
   like the lights and music), never local-only.
@@ -1370,7 +1660,9 @@ GLBs instanced once more, and `restroomLight` plus `restroomBackLight` are scope
   per eye and only while the mirror is in view: also listing it in `scene.customRenderTargets` drew it twice a frame, and a headset
   refresh of every other frame showed one eye's reflection to both and lagged the head. Do not reintroduce either. `refreshRate` is 0
   away from the restroom and 1 inside; `_restroomMirrorQuality()` sets size/MSAA per tier (desktop 1024/4 ultra, 1024/2 high, 512/1
-  balanced; VR 512/2, 512/2, 384/1). **The reflected body is also the player's own body.** `_mirrorDouble` is the player's
+  balanced; VR 1024/2, 512/2, 384/1). Ultra VR matches desktop resolution without raising headset MSAA; High and Balanced
+  keep their smaller targets. The additional per-eye GPU cost on a physical headset is unmeasured.
+  **The reflected body is also the player's own body.** `_mirrorDouble` is the player's
   character (the relay's assignment online, `getLocalCharacter()` offline; none = the mannequin shows in both): it is built
   whenever a character is known and `_syncMirrorDouble()`/`_updateMirrorDouble()` run every frame from `updateRestroomMirror`,
   not only near the restroom. It is drawn in the main view (`isVisible`), and `_updateLocalPlayerBody` hides and idles the
@@ -1443,7 +1735,11 @@ It is built from the CC0 Quaternius *Downtown City MegaKit (Standard)*, which is
   the windows' `emissiveIntensity` (1.7) were tuned in the real pipeline: the club's grade (ACES, contrast 1.2, vignette)
   crushes a dim scene, and values that look right in a bare Babylon viewer are four times too dark here.
 - **It costs nothing indoors.** `updateCityDistrict()` (called from `_beginFrame()`) disables the whole root unless the guest is
-  forward of `z -8` (hysteresis: it hides again below `-10`). It stays enabled while `_cityWarm` so `scene.whenReadyAsync()` compiles
+  forward of `z -8` (hysteresis: it hides again below `-10`) and a conservative
+  horizontal sight line can cross both entrance openings (`CityLayout.canSeeStreet`).
+  This hides the street behind the restroom/front walls, not a possibly visible
+  doorway at the dance preset. `VenueLayout.vestibule.clubDoorHalfWidth` owns the
+  club opening used by both the wall geometry and this test. It stays enabled while `_cityWarm` so `scene.whenReadyAsync()` compiles
   every material before the VR button wakes. The street loads at the END of `modelLoadPromise`, so "Preparing VR..." covers its
   parse stall; a failed load only leaves the street door shut (`createCityDistrict()` never rejects).
 - **Outdoors.** `CityLayout.exteriorAmount(x, z)` (0 in the club and vestibule, 1 outside, a smoothstep through the door) is the single
@@ -1674,6 +1970,10 @@ press counts as audio user activation (fallbacks: the Enter VR button and the fi
   heuristic ("silent so far; may be a server CORS restriction"), not as proof.
 - **Quest music (`js/musicLibrary.js`).** `MusicLibrary` owns at most eight HTTPS audio or SoundCloud page links
   in `vrclub.questMusic`, with optional names and a selected index. Storage failures surface explicitly.
+  An unreadable primary record is never replaced by ordinary saves or phone sync. Music and VR Music Sources
+  offer retry and a two-press, four-second confirmed reset; unavailable storage permits retry only.
+  Reset checks the observed raw value again, retains a playback generation so a stale checkpoint cannot resume
+  a later set, and reports write failures. It does not provide an atomic cross-tab compare-and-swap.
   YouTube and Spotify webpage URLs are rejected.
   **Every SoundCloud track URL (kind `soundcloud`) plays as analysed audio, never in SoundCloud's own player by
   default**, so the crowd, DJ and lights react exactly as on `main`. `_resolveSoundCloud()` first tries the
@@ -1708,13 +2008,13 @@ press counts as audio user activation (fallbacks: the Enter VR button and the fi
   is run from `worker/`.
   Direct audio and WebRTC remain on real analysis; silent audio never automatically triggers the fallback.
 - **Entry music.** ENTER creates the AudioContext in the user click and resumes an explicitly saved set. With nothing saved
-  the club plays its own original set instead (`MusicLibrary.playDefault()`, `audio/nocturne-house.mp3`, generated by
-  `scripts/build-default-set.mjs`; see ASSETS.md): first-party and same-origin, so no third-party music request and the
+  the club plays the original generated set instead (`MusicLibrary.playDefault()`, `audio/nocturne-house.mp3`;
+  see ASSETS.md for provenance): same-origin, so no third-party music request and the
   analyser can read it. It LOOPS (`startAudioStream` without `onDemand`), is never saved to `vrclub.questMusic`, never plays when the
   guest has saved sets, something else is loaded or playing, or the guest is following a host (the host owns the music),
   and a blocked autoplay retries on the next click/key (and, in the immersive app, on the first controller press via
-  `ImmersiveLaunch.onFirstGesture`). The set is 124 BPM with 16-bar phrases, builds, a kick-less breakdown and drops
-  so the beat tracker, Show Director and crowd have real structure; keep it under Pages' 25 MiB file limit.
+  `ImmersiveLaunch.onFirstGesture`). The analyser reads the real demo audio; keep it under Pages' 25 MiB file limit.
+  The generated `audio/nocturne-house.mp3` remains available but is not the default.
   Historical `vrclub.lastStreamUrl` / `vrclub.podcast` are ignored. A guest's own sets use `{ onDemand: true }`
   (no loop or automatic next track). Blocked playback retries on the next click/key.
 - **When a stream fails, the club's own set takes over.** `MusicLibrary.play()` (every Play button, the VR menu, the desk and
@@ -1814,7 +2114,7 @@ inside instead. Desktop initial position and the existing travel presets are unc
 `moveCameraToPreset()` routes to the XR camera when active,
 preserving head orientation and measured seated height with a booth floor offset.
 The paged quick menu separates LIGHTS (fixtures, colours and movement), EFFECTS (LED wall, strobes, smoke, mirror
-beams and gobos), SHOW (automatic-show actions plus a five-movement section page), a CROWD page (who is in the club), comfort (locomotion, safe mode, quality, auto quality, credits) with a **ME** sub-page (seated mode, measure height and MY CHARACTER: `setLocalCharacter`, one of the 17 relay people saved as `vrclub.myCharacter`, picked on a two-page grid: DEFAULT plus women `f1`-`f8`, then men `m1`-`m9`; the same saved choice is requested on room joins/reconnects and its gender sets `vrclub.avatarStyle`). A page holds at most 12 slots (the HOME page is full in a room, hence ME lives under comfort),
+beams and the spotlight multi-beam filter), SHOW (automatic-show actions plus a five-movement section page), a CROWD page (who is in the club), comfort (locomotion, safe mode, quality, auto quality, credits) with a **ME** sub-page (seated mode, measure height and MY CHARACTER: `setLocalCharacter`, one of the 17 relay people saved as `vrclub.myCharacter`, picked on a two-page grid: DEFAULT plus women `f1`-`f8`, then men `m1`-`m9`; the same saved choice is requested on room joins/reconnects and its gender sets `vrclub.avatarStyle`). A page holds at most 12 slots (the HOME page is full in a room, hence ME lives under comfort),
 five destinations (entrance, dance floor, DJ booth, balcony, street) and a **Music** page: a seek
 strip (`vrQuickMenuSeek`, click or drag a ray on it; `_beginVRSeek/_moveVRSeek/_endVRSeek` ride the
 scene pointer observables and a drag belongs to the pointer that started it (`_dragPointer`), because both hands have a live pointer (`enablePointerSelectionOnAllControllers`); the seek happens on release), ±1 min, play/pause, saved-set Previous/Next,
@@ -1827,6 +2127,13 @@ into a `DynamicTexture` (`_drawVRQuickMenuBack`, 632 px a metre, alpha from the 
 last button row, not an opaque slab with dead space; the second line of a button (ON/OFF, the current value) is 40 px
 and the page subtitle 36 px, shrinking to fit, because the old 30-32 px text was about one degree tall in a headset.
 Buttons that leave the immersive session (ADD MUSIC, CREDITS / LICENCES) say `LEAVES VR` before they are pressed.
+**Controller rays hide while idle.** Each hand's Babylon pointer and cursor appear independently
+when aimed at a quick-menu control, VJ desk panel, seat or restroom door, or while its trigger is
+pressed. Picking stays active while the visual is hidden; teleportation keeps its own indicator.
+`_updateXRPointerVisibility()` changes only mesh visibility after XR input is sampled. The default-shaped
+pointer meshes are registered through Babylon's pointer-mesh generators, not private controller state.
+`test/e2e/vr-session.spec.mjs` verifies idle, trigger and menu use on the emulated controllers; physical
+headset feel is unmeasured.
 **Haptics exist only on the VJ desk.** The controllers never vibrate for bass, menus or anything else (`vrclub.bassHaptics` is
 gone, and a test fails if a controller is pulsed outside `js/vjDesk.js`); the one exception is a short, light tick on the
 controller that holds a desk knob or fader (`VJ_HAPTIC`, through the motion controller's `pulse()`, on by default, no switch):
@@ -1851,34 +2158,56 @@ The DOM panel (`js/ui-init.js`), the VR quick menu (`js/club/10-ui.js`) and the 
 `applyFixtureExclusivity()`, and `takeLightControl()`), `resumeAutoShow()`, `setLightSpeed()`, `cycleSpotColor()`,
 `cycleMirrorBallColor()`, `resetVJControls()` — and the handlers only call those and render feedback. They previously
 reimplemented the same actions and had silently diverged; tests enforce the delegation. The display names for spot
-modes and aims are `VRClubUI.SPOT_MODE_NAMES` / `SPOT_PATTERN_NAMES` on every surface. Keep the terminology distinct:
-`cyclePattern` is the moving heads' **SPOT AIM PATH**, while `goboActive` / `cycleGoboPattern` control a **PROJECTED
-GOBO** / **GOBO IMAGE** on the floor or wall. The internal `circle` gobo means an open gate and is displayed as
-`OPEN`, because it deliberately leaves the normal soft spotlight pool visible.
+modes and aims are `VRClubUI.SPOT_MODE_NAMES` / `SPOT_PATTERN_NAMES` on every surface. `cyclePattern` selects the
+moving heads' **SPOT AIM PATH**. The optional **MULTI-BEAM** filter (`spotPrismActive`) overlays
+13 narrow crossed-ribbon shafts in one mesh per head on the normal cone at 25% visibility. Each shaft also has broader,
+vertex-alpha-feathered crossed ribbons in that same mesh so their halos overlap and soften the gaps.
+Its separate additive material shares the cone's opacity texture,
+colour, dimmer and surface clip, without the cone's edge-on Fresnel term. It creates no lights or projected shapes.
+The ordinary soft surface pool remains. The desk's LIGHTS page calls the switch **SPOT BEAM FILTER**;
+ASCENT's `rowBuild` cue enables it for 16 bars. Its headset appearance and cost are unmeasured.
 
 **The VJ desk** (`js/vjDesk.js`, mixed into `VRClub.prototype`; `createVJDesk()` is called from `createDJBooth()`).
 It replaced eleven unlabelled coloured boxes, a speed slider and an audio box that opened a DOM dialog (useless in a
 headset) along the table's front lip. Now there are SHOW and LIGHTS touch panels either side of the DJ controller,
 tilted 30° and turned toward the operator, plus a shallower SET PLAYER panel centred immediately in front of the mixer.
+Spot rig selection is personal navigation: the desktop dropdown, desk picker and two VR picker pages select
+from `VRClubUI.SPOT_GROUPS` through `selectSpotRigGroup`, without taking light control or being host-gated.
+Entrance/DJ describe the ends of the room; left/right are viewed facing the DJ. On/off, colour and aim
+edit the selected spots, while the musical light order affects all six; moving orders use the main spot colour,
+and individual colours return in All together. The desk's eagerly constructed picker labels must match the shared
+group names (unit-tested). Actual edits remain host-gated.
 The side panels use 1536x720 canvas textures and the compact player uses 1024x300. The side housings merge into one mesh;
 the independently hidden player housing is another, so the desk is five meshes. Panels are redrawn only when what they
 show changes (a signature checked every 0.2 s), and a press is
 mapped from the pick point into the panel's own plane to a button rect, like the VR seek bar. A mouse click and a
 controller ray therefore use the same path (`pressVJDesk` / `dragVJDesk` / `releaseVJDesk`, from
 `setupVJControlInteraction`).
-- **SHOW** (left): the header always says who has the lights (AUTOMATIC SHOW with the NOCTURNE movement, YOU ARE THE
-  VJ, or THE HOST HAS THE LIGHTS in someone else's room). Buttons: AUTO SHOW, DROP (the show's countdown
-  while it drives, else the director's peak look), NEXT SECTION (automatic show only, and says so), BLACKOUT,
-  BEAMS TO FLOOR, TAP TEMPO, RESIDENT DJ (`togglePeopleVisible('dj')`, a personal hide for guests and room presence for the host), SAFE MODE
-  (also personal) and RESET LIGHTS, then a row of five section buttons (ARRIVAL..AFTERGLOW, `pickShowSection`; the playing
-  one lights and says KEPT while held), plus BRIGHTNESS (the director's master) and MOVEMENT SPEED faders.
+- **SHOW** (left): only AUTO SHOW on/off, SEND DJ HOME / BRING DJ BACK and twelve lighting preset slots.
+  No stage buttons, macros, look hold, faders or Safe Mode on this panel. Auto off keeps the current moving look;
+  Auto on enables and recomposes the current cue immediately. Both manual changes and preset recall retain the
+  existing return/keep/shuffle policy and booth hold. The DJ toggle remains personal for guests and shared for the host;
+  it explicitly says when the host has sent the room DJ home.
+  `LightingPresets` owns `vrclub.lightingPresets` (version 1, twelve nullable named slots), lazily constructed by
+  `_lightingPresetStore()` and disposed with the club. Save is local and never takes control; recall is host-gated.
+  Capture/application reuse `ClubMultiplayer._captureFixtures/_applyFixtures`, including exact spot/mirror RGB,
+  independent heads, wall level/multicolour, sheet origin/motion, strobe sync, fog and kick depth. Automatic brightness
+  is captured from the current show level. Do not store beat phases, music/audio effects, DJ presence, people,
+  safety, room state or credentials. Recall respects personal Safe Mode and the room flash governor.
+  Selection alone does not recall. Overwrite/delete require a second matching press within four seconds.
+  NAME / TRANSFER opens `#lightingPresetDialog` for rename/export/import; it says LEAVES VR before exiting and
+  holds the setup lease. Immersive-only apps never exit for it. Imports validate the complete bounded schema
+  and current colour/pattern availability, then explicitly replace all twelve slots; writes are atomic with
+  respect to in-memory state, and storage/corruption errors surface without overwriting unreadable data.
 - **LIGHTS** (right): every fixture on/off, plus steppers for spot colour (with a swatch), movement mode, spot aim
-  path, projected gobo image, wall picture (n of 20) and mirror colour, and a last row: STROBE PATTERN, AFTER MY CHANGE
-  (keep / return to auto / shuffle colours) and TIMING, followed by LASER COLOUR (lasers and sheet) and MATCH ALL
-  COLOURS. MIRROR BEAMS independently removes the outgoing rays while leaving the reflected surface spots. The two
+  path, multi-beam filter, wall picture (n of 20) and mirror colour, STROBE PATTERN, LASER COLOUR (lasers and sheet)
+  and MATCH ALL COLOURS. SPOT RIG opens the head/row/column editor; SETTINGS opens BRIGHTNESS, MOVEMENT SPEED,
+  SAFE MODE, RESET LIGHTS, AFTER MY CHANGE (keep / return to auto / shuffle), TIMING and smoke amount/output. Each subpage has
+  BACK TO ALL LIGHTS. MIRROR BEAMS independently removes the outgoing rays while leaving the reflected surface spots. The two
   hold buttons are personal (never
   host-gated); TIMING is grey while the mode is keep. Every button's second line is its live value; unavailable ones are grey and say
-  why (HOST ONLY, SAFE MODE, AUTO SHOW ONLY). Buttons under 90 px tall use smaller type.
+  why (HOST ONLY, SAFE MODE, EMPTY SLOT). Disabled desk presses report that reason without running the action.
+  Buttons under 90 px tall use smaller type.
 - **SET PLAYER** (centre): shown only while the resident DJ is sent home. One corner button switches the same compact
   surface between PLAYER and FX pages. PLAYER has previous, combined play/pause, stop and next symbols above a full-width
   position slider. Previous/next enable only when an active local folder or the saved-set library has more than one source and
@@ -2007,6 +2336,9 @@ guest's host-owned buttons and inputs, remembering any that were already disable
 **The social bar** (`#socialBar`, `initSocialBar` in `js/ui-init.js`): Mic / React / Chat at the bottom of the screen,
 only while in a room and never in VR. React opens the emoji and gestures; Chat opens the log and a message field; a
 message that arrives while it is closed peeks above the bar for 6 s and counts on the button. The live mic is red.
+Go to and the social bar share the bottom-anchored `#bottomControls` flex stack:
+social controls stay above the actual travel-menu height, including its expanded phone grid.
+Keep them in normal flow within that stack, not independently positioned with fixed bottom offsets.
 Keyboard: **M** toggles the mic and **T** opens the chat, in a room; they work while a button has focus (only Space and
 Enter belong to a focused button) and never while typing in a field.
 
@@ -2051,6 +2383,121 @@ back to a font, or if the splash's `stroke-width` stops matching `NocturneLogo.S
 `js/nocturneLogo.js` and paste the new `path()` into index.html; there is no image file to update.
 
 ## Multiplayer
+
+### Separate QuestDev deployment (not this frontend)
+
+The development deployment uses `worker/wrangler.dev.jsonc` and `src/dev-index.js`,
+not the production configuration: separate relay, room database, SFU application
+and Pages project. In the QuestDev branch only, the exact development hosts `nocturnedev.mitwee.nl` and
+`nocturne-dev.pages.dev` have free development VR entry and do not install the
+payment dialog; the development Worker refuses payments/admin routes. Never
+copy production Stripe secrets, entitlements or invitations into this environment.
+Ordinary Online rooms need no owner login. Development room `000032` uses
+`DEV_OWNER_ACCESS="1"`: `VRPayment.prepareDevRoom()` preflights
+`GET https://api.mitwee.nl/dev-owner/check`, then uses `/dev-owner/socket`.
+The narrow `api.mitwee.nl/dev-owner/*` and `api.mitwee.nl/admin/dev-owner/*`
+routes point to the development Worker. Owner sign-in is `/admin/dev-owner/sign-in`,
+protected by the existing Access application: it verifies the signed RS256 assertion
+before setting a Secure HttpOnly host-only session cookie at `/dev-owner/`.
+Preflight/socket verify that cookie's signed token against issuer/audience/expiry and
+the explicit owner allow-list, never production D1 payment/session records. They do
+not depend on the Access cookie's path or trust incoming assertion/email headers.
+Sign in in the same browser/device, wait for confirmation, return and retry Join room.
+Production room authentication
+remains its hashed verified-account session. Never accept email/internal-owner headers
+as authentication, put tokens in JavaScript/socket URLs or route `/payments` or
+production administration endpoints to the development Worker.
+
+### Audio-only live DJ events
+
+`worker/src/liveEvents.js` owns the SQLite-backed `LiveAudioEvent` coordinator
+(`LIVE_AUDIO_EVENT`, migration `v2-live-audio-events`). Any admitted room host
+may create; creator pid retains rotation/end authority independently of later
+host changes. One event-owned SFU music publication goes directly to admitted
+members across at most eight rooms (up to 32 each). Overflow admission reserves
+authoritative capacity, never directory counts. Existing attendees never move;
+rooms retain separate social/voice contexts. This is not a measured 256-person
+or physical-headset performance guarantee.
+
+`LiveInput` owns the Music panel's guided mixer setup. Capture is gesture-only and
+ephemeral. Tests use the real detector taps without connecting or publishing;
+`startNetworkMusic(..., {localInput:true})` adds a muted local monitor AFTER the
+detector taps. Monitor/volume changes must never affect the published raw stream.
+Go live explicitly creates a private session when needed (never bypassing the
+Online safety guide), creates the event and publishes the already tested input.
+An event owner using this local input must not also subscribe to their own feed:
+`retainsInputFor` gates the normal event-listener path. Room loss returns to local
+testing; source changes, input loss, pagehide and disposal stop capture. The
+standalone broadcaster reuses the input constraints/error guidance and permits
+a private meter check without an invitation. Malformed invitations never authorize
+publication. See the live-input unit and live-audio browser tests.
+
+Perform as DJ is a preference until mixer capture starts; in desktop mode the local
+DJ avatar is posed at the booth and the booth camera looks out over the floor.
+Going live returns to that view without moving a headset. The resident DJ is
+hidden only on the performer's device, not across rooms. Uploaded GLBs remain private
+on the device unless the owner explicitly enables room sharing. Their persistence
+uses the `VRClubCustomAvatar` IndexedDB store, not the expiring downloaded-model
+cache, and a failed save must be reported as session-only. An uploaded humanoid can also
+be selected as the resident DJ locally on the desktop or VR DJ selector (`personal`):
+the model stays on that device, is never published to the room, and is not an
+account-authenticated exclusive character. A restore waits for the local GLB before
+reselecting the DJ. Choose another resident DJ before replacing or removing the GLB,
+so no live DJ rig retains a disposed source. The personal DJ reuses the loaded source
+and custom skeleton aliases in `AvatarRig`; it must never enter the shared cast or bundle.
+`vrclub.customAvatarSelected` keeps the uploaded body selected or temporarily set aside
+without deleting it; choosing a club character also sets it aside. The desktop button
+and VR ME page toggle it. Keep availability (`hasCustomAvatarGlb`) separate from the
+body actually selected (`isCustomAvatarSelected`), including mirror selection and
+restoring the GLB after reload. `CustomAvatarAppearance` fits opaque casual/smart tops
+and trousers to supported single-mesh humanoid uploads, retaining the original face
+texture and skin weights, with fitted glasses/headwear. `vrclub.customAvatarAppearance`
+stores the complete versioned descriptor; unsupported fits retain the prior look.
+The editor routes uploaded bodies separately instead of changing them to club characters.
+The same descriptor applies to self, mirror, personal resident DJ and shared remote bodies.
+`UploadedAvatarSharing` owns explicit opt-in `vrclub.shareUploadedAvatar`. Only the
+development relay with private `AVATAR_ASSETS` R2 supports it. A per-admission bearer
+token stays in HTTP Authorization, never URLs/peer frames. The relay validates embedded
+GLB geometry/images (8 MiB maximum), retains metadata in membership, checks two-way
+visibility on downloads and removes the object on departure/unshare/replacement.
+The bucket's seven-day lifecycle bounds orphan retention after eviction/deletion failure.
+Recipients may keep a downloaded copy; this is not an account-exclusive public avatar
+service. Old relays explicitly report unsupported sharing. Remote uploads use
+`AvatarRig` procedural gait and tracked arms, not the ordinary clip-driven body.
+Personal resident-DJ selection remains device-local; sharing publishes the player's
+body, not an automatic room-wide resident-DJ replacement. Physical-headset clothing
+fit, controller roll and multiplayer model costs remain unmeasured.
+For a single-mesh `AvatarRig`, changing head-bone visibility immediately prepares
+the instance skeletons so the mirror and first-person passes see the correct head.
+
+`LiveAudioClient` adapts `SFUClient` through a separate media facade, not social
+avatars. `/live/<UUID>/media` authenticates in its FIRST WebSocket frame;
+capabilities never go in its URL. Only `musicPub`/`musicRx` are allowed. Publisher
+tokens persist as hashes, expire at 12 hours, are issued only on create/rotate,
+and enter `broadcast/` through a fragment that is removed immediately. Listener
+tickets are private to admitted members and revoked on departure/moderation/
+applicable blocks. Locks/bans apply across overflow. Provider credentials and
+session locators remain private. Creation requires D1-backed issuance limits;
+never silently bypass them when a binding or operation fails.
+
+`ClubMultiplayer` owns event actions, invitations and listener lifecycle.
+`?event=<UUID>` uses desktop/immersive entry without entry music. Event audio
+uses `startNetworkMusic` and the real analyser/kick/rhythm/PA graph, separately
+from ordinary host music, surviving host changes. Active events gate ordinary
+music/FX controls on DOM, VR and desk, but not personal volume/Safe Mode or room
+lighting ownership. Interruptions never start the house set. End/expiry sends
+ended status before restoring ordinary music; old invites stay invalid and
+overflow stays unlisted.
+
+The lightweight broadcaster requests only audio: stereo/48 kHz preferred, voice
+processing off, actual format shown, two meters and clipping warning, no local
+speaker monitor/camera. Music-only SFU SDP/sender settings target stereo Opus at
+192 kbit/s; voice is unchanged. The builder derives this page's independent
+bundle from its own HTML scripts, never loads the 3D club, and emits hashed JS/CSS
+plus no-cache/noindex HTML. Stop/input loss/pagehide/revocation/final retry failure
+release capture/context/media resources. Updated Worker/frontends and a real
+provider/venue/headset rehearsal are required; see `docs/SCALING.md`. No Twitch
+extraction, video screen or artist likeness is part of this feature.
 
 ### Integrated safety and 32-person rollout
 
@@ -2165,7 +2612,7 @@ Optional and opt-in: nothing connects until a guest clicks **Connect** in the Mu
 in the VR quick menu. The relay stays the same Cloudflare Worker (`vrclub-network.garfieldapp.workers.dev`); the
 protocol only grew, so older clients keep working.
 
-- `worker/src/relay.js` (entry `worker/src/index.js` re-exports only `ClubRoom` and the default handler, because the
+- `worker/src/relay.js` (entry `worker/src/index.js` re-exports only `ClubRoom`, `LiveAudioEvent` and the default handler, because the
   runtime rejects any other export) — Cloudflare Worker + `ClubRoom` Durable Object relay, one object per
   room. It holds sessions, the host id, bans, the lock and the shared music state in memory only. The file
   header documents the JSON protocol. The relay treats every client as hostile. It
@@ -2404,6 +2851,12 @@ protocol only grew, so older clients keep working.
      tier (`setGraphicsTier(tier, { persist: false })`), and is paused around VR entry/exit and hidden tabs.
 
 ## Licensing
+
+The owner approves both CC0 and CC-BY assets for this app, including character,
+hair and clothing packs. Do not restrict asset selection to CC0. Verify each
+selected asset's exact licence and version, preserve its attribution and source,
+and document modifications. This approval does not extend automatically to
+CC-BY-SA, CC-BY-NC or other licences.
 
 Source code is MIT (`LICENSE`). Bundled 3D models, textures and animations are third-party
 works under their own terms — every one is recorded in `ASSETS.md`, and CC BY attribution
