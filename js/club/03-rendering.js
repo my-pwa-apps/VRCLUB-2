@@ -285,7 +285,7 @@ class VRClubRendering extends VRClubLifecycle {
      * `StandardMaterial` defaults `specularColor` to pure white, and the SSR pre-pass
      * reads `specularColor` as the surface's reflectivity. Left at the default, every
      * emissive surface in the club — the LED wall tiles, laser beams, light pools,
-     * gobos, strobes, neon — is treated by SSR as a perfect mirror, so its colour is
+     * beams, strobes, neon — is treated by SSR as a perfect mirror, so its colour is
      * replaced by a screen-space reflection that resolves to near-black. The visible
      * symptom is an LED wall where only the panel outlines glow (that is the bloom halo
      * surviving) while the panel faces go dark.
@@ -524,7 +524,7 @@ class VRClubRendering extends VRClubLifecycle {
             if (!mesh.name) return;
             const n = mesh.name.toLowerCase();
             if (n.includes('ledpanel')) return; // animated wall cannot live in a render-once probe
-            // Include structural and decorative elements (skip floor itself, beams, pools, gobos)
+            // Include structural and decorative elements (skip floor itself, beams and pools)
             if (n.includes('wall') || n.includes('ceiling') || n.includes('truss') ||
                 n.includes('brace') || n.includes('pillar') || n.includes('speaker') ||
                 n.includes('djtable') || n.includes('platform') || n.includes('rail') ||

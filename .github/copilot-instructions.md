@@ -4,8 +4,10 @@
 
 Shared QuestDev features include live events, performers/uploads, split eager
 UI/audio layers, Aesthetic smoke and NPC visibility checks. Production keeps its
-verified VR gate, production relay, canonical indexing and projected gobos.
-The gobo APIs live in `10-ui-controls.js`; VR exposes them on smoke settings.
+verified VR gate, production relay and canonical indexing. Moving heads have
+normal beams and the optional multi-beam filter only; no projected-gobo control,
+texture, geometry or live fixture state remains. Old presets discard retired
+gobo settings while preserving their other valid settings.
 The separate development Worker configuration is tooling only: this branch's
 frontend has no development free-access bypass or pre-seeded music.
 
@@ -35,7 +37,7 @@ people or phase. A confirmed overwrite/delete needs a matching second press in
 four seconds. `spotRigBeat` and its sequencing flywheel preserve musical phase
 through missed detector beats and timestamped remote clocks. Spots/lasers/wall
 boost at most 2x, sheet 3x; Safe Mode caps boosts at 1x and all output honors master
-blackout. Preserve existing projected gobos alongside prism geometry.
+blackout. Preserve ordinary soft pools alongside the optional multi-beam geometry.
 Smoke nozzles point into the room, both auto bursts use one musical cycle, and
 MAXIMUM increases bounded room-fill output; shared desktop particle scattering
 remains disabled in VR.
