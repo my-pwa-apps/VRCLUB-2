@@ -1229,9 +1229,9 @@ class VRClubFixtures extends VRClubEnvironment {
         
         // === INITIAL TENSION PHASE SETTINGS ===
         // Starting in 'tension' phase means we need to set all the effect states here
-        // PROFESSIONAL VJ RULE: Never gobos + lasers together - each system has its moment
-        this.lightsActive = true;       // Gobos/spotlights on (LASERS OFF)
-        this.lasersActive = false;      // Ceiling lasers OFF when gobos on
+        // Each aerial system has its own moment.
+        this.lightsActive = true;
+        this.lasersActive = false;
         this.mirrorBallActive = false;
         this.strobesActive = true;      // Strobes ENABLED for immediate impact
         this.laserSheetActive = false;

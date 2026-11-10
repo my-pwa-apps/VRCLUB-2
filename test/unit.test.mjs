@@ -7875,25 +7875,15 @@ test('one flash governor arbitrates every room flash source and Safe Mode blocks
     assert.equal(club.flashGovernor.count, 2);
 });
 
-test('an untextured gobo never replaces the soft light pool', () => {
+test('moving heads cannot create or animate retired gobo projections', () => {
     const fixtures = loadClassic('js/club/08-animation-fixtures.js', {
         VRClubAnimationCore: class {}
     }).window.VRClubAnimationFixtures.prototype;
-    const disc = {
-        enabled: null, visibility: 1,
-        position: { set() {} }, rotation: {}, scaling: {},
-        setEnabled(value) { this.enabled = value; }
-    };
-    const spot = {
-        goboProjection: disc,
-        goboMat: { emissiveTexture: null },
-        lightPool: { visibility: 0, position: {}, rotation: {}, scaling: {} }
-    };
-    const club = { lightsActive: true, goboEnabled: true };
-    fixtures._updateSpotGoboProjection.call(club, spot, { hitSurface: 'floor' },
-        { beamVisible: true, physicsIntensity: 1, spotColor: null });
-    assert.equal(disc.enabled, false, 'a flat untextured disc was drawn over the floor');
-    assert.equal(spot.lightPool.visibility, 1, 'the soft pool must stay visible');
+    assert.equal(fixtures._updateSpotGoboProjection, undefined);
+    for (const file of ['06-effects.js', '08-animation-fixtures.js', '10-ui-controls.js']) {
+        assert.doesNotMatch(readFileSync(join(ROOT, 'js', 'club', file), 'utf8'),
+            /goboProjection|goboMat|_createGoboTexture|toggleGobo/);
+    }
 });
 
 test('photometric slots follow the strongest surface hit without toggling lights', () => {
@@ -15405,9 +15395,7 @@ test('moving-head beams clip and place pools on elevated venue surfaces (mezzani
         vecPool: { up: new BABYLON.Vector3(), spotAxis: new BABYLON.Vector3() },
         _quatIdentity: BABYLON.Quaternion.Identity(),
         _quatFlipX: BABYLON.Quaternion.RotationAxis(new BABYLON.Vector3(1, 0, 0), Math.PI),
-        lightsActive: true,
-        goboEnabled: true,
-        goboRotation: 0
+        lightsActive: true
     });
 
     const makeSpot = (x, y, z) => ({
@@ -15415,12 +15403,7 @@ test('moving-head beams clip and place pools on elevated venue surfaces (mezzani
         beam: { position: new BABYLON.Vector3(), scaling: new BABYLON.Vector3(1, 1, 1), rotationQuaternion: new BABYLON.Quaternion() },
         beamMat: {},
         lightPool: { position: new BABYLON.Vector3(), rotation: new BABYLON.Vector3(), scaling: new BABYLON.Vector3(1, 1, 1), visibility: 1 },
-        lightPoolGlow: { position: new BABYLON.Vector3(), rotation: new BABYLON.Vector3(), scaling: new BABYLON.Vector3(1, 1, 1), visibility: 1 },
-        goboProjection: {
-            position: new BABYLON.Vector3(), rotation: new BABYLON.Vector3(), scaling: new BABYLON.Vector3(1, 1, 1),
-            visibility: 0, setEnabled() {}
-        },
-        goboMat: { emissiveTexture: {}, emissiveColor: new BABYLON.Color3() }
+        lightPoolGlow: { position: new BABYLON.Vector3(), rotation: new BABYLON.Vector3(), scaling: new BABYLON.Vector3(1, 1, 1), visibility: 1 }
     });
 
     // 1. Beam aimed straight down over the mezzanine deck (x = -11, z = -15) stops at y = 3.0, not y = 0.
@@ -15432,8 +15415,6 @@ test('moving-head beams clip and place pools on elevated venue surfaces (mezzani
     assert.ok(Math.abs(mezzSpot.beamMat.clipPlane4.d - 3.01) < 1e-6, 'clipPlane4.d must clip at y = 3.01');
     club._placeSpotPool(mezzSpot, down, mezzGeom.hitSurface, mezzGeom.surfaceIntersection, 0.8, 0.8, 0, 0, 0);
     assert.ok(Math.abs(mezzSpot.lightPool.position.y - 3.004) < 1e-6, 'pool rests on the 3.0 m deck');
-    club._updateSpotGoboProjection(mezzSpot, mezzGeom, { beamVisible: true, physicsIntensity: 1, spotColor: new BABYLON.Color3(1, 1, 1) });
-    assert.ok(Math.abs(mezzSpot.goboProjection.position.y - 3.025) < 1e-6, 'gobo rests on the 3.0 m deck');
 
     // 2. Beam aimed down at the bar counter (x = 10.1, z = -10) stops at y = 1.1.
     const barSpot = makeSpot(10.1, 7.3, -10);
