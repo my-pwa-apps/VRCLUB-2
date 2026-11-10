@@ -611,14 +611,6 @@ class VRClubCore {
         this.spotlightMode = 0;
         this.spotStrobeActive = true; // Simple strobe toggle (true = strobe on)
         
-        this.goboEnabled = false;
-        this.goboPatternIndex = 0;
-        this.goboRotationSpeed = 1.0;
-        this.goboRotation = 0;
-        this.goboPatterns = [
-            'circle', 'star', 'triangles', 'squares', 'rings',
-            'spiral', 'dots', 'slats', 'cross', 'flower'
-        ];
         this.spotPrismActive = false;
         
         // Independent speed controls per light type (0.1 = 10% speed, 2.0 = 200% speed)

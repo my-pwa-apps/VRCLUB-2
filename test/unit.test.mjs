@@ -8985,7 +8985,7 @@ test('VJ panel toggles are allow-listed rather than written by DOM attribute nam
     // Every boolean toggle in the DOM must appear in the allow-list, or it silently
     // stops working.
     const booleanControls = [...html.matchAll(/aria-pressed="[^"]*"\s+data-control="([^"]+)"/g)].map(m => m[1]);
-    const missing = booleanControls.filter(c => !listed.has(c) && !['toggleShow', 'goboActive'].includes(c));
+    const missing = booleanControls.filter(c => !listed.has(c) && c !== 'toggleShow');
     assert.deepEqual(missing, [], `data-control toggles missing from TOGGLE_CONTROLS: ${missing.join(', ')}`);
 });
 
@@ -13090,7 +13090,7 @@ test('VR menu: who is in the club has its own CROWD page on HOME, not the bottom
     assert.ok(club._vrQuickMenuPageDefinitions('comfort').some(item => item && item.action === 'quality'), 'QUALITY moved off HOME, not away');
 });
 
-test('all VJ surfaces offer the multi-beam filter while production retains separate gobo controls', () => {
+test('all VJ surfaces offer the multi-beam filter without projected shapes', () => {
     const { window } = loadClassic('js/club/10-ui.js', { VRClubAnimationFinish: class {}, BABYLON: {} });
     const club = Object.create(window.VRClubUI.prototype);
     const lighting = club._vrQuickMenuPageDefinitions('lights');
@@ -13117,13 +13117,7 @@ test('all VJ surfaces offer the multi-beam filter while production retains separ
     const html = readFileSync(join(ROOT, 'index.html'), 'utf8');
     assert.match(html, /data-control="cyclePattern">AIM PATH: RANDOM</);
     assert.match(html, /data-control="spotPrismActive">MULTI-BEAM FILTER</);
-    for (const control of ['goboActive', 'cycleGoboPattern', 'reverseGoboSpin']) {
-        assert.ok(html.includes(`data-control="${control}"`));
-    }
-    const smokeSettings = club._vrQuickMenuPageDefinitions('smokeSettings');
-    assert.ok(smokeSettings.some(button => button.control === 'goboActive'));
-    assert.ok(smokeSettings.some(button => button.control === 'cycleGoboPattern'));
-    assert.ok(smokeSettings.length <= 12);
+    assert.doesNotMatch(html, /goboActive|cycleGoboPattern|goboSpeed|reverseGoboSpin/);
     assert.doesNotMatch(html, />PATTERN: RANDOM|>GOBO: CIRCLE|>GOBO ON\/OFF/);
 });
 

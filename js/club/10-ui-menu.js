@@ -208,11 +208,6 @@ class VRClubMenu extends window.VRClubControls {
         if (button.action === 'cycle' && button.control === 'cycleStrobePattern') {
             return VRClubAnimationFinish.STROBE_PATTERN_NAMES[this.strobePattern] || 'ALL AT ONCE';
         }
-        if (button.control === 'goboActive') return this.goboEnabled ? 'ON' : 'OFF';
-        if (button.control === 'cycleGoboPattern') {
-            const name = this.goboPatterns?.[this.goboPatternIndex || 0] || 'circle';
-            return name === 'circle' ? 'OPEN' : name.toUpperCase();
-        }
         if (button.control === 'cycleFogMode' || button.control === 'cycleFogAmount') {
             return this.smokeControlValue(button.control);
         }
@@ -352,8 +347,6 @@ class VRClubMenu extends window.VRClubControls {
                 common.close
             ],
             smokeSettings: [
-                { label: 'PROJECTED GOBO', control: 'goboActive' },
-                { label: 'GOBO IMAGE', control: 'cycleGoboPattern', action: 'cycle' },
                 { label: 'SMOKE', control: 'smokeActive' },
                 { label: 'SMOKE AMOUNT', control: 'cycleFogAmount', action: 'cycle' },
                 { label: 'SMOKE OUTPUT', control: 'cycleFogMode', action: 'cycle' },
