@@ -116,10 +116,17 @@ class AvatarAppearance {
         return { entry, root: entry.rootNodes[0], update, dispose: () => entry.dispose() };
     }
 
-    static async loadPreview(scene, value, prefix = 'wardrobePreview_') {
+    static async loadPreview(scene, value, prefix = 'wardrobePreview_', modelLoader = null) {
         const appearance = this.sanitize(value), source = window.WardrobeCatalog[appearance.base];
         if (!source) throw new Error('This character wardrobe is unavailable.');
-        const container = await BABYLON.SceneLoader.LoadAssetContainerAsync('', source.url, scene);
+        const loader = modelLoader || new ModelLoader(scene);
+        let container;
+        try {
+            if (!modelLoader) await loader.init();
+            container = await loader.loadAssetContainer(source.url, scene);
+        } finally {
+            if (!modelLoader) loader.dispose();
+        }
         this.prepare(container);
         const factory = new MaterialFactory(scene, 3);
         let preview;

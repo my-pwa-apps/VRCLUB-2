@@ -128,7 +128,19 @@ function vjDeskLayout() {
             { id: 'holdTiming', panel: 'lights', kind: 'holdTiming', label: 'TIMING', rect: lights(3, 4), colour: '#19c37d' },
             { id: 'laserColour', panel: 'lights', kind: 'light', label: 'LASER COLOUR', control: 'changeLaserColor', colour: '#38e870', rect: lights(0, 5), step: true },
             { id: 'mirrorColour', panel: 'lights', kind: 'light', label: 'MIRROR COLOUR', control: 'changeMirrorBallColor', colour: '#ffd23a', rect: lights(1, 5), step: true },
-            { id: 'matchColours', panel: 'lights', kind: 'light', label: 'MATCH ALL COLOURS', control: 'matchAllColors', colour: '#ffffff', rect: lights(2, 5, 2), step: true }
+            { id: 'matchColours', panel: 'lights', kind: 'light', label: 'MATCH ALL COLOURS', control: 'matchAllColors', colour: '#ffffff', rect: lights(2, 5), step: true },
+            { id: 'fixtureDetails', panel: 'lights', kind: 'fixturePage', label: 'BRIGHTNESS / RIG', rect: lights(3, 5), colour: '#39d0ff' },
+            ...[
+                ['cycleSpotBrightness', 'SPOT BRIGHTNESS'], ['cycleLaserBrightness', 'LASER BRIGHTNESS'],
+                ['cycleLedBrightness', 'WALL BRIGHTNESS'], ['cycleSheetBrightness', 'SHEET BRIGHTNESS'],
+                ['cycleSheetSpeed', 'SHEET SPEED'], ['cycleFogMode', 'SMOKE MODE'], ['cycleFogIntensity', 'SMOKE AMOUNT'],
+                ['spotPrismActive', 'SPOT PRISM'], ['cycleSpotSequence', 'SEQUENCE'], ['cycleSpotSequenceRate', 'TIMING'],
+                ['cycleSpotTarget', 'EDIT TARGET'], ['toggleSpotTarget', 'TARGET POWER'], ['cycleSpotTargetColor', 'TARGET COLOUR'],
+                ['cycleSpotTargetMotion', 'TARGET AIM'], ['cycleLightingPreset', 'PRESET SLOT'], ['saveLightingPreset', 'SAVE LIGHTING'],
+                ['recallLightingPreset', 'RECALL PRESET'], ['deleteLightingPreset', 'DELETE PRESET']
+            ].map(([control, label], i) => ({ ...light(control, label, control, i % 4, Math.floor(i / 4), '#39d0ff',
+                { step: control !== 'spotPrismActive' }), page: 'details' })),
+            { id: 'fixtureBack', panel: 'lights', page: 'details', kind: 'fixturePage', label: 'BACK TO ALL LIGHTS', rect: lights(0, 5, 4), colour: '#39d0ff' }
         ]),
         transport: Object.freeze([
             {
@@ -492,6 +504,7 @@ const VJDesk = {
     },
 
     _vjDeskButtonOnPage(button) {
+        if (button.panel === 'lights') return (button.page || 'main') === (this._vjDeskLightPage || 'main');
         return !button.page || button.page === (this._vjDeskPlayerPage || 'player');
     },
 
@@ -796,6 +809,15 @@ const VJDesk = {
 
     _runVJDeskButton(button) {
         const toast = text => this.showErrorMessage(text);
+        if (button.kind === 'fixturePage') {
+            this._vjDeskLightPage = this._vjDeskLightPage === 'details' ? 'main' : 'details';
+            if (this._vjDesk) this._vjDesk.dirty = true;
+            return;
+        }
+        if (VRClubUI.PORTABLE_LIGHT_CONTROLS.has(button.control)) {
+            this.toggleLightControl(button.control);
+            return;
+        }
         // Guests can hide the resident DJ personally; the host's preference also decides the room's DJ presence.
         if (button.kind === 'dj') {
             const here = this.togglePeopleVisible('dj');
@@ -1155,6 +1177,7 @@ const VJDesk = {
 
     /** Why a button cannot do anything right now, or '' when it can. */
     _vjDeskDisabledReason(button) {
+        if (button.kind === 'fixturePage' || ['cycleSpotTarget', 'cycleLightingPreset', 'saveLightingPreset', 'deleteLightingPreset'].includes(button.control)) return '';
         if (button.kind === 'dj' || button.kind === 'holdMode' || button.kind === 'safeMode') return '';
         if (button.kind === 'playerPage') return '';
         if (button.kind === 'holdTiming') return this.lightHold && this.lightHold.mode === 'keep' ? 'NOT USED WHEN KEPT' : '';
@@ -1294,6 +1317,10 @@ const VJDesk = {
                 }
                 break;
             case 'light':
+                if (VRClubUI.PORTABLE_LIGHT_CONTROLS.has(button.control)) {
+                    out.value = this.portableLightControlValue(button.control);
+                    break;
+                }
                 switch (button.control) {
                     case 'changeColor': out.value = 'NEXT COLOUR'; out.swatch = deskCss(this.currentSpotColor); break;
                     case 'changeLaserColor': out.value = 'LASERS + SHEET'; out.swatch = typeof this._laserColor === 'function' ? deskCss(this._laserColor()) : null; break;

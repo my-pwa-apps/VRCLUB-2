@@ -1,0 +1,8 @@
+{
+  "title": "Door Handle 3", "author": "plaggy",
+  "source": "https://sketchfab.com/3d-models/cc0-door-handle-3-0f4459df86af469dad41c5d025973d87",
+  "license": "CC0-1.0", "licenseUrl": "https://creativecommons.org/publicdomain/zero/1.0/",
+  "sourceSha256": "d29e982aa19f5ee1e9f0e15bfb73ed5608a2177427719b3812f422dc7c6edff2",
+  "modifications": "Baked source transforms to metres; recentered at the rosette mounting plane; removed textures and UVs for shared in-app steel.",
+  "triangles": 766, "outputSha256": "35bdcb1368a49e0b7182a4652aefa71e8434c1c9615896c2d799f9ea50f6a388", "bytes": 18540
+}

@@ -15,14 +15,14 @@ class VRClubAnimationFinish extends VRClubAnimationFixtures {
      */
     static get STROBE_PATTERNS() {
         return this._strobePatterns || (this._strobePatterns = Object.freeze(
-            ['all', 'chase', 'circle', 'reverse', 'pingpong', 'sides', 'frontback', 'cross', 'build', 'random']));
+            ['all', 'chase', 'circle', 'reverse', 'pingpong', 'sides', 'frontback', 'cross', 'build', 'random', 'burst']));
     }
 
     static get STROBE_PATTERN_NAMES() {
         return this._strobePatternNames || (this._strobePatternNames = Object.freeze({
             all: 'ALL AT ONCE', chase: 'CHASE', circle: 'CIRCLE', reverse: 'CIRCLE BACK', pingpong: 'PING-PONG',
             sides: 'LEFT / RIGHT', frontback: 'FRONT / BACK', cross: 'CROSS', build: 'BUILD UP',
-            random: 'IRREGULAR FLASH'
+            random: 'IRREGULAR FLASH', burst: 'QUICK BURST'
         }));
     }
 
@@ -33,8 +33,12 @@ class VRClubAnimationFinish extends VRClubAnimationFixtures {
     }
 
     /** Free-running interval: IRREGULAR alternates short stabs with clearly longer pauses. */
-    static strobeInterval(pattern, baseInterval, speed = 1, rand = Math.random) {
+    static strobeInterval(pattern, baseInterval, speed = 1, rand = Math.random, step = 0) {
         const safeSpeed = Math.max(0.1, speed);
+        if (pattern === 'burst') {
+            const interval = ((Math.max(0, step | 0) + 1) % 3) === 0 ? 1.25 : 0.35;
+            return Math.max(STROBE_MIN_INTERVAL_S, interval / Math.sqrt(safeSpeed));
+        }
         if (pattern === 'random') {
             const quick = rand() < 0.58;
             const interval = quick
@@ -144,7 +148,8 @@ class VRClubAnimationFinish extends VRClubAnimationFixtures {
                 // Beat-locked when the show drives: a strobe that fires on a random timer
                 // never lands on the kick, which is the whole point of one. null = legacy
                 // free-running timer (manual VJ, no director, or a 'free' look).
-                const syncDue = typeof this._strobeSyncDue === 'function' ? this._strobeSyncDue() : null;
+                const syncDue = this.strobePattern === 'burst' ? null :
+                    (typeof this._strobeSyncDue === 'function' ? this._strobeSyncDue() : null);
                 const due = syncDue === null
                     ? (this._nextStrobeBurstTime === undefined || time >= this._nextStrobeBurstTime)
                     : syncDue;
@@ -216,7 +221,7 @@ class VRClubAnimationFinish extends VRClubAnimationFixtures {
                     // Never faster than the shared room governor. IRREGULAR deliberately
                     // alternates short stabs and longer silences instead of metronomic jitter.
                     this._nextStrobeBurstTime = time + VRClubAnimationFinish.strobeInterval(
-                        pattern, baseInterval, strobeSpeedMultiplier);
+                        pattern, baseInterval, strobeSpeedMultiplier, Math.random, this._strobePatternStep);
                 }
                 
                 this.strobes.forEach((strobe) => {
@@ -600,9 +605,13 @@ class VRClubAnimationFinish extends VRClubAnimationFixtures {
      */
     _applyLedLevel(time) {
         const master = this.masterIntensity == null ? 1 : Math.min(1, Math.max(0, this.masterIntensity));
+        const brightness = Number.isFinite(this.ledWallBrightness)
+            ? Math.min(this.photosensitiveSafeMode ? 1 : 2, Math.max(0, this.ledWallBrightness)) : 1;
         const target = (this.ledWallLevel == null ? 1 : this.ledWallLevel) * master;
-        if (target >= 0.999) {
-            this._ledFade = 1;
+        if (target <= 0.001) {
+            this._ledFade = 0;
+        } else if (target >= 0.999) {
+            this._ledFade = target;
         } else {
             const relit = this._ledFadeT === undefined || time - this._ledFadeT > 0.25;
             if (relit) this._ledFade = 0;
@@ -610,8 +619,8 @@ class VRClubAnimationFinish extends VRClubAnimationFixtures {
             this._ledFade += (target - this._ledFade) * (1 - Math.exp(-dtFade * 2.5));
         }
         this._ledFadeT = time;
-        const level = this._ledFade;
-        if (level < 0.999) {
+        const level = this._ledFade * brightness;
+        if (Math.abs(level - 1) > 0.001) {
             for (let i = 0; i < this.ledPanels.length; i++) {
                 const panel = this.ledPanels[i];
                 const c = panel.material.emissiveColor;

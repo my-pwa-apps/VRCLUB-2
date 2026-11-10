@@ -35,7 +35,8 @@ class VRClubFixtures extends VRClubEnvironment {
         }, this.scene);
         platform.position = new BABYLON.Vector3(0, 0.25, -18);
         
-        const platformMat = this.materialFactory.getPreset('platform');
+        const platformMat = this._venueSurfaceMaterial('stageRust', 'stageRustMat', [0.55, 0.55, 0.55], 0.4);
+        this._applyWorldUVs(platform, 2, { u: 1, v: 1 });
         platform.material = platformMat;
         platform.receiveShadows = true;
         platform.checkCollisions = true; // Enable collisions for walking
@@ -85,6 +86,15 @@ class VRClubFixtures extends VRClubEnvironment {
         const tableMat = this.materialFactory.getPreset('table');
         djTable.material = tableMat;
         djTable.checkCollisions = true;
+
+        const worktop = BABYLON.MeshBuilder.CreatePlane('djWoodWorktop', { width: 4, height: DECK_DEPTH }, this.scene);
+        worktop.rotation.x = Math.PI / 2;
+        worktop.position.set(0, DECK_TOP_Y + 0.002, DECK_Z);
+        worktop.material = this._barWoodMaterial();
+        this._applyWorldUVs(worktop, 1, { u: 1, v: 1 });
+        worktop.isPickable = false;
+        worktop.freezeWorldMatrix();
+        worktop.doNotSyncBoundingInfo = true;
         
         // === CDJ DECKS ===
         const cdjMat = this.materialFactory.getPreset('cdjBody');
@@ -367,8 +377,8 @@ class VRClubFixtures extends VRClubEnvironment {
         // === FOG MACHINE POSITIONS ===
         // Mounted on front truss (z=-8) on left and right sides
         const fogMachinePositions = [
-            { x: -6, y: 7.8, z: -8, rotY: 0.3 },   // Left fog machine, angled toward center
-            { x: 6, y: 7.8, z: -8, rotY: -0.3 }    // Right fog machine, angled toward center
+            { x: -6, y: 7.8, z: -8, rotY: Math.PI - 0.3 },
+            { x: 6, y: 7.8, z: -8, rotY: Math.PI + 0.3 }
         ];
         
         this.fogMachines = [];
@@ -456,7 +466,8 @@ class VRClubFixtures extends VRClubEnvironment {
             fogEmitter.particleTexture = particleTexture;
             
             // Get world position of nozzle for emitter
-            const nozzleWorldPos = new BABYLON.Vector3(pos.x, pos.y - 0.25, pos.z + 0.15);
+            const nozzleWorldPos = new BABYLON.Vector3(pos.x + 0.15 * Math.sin(pos.rotY),
+                pos.y - 0.25, pos.z + 0.15 * Math.cos(pos.rotY));
             fogEmitter.emitter = nozzleWorldPos;
             
             // Small emit box at nozzle
@@ -482,13 +493,12 @@ class VRClubFixtures extends VRClubEnvironment {
             
             // Emission rate (VJ controlled)
             fogEmitter.emitRate = 30; // Start with active haze (real clubs run fog machines continuously)
-            fogEmitter.manualEmitCount = 0;
             fogEmitter.blendMode = BABYLON.ParticleSystem.BLENDMODE_STANDARD;
             
             // Direction - angled downward and toward center of dance floor
             const centerDir = i === 0 ? 0.4 : -0.4; // Left machine aims right, right aims left
-            fogEmitter.direction1 = new BABYLON.Vector3(centerDir - 0.2, -0.8, 0.3);
-            fogEmitter.direction2 = new BABYLON.Vector3(centerDir + 0.2, -0.4, 0.6);
+            fogEmitter.direction1 = new BABYLON.Vector3(centerDir - 0.18, -0.75, -0.70);
+            fogEmitter.direction2 = new BABYLON.Vector3(centerDir + 0.18, -0.45, -0.40);
             
             // Velocity
             fogEmitter.minEmitPower = 2.0;

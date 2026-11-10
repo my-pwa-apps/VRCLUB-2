@@ -4856,7 +4856,7 @@ test('Quest effect cadence and fog output follow the graphics tier without chang
         cachedColors: { fogActive: {}, fogReady: {}, fogContinuous: {}, fogStandby: {}, fogOff: {} },
         _tintClubAir() {}
     };
-    core.updateFogMachines.call(fogClub, { time: 10, dt: 1 / 90 });
+    core.updateFogMachines.call(fogClub, { time: 8, dt: 1 / 90 });
     assert.ok(Math.abs(machine.emitter.emitRate - 150 * 0.55 * 0.58) < 1e-9,
         'Quest fog bursts ignore tier and simultaneous-effect load');
 
@@ -6476,6 +6476,7 @@ test('a loaded avatar source never keeps animating: the loader\'s auto-started c
     const { window } = loadClassic('js/club/11-audio-crowd.js', { VRClubUI: class {}, BABYLON, log: { info() {}, warn() {}, error() {} } });
     const club = {
         scene: {}, _avatarContainers: [], _prepareAvatarMaterials() {}, _restoreLightBudgets() {},
+        modelLoader: { loadAssetContainer: BABYLON.SceneLoader.LoadAssetContainerAsync },
         _loadAvatarSource: window.VRClubAudioCrowd.prototype._loadAvatarSource
     };
     const container = await club._loadAvatarSource('./js/models/avatars/club-crowd-f1.glb');
@@ -7416,6 +7417,7 @@ test('master dimming scales moving heads, ceiling lasers and the laser sheet con
             spotlights: [spot],
             _solveSpotDirection(i, globalPhase, audioSpeedMultiplier, speedMultiplier, out) { out.x = 0; out.z = 0; return out; },
             _animateMovingHead() {},
+            _updateSpotRig(spot) { spot._rigColor = this.currentSpotColor; spot._rigLevel = 1; },
             _updateSpotBeamGeometry() {
                 return {
                     cosTheta: 1,
@@ -8465,7 +8467,8 @@ test('the DJ booth Yamaha HS8 monitor speakers and restroom fixtures are one-dra
         'js/models/restroom/source/bathroom_sink.glb'
     ]) {
         const json = readGlbJson(file);
-        assert.equal(json.meshes.reduce((sum, mesh) => sum + mesh.primitives.length, 0), 1, `${file} must cost one draw`);
+        assert.equal(json.meshes.reduce((sum, mesh) => sum + mesh.primitives.length, 0), file.endsWith('/toilet.glb') ? 3 : 1,
+            `${file}: only the toilet's independently hinged seat and lid may add draws`);
         assert.equal(json.materials.length, 1, `${file} must use one material`);
         assert.equal((json.images || []).length, 0, `${file} should use vertex colours rather than extra textures`);
         assert.ok(json.meshes[0].primitives[0].attributes.COLOR_0 !== undefined, `${file} must carry COLOR_0 vertex colours`);
@@ -8697,7 +8700,7 @@ test('the DJ booth Yamaha HS8 monitor speakers and restroom fixtures are one-dra
     assert.equal(leaf0.checkCollisions, true, 'a shut door is solid');
     club.camera.position.set(-14.4, 1.7, -5.4);
     club._updateRestroomDoors(0.1);
-    assert.equal(leaf0.checkCollisions, false, 'but not around somebody standing in its doorway');
+    assert.equal(leaf0.checkCollisions, true, 'approaching an already closed door never disables its collider');
     club.camera.position.set(-10, 1.7, -3);
     club._updateRestroomDoors(0.1);
     assert.equal(leaf0.checkCollisions, true);
@@ -8722,7 +8725,7 @@ test('the DJ booth Yamaha HS8 monitor speakers and restroom fixtures are one-dra
     club._updateRestroomDoors(1);
     sent.length = 0;
     assert.equal(club.pushStallDoor(0), false);
-    assert.deepEqual(messages, [], 'it refuses silently: the red lamp already says it is occupied');
+    assert.deepEqual(messages, ['This toilet is occupied'], 'an occupied door explicitly explains the refused handle press');
     assert.equal(sent.length, 0);
     peers.delete('e');
     club.avatarManager = null;
@@ -10326,8 +10329,8 @@ test('the VJ desk: every button fits its panel, nothing overlaps, and every ligh
             assert.ok(r.h >= minimumHeight && r.w >= minimumWidth, `${b.id} is too small to hit with a controller ray`);
             for (const other of buttons) {
                 if (other === b) continue;
-                const pages = item => [].concat(item.page || []);
-                if (b.page && other.page && !pages(b).some(page => pages(other).includes(page))) continue;
+                const pages = item => [].concat(item.page || (panel === 'lights' ? 'main' : []));
+                if ((panel === 'lights' || (b.page && other.page)) && !pages(b).some(page => pages(other).includes(page))) continue;
                 const o = other.rect;
                 const overlap = r.x < o.x + o.w && o.x < r.x + r.w && r.y < o.y + o.h && o.y < r.y + r.h;
                 assert.ok(!overlap, `${b.id} overlaps ${other.id}`);
@@ -10348,7 +10351,8 @@ test('the VJ desk: every button fits its panel, nothing overlaps, and every ligh
     const steps = ['changeColor', 'changeLaserColor', 'matchAllColors', 'changeMirrorBallColor',
         'cycleSpotMode', 'cyclePattern', 'cycleGoboPattern', 'goboActive', 'cycleLedPattern', 'cycleStrobePattern'];
     for (const b of VJDeskLayout.buttons.lights.filter(item => item.kind === 'light')) {
-        assert.ok(VRClubUI.LIGHT_TOGGLES.has(b.control) || steps.includes(b.control), `${b.id} -> ${b.control} is not a light control`);
+        assert.ok(VRClubUI.LIGHT_TOGGLES.has(b.control) || VRClubUI.PORTABLE_LIGHT_CONTROLS.has(b.control) || steps.includes(b.control),
+            `${b.id} -> ${b.control} is not a light control`);
     }
     const labels = VJDeskLayout.buttons.lights.map(button => button.label);
     assert.ok(labels.includes('SPOT AIM PATH'), 'the desk calls a movement path a shape or pattern');

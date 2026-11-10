@@ -390,7 +390,7 @@ class AvatarEditor {
         if (!isVR && this.previewBase !== appearance.base) this.previewBase = null;
         try {
             const loaded = await api.loadPreview(scene, this._cloneDraft(appearance),
-                `personal-wardrobe-${this.id}-${generation}`);
+                `personal-wardrobe-${this.id}-${generation}`, this.club?.modelLoader);
             if (isVR) this.club?._restoreLightBudgets?.();
             if (this.disposed || generation !== this.loadGeneration ||
                 (isVR ? !this.vrVisible : !this.dialog)) {

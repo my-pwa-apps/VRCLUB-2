@@ -1,0 +1,11 @@
+{
+  "id": "brushed_concrete", "source": "https://polyhaven.com/a/brushed_concrete",
+  "license": "CC0-1.0", "licenseUrl": "https://polyhaven.com/license",
+  "authors": {"Dario Barresi": "Processing", "Dimitrios Savva": "Photography"},
+  "filesHash": "2274ffd02c42d765d335c85e9067398253d6b45e", "size": 1024,
+  "maps": {
+    "diff.jpg": {"url": "https://dl.polyhaven.org/file/ph-assets/Textures/jpg/1k/brushed_concrete/brushed_concrete_diff_1k.jpg", "sourceSha256": "4054ed6eb65cd063356ffb4a88706b7d7b78c5435051c48bf0ee64290f04bc8c", "outputSha256": "cd4871af0bc98951c21758d8809ea4547b014359da5cf199f70bc6476edf4829", "bytes": 250575},
+    "normal.jpg": {"url": "https://dl.polyhaven.org/file/ph-assets/Textures/jpg/1k/brushed_concrete/brushed_concrete_nor_dx_1k.jpg", "sourceSha256": "c19cff51a1c408bd10b92f3958d8747bab044e199edd9c8872d2fca45c78825c", "outputSha256": "a3573d1994fe5eab59e0048d41edfd2093a3ff88e92640c5f9bd5941f844ba20", "bytes": 367755},
+    "orm.jpg": {"url": "https://dl.polyhaven.org/file/ph-assets/Textures/jpg/1k/brushed_concrete/brushed_concrete_arm_1k.jpg", "sourceSha256": "374e4408acfb0bb4512f904f6fd3ae1006195ed12f2e258625b5b8b3a91f6528", "outputSha256": "85c61d2847f8f208b751831eb2cf943261b4849b30503e444d01133fb98d0f8e", "bytes": 314930}
+  }
+}

@@ -343,6 +343,65 @@ class VRClubEffects extends VRClubFixtures {
             // Core layer removed for performance - using main pool + glow ring only
             const lightPoolCore = null;
             const poolCoreMat = null;
+
+            const prism = new BABYLON.Mesh("spotPrism" + i, this.scene);
+            const positions = [], uvs = [], indices = [], colors = [], rayCenters = [];
+            for (let ray = 0; ray < 13; ray++) {
+                const ring = ray === 0 ? 0 : (ray <= 4 ? 0.38 : 0.8);
+                const count = ray <= 4 ? 4 : 8;
+                const angle = ray === 0 ? 0 : ((ray <= 4 ? ray - 1 : ray - 5) * Math.PI * 2 / count);
+                const x = ring * Math.cos(angle), z = ring * Math.sin(angle);
+                rayCenters.push([x, z]);
+                for (let plane = 0; plane < 2; plane++) {
+                    const wx = plane === 0 ? 0.045 : 0, wz = plane === 1 ? 0.045 : 0;
+                    const base = positions.length / 3;
+                    positions.push(x * 0.14 - wx * 0.33, -0.5, z * 0.14 - wz * 0.33,
+                        x * 0.14 + wx * 0.33, -0.5, z * 0.14 + wz * 0.33,
+                        x + wx, 0.5, z + wz, x - wx, 0.5, z - wz);
+                    uvs.push(0, 0, 1, 0, 1, 1, 0, 1);
+                    for (let vertex = 0; vertex < 4; vertex++) colors.push(1, 1, 1, 1);
+                    indices.push(base, base + 1, base + 2, base, base + 2, base + 3);
+                }
+            }
+            // Feather the thirteen overlapping shafts without another draw.
+            for (const [x, z] of rayCenters) {
+                for (let plane = 0; plane < 2; plane++) {
+                    const base = positions.length / 3;
+                    for (let column = 0; column < 5; column++) {
+                        const across = (column - 2) / 2;
+                        const dx = plane === 0 ? across * 0.45 : 0, dz = plane === 1 ? across * 0.45 : 0;
+                        const alpha = 0.6 * (1 - Math.abs(across));
+                        positions.push(x * 0.14 + dx * 0.035, -0.5, z * 0.14 + dz * 0.035,
+                            x + dx, 0.5, z + dz);
+                        uvs.push(column / 4, 0, column / 4, 1);
+                        colors.push(1, 1, 1, alpha, 1, 1, 1, alpha);
+                    }
+                    for (let column = 0; column < 4; column++) {
+                        const v = base + column * 2;
+                        indices.push(v, v + 2, v + 3, v, v + 3, v + 1);
+                    }
+                }
+            }
+            const prismData = new BABYLON.VertexData();
+            Object.assign(prismData, { positions, uvs, indices, colors, normals: [] });
+            BABYLON.VertexData.ComputeNormals(positions, indices, prismData.normals);
+            prismData.applyToMesh(prism);
+            prism.hasVertexAlpha = true;
+            const prismMat = this.materialFactory.createStandardMaterial("spotPrismMat" + i, {
+                diffuseColor: [0, 0, 0], specularColor: [0, 0, 0],
+                emissiveColor: this.currentSpotColor, disableLighting: true, mutable: true
+            });
+            prismMat.opacityTexture = this._beamGradientTexture;
+            prismMat.alpha = 0;
+            prismMat.alphaMode = BABYLON.Engine.ALPHA_ADD;
+            prismMat.backFaceCulling = false;
+            prismMat.disableDepthWrite = true;
+            prismMat.clipPlane4 = beamMat.clipPlane4;
+            prism.material = prismMat;
+            prism.rotationQuaternion = BABYLON.Quaternion.Identity();
+            prism.isPickable = false;
+            prism.isVisible = false;
+            prism.renderingGroupId = beam.renderingGroupId;
             
             // === GOBO PROJECTION DISC ===
             // Creates pattern shapes on floor when gobo is enabled
@@ -388,6 +447,8 @@ class VRClubEffects extends VRClubFixtures {
                 poolLight: poolLight, // NEW: Actual light for surface illumination
                 lightPoolCore: lightPoolCore,
                 poolCoreMat: poolCoreMat,
+                prism: prism,
+                prismMat: prismMat,
                 lightPoolGlow: lightPoolGlow,
                 poolGlowMat: poolGlowMat,
                 goboTexture: goboTexture, // Store for animation updates

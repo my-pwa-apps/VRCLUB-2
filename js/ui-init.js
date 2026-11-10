@@ -147,7 +147,7 @@ const UI_TIMING = Object.freeze({
 const TOGGLE_CONTROLS = Object.freeze(new Set([
     'lightsActive', 'lasersActive', 'ledWallActive', 'ledMonochrome',
     'strobesActive', 'mirrorBallActive', 'mirrorBallRaysActive', 'laserSheetActive',
-    'smokeActive', 'spotStrobeActive'
+    'smokeActive', 'spotStrobeActive', 'spotPrismActive'
 ]));
 
 /** The panel's step/cycle buttons that change a light: pressing one takes the lights by hand (see takeLightControl). */
@@ -887,6 +887,10 @@ function initVJMenu() {
                 if (goboSpeedValue) goboSpeedValue.textContent = `${newSpeed.toFixed(1)}x`;
                 flashButton(button);
                 
+            } else if (VRClubUI.PORTABLE_LIGHT_CONTROLS.has(control)) {
+                vrClubInstance.toggleLightControl(control);
+                button.textContent = `${button.dataset.portableLabel || control}: ${vrClubInstance.portableLightControlValue(control)}`;
+                flashButton(button);
             } else if (TOGGLE_CONTROLS.has(control)) {
                 // Allow-listed boolean toggle. Anything not in the set is ignored rather
                 // than written straight onto the instance by name.
@@ -1162,6 +1166,9 @@ function initVJMenu() {
     buttonStateInterval = setInterval(() => {
         if (document.hidden) return; // don't poll a backgrounded tab
         updateButtonStates();
+        for (const button of vjButtons) if (button.dataset.portableLabel) {
+            button.textContent = `${button.dataset.portableLabel}: ${vrClubInstance.portableLightControlValue(button.dataset.control)}`;
+        }
     }, UI_TIMING.statePollMs);
 
     teardowns.push(() => {
@@ -1608,6 +1615,11 @@ function initAudioMenu() {
 
     const library = ensureMusicLibrary(vrClubInstance);
     const savedSets = document.getElementById('savedSets');
+    const musicRecovery = document.getElementById('musicRecovery');
+    const musicRecoveryMessage = document.getElementById('musicRecoveryMessage');
+    const retrySavedSets = document.getElementById('retrySavedSets');
+    const resetSavedSets = document.getElementById('resetSavedSets');
+    let resetSavedSetsUntil = 0, resetSavedSetsTimer;
     const feedEpisodeRow = document.getElementById('feedEpisodeRow');
     const feedEpisode = document.getElementById('feedEpisode');
     let episodeList = [];
@@ -1658,7 +1670,12 @@ function initAudioMenu() {
     }
     const renderSets = (playing) => {
         savedSets.replaceChildren();
-        if (!library.items.length) savedSets.add(new Option('No saved sets yet', ''));
+        if (!library.items.length) savedSets.add(new Option(library.readError ? 'Saved sets unavailable' : 'No saved sets yet', ''));
+        if (musicRecovery) musicRecovery.hidden = !library.readError;
+        if (resetSavedSets) resetSavedSets.hidden = library.readError !== 'unreadable';
+        if (musicRecoveryMessage) musicRecoveryMessage.textContent = library.readError === 'unreadable'
+            ? 'Your saved list could not be read. Retry first. Reset permanently erases only the unreadable list on this device.'
+            : library.readError ? 'Saved-set storage is unavailable. Retry when this device allows access.' : '';
         library.items.forEach((item, index) => savedSets.add(new Option(item.name, String(index))));
         savedSets.value = library.items.length ? String(library.selected) : '';
         const item = library.current();
@@ -1672,6 +1689,28 @@ function initAudioMenu() {
     };
     library.onChange = renderSets;
     renderSets();
+    retrySavedSets?.addEventListener('click', () => {
+        resetSavedSetsUntil = 0;
+        clearTimeout(resetSavedSetsTimer);
+        resetSavedSets.textContent = 'Reset unreadable saved sets';
+        if (library.retrySavedSets()) showStatus('Saved sets loaded.', 'success');
+    });
+    resetSavedSets?.addEventListener('click', () => {
+        if (Date.now() >= resetSavedSetsUntil) {
+            resetSavedSetsUntil = Date.now() + 4000;
+            resetSavedSets.textContent = 'Confirm permanent reset';
+            showStatus('Press Confirm permanent reset within four seconds to erase the unreadable saved list.', 'error');
+            clearTimeout(resetSavedSetsTimer);
+            resetSavedSetsTimer = setTimeout(() => { resetSavedSets.textContent = 'Reset unreadable saved sets'; }, 4000);
+            return;
+        }
+        resetSavedSetsUntil = 0;
+        clearTimeout(resetSavedSetsTimer);
+        resetSavedSets.textContent = 'Reset unreadable saved sets';
+        try { library.resetUnreadableSets(); showStatus('Unreadable saved list reset on this device.', 'success'); }
+        catch (error) { showStatus(error.message, 'error'); }
+    });
+    uiTeardowns.push(() => clearTimeout(resetSavedSetsTimer));
     setSourceHint(streamUrl.value);
     if (folderPlaybackMode) {
         folderPlaybackMode.value = vrClubInstance._localPlaylistShuffle ? 'shuffle' : 'order';
@@ -1967,7 +2006,8 @@ function initRoomGuestLock(mp) {
         note.setAttribute('role', 'status');
         content.insertBefore(note, content.firstChild);
 
-        const controls = [...root.querySelectorAll('button, input, label.audio-file-label')].filter(el => !el.matches(panel.keep));
+        const controls = [...root.querySelectorAll('button, input, label.audio-file-label')].filter(el =>
+            !el.matches(panel.keep) && !el.matches('#retrySavedSets, #resetSavedSets, [data-control="cycleSpotTarget"], [data-control="cycleLightingPreset"], [data-control="saveLightingPreset"], [data-control="deleteLightingPreset"]'));
         for (const el of controls) el.classList.add('host-owned');
         // Buttons and inputs are really disabled, not only dimmed: a guest cannot reach them with the keyboard, and a
         // screen reader announces them as unavailable. The capture listener below stays as a second line.

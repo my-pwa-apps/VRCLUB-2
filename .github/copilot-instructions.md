@@ -1,5 +1,55 @@
 # VR Club — AI Coding Agent Instructions
 
+## Selective production venue/reliability additions
+
+`ModelLoader.loadAssetContainer(url, scene)` is the shared normal-avatar, wardrobe
+and editor parser entry point. It uses fingerprint-validated `loadOrDownloadModel`,
+bounded body downloads, parse cancellation and revoked blob URLs. Stop source clips
+after load; dispose retired containers, never shared materials.
+Music read errors are not empty libraries: preserve the raw unreadable list, block
+default playback and writes, offer retry or confirmed reset, and retain valid links
+when only playback-position storage is corrupt. `scripts/serve.mjs` denies private
+files and resolved symlink destinations. Mezzanine's LED containment must clamp
+both tracked eye and deferred XR position.
+
+Music retry/reset stays personal on DOM and VR SOURCES / MUSIC FROM YOUR PHONE,
+including immersive mode and host followers. Reset requires a matching second
+press in four seconds; retry cancels confirmation, and reset never overwrites a
+different raw list repaired by another tab. Conditional recovery buttons must
+keep each page within twelve slots. See `docs/SELECTIVE-PORT.md` for maintenance
+contracts and focused regression commands.
+
+Independent brightness trims and per-head power/colour/aim are shared in every
+show mode through the existing fixture schema. DOM, VR and desk actions delegate
+to `toggleLightControl`; selection/save/delete are local bookkeeping, recall and
+fixture mutation remain host-owned. `LightingPresets` owns twelve validated local
+slots and reuses multiplayer capture/application, never music, safety, credentials,
+people or phase. A confirmed overwrite/delete needs a matching second press in
+four seconds. `spotRigBeat` and its sequencing flywheel preserve musical phase
+through missed detector beats and timestamped remote clocks. Spots/lasers/wall
+boost at most 2x, sheet 3x; Safe Mode caps boosts at 1x and all output honors master
+blackout. Preserve existing projected gobos alongside prism geometry.
+Smoke nozzles point into the room, both auto bursts use one musical cycle, and
+MAXIMUM increases bounded room-fill output without advanced scattering.
+
+`RestroomInteractions` loads before VenueDressing, `LightingPresets` before club
+layers. The restroom coordinator is disposed with the club. Seat/lid/flush/tap
+actions are acknowledged, block-aware retained relay state in `restroomState.js`,
+not optimistic client-only changes. Occupied toilets reject seat/lid movement.
+Taps expire in 12 seconds, flushes in 6 with a 15-second cooldown; empty rooms reset.
+Older relays explicitly report unsupported actions. The production Worker must
+be deployed separately before online mechanics work; a selective port is NOT a
+deployment request. Rinse is derived from tracked hands. Procedural spatial sounds
+use Ambience only, no Music gain/analyser and no persisted audio; stop and disconnect
+all resources on expiry/disposal.
+
+Ceiling service pipes are static merged geometry; movable/pickable fixtures stay
+independent. Surface keys use new licensed folders to avoid stale texture caching.
+Finish/handle/toilet recipes and provenance live in scripts, ASSETS.md and beside
+the assets. Do not import live-event/uploaded-avatar releases, branding/ADE artwork,
+advanced smoke illumination, development routing/gates or demo music to obtain these
+features. Preserve this branch's paid VR, origin metadata and packaging.
+
 > **Accuracy contract**: this file describes the code as it exists. If you change the
 > architecture, update this file in the same commit. A previous version of this document
 > described a `js/systems/` module layer and `ModelLoader.createInstance()` APIs that do

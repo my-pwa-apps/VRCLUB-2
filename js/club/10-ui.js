@@ -346,7 +346,7 @@ class VRClubUI extends VRClubAnimationFinish {
     static get LIGHT_TOGGLES() {
         return this._lightToggles || (this._lightToggles = Object.freeze(new Set([
             'lightsActive', 'lasersActive', 'laserSheetActive', 'mirrorBallActive', 'ledWallActive', 'ledMonochrome',
-            'strobesActive', 'smokeActive', 'spotStrobeActive', 'mirrorBallRaysActive'
+            'strobesActive', 'smokeActive', 'spotStrobeActive', 'mirrorBallRaysActive', 'spotPrismActive'
         ])));
     }
 
@@ -457,6 +457,51 @@ class VRClubUI extends VRClubAnimationFinish {
         return VRClubAnimationFinish.STROBE_PATTERN_NAMES[this.strobePattern] || 'ALL AT ONCE';
     }
 
+    static FIXTURE_BRIGHTNESS_CONTROLS = Object.freeze({
+        cycleSpotBrightness: { property: 'spotBrightness', label: 'SPOT BRIGHTNESS', max: 2 },
+        cycleLaserBrightness: { property: 'laserBrightness', label: 'LASER BRIGHTNESS', max: 2 },
+        cycleLedBrightness: { property: 'ledWallBrightness', label: 'WALL BRIGHTNESS', max: 2 },
+        cycleSheetBrightness: { property: 'laserSheetBrightness', label: 'SHEET BRIGHTNESS', max: 3 }
+    });
+
+    static PORTABLE_LIGHT_CONTROLS = Object.freeze(new Set([
+        ...Object.keys(VRClubUI.FIXTURE_BRIGHTNESS_CONTROLS), 'cycleSheetSpeed', 'cycleFogMode', 'cycleFogIntensity',
+        'cycleSpotSequence', 'cycleSpotSequenceRate', 'cycleSpotTarget', 'toggleSpotTarget',
+        'cycleSpotTargetColor', 'cycleSpotTargetMotion', 'spotPrismActive',
+        'cycleLightingPreset', 'saveLightingPreset', 'recallLightingPreset', 'deleteLightingPreset'
+    ]));
+
+    portableLightControlValue(control) {
+        const spec = VRClubUI.FIXTURE_BRIGHTNESS_CONTROLS[control];
+        if (spec) return `${Math.round((this[spec.property] ?? 1) * 100)}%`;
+        if (control === 'cycleSheetSpeed') return `${Math.round((this.laserSheetSpeed ?? 1) * 100)}%`;
+        if (control === 'cycleFogIntensity') return ['LOW', 'MEDIUM', 'HIGH', 'MAXIMUM'][Math.max(0, Math.round((this.fogIntensity || 1) * 2) - 1)];
+        if (control === 'cycleFogMode') return this.fogBurstMode === 'auto' ? 'STEADY + BURSTS' : this.fogBurstMode === 'burst' ? 'BURST STANDBY' : 'STEADY';
+        if (control === 'cycleSpotSequence') return ['STEADY', 'HEAD CHASE', 'ROWS', 'COLUMNS', 'ROW FILL', 'COLUMN FILL', 'ALL FILL'][this.spotSequence || 0];
+        if (control === 'cycleSpotSequenceRate') return `${this.spotSequenceRate || 2} BEATS`;
+        if (control === 'cycleSpotTarget') return ['ALL', 'LEFT COLUMN', 'RIGHT COLUMN', 'FRONT ROW', 'MIDDLE ROW', 'BACK ROW', 'HEAD 1', 'HEAD 2', 'HEAD 3', 'HEAD 4', 'HEAD 5', 'HEAD 6'][this._spotTarget || 0];
+        const first = this._spotTargetHeads()[0];
+        if (control === 'toggleSpotTarget') return this[`spotHead${first}Enabled`] === false ? 'OFF' : 'ON';
+        if (control === 'cycleSpotTargetColor') return this[`spotHead${first}Color`] >= 0 ? `COLOUR ${this[`spotHead${first}Color`] + 1}` : 'FOLLOW SPOT COLOUR';
+        if (control === 'cycleSpotTargetMotion') return ['FOLLOW AIM PATH', 'RANDOM', 'STATIC DOWN', 'MIRROR SWEEP', 'CROSSED BEAMS'][this[`spotHead${first}Motion`] || 0];
+        if (control === 'spotPrismActive') return this.spotPrismActive ? 'ON' : 'OFF';
+        const store = this._lightingPresetStore();
+        return `${store.selected + 1}: ${store.slots[store.selected]?.name || 'EMPTY'}`;
+    }
+
+    _spotTargetHeads() {
+        const target = this._spotTarget || 0;
+        if (target >= 6) return [target - 6];
+        if (target === 1) return [0, 1, 2];
+        if (target === 2) return [3, 4, 5];
+        if (target >= 3) return [target - 3, target];
+        return [0, 1, 2, 3, 4, 5];
+    }
+
+    _lightingPresetStore() {
+        return this.lightingPresets ||= new window.LightingPresets(this);
+    }
+
     /** One movement speed (0.1..2) for every fixture, as the speed faders set it. */
     setLightSpeed(value) {
         const speed = Math.max(0.1, Math.min(2, Number(value) || 1));
@@ -474,8 +519,63 @@ class VRClubUI extends VRClubAnimationFinish {
      * @returns {boolean} true when something changed
      */
     toggleLightControl(control) {
+        if (control === 'cycleSpotTarget') {
+            this._spotTarget = ((this._spotTarget || 0) + 1) % 12;
+            return true;
+        }
+        if (['cycleLightingPreset', 'saveLightingPreset', 'deleteLightingPreset', 'recallLightingPreset'].includes(control)) {
+            const store = this._lightingPresetStore(), slot = store.selected;
+            try {
+                if (control === 'cycleLightingPreset') store.selected = (slot + 1) % 12;
+                else if (control === 'recallLightingPreset') return store.recall(slot);
+                else {
+                    if ((control === 'deleteLightingPreset' || store.slots[slot]) &&
+                        !(this._presetConfirm?.control === control && this._presetConfirm.slot === slot && performance.now() < this._presetConfirm.until)) {
+                        this._presetConfirm = { control, slot, until: performance.now() + 4000 };
+                        this.showErrorMessage('Press again within 4 seconds to replace or delete this preset.');
+                        return false;
+                    }
+                    this._presetConfirm = null;
+                    if (control === 'saveLightingPreset') store.save(slot);
+                    else store.remove(slot);
+                }
+                return true;
+            } catch (error) { this.showErrorMessage(error.message); return false; }
+        }
         if (!this.guardHostControl('lights')) return false;
+        if (Object.hasOwn(VRClubUI.FIXTURE_BRIGHTNESS_CONTROLS, control)) {
+            const brightness = VRClubUI.FIXTURE_BRIGHTNESS_CONTROLS[control];
+            const levels = [0, 0.25, 0.5, 0.75, 1, 1.5, 2, 2.5, 3];
+            this[brightness.property] = levels.find(value => value <= brightness.max &&
+                value > (this[brightness.property] ?? 1) + 0.01) ?? 0;
+            this.takeLightControl();
+            return true;
+        }
         switch (control) {
+            case 'cycleSheetSpeed': {
+                const levels = [0.25, 0.5, 1, 1.5, 2];
+                this.laserSheetSpeed = levels.find(value => value > (this.laserSheetSpeed ?? 1) + 0.01) ?? levels[0];
+                break;
+            }
+            case 'cycleFogMode': this.fogBurstMode = ['auto', 'continuous', 'burst'][(['auto', 'continuous', 'burst'].indexOf(this.fogBurstMode) + 1) % 3]; break;
+            case 'cycleFogIntensity': this.fogIntensity = (this.fogIntensity || 1) >= 2 ? 0.5 : (this.fogIntensity || 1) + 0.5; break;
+            case 'cycleSpotSequence': this.spotSequence = ((this.spotSequence || 0) + 1) % 7; break;
+            case 'cycleSpotSequenceRate': this.spotSequenceRate = ({ 1: 2, 2: 4, 4: 8, 8: 1 })[this.spotSequenceRate || 2]; break;
+            case 'toggleSpotTarget': {
+                const heads = this._spotTargetHeads(), on = this[`spotHead${heads[0]}Enabled`] === false;
+                for (const head of heads) this[`spotHead${head}Enabled`] = on;
+                break;
+            }
+            case 'cycleSpotTargetColor': {
+                const heads = this._spotTargetHeads(), value = (this[`spotHead${heads[0]}Color`] ?? -1) + 1;
+                for (const head of heads) this[`spotHead${head}Color`] = value >= this.spotColorList.length ? -1 : value;
+                break;
+            }
+            case 'cycleSpotTargetMotion': {
+                const heads = this._spotTargetHeads(), value = ((this[`spotHead${heads[0]}Motion`] || 0) + 1) % 5;
+                for (const head of heads) this[`spotHead${head}Motion`] = value;
+                break;
+            }
             case 'changeColor': this.cycleSpotColor(); break;
             case 'changeLaserColor': this.cycleLaserColor(); break;
             case 'matchAllColors': this.matchAllLightColors(); break;
@@ -713,6 +813,7 @@ class VRClubUI extends VRClubAnimationFinish {
 
     /** Buttons that change the room's music or lights: in someone else's room they belong to the host. */
     _isHostOwnedVRButton(button) {
+        if (['cycleSpotTarget', 'cycleLightingPreset', 'saveLightingPreset', 'deleteLightingPreset'].includes(button.control)) return false;
         if (button.action === 'characterStyle') return true;
         if (['seek', 'playPause', 'play', 'pause', 'stop', 'sourceStep', 'folderMode', 'savedSet', 'setStep',
             'musicSetup', 'autoShow', 'reset', 'cycle', 'nextSection', 'showDrop', 'showSection'].includes(button.action)) return true;
@@ -720,6 +821,7 @@ class VRClubUI extends VRClubAnimationFinish {
     }
 
     _vrQuickMenuButtonValue(button, active) {
+        if (VRClubUI.PORTABLE_LIGHT_CONTROLS.has(button.control)) return this.portableLightControlValue(button.control);
         if (button.action === 'lightweightCharacters') return this.characterStyleStatus().lightweight ? 'ON: QUATERNIUS FOR ME' : 'OFF: FOLLOW ROOM STYLE';
         if (button.action === 'characterStyle') {
             const state = this.characterStyleStatus();
@@ -895,7 +997,33 @@ class VRClubUI extends VRClubAnimationFinish {
                 { label: 'SPOT MODE', control: 'cycleSpotMode', action: 'cycle' },
                 { label: 'SPOT AIM PATH', control: 'cyclePattern', action: 'cycle' },
                 common.back,
-                common.close
+                { label: 'BRIGHTNESS / RIG', action: 'page', target: 'fixtureDetails' }
+            ],
+            fixtureDetails: [
+                ...Object.entries(VRClubUI.FIXTURE_BRIGHTNESS_CONTROLS).map(([control, spec]) => ({ label: spec.label, control, action: 'cycle' })),
+                { label: 'SHEET SPEED', control: 'cycleSheetSpeed', action: 'cycle' },
+                { label: 'SMOKE MODE', control: 'cycleFogMode', action: 'cycle' },
+                { label: 'SMOKE AMOUNT', control: 'cycleFogIntensity', action: 'cycle' },
+                { label: 'SPOT PRISM', control: 'spotPrismActive' },
+                { label: 'SPOT RIG', action: 'page', target: 'spotRig' },
+                { label: 'PRESETS', action: 'page', target: 'lightingPresets' },
+                { label: 'BACK TO LIGHTS', action: 'page', target: 'lights' }, common.close
+            ],
+            spotRig: [
+                { label: 'SEQUENCE', control: 'cycleSpotSequence', action: 'cycle' },
+                { label: 'TIMING', control: 'cycleSpotSequenceRate', action: 'cycle' },
+                { label: 'EDIT TARGET', control: 'cycleSpotTarget', action: 'cycle' },
+                { label: 'TARGET POWER', control: 'toggleSpotTarget', action: 'cycle' },
+                { label: 'TARGET COLOUR', control: 'cycleSpotTargetColor', action: 'cycle' },
+                { label: 'TARGET AIM', control: 'cycleSpotTargetMotion', action: 'cycle' },
+                { label: 'BACK', action: 'page', target: 'fixtureDetails' }, common.close
+            ],
+            lightingPresets: [
+                { label: 'PRESET SLOT', control: 'cycleLightingPreset', action: 'cycle' },
+                { label: 'SAVE LIGHTING', control: 'saveLightingPreset', action: 'cycle' },
+                { label: 'RECALL PRESET', control: 'recallLightingPreset', action: 'cycle' },
+                { label: 'DELETE PRESET', control: 'deleteLightingPreset', action: 'cycle' },
+                { label: 'BACK', action: 'page', target: 'fixtureDetails' }, common.close
             ],
             effects: [
                 { label: 'STROBES', control: 'strobesActive' },
@@ -998,11 +1126,15 @@ class VRClubUI extends VRClubAnimationFinish {
                 this._immersive && this._immersive.mode !== 'manual'
                     ? { label: 'ADD FROM PHONE', action: 'page', target: 'musicPhone' }
                     : { label: 'ADD URL / FILE / FOLDER', action: 'musicSetup' },
+                ...(this.musicLibrary?.readError ? [{ label: 'RETRY SAVED SETS', action: 'retrySavedSets' }] : []),
+                ...(this.musicLibrary?.readError === 'unreadable' ? [{ label: 'RESET SAVED SETS', action: 'resetSavedSets' }] : []),
                 common.back,
                 common.close
             ],
             musicPhone: [
                 { label: 'SYNC NOW', action: 'musicSync' },
+                ...(this.musicLibrary?.readError ? [{ label: 'RETRY SAVED SETS', action: 'retrySavedSets' }] : []),
+                ...(this.musicLibrary?.readError === 'unreadable' ? [{ label: 'RESET SAVED SETS', action: 'resetSavedSets' }] : []),
                 common.back,
                 common.close
             ],
@@ -1099,6 +1231,9 @@ class VRClubUI extends VRClubAnimationFinish {
             const host = hostOwned ? (this.multiplayer.hostName() || 'THE HOST').toUpperCase().slice(0, 18) : '';
             // What each page is for, in plain words: the first thing a new visitor reads.
             const about = {
+                fixtureDetails: 'INDEPENDENT BRIGHTNESS, SMOKE AND SPOT RIG',
+                spotRig: 'SELECT HEADS, THEN POWER, COLOUR AND AIM',
+                lightingPresets: 'LOCAL LIGHTING SAVES; ONLY THE HOST RECALLS',
                 lights: 'FIXTURES, COLOURS AND SPOT MOVEMENT',
                 effects: 'LED WALL, STROBES, SMOKE, BEAMS AND GOBOS',
                 show: 'THE AUTOMATIC SHOW THAT FOLLOWS THE MUSIC',
@@ -1802,6 +1937,27 @@ class VRClubUI extends VRClubAnimationFinish {
         }
         if (['welcomeSafe', 'welcomeFull', 'accessNewCode', 'accessExit', 'musicSync'].includes(button.action)) {
             if (this._immersive) this._immersive.handleMenuAction(button.action);
+            return;
+        }
+        if (button.action === 'retrySavedSets') {
+            this._vrArmed = null;
+            if (this.musicLibrary?.retrySavedSets()) this.showErrorMessage('Saved sets loaded.');
+            else this.showErrorMessage('Saved sets still cannot be read. The stored list was not changed.');
+            this._showVRQuickMenuPage(this._vrQuickMenuPage);
+            return;
+        }
+        if (button.action === 'resetSavedSets') {
+            if (!this._vrArmed || this._vrArmed.key !== 'resetSavedSets' || this._vrArmed.until < Date.now()) {
+                this._vrArmed = { key: 'resetSavedSets', until: Date.now() + 4000 };
+                this.showErrorMessage('Press RESET SAVED SETS again within four seconds to permanently erase the unreadable list.');
+                return;
+            }
+            this._vrArmed = null;
+            try {
+                this.musicLibrary.resetUnreadableSets();
+                this.showErrorMessage('Unreadable saved list reset on this device.');
+            } catch (error) { this.showErrorMessage(error.message); }
+            this._showVRQuickMenuPage(this._vrQuickMenuPage);
             return;
         }
         if (button.action === 'page') {
@@ -2526,6 +2682,7 @@ class VRClubUI extends VRClubAnimationFinish {
                 return;
             }
             if (typeof this._pressStallDoor === 'function' && this._pressStallDoor(pickResult)) return;
+            if (this.restroomInteractions?.press(pickResult)) return;
             if (this._pressSeat(pickResult)) return;
             if (typeof this.pressVJDesk === 'function') this.pressVJDesk(pickResult);
             this._dragPointer = dragging() ? (evt && evt.pointerId) : undefined;

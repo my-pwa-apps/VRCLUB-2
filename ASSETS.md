@@ -1,5 +1,36 @@
 # Third-party assets
 
+## Selectively ported venue finishes and restroom mechanics
+
+The following Poly Haven textures are **CC0**:
+
+| Deployed folder | Source | Authors | Size |
+|---|---|---|---|
+| `textures/restroomTiles/` | [Long White Tiles](https://polyhaven.com/a/long_white_tiles) | Jenelle van Heerden, Sergej Majboroda | 1024 |
+| `textures/restroomPlaster/` | [Plastered Wall 04](https://polyhaven.com/a/plastered_wall_04) | Rob Tuytel | 512 |
+| `textures/brushedCeiling/` | [Brushed Concrete](https://polyhaven.com/a/brushed_concrete) | Dario Barresi, Dimitrios Savva | 1024 |
+| `textures/stageRust/` | [Rusty Metal 04](https://polyhaven.com/a/rusty_metal_04) | Amal Kumar | 512 |
+
+Each folder includes `diff.jpg`, DirectX `normal.jpg`, packed `orm.jpg` and
+`provenance.json` recording exact source/output hashes. `scripts/build-venue-textures.mjs`
+rebuilds bounded-size, packed maps. New folder names avoid stale texture cache keys.
+Existing bar wood also dresses the stall doors and DJ worktop.
+
+`js/models/restroom/source/door_handle_3.glb`: **Door Handle 3**, plaggy,
+[Sketchfab](https://sketchfab.com/3d-models/cc0-door-handle-3-0f4459df86af469dad41c5d025973d87), [CC0](https://creativecommons.org/publicdomain/zero/1.0/).
+`scripts/build-door-handle.mjs` bakes the transform, centres the rosette and
+removes textures; one draw, 766 triangles, 18,540 bytes. Its adjacent provenance
+file pins the licensed original and output. Four hinge-parented instances dress
+both sides of the two existing stall doors.
+
+`js/models/restroom/source/toilet.glb` retains the previously documented Quaternius
+CC0 source. `scripts/lib/toilet-mechanics.mjs` separates its authored lid and adds
+an original hinged ring seat: three independently movable draws, one shared
+vertex-colour material, no textures, 658 triangles. Run
+`node scripts/prepare-toilet-mechanics.mjs`, or rebuild via
+`scripts/build-restroom-monitor-assets.mjs`. There are no new downloaded sound assets:
+the flush, tap and rinse sounds are original procedural Web Audio.
+
 Every binary shipped in this repository, with its licence and provenance.
 
 ## Quest distribution profile

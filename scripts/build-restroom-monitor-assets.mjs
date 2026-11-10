@@ -16,6 +16,7 @@ import { fileURLToPath } from 'node:url';
 import { NodeIO } from '@gltf-transform/core';
 import { ALL_EXTENSIONS } from '@gltf-transform/extensions';
 import { dedup, flatten, join as joinPrimitives, prune } from '@gltf-transform/functions';
+import { prepareToiletMechanics } from './lib/toilet-mechanics.mjs';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
 const FORCE = process.argv.includes('--force');
@@ -95,6 +96,7 @@ async function buildAsset(spec) {
         if (m !== material) m.dispose();
     }
     await document.transform(flatten(), dedup(), joinPrimitives(), prune());
+    if (spec.out.endsWith('/toilet.glb')) prepareToiletMechanics(document);
     mkdirSync(dirname(outPath), { recursive: true });
     await io.write(outPath, document);
     const triangles = root.listMeshes().reduce(

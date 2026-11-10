@@ -856,6 +856,10 @@ class VRClubLifecycle extends VRClubCore {
     dispose() {
         if (this._disposed) return;
         this.avatarEditor?.dispose();
+        this.lightingPresets?.dispose();
+        this.restroomInteractions?.dispose();
+        this._restroomHandleInstances?.forEach(entry => entry.dispose());
+        this._restroomHandleSource?.dispose();
         this._appearancePending?.reject('The club has closed.');
         if (this._wardrobeCleanupTimer) clearTimeout(this._wardrobeCleanupTimer);
         this._wardrobeCleanupTimer = null;
