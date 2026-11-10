@@ -103,8 +103,8 @@ export async function expectHealthyRuntime(page) {
     expect(browserFailures.get(page)).toEqual([]);
 }
 
-/** Enters the emulated immersive session and waits for both controllers. */
-export async function enterVR(page) {
+/** Enters the emulated session; indoor fixtures can choose their floor position before the first XR frame. */
+export async function enterVR(page, { floorPosition } = {}) {
     const vrButton = page.locator('#vrButton');
     // Entry waits for the background GLB load and shader compile (30 s ceiling).
     await expect(vrButton).toBeEnabled({ timeout: 60_000 });
@@ -119,6 +119,14 @@ export async function enterVR(page) {
         await page.locator('.payment-close').getByText('Close', { exact: true }).click();
         await expect(page.locator('.payment-dialog')).toBeHidden();
     }
+    if (floorPosition) await page.evaluate(p => {
+        const club = window.vrClub;
+        club.vrHelper.baseExperience.onInitialXRPoseSetObservable.addOnce(camera => {
+            camera.position.set(...p);
+            club._walkLevel = p[1];
+            club._vrFallSpeed = 0;
+        });
+    }, floorPosition);
     await vrButton.click();
     await page.waitForFunction(() => window.vrClub?.isInVRMode === true);
     await page.waitForFunction(() => window.vrClub?._xrControllers?.length === 2);

@@ -44,18 +44,16 @@
  *    parameter across their whole span (`spotSpeed: [0.5, 2.0]`), so the room is
  *    always subtly accelerating or relaxing.
  *
- * 5. ONE IDEA AT A TIME. The original code carried a good instinct in a comment —
- *    "never gobos + lasers together". Honoured here and enforced at load time by
- *    _validateLooks(): aerial beam work and floor texture compete for the eye.
+ * 5. ONE IDEA AT A TIME. Keep competing aerial effects separate so each look remains legible.
  *
  *
  * WHAT IT WRITES
  * --------------
  * Only pre-existing state vars on the VRClub instance (the same ones the VJ
  * buttons drive), so no subsystem needs to know this file exists:
- *   lightsActive, lasersActive, strobesActive, mirrorBallActive,
+ *   lightsActive, lasersActive, strobesActive, mirrorBallActive, mirrorBallRaysActive,
  *   smokeActive, ledWallActive, spotlightPattern, spotlightMode, spotlightSpeed,
- *   goboEnabled, goboPatternIndex, goboRotationSpeed, laserSpeed, ledPattern,
+ *   laserSpeed, ledPattern,
  *   ledWallSpeed, mirrorBallSpeed, strobeSpeed, fogIntensity,
  *   laserSheetOrigin, laserSheetMotion, masterIntensity
  * plus vjDirector.paletteMode, so the director's HSV palette engine stays in
@@ -69,6 +67,8 @@ class ShowDirector {
     // Musical grid constants.
     static BEATS_PER_BAR = 4;
     static BARS_PER_PHRASE = 4;   // 16 beats
+    static BUILD_TREND_BARS = 4;
+    static BUILD_TREND_MIN_RISE = 0.035;
 
     /** Look keys that describe the cue itself and must never be written onto the club. */
     static META_KEYS = new Set(['intensity', 'palette', 'punch', 'colorLock', 'hue', 'ledHarmony', 'ledLevel']);
@@ -120,11 +120,17 @@ class ShowDirector {
         //     change look mid-phrase; that is what made the old system twitchy).
         this._energy = 0;
         this._barsSinceMovement = 0;
+        this._energyHistory = new Float32Array(ShowDirector.BUILD_TREND_BARS + 1);
+        this._energyHistoryCount = 0;
+        this._energyHistoryIndex = 0;
 
         // --- Continuous modulation
         this._blackoutBeats = 0;       // Counts down in beats
         this._flashHold = 0;           // Frames of white-out remaining
         this._intensity = 1.0;         // Smoothed master level
+
+        // --- Hold (a section the guest picked and asked to keep; see holdLook)
+        this._hold = null;
 
         // --- Structure reading (breakdown / release)
         this._hasAudio = false;
@@ -135,6 +141,7 @@ class ShowDirector {
         this.looks = ShowDirector._buildLooks();
         this.movements = ShowDirector._buildMovements();
         this.setPieces = ShowDirector._buildSetPieces();
+        this.program = 'nocturne';
 
         this._validateLooks();
 
@@ -153,6 +160,88 @@ class ShowDirector {
      */
     isDriving() {
         return this.enabled && !this.club.vjManualMode;
+    }
+
+    setProgram(program) {
+        if (!['nocturne', 'aesthetic'].includes(program)) throw new TypeError('Unknown light show.');
+        if (program === this.program) return;
+        this.program = program;
+        this._aestheticImmersionPass = 0;
+        this._aestheticImmersionHue = null;
+        this.looks = ShowDirector._buildLooks();
+        this.movements = ShowDirector._buildMovements();
+        this.setPieces = ShowDirector._buildSetPieces();
+        if (program === 'aesthetic') {
+            const base = {
+                intensity: 0.75, punch: 0.12, palette: 'analogous', colorLock: true,
+                lightsActive: false, lasersActive: false, laserSheetActive: false,
+                strobesActive: false, spotStrobeActive: false, mirrorBallActive: false, goboActive: false,
+                mirrorBallRaysActive: false, smokeActive: true, fogIntensity: 1.4,
+                fogImmersion: 0, ledWallActive: true, ledPattern: 5, ledLevel: 0.35,
+                ledMonochrome: false, spotlightMode: 3, spotlightPattern: 1, spotlightSpeed: 0.5,
+                laserSpeed: 0.4, ledWallSpeed: 0.35, mirrorBallSpeed: 0.3
+            };
+            const looks = {
+                aestheticStill: { hue: 0.58, lightsActive: true },
+                aestheticRows: { hue: 0.08, lightsActive: true, spotSequence: 2, spotSequenceRate: 1,
+                    ledPattern: 19, ledLevel: 0.55 },
+                aestheticFill: { hue: 0.76, lightsActive: true, spotSequence: 4, spotSequenceRate: 1,
+                    spotPrismActive: true },
+                aestheticSweepRows: { hue: 0.46, lightsActive: true, spotlightMode: 1, spotlightPattern: 2,
+                    spotlightSpeed: 0.5, spotSequence: 2, spotSequenceRate: 1, spotPrismActive: true,
+                    ledPattern: 19, ledLevel: 0.5 },
+                aestheticSweepFill: { hue: 0.76, lightsActive: true, spotlightMode: 1, spotlightPattern: 2,
+                    spotlightSpeed: 1, spotSequence: 4, spotSequenceRate: 1, ledPattern: 19, ledLevel: 0.55 },
+                aestheticSheet: { hue: 0.46, laserSheetActive: true, laserSheetOrigin: 'both',
+                    laserSheetMotion: 'lateral', laserSpeed: [0.25, 0.65], lightsActive: true,
+                    fogIntensity: 2, fogImmersion: 1, fogBurstMode: 'auto', ledLevel: 0.55 },
+                aestheticPeak: { hue: 0.9, intensity: 1, punch: 0.25, lightsActive: true,
+                    spotlightMode: 1, spotlightPattern: 2, spotlightSpeed: 1, spotPrismActive: true,
+                    ledPattern: 19, ledLevel: 0.9, lasersActive: true, strobesActive: true,
+                    strobeSync: 'bar', strobePattern: 'chase', fogIntensity: 2, fogImmersion: 1, fogBurstMode: 'auto' },
+                aestheticFade: { hue: 0.08, intensity: 0.65, lightsActive: true, ledLevel: 0.6, fogIntensity: 1 }
+            };
+            for (const [name, look] of Object.entries(looks)) this.looks[name] = Object.freeze({ ...base, ...look });
+            this.looks.silence = Object.freeze({ ...this.looks.aestheticSheet, laserSheetActive: false });
+            this.looks.bdFall = Object.freeze({ ...this.looks.silence, hue: 0.64 });
+            this.setPieces.cutToBlack = {
+                title: 'SMOKE FILL',
+                bars: 2,
+                onStart(show) {
+                    show._blackoutBeats = 0;
+                    show._applyCue({ look: 'silence', bars: 2 });
+                },
+                onBar() {}
+            };
+            const phrases = {
+                arrival: [['aestheticStill', 24], ['aestheticSheet', 16]],
+                pulse: [['aestheticRows', 24], ['aestheticFill', 24], ['aestheticSweepRows', 16], ['aestheticStill', 16], ['aestheticSheet', 16]],
+                ascent: [['aestheticFill', 16], ['aestheticSweepFill', 16], ['aestheticRows', 16], ['aestheticSheet', 16]],
+                ignition: [['aestheticPeak', 8], ['aestheticRows', 16], ['aestheticSweepRows', 16], ['aestheticFill', 16], ['aestheticSheet', 16]],
+                afterglow: [['aestheticSheet', 16], ['aestheticFade', 32]]
+            };
+            for (const [name, cues] of Object.entries(phrases)) {
+                this.movements[name] = { ...this.movements[name], cues: cues.map(([look, bars]) => ({ look, bars })) };
+            }
+            // Track-structure set-pieces reuse their proven timing, but keep this program's colour unity.
+            for (const [name, look] of Object.entries(this.looks)) {
+                this.looks[name] = Object.freeze({ ...look, colorLock: true, ledHarmony: 'match',
+                    ledMulti: false, ledMonochrome: false,
+                    ledPattern: name.startsWith('aesthetic') ? look.ledPattern : 5,
+                    spotlightPattern: name.startsWith('aesthetic') ? look.spotlightPattern : 1,
+                    hue: look.hue ?? 0.58 });
+            }
+        }
+        this._setPiece = null;
+        this._blackoutBeats = 0;
+        this._hold = null;
+        this._validateLooks();
+        this._enterMovement('arrival');
+    }
+
+    aestheticSpotBeat(beat) {
+        const bars = this._setPiece ? this._setPieceBar : this._cueBarsElapsed;
+        return Math.max(0, bars * 4 + this._beatInBar + (beat - Math.floor(beat)));
     }
 
     // =========================================================================
@@ -191,6 +280,16 @@ class ShowDirector {
         // --- Read the track's structure: kick gone (breakdown) / kick back (release).
         //     A follower is told by the host instead.
         if (!this.follower) this._watchKick(vj, audioData);
+
+        // --- A held look whose colour shuffles: a new random hue every few seconds, nothing else changes.
+        const hold = this._hold;
+        if (hold && hold.shuffleMs && !this.follower) {
+            const now = performance.now();
+            if (now >= hold.nextShuffle) {
+                hold.nextShuffle = now + hold.shuffleMs;
+                if (typeof vj.shufflePalette === 'function') vj.shufflePalette();
+            }
+        }
 
         // --- Continuous (per-frame) modulation on top of the discrete cue state
         this._applyContinuous(vj, audioData);
@@ -276,6 +375,14 @@ class ShowDirector {
 
         // A follower never decides: it keeps the grid for the ramps and waits for the host's next frame.
         if (this.follower) return;
+        this._recordBarEnergy();
+
+        // A look the guest picked and asked to keep stays exactly as it is: no cue advances and no breakdown is read.
+        // Under 'resume' the hold ends by itself after the chosen time, and the show carries on from here.
+        if (this._hold && !this._setPiece) {
+            if (performance.now() < this._hold.until) return;
+            this.releaseHold();
+        }
 
         // A set-piece owns the rig until it finishes; nothing interrupts it.
         if (this._setPiece) {
@@ -303,6 +410,20 @@ class ShowDirector {
         }
     }
 
+    _recordBarEnergy() {
+        this._energyHistory[this._energyHistoryIndex] = this._energy;
+        this._energyHistoryIndex = (this._energyHistoryIndex + 1) % this._energyHistory.length;
+        this._energyHistoryCount = Math.min(this._energyHistoryCount + 1, this._energyHistory.length);
+    }
+
+    _hasBuildMomentum() {
+        if (this._energyHistoryCount < this._energyHistory.length) return false;
+        const history = this._energyHistory;
+        const current = history[(this._energyHistoryIndex - 1 + history.length) % history.length];
+        const baseline = history[this._energyHistoryIndex];
+        return current - baseline >= ShowDirector.BUILD_TREND_MIN_RISE;
+    }
+
     _advanceCue() {
         const atMovementEnd = this._cueIndex + 1 >= this._movement.cues.length;
 
@@ -313,7 +434,7 @@ class ShowDirector {
                 // where a designer earns their fee. Escalating into the drop gets
                 // the countdown; collapsing out of it gets the cut to black.
                 const bridge = this._bridgeFor(this._movementName, next);
-                if (bridge) {
+                if (bridge && (bridge !== 'countdown' || this._hasBuildMomentum())) {
                     this._beginSetPiece(bridge, next);
                     return;
                 }
@@ -361,6 +482,7 @@ class ShowDirector {
         const movement = this.movements[name];
         if (!movement) return;
 
+        this._hold = null;
         this._movement = movement;
         this._movementName = name;
         this._cueIndex = 0;
@@ -390,11 +512,15 @@ class ShowDirector {
 
         const look = this.looks[cue.look];
         if (!look) return;
+        if (this.program === 'aesthetic' && look.fogImmersion && !this.follower) {
+            this._aestheticImmersionHue = ((look.hue ?? 0.58) + this._aestheticImmersionPass * 0.2) % 1;
+            this._aestheticImmersionPass = (this._aestheticImmersionPass + 1) % 5;
+        }
         this._applyLook(look);
 
         // A one-beat blackout immediately before a new look makes the change
         // read as a decision. Used sparingly — only where the cue asks for it.
-        if (cue.punchIn) this._blackoutBeats = 1;
+        if (cue.punchIn && this.program !== 'aesthetic') this._blackoutBeats = 1;
     }
 
     /**
@@ -406,11 +532,16 @@ class ShowDirector {
         const club = this.club;
         const safe = club.photosensitiveSafeMode;
 
+        if (typeof club.resetSpotRig === 'function') club.resetSpotRig();
         // Specialized cue modes must not leak into the next look when omitted.
         club.laserSheetActive = !!look.laserSheetActive;
         club.strobePattern = look.strobePattern || 'all';
         club.strobeSync = look.strobeSync || 'free';
+        club.fogBurstMode = look.fogBurstMode || 'continuous';
+        club.spotPrismActive = !!look.spotPrismActive;
+        club.fogImmersion = look.fogImmersion || 0;
         club.colorLockActive = !!look.colorLock;
+        club.mirrorBallRaysActive = look.mirrorBallRaysActive !== false;
         club.ledMulti = false;          // a look that wants a multi-colour wall says so
         // How bright the wall runs (0..1). Reset for every look: a look that omits it is a full-strength
         // wall, it does not inherit the previous cue's dimmed accompaniment.
@@ -431,6 +562,17 @@ class ShowDirector {
             club[key] = value;
         }
 
+        if (safe && look.strobesActive === true &&
+            !look.lightsActive && !look.lasersActive && !look.laserSheetActive &&
+            !look.mirrorBallActive && !look.ledWallActive) {
+            club.ledWallActive = true;
+            club.ledMonochrome = false;
+            club.ledMulti = false;
+            club.ledPattern = this.program === 'aesthetic' ? 5 : 16;
+            club.ledWallSpeed = 0.35;
+            club.ledWallLevel = 0.45;
+        }
+
         if (club.laserSheetActive && typeof club.configureLaserSheetVariant === 'function') {
             club.configureLaserSheetVariant();
         }
@@ -441,12 +583,28 @@ class ShowDirector {
         // colour back to the director's phrase-by-phrase rotation.
         const vj = club.vjDirector;
         if (vj) {
-            if (look.hue !== undefined && typeof vj.setMasterHue === 'function') vj.setMasterHue(look.hue);
-            else if (typeof vj.unlockHue === 'function') vj.unlockHue();
+            // Aesthetic followers retain the host's colour snapshot through cue and Safe Mode recomposition.
+            if (!(this.program === 'aesthetic' && this.follower)) {
+                if (look.hue !== undefined && typeof vj.setMasterHue === 'function') {
+                    const hue = this.program === 'aesthetic' && look.fogImmersion
+                        ? this._aestheticImmersionHue ?? look.hue : look.hue;
+                    vj.setMasterHue(hue);
+                } else if (typeof vj.unlockHue === 'function') vj.unlockHue();
+            }
             // Looks only write the keys they declare, so the wall's relation to the beams
             // is reset here: a look that omits ledHarmony matches the beams, it does not
             // inherit the previous cue's contrast.
             if (typeof vj.setLedHarmony === 'function') vj.setLedHarmony(look.ledHarmony || 'match');
+        }
+    }
+
+    /** Recompose the current cue immediately when Safe Mode changes. */
+    onPhotosensitiveModeChanged() {
+        if (!this.isDriving()) return;
+        const look = this._cue && this.looks[this._cue.look];
+        if (look) this._applyLook(look);
+        if (this._setPiece && this._setPiece.onBar) {
+            this._setPiece.onBar(this, this._setPieceBar);
         }
     }
 
@@ -523,7 +681,8 @@ class ShowDirector {
         const rate60 = target < this._intensity ? 0.5 : 0.30;
         const rate = 1 - Math.pow(1 - rate60, this.club.dtScale || 1);
         this._intensity += (target - this._intensity) * rate;
-        club.masterIntensity = this._intensity;
+        const master = Number.isFinite(vj.showMasterIntensity) ? vj.showMasterIntensity : 1;
+        club.masterIntensity = this._intensity * master;
     }
 
     // =========================================================================
@@ -534,6 +693,7 @@ class ShowDirector {
         const piece = this.setPieces[name];
         if (!piece) { this._enterMovement(thenMovement); return; }
 
+        this._hold = null;
         this._setPiece = piece;
         this._setPieceStartBar = this._barCounter;
         this._setPieceBar = 0;
@@ -562,6 +722,12 @@ class ShowDirector {
         this._beginSetPiece('countdown', 'ignition');
     }
 
+    /** Hit the release now, then continue into ignition without a countdown. */
+    triggerShowPeak() {
+        if (this.follower) return;
+        this._beginSetPiece('release', 'ignition');
+    }
+
     /** Force a named movement immediately. */
     forceMovement(name) {
         if (this.follower || !this.movements[name]) return false;
@@ -577,6 +743,61 @@ class ShowDirector {
         const next = names[(i + 1) % names.length];
         this.forceMovement(next);
         return this.movements[next].title;
+    }
+
+    /**
+     * Keep the look the show is on, as the guest's hold policy says (VRClub.lightHold):
+     *   'keep'    it stays until releaseHold() (AUTO SHOW);
+     *   'resume'  it stays for `delay` seconds, then the show carries on from there;
+     *   'shuffle' it stays, and its colour moves to a new random one every `shuffle` seconds.
+     * The colour is held with it (the hue is pinned), so the palette rotation cannot repaint a look the guest chose.
+     */
+    holdLook(policy) {
+        if (this.follower || !policy) return false;
+        const now = performance.now();
+        const shuffleMs = policy.mode === 'shuffle' ? policy.shuffle * 1000 : 0;
+        this._hold = {
+            explicit: policy.explicit === true,
+            until: policy.mode === 'resume' ? now + policy.delay * 1000 : Infinity,
+            shuffleMs,
+            nextShuffle: shuffleMs ? now + shuffleMs : Infinity
+        };
+        const vj = this.club.vjDirector;
+        if (vj && typeof vj.setMasterHue === 'function') vj.setMasterHue(vj.masterHue);
+        return true;
+    }
+
+    /** End a hold; the show resumes from the held cue on the next bar line. */
+    releaseHold() {
+        if (!this._hold) return false;
+        this._hold = null;
+        const vj = this.club.vjDirector;
+        const hue = this.looks[this._cue.look]?.hue;
+        if (typeof hue === 'number' && typeof vj?.setMasterHue === 'function') vj.setMasterHue(hue);
+        else if (vj && typeof vj.unlockHue === 'function') vj.unlockHue();
+        return true;
+    }
+
+    /** Jump to a named section (ARRIVAL, PULSE, ASCENT, IGNITION, AFTERGLOW) and keep it as the guest's policy says. */
+    pickSection(name, policy) {
+        if (!this.forceMovement(name)) return null;
+        this.holdLook(policy);
+        return this.movements[name].title;
+    }
+
+    /** The next section in the running order, kept as the guest's policy says. */
+    nextSection(policy) {
+        const names = Object.keys(this.movements);
+        const next = names[(names.indexOf(this._movementName) + 1) % names.length];
+        return this.pickSection(next, policy);
+    }
+
+    isHeld() { return !!this._hold; }
+
+    /** Seconds until a timed hold ends; null for a hold with no end, or no hold. */
+    holdSecondsLeft() {
+        if (!this._hold || !Number.isFinite(this._hold.until)) return null;
+        return Math.max(0, Math.ceil((this._hold.until - performance.now()) / 1000));
     }
 
     /** Hand the rig back to the legacy cycler / manual VJ control. */
@@ -635,6 +856,8 @@ class ShowDirector {
      */
     applyRemote(frame, force = false) {
         if (!this.follower || !frame || frame.m !== 'show') return false;
+        const program = frame.fx?.showProgram === 'aesthetic' ? 'aesthetic' : 'nocturne';
+        if (program !== this.program) { this.setProgram(program); force = true; }
         this._alignBeat(frame.bib);
 
         if (frame.sp) {
@@ -697,7 +920,9 @@ class ShowDirector {
             cue: this._cue ? this._cue.look : '—',
             setPiece: this._setPiece ? this._setPiece.title : null,
             bar: this._barCounter,
-            energy: this._energy
+            energy: this._energy,
+            held: !!this._hold,
+            heldSecondsLeft: this.holdSecondsLeft()
         };
     }
 
@@ -708,7 +933,6 @@ class ShowDirector {
     _validateLooks() {
         const club = this.club;
         const unknown = new Set();
-        const conflicts = [];
 
         for (const name in this.looks) {
             const look = this.looks[name];
@@ -720,19 +944,11 @@ class ShowDirector {
             if (look.ledHarmony !== undefined && !ShowDirector.LED_HARMONY_NAMES.has(look.ledHarmony)) {
                 unknown.add(`${name}.ledHarmony=${look.ledHarmony}`);
             }
-            // Design rule: aerial beam work and projected floor texture compete
-            // for attention. One or the other, never both.
-            if (look.lasersActive === true && look.goboEnabled === true) {
-                conflicts.push(name);
-            }
         }
 
         if (typeof log !== 'undefined') {
             if (unknown.size) {
                 log.warn(`🎭 Show Director: unknown look keys (typo?) → ${[...unknown].join(', ')}`);
-            }
-            if (conflicts.length) {
-                log.warn(`🎭 Show Director: looks break the gobo/laser rule → ${conflicts.join(', ')}`);
             }
         }
     }
@@ -775,8 +991,6 @@ class ShowDirector {
     //                     composition tool, not just an off switch: the wall is
     //                     the brightest object in the room, so killing it is the
     //                     only way beams, haze and mirror ball become the subject.
-    //   goboPatternIndex  0 circle · 1 star · 2 triangles · 3 squares · 4 rings
-    //                     5 spiral · 6 dots · 7 slats · 8 cross · 9 flower
     //   [a, b]            ramps linearly across the cue's whole bar span
     // =========================================================================
     static _buildLooks() {
@@ -793,10 +1007,9 @@ class ShowDirector {
             deepBlue: {
                 intensity: 0.42, punch: 0.10, palette: 'analogous',
                 lightsActive: false, lasersActive: false, strobesActive: false,
-                mirrorBallActive: true, smokeActive: true,
+                mirrorBallActive: true, mirrorBallRaysActive: true, smokeActive: true,
                 ledWallActive: false, ledMonochrome: true, ledPattern: 5, ledWallSpeed: 0.35,
                 mirrorBallSpeed: 0.30, fogIntensity: 1.5,
-                goboEnabled: false
             },
 
             // First statement of intent: heads lock down onto the floor and hold.
@@ -808,7 +1021,6 @@ class ShowDirector {
                 mirrorBallActive: false, smokeActive: true,
                 ledWallActive: true, ledMonochrome: false, ledPattern: 11, ledWallSpeed: 0.5, ledLevel: 0.85,
                 spotlightPattern: 1, spotlightMode: 3, spotlightSpeed: 0.35,
-                goboEnabled: false,
                 mirrorBallSpeed: 0.4, fogIntensity: 1.3
             },
 
@@ -816,10 +1028,9 @@ class ShowDirector {
             eclipse: {
                 intensity: 0.38, punch: 0.12, palette: 'analogous',
                 lightsActive: false, lasersActive: false, strobesActive: false,
-                mirrorBallActive: true, smokeActive: true,
+                mirrorBallActive: true, mirrorBallRaysActive: false, smokeActive: true,
                 ledWallActive: false, ledMonochrome: false,
                 spotlightPattern: 1, spotlightMode: 3, spotlightSpeed: 0.25,
-                goboEnabled: false, goboPatternIndex: 0, goboRotationSpeed: 0.10,
                 mirrorBallSpeed: 0.45, fogIntensity: 1.7
             },
 
@@ -827,16 +1038,14 @@ class ShowDirector {
             // II. PULSE — the groove. Sustained, hypnotic, never peaking.
             // ---------------------------------------------------------------
 
-            // The wall gets a solo with every aerial fixture dark: the Underground
-            // Sequence (pattern 18), a 38-bar basement film that opens on DESCENT.
-            // This makes the wall's later return behind beams read as a deliberate layer.
+            // Give the complete 38-bar Underground Sequence one uninterrupted wall
+            // solo. The pattern keeps its bar origin when another cue later takes over.
             theWave: {
                 intensity: 0.82, punch: 0.22, palette: 'analogous',
                 lightsActive: false, lasersActive: false, strobesActive: false,
-                mirrorBallActive: false, smokeActive: true,
+                mirrorBallActive: false, smokeActive: false,
                 ledWallActive: true, ledMonochrome: false, ledPattern: 18, ledWallSpeed: 0.8,
                 spotlightPattern: 0, spotlightMode: 1, spotlightSpeed: [0.55, 0.85],
-                goboEnabled: false, goboPatternIndex: 5, goboRotationSpeed: -0.35,
                 fogIntensity: 1.0
             },
 
@@ -849,24 +1058,70 @@ class ShowDirector {
                 mirrorBallActive: false, smokeActive: true,
                 ledWallActive: true, ledMonochrome: true, ledPattern: 13, ledWallSpeed: 1.0, ledLevel: 0.75,
                 spotlightPattern: 1, spotlightMode: 3, spotlightSpeed: 0.4,
-                goboEnabled: false, laserSpeed: [0.6, 1.1],
+                laserSpeed: [0.6, 1.1],
                 fogIntensity: 1.2
             },
 
-            // Symmetry cue: heads mirror-sweep in isolation so the coordinated
-            // movement reads clearly instead of disappearing against the wall.
+            // Pass one colour between paired rows; staggered fans give each pass a spatial identity.
             sideways: {
                 intensity: 0.85, punch: 0.25, palette: 'analogous', ledHarmony: 'complement',
                 lightsActive: true, lasersActive: false,
                 strobesActive: true, strobePattern: 'chase', strobeSync: 'bar', strobeSpeed: 1.0,
                 mirrorBallActive: false, smokeActive: true,
                 ledWallActive: true, ledMonochrome: false, ledPattern: 12, ledWallSpeed: 1.0, ledLevel: 0.85,
-                spotlightPattern: 2, spotlightMode: 1, spotlightSpeed: [0.7, 1.0],
-                goboEnabled: false,
+                spotlightPattern: 6, spotlightMode: 1, spotlightSpeed: 1, spotSequence: 2, spotSequenceRate: 2,
+
                 fogIntensity: 1.0
             },
 
-            // Aerial only. Wall dark, gobos off, lasers alone in the heaviest haze
+            rowWave: {
+                intensity: [0.66, 0.82], punch: 0.18, palette: 'analogous', hue: 0.08, ledHarmony: 'complement',
+                lightsActive: true, lasersActive: false, laserSheetActive: false,
+                strobesActive: false, mirrorBallActive: false, smokeActive: true,
+                ledWallActive: true, ledMonochrome: false, ledPattern: 11, ledWallSpeed: 0.5, ledLevel: 0.55,
+                spotlightPattern: 5, spotlightMode: 1, spotlightSpeed: 1,
+                fogIntensity: 1.2
+            },
+
+            // A still white middle pair anchors the room while coloured outer rows take turns moving.
+            rowConversation: {
+                intensity: 0.78, punch: 0.20, palette: 'analogous', hue: 0.58, ledHarmony: 'analogous',
+                lightsActive: true, lasersActive: false, laserSheetActive: false,
+                strobesActive: false, mirrorBallActive: false, smokeActive: true,
+                ledWallActive: true, ledMonochrome: false, ledPattern: 12, ledWallSpeed: 0.5, ledLevel: 0.55,
+                spotlightPattern: 7, spotlightMode: 1, spotlightSpeed: 1,
+                spotHead1Color: 8, spotHead4Color: 8, spotHead1Motion: 2, spotHead4Motion: 2,
+                fogIntensity: 1.2
+            },
+
+            rowBuild: {
+                intensity: [0.72, 0.94], punch: 0.30, palette: 'analogous', hue: 0.82, ledHarmony: 'complement',
+                lightsActive: true, lasersActive: false, laserSheetActive: false,
+                strobesActive: false, mirrorBallActive: false, smokeActive: true,
+                ledWallActive: true, ledMonochrome: false, ledPattern: 11, ledWallSpeed: 0.65, ledLevel: 0.65,
+                spotlightPattern: 6, spotlightMode: 1, spotlightSpeed: 1, spotSequence: 4, spotSequenceRate: 4, spotPrismActive: true,
+                fogIntensity: 1.4
+            },
+
+            columnFill: {
+                intensity: [0.68, 0.84], punch: 0.20, palette: 'analogous', hue: 0.10, ledHarmony: 'complement',
+                lightsActive: true, lasersActive: false, laserSheetActive: false,
+                strobesActive: false, mirrorBallActive: false, smokeActive: true,
+                ledWallActive: true, ledMonochrome: false, ledPattern: 12, ledWallSpeed: 0.5, ledLevel: 0.55,
+                spotlightPattern: 1, spotlightMode: 3, spotlightSpeed: 1, spotSequence: 5, spotSequenceRate: 4,
+                fogIntensity: 1.2
+            },
+
+            columnFillSweep: {
+                intensity: [0.74, 0.94], punch: 0.28, palette: 'analogous', hue: 0.82, ledHarmony: 'complement',
+                lightsActive: true, lasersActive: false, laserSheetActive: false,
+                strobesActive: false, mirrorBallActive: false, smokeActive: true,
+                ledWallActive: true, ledMonochrome: false, ledPattern: 11, ledWallSpeed: 0.6, ledLevel: 0.60,
+                spotlightPattern: 2, spotlightMode: 1, spotlightSpeed: 1, spotSequence: 5, spotSequenceRate: 4,
+                fogIntensity: 1.4
+            },
+
+            // Aerial only. Wall dark, spots off, lasers alone in the heaviest haze
             // in the show. With no lit surface anywhere the room stops being a
             // room and becomes pure volumetric geometry — and the cue that
             // follows gets the whole wall back as a hit.
@@ -876,7 +1131,7 @@ class ShowDirector {
                 mirrorBallActive: false, smokeActive: true,
                 ledWallActive: false, ledMonochrome: false,
                 spotlightPattern: 3, spotlightMode: 1, spotlightSpeed: [0.7, 1.3],
-                goboEnabled: false, laserSpeed: [0.9, 1.6],
+                laserSpeed: [0.9, 1.6],
                 fogIntensity: 1.8
             },
 
@@ -888,7 +1143,7 @@ class ShowDirector {
                 strobesActive: false, mirrorBallActive: false,
                 smokeActive: true, ledWallActive: false, ledMonochrome: false,
                 laserSheetOrigin: 'both', laserSheetMotion: 'vertical',
-                laserSpeed: [0.35, 0.65], fogIntensity: 1.9, goboEnabled: false
+                laserSpeed: [0.35, 0.65], fogIntensity: 1.9
             },
 
             ceilingSidewash: {
@@ -898,7 +1153,7 @@ class ShowDirector {
                 mirrorBallActive: false,
                 smokeActive: true, ledWallActive: true, ledMonochrome: false, ledPattern: 5, ledLevel: 0.75,
                 laserSheetOrigin: 'both', laserSheetMotion: 'lateral',
-                laserSpeed: [0.30, 0.55], fogIntensity: 1.8, goboEnabled: false
+                laserSpeed: [0.30, 0.55], fogIntensity: 1.8
             },
 
             ceilingDip: {
@@ -908,7 +1163,7 @@ class ShowDirector {
                 mirrorBallActive: false,
                 smokeActive: true, ledWallActive: true, ledMonochrome: false, ledPattern: 5, ledLevel: 0.75,
                 laserSheetOrigin: 'both', laserSheetMotion: 'vertical',
-                laserSpeed: [0.32, 0.60], fogIntensity: 1.9, goboEnabled: false
+                laserSpeed: [0.32, 0.60], fogIntensity: 1.9
             },
 
             // ---------------------------------------------------------------
@@ -916,7 +1171,7 @@ class ShowDirector {
             // ---------------------------------------------------------------
 
             // The climb. Pinwheel with speed nearly tripling across the cue, a
-            // shockwave wall accelerating with it, and the star gobo opening out.
+            // shockwave wall accelerating with it, and the spot rig opening out.
             // The audience should feel the room winding up without being told.
             theClimb: {
                 intensity: [0.80, 1.0], punch: 0.35, palette: 'complementary', ledHarmony: 'complement',
@@ -925,7 +1180,7 @@ class ShowDirector {
                 mirrorBallActive: false, smokeActive: true,
                 ledWallActive: true, ledMonochrome: false, ledMulti: true, ledPattern: 19, ledWallSpeed: [0.9, 1.9],
                 spotlightPattern: 2, spotlightMode: 1, spotlightSpeed: [0.8, 2.0],
-                goboEnabled: false,
+
                 fogIntensity: 1.4
             },
 
@@ -938,7 +1193,7 @@ class ShowDirector {
                 mirrorBallActive: false, smokeActive: true,
                 ledWallActive: true, ledMonochrome: true, ledPattern: 19, ledWallSpeed: [1.2, 2.0],
                 spotlightPattern: 1, spotlightMode: 3, spotlightSpeed: 0.25,
-                goboEnabled: false, laserSpeed: [1.0, 1.8],
+                laserSpeed: [1.0, 1.8],
                 fogIntensity: 1.6
             },
 
@@ -950,7 +1205,7 @@ class ShowDirector {
                 strobesActive: true, strobePattern: 'chase', strobeSync: 'beat', strobeSpeed: 2.4,
                 mirrorBallActive: false, smokeActive: true,
                 ledWallActive: false, ledMonochrome: true,
-                fogIntensity: 1.4, goboEnabled: false
+                fogIntensity: 1.4
             },
 
             // The heartbeat. Black room, one white hit on each downbeat and nothing
@@ -962,7 +1217,7 @@ class ShowDirector {
                 strobesActive: true, strobePattern: 'all', strobeSync: 'bar', strobeSpeed: 1.2,
                 mirrorBallActive: false, smokeActive: true,
                 ledWallActive: false, ledMonochrome: true,
-                fogIntensity: 1.8, goboEnabled: false
+                fogIntensity: 1.8
             },
 
             // Four on the floor. Every corner fires on every kick over a dark room: the
@@ -974,7 +1229,7 @@ class ShowDirector {
                 strobesActive: true, strobePattern: 'all', strobeSync: 'beat', strobeSpeed: 2.0,
                 mirrorBallActive: false, smokeActive: true,
                 ledWallActive: false, ledMonochrome: true,
-                fogIntensity: 1.6, goboEnabled: false
+                fogIntensity: 1.6
             },
 
             // Between the kicks. The corners chase on the offbeat, so the white hits
@@ -985,7 +1240,7 @@ class ShowDirector {
                 strobesActive: true, strobePattern: 'chase', strobeSync: 'offbeat', strobeSpeed: 2.2,
                 mirrorBallActive: false, smokeActive: true,
                 ledWallActive: false, ledMonochrome: true,
-                fogIntensity: 1.6, goboEnabled: false
+                fogIntensity: 1.6
             },
 
             // ---------------------------------------------------------------
@@ -1001,8 +1256,8 @@ class ShowDirector {
                 mirrorBallActive: false, smokeActive: true,
                 ledWallActive: true, ledMonochrome: false, ledMulti: true, ledPattern: 19, ledWallSpeed: 2.0,
                 spotlightPattern: 3, spotlightMode: 0, spotlightSpeed: 1.8,
-                goboEnabled: false, laserSpeed: 1.8,
-                strobeSync: 'beat', strobeSpeed: 2.2, fogIntensity: 1.5
+                laserSpeed: 1.8,
+                strobeSync: 'beat', strobeSpeed: 2.2, fogIntensity: 1.9, fogBurstMode: 'auto'
             },
 
             // Sustain, not repeat. Everything but lasers drops out at full speed.
@@ -1016,7 +1271,7 @@ class ShowDirector {
                 mirrorBallActive: false, smokeActive: true,
                 ledWallActive: true, ledMonochrome: true, ledPattern: 11, ledWallSpeed: 1.8, ledLevel: 0.75,
                 spotlightPattern: 2, spotlightMode: 1, spotlightSpeed: 1.5,
-                goboEnabled: false, laserSpeed: 2.0, fogIntensity: 1.5
+                laserSpeed: 2.0, fogIntensity: 1.8, fogBurstMode: 'auto'
             },
 
             // Brief second-wind hit: lasers and wall, without heads or strobes.
@@ -1027,7 +1282,7 @@ class ShowDirector {
                 mirrorBallActive: false, smokeActive: true,
                 ledWallActive: true, ledMonochrome: false, ledMulti: true, ledPattern: 19, ledWallSpeed: 2.0,
                 spotlightPattern: 3, spotlightMode: 0, spotlightSpeed: 2.0,
-                goboEnabled: false, laserSpeed: 1.6,
+                laserSpeed: 1.6,
                 strobeSpeed: 1.6, fogIntensity: 1.4
             },
 
@@ -1039,8 +1294,8 @@ class ShowDirector {
                 mirrorBallActive: false,
                 smokeActive: true, ledWallActive: true, ledMonochrome: false,
                 ledPattern: 5, ledWallSpeed: 0.65,
-                spotlightPattern: 1, spotlightMode: 3, spotlightSpeed: 0.35,
-                goboEnabled: false, laserSpeed: 0.55, mirrorBallSpeed: 0.3,
+                spotlightPattern: 6, spotlightMode: 1, spotlightSpeed: 1, spotSequence: 3, spotSequenceRate: 4,
+                laserSpeed: 0.55, mirrorBallSpeed: 0.3,
                 fogIntensity: 1.5
             },
 
@@ -1053,20 +1308,19 @@ class ShowDirector {
             theVoid: {
                 intensity: 0.30, punch: 0.08, palette: 'analogous',
                 lightsActive: false, lasersActive: false, strobesActive: false,
-                mirrorBallActive: true, smokeActive: true,
+                mirrorBallActive: true, mirrorBallRaysActive: false, smokeActive: true,
                 ledWallActive: false, ledMonochrome: true, ledPattern: 16, ledWallSpeed: 0.4,
-                mirrorBallSpeed: 0.25, fogIntensity: 1.6, goboEnabled: false
+                mirrorBallSpeed: 0.25, fogIntensity: 1.6
             },
 
-            // Slow reassembly — heads fade back in on a drifting wave, flower
-            // gobo turning slowly. Sets up ARRIVAL to begin the cycle again.
+            // Slow reassembly: paired rows follow a drifting wave back into ARRIVAL.
             driftAway: {
                 intensity: [0.35, 0.62], punch: 0.15, palette: 'analogous', ledHarmony: 'analogous',
                 lightsActive: true, lasersActive: false, strobesActive: false,
                 mirrorBallActive: false, smokeActive: true,
                 ledWallActive: true, ledMonochrome: false, ledPattern: 4, ledWallSpeed: [0.4, 0.7], ledLevel: 0.85,
-                spotlightPattern: 0, spotlightMode: 1, spotlightSpeed: [0.25, 0.5],
-                goboEnabled: false,
+                spotlightPattern: 5, spotlightMode: 1, spotlightSpeed: 1,
+
                 mirrorBallSpeed: 0.35, fogIntensity: 1.4
             },
 
@@ -1082,9 +1336,9 @@ class ShowDirector {
             bdFall: {
                 intensity: 0.40, punch: 0.10, palette: 'analogous', colorLock: true, hue: 0.64,
                 lightsActive: false, lasersActive: false, strobesActive: false,
-                mirrorBallActive: true, smokeActive: true,
+                mirrorBallActive: true, mirrorBallRaysActive: true, smokeActive: true,
                 ledWallActive: false, ledMonochrome: false,
-                mirrorBallSpeed: 0.28, fogIntensity: 1.8, goboEnabled: false
+                mirrorBallSpeed: 0.28, fogIntensity: 1.8
             },
 
             // One slow volumetric plane drifting over the crowd.
@@ -1094,7 +1348,7 @@ class ShowDirector {
                 strobesActive: false, mirrorBallActive: false,
                 smokeActive: true, ledWallActive: true, ledMonochrome: false, ledPattern: 5, ledLevel: 0.75,
                 laserSheetOrigin: 'both', laserSheetMotion: 'lateral',
-                laserSpeed: [0.25, 0.45], fogIntensity: 1.9, goboEnabled: false
+                laserSpeed: [0.25, 0.45], fogIntensity: 1.9
             },
 
             // The wall opens: slow aurora in teal, alone in the haze.
@@ -1103,18 +1357,18 @@ class ShowDirector {
                 lightsActive: false, lasersActive: false, strobesActive: false,
                 mirrorBallActive: false, smokeActive: true,
                 ledWallActive: true, ledMonochrome: false, ledPattern: 16, ledWallSpeed: [0.3, 0.55],
-                fogIntensity: 1.7, goboEnabled: false
+                fogIntensity: 1.7
             },
 
-            // The rise. Heads pinwheel, spiral gobo and wall vortex all accelerate
-            // together and the colour turns hot. No strobes: the tension is speed.
+            // The rise: magenta fans accumulate by row over a quiet wall.
+            // No strobes; the fill and rising intensity carry the tension.
             bdRise: {
                 intensity: [0.62, 1.0], punch: 0.30, palette: 'complementary', colorLock: true, hue: 0.90,
                 lightsActive: true, lasersActive: false, strobesActive: false,
                 mirrorBallActive: false, smokeActive: true,
-                ledWallActive: true, ledMonochrome: false, ledPattern: 19, ledWallSpeed: [0.6, 2.0],
-                spotlightPattern: 2, spotlightMode: 1, spotlightSpeed: [0.5, 1.8],
-                goboEnabled: false,
+                ledWallActive: true, ledMonochrome: false, ledPattern: 11, ledWallSpeed: [0.6, 1.0], ledLevel: 0.70,
+                spotlightPattern: 6, spotlightMode: 1, spotlightSpeed: 1, spotSequence: 4, spotSequenceRate: 2,
+
                 fogIntensity: [1.5, 1.9]
             },
 
@@ -1126,7 +1380,7 @@ class ShowDirector {
                 mirrorBallActive: false, smokeActive: true,
                 ledWallActive: true, ledMonochrome: false, ledMulti: true, ledPattern: 19, ledWallSpeed: 2.2,
                 spotlightPattern: 3, spotlightMode: 0, spotlightSpeed: 1.8,
-                goboEnabled: false, laserSpeed: 2.0,
+                laserSpeed: 2.0,
                 strobeSync: 'beat', strobeSpeed: 2.0, fogIntensity: 1.8
             },
 
@@ -1137,7 +1391,7 @@ class ShowDirector {
                 lightsActive: false, lasersActive: false, strobesActive: false,
                 mirrorBallActive: false, smokeActive: true,
                 ledWallActive: true, ledMonochrome: false, ledPattern: 16, ledWallSpeed: [0.25, 0.5],
-                fogIntensity: [1.3, 1.6], goboEnabled: false
+                fogIntensity: [1.3, 1.6]
             },
 
             // ---------------------------------------------------------------
@@ -1154,7 +1408,7 @@ class ShowDirector {
                 mirrorBallActive: false, smokeActive: true,
                 ledWallActive: true, ledMonochrome: true, ledPattern: 19, ledWallSpeed: 1.4,
                 spotlightPattern: 1, spotlightMode: 2, spotlightSpeed: 0.3,
-                goboEnabled: false, strobeSync: 'bar', strobeSpeed: 0.6, fogIntensity: 1.7
+                strobeSync: 'bar', strobeSpeed: 0.6, fogIntensity: 1.7
             },
 
             // Total kill for CUT TO BLACK. Only the haze remains, so the room
@@ -1163,7 +1417,7 @@ class ShowDirector {
                 intensity: 0.0, punch: 0.0, palette: 'analogous',
                 lightsActive: false, lasersActive: false, strobesActive: false,
                 mirrorBallActive: false, smokeActive: true,
-                ledWallActive: false, ledMonochrome: false, goboEnabled: false, fogIntensity: 1.8
+                ledWallActive: false, ledMonochrome: false, fogIntensity: 1.8
             }
         };
     }
@@ -1195,7 +1449,7 @@ class ShowDirector {
                     { look: 'liquidPlane', bars: 4 },
                     { look: 'firstLight', bars: 8, punchIn: true },
                     { look: 'eclipse',    bars: 4 },
-                    { look: 'firstLight', bars: 8 }
+                    { look: 'firstLight', bars: 16 }
                 ]
             },
 
@@ -1203,12 +1457,13 @@ class ShowDirector {
                 title: 'II · PULSE',
                 minBars: 24,
                 cues: [
-                    { look: 'theWave',   bars: 8 },
-                    { look: 'sideways',  bars: 16 },
+                    { look: 'theWave',   bars: 38 },
+                    { look: 'rowWave',   bars: 16 },
+                    { look: 'columnFill', bars: 12 },
                     { look: 'deepBlue',  bars: 8 },
                     { look: 'crossfire', bars: 4 },
                     { look: 'ceilingSidewash', bars: 4 },
-                    { look: 'firstLight', bars: 8 },
+                    { look: 'rowConversation', bars: 24 },
                     { look: 'sideways',  bars: 8 }
                 ]
             },
@@ -1217,7 +1472,8 @@ class ShowDirector {
                 title: 'III · ASCENT',
                 minBars: 16,
                 cues: [
-                    { look: 'theClimb',   bars: 8 },
+                    { look: 'rowBuild',   bars: 16 },
+                    { look: 'columnFillSweep', bars: 12 },
                     { look: 'heldBreath', bars: 8 },
                     { look: 'strobeHeartbeat', bars: 4 },
                     { look: 'sideways', bars: 4 },
@@ -1231,7 +1487,8 @@ class ShowDirector {
                 minBars: 16,
                 cues: [
                     { look: 'detonation', bars: 2 },
-                    { look: 'firstLight', bars: 8 },
+                    { look: 'rowConversation', bars: 12 },
+                    { look: 'columnFillSweep', bars: 12 },
                     { look: 'chromaticRoom', bars: 2 },
                     { look: 'laserStorm', bars: 4 },
                     { look: 'strobeFloor', bars: 4 },
@@ -1250,7 +1507,7 @@ class ShowDirector {
                 cues: [
                     { look: 'theVoid',   bars: 8 },
                     { look: 'eclipse',   bars: 4 },
-                    { look: 'liquidPlane', bars: 8 },
+                    { look: 'liquidPlane', bars: 16 },
                     { look: 'driftAway', bars: 12 },
                     { look: 'sunrise',   bars: 16 }
                 ]
@@ -1319,7 +1576,7 @@ class ShowDirector {
                     target *= 0.80 + 0.20 * (bar / Math.max(1, bars - 1));
 
                     // THE CUT: last beat of the last bar — total darkness.
-                    if (bar === bars - 1 && beat === ShowDirector.BEATS_PER_BAR - 1) {
+                    if (show.program !== 'aesthetic' && bar === bars - 1 && beat === ShowDirector.BEATS_PER_BAR - 1) {
                         return 0;
                     }
                     return target;
@@ -1348,6 +1605,7 @@ class ShowDirector {
                     // room re-forms out of the dark rather than snapping back.
                     if (bar === 1) {
                         show.club.mirrorBallActive = true;
+                        show.club.mirrorBallRaysActive = false;
                         show.club.mirrorBallSpeed = 0.22;
                         show.club.ledWallActive = true;
                         show.club.ledPattern = 16;   // aurora

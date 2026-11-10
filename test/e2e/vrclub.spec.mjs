@@ -1,7 +1,42 @@
 import { test, expect } from '@playwright/test';
-import { browserFailures, enterClub, expectHealthyRuntime, useQuestHarness } from './support.mjs';
+import { browserFailures, enterClub, enterVR, expectHealthyRuntime, useQuestHarness } from './support.mjs';
 
 useQuestHarness();
+
+test('spinning lasers retain their beams without surface-hit dots on desktop and in VR', async ({ page }) => {
+    await enterClub(page);
+    for (const immersive of [false, true]) {
+        if (immersive) await enterVR(page);
+        const state = await page.evaluate(() => {
+            const club = window.vrClub;
+            club.takeLightControl();
+            club.lasersActive = true;
+            club.masterIntensity = 1;
+            club._laserGeometryReady = false;
+            club.updateLasers({ time: 4, dt: 1 / 72, dtScale: 60 / 72 });
+            const batch = club.laserBeamBatch;
+            return {
+                immersive: club.isInVRMode,
+                enabled: batch.mesh.isEnabled(),
+                beamCount: club.lasers.reduce((count, laser) => count + laser.beams.length, 0),
+                vertices: batch.positions.length,
+                finite: batch.positions.every(Number.isFinite),
+                visible: batch.colors.some((value, index) => index % 4 === 3 && value > 0),
+                clipped: club.lasers.every(laser => laser.beams.every(beam => beam.length > 0 && Number.isFinite(beam.length))),
+                surfaceHitMesh: !!club.scene.getMeshByName('laser_beamHits'),
+                surfaceHitMaterial: club.scene.materials.some(material => material.name === 'laser_beamHitsMat'),
+                surfaceHitTexture: club.scene.textures.some(texture => texture.name === 'laserDotProfile')
+            };
+        });
+        expect(state.immersive).toBe(immersive);
+        expect(state.enabled).toBe(true);
+        expect(state.beamCount).toBeGreaterThan(0);
+        expect(state.vertices).toBe(state.beamCount * 12);
+        expect(state.finite && state.visible && state.clipped).toBe(true);
+        expect(state.surfaceHitMesh || state.surfaceHitMaterial || state.surfaceHitTexture).toBe(false);
+    }
+    await expectHealthyRuntime(page);
+});
 
 test('later lighting groups respect opaque depth without hiding foreground beams', async ({ page }) => {
     await enterClub(page);
@@ -505,13 +540,8 @@ test('Quest 3 emulation enters WebXR, registers controllers, and restores deskto
         hasHelper: true,
         xrDiagnostics: []
     });
-    // Entry waits for the background GLB load and shader compile (30 s ceiling).
-    await expect(vrButton).toBeEnabled({ timeout: 60_000 });
-    await expect(vrButton).toContainText('Enter VR');
-    await vrButton.click();
-
-    await page.waitForFunction(() => window.vrClub?.isInVRMode === true);
-    await page.waitForFunction(() => window.vrClub?._xrControllers?.length === 2);
+    // Use the shared helper so the payment lease is prepared before the user-activation click.
+    await enterVR(page);
     const xrState = await page.evaluate(() => ({
         inVR: window.vrClub.isInVRMode,
         diagnosticsInVR: window.vrClub.getDiagnostics().isInVR,
@@ -531,6 +561,7 @@ test('Quest 3 emulation enters WebXR, registers controllers, and restores deskto
             glowIntensity: window.vrClub.glowLayer.intensity === window.vrClub.vrSettings.vr.glowIntensity,
             selectiveGlowDisabled: !window.vrClub.glowLayer.isEnabled,
             vrDiffersFromDesktop: window.vrClub.vrSettings.vr.exposure !== window.vrClub.vrSettings.desktop.exposure
+                || window.vrClub.vrSettings.vr.bloomWeight !== window.vrClub.vrSettings.desktop.bloomWeight
         },
         vrSmoke: {
             hazeRate: window.vrClub.haze.emitRate,
@@ -547,6 +578,9 @@ test('Quest 3 emulation enters WebXR, registers controllers, and restores deskto
         })),
         mirrorRealLightCount: window.vrClub.mirrorBallSpotlights.filter(Boolean).length,
         djFacing: window.vrClub.npcAvatars.find(npc => npc.name === 'djPerformer')?.root.rotation.y,
+        djRigFacing: (window.vrClub._djRig.bodyYaw - window.vrClub._djRig.yaw0) *
+            window.vrClub._djRig.yawDir,
+        djBodyFacingCrowd: Math.cos(window.vrClub._djRig.bodyYaw),
         djFacingUsesEuler: window.vrClub.npcAvatars.find(npc => npc.name === 'djPerformer')
             ?.root.rotationQuaternion === null
     }));
@@ -559,7 +593,7 @@ test('Quest 3 emulation enters WebXR, registers controllers, and restores deskto
         teleportEnabled: true,
         locomotionFailures: [],
         renderScale: 1,
-        xrFramebufferScale: 1.2,
+        xrFramebufferScale: 1,
         fxaaEnabled: true,
         vrBrightnessApplied: {
             bloomWeight: true,
@@ -583,9 +617,8 @@ test('Quest 3 emulation enters WebXR, registers controllers, and restores deskto
         })),
         mirrorRealLightCount: 0
     });
-    // The DJ is posed by AvatarRig: its root yaw is the skeleton's measured facing (a few 1e-5 rad off zero), and the
-    // performer's head turns stay inside the rig's dead-zone, so the body keeps facing the crowd.
-    expect(xrState.djFacing).toBeCloseTo(0, 2);
+    expect(xrState.djFacing).toBeCloseTo(xrState.djRigFacing, 6);
+    expect(xrState.djBodyFacingCrowd).toBeGreaterThan(0.99);
     expect(xrState.djFacingUsesEuler).toBe(true);
 
     const opticsState = await page.evaluate(() => {
@@ -715,6 +748,10 @@ test('Quest 3 emulation enters WebXR, registers controllers, and restores deskto
             .flatMap(root => root.getChildMeshes())
             .filter(mesh => mesh.name.toLowerCase().includes('truss'));
         const activeMeshes = new Set(club.scene.getActiveMeshes().data);
+        const cameras = club.scene.activeCamera.rigCameras?.length
+            ? club.scene.activeCamera.rigCameras : [club.scene.activeCamera];
+        const frustums = cameras.map(camera => BABYLON.Frustum.GetPlanes(camera.getTransformationMatrix()));
+        const visibleNpcMeshes = npcMeshes.filter(mesh => frustums.some(planes => mesh.isInFrustum(planes)));
         const trussMaterials = [...new Set(trussMeshes.map(mesh => mesh.material).filter(Boolean))];
         const emissiveFloor = material => material.emissiveColor
             ? Math.min(material.emissiveColor.r, material.emissiveColor.g, material.emissiveColor.b)
@@ -723,8 +760,9 @@ test('Quest 3 emulation enters WebXR, registers controllers, and restores deskto
         return {
             enabledNpcCount: enabledNpcs.length,
             npcMeshCount: npcMeshes.length,
-            npcMeshesAlwaysActive: npcMeshes.every(mesh => mesh.alwaysSelectAsActiveMesh),
-            npcMeshesActive: npcMeshes.every(mesh => activeMeshes.has(mesh)),
+            npcMeshesUseCulling: npcMeshes.every(mesh => !mesh.alwaysSelectAsActiveMesh),
+            visibleNpcMeshCount: visibleNpcMeshes.length,
+            visibleNpcMeshesActive: visibleNpcMeshes.every(mesh => activeMeshes.has(mesh)),
             // Avatars keep their authored (zero) emission; in aerial-only cues the
             // hemispheric ambient floor is what keeps silhouettes above display black.
             vrAmbientFloor: club.scene.getLightByName('ambient').intensity -
@@ -739,8 +777,9 @@ test('Quest 3 emulation enters WebXR, registers controllers, and restores deskto
     });
     expect(sustainedVisibility.enabledNpcCount).toBeGreaterThanOrEqual(7);
     expect(sustainedVisibility.npcMeshCount).toBeGreaterThan(0);
-    expect(sustainedVisibility.npcMeshesAlwaysActive).toBe(true);
-    expect(sustainedVisibility.npcMeshesActive).toBe(true);
+    expect(sustainedVisibility.npcMeshesUseCulling).toBe(true);
+    expect(sustainedVisibility.visibleNpcMeshCount).toBeGreaterThan(0);
+    expect(sustainedVisibility.visibleNpcMeshesActive).toBe(true);
     expect(sustainedVisibility.vrAmbientFloor).toBeGreaterThanOrEqual(-0.005);
     expect(sustainedVisibility.nearbyAnimationsRunning).toBe(true);
     expect(sustainedVisibility.trussMeshCount).toBeGreaterThanOrEqual(20);

@@ -14,12 +14,142 @@ const uiLog = {
 };
 
 function ensureMusicLibrary(club) {
-    if (!club.musicLibrary) club.musicLibrary = new window.MusicLibrary(club);
+    if (!club.musicLibrary) {
+        club.musicLibrary = new window.MusicLibrary(club);
+        const savePosition = () => club.musicLibrary && club.musicLibrary.capturePlayback();
+        const timer = setInterval(savePosition, 5000);
+        window.addEventListener('pagehide', savePosition);
+        uiTeardowns.push(() => {
+            clearInterval(timer);
+            window.removeEventListener('pagehide', savePosition);
+            savePosition();
+        });
+    }
     return club.musicLibrary;
 }
 
 /** Now-playing text for the audio menu, set when the entry music starts (the menu may not exist yet). */
 let entryNowPlaying = '';
+
+/**
+ * The three side panels share one screen area, so opening one closes the others: they used to open on top of each
+ * other (the wide VJ panel covered the Music panel's controls). Focus stays where the guest just acted.
+ */
+const SIDE_PANELS = Object.freeze([['vjMenu', 'vjToggle'], ['audioMenu', 'audioToggle'], ['networkMenu', 'networkToggle']]);
+function closeOtherSidePanels(openId) {
+    for (const [menuId, toggleId] of SIDE_PANELS) {
+        if (menuId === openId) continue;
+        const menu = document.getElementById(menuId);
+        if (!menu || menu.classList.contains('hidden')) continue;
+        menu.classList.add('hidden');
+        const toggle = document.getElementById(toggleId);
+        if (toggle) toggle.setAttribute('aria-expanded', 'false');
+    }
+}
+
+function setPanelMinimized(menu, button, minimized, label) {
+    menu.classList.toggle('minimized', minimized);
+    if (!button) return;
+    const glyph = button.querySelector('span') || button;
+    glyph.textContent = minimized ? '+' : '\u2212';
+    const action = minimized ? 'Expand' : 'Minimize';
+    button.setAttribute('aria-label', `${action} ${label} panel`);
+    button.setAttribute('title', action);
+    button.setAttribute('aria-expanded', String(!minimized));
+}
+
+function panelOwnsEscape(event, panel) {
+    if (event.defaultPrevented || event.key !== 'Escape' || panel.classList.contains('hidden')) return false;
+    const modal = event.target?.closest?.('[aria-modal="true"], dialog[open]');
+    return !modal || modal === panel;
+}
+
+function panelTabDestination(event, index, tabs) {
+    if (event.defaultPrevented || event.altKey || event.ctrlKey || event.metaKey) return null;
+    switch (event.key) {
+        case 'Home': return tabs[0];
+        case 'End': return tabs[tabs.length - 1];
+        case 'ArrowLeft': return tabs[(index - 1 + tabs.length) % tabs.length];
+        case 'ArrowRight': return tabs[(index + 1) % tabs.length];
+        default: return null;
+    }
+}
+
+function initPanelSwitchers() {
+    const toggleByPanel = {
+        vjMenu: 'vjToggle',
+        audioMenu: 'audioToggle',
+        networkMenu: 'networkToggle'
+    };
+    document.querySelectorAll('[data-open-panel]').forEach(button => {
+        button.addEventListener('click', () => {
+            const panelId = button.dataset.openPanel;
+            const panel = document.getElementById(panelId);
+            const toggle = document.getElementById(toggleByPanel[panelId]);
+            if (!panel || !toggle || !panel.classList.contains('hidden')) return;
+            toggle.click();
+        });
+    });
+}
+
+function initVJTabs() {
+    const tabs = Array.from(document.querySelectorAll('[data-vj-tab-target]'));
+    const panels = Array.from(document.querySelectorAll('[data-vj-tab-panel]'));
+    const select = tab => {
+        const target = tab.dataset.vjTabTarget;
+        tabs.forEach(candidate => {
+            const selected = candidate === tab;
+            candidate.classList.toggle('active', selected);
+            candidate.setAttribute('aria-selected', String(selected));
+            candidate.tabIndex = selected ? 0 : -1;
+        });
+        panels.forEach(panel => { panel.hidden = panel.dataset.vjTabPanel !== target; });
+    };
+    tabs.forEach((tab, index) => {
+        tab.addEventListener('click', () => select(tab));
+        tab.addEventListener('keydown', event => {
+            const next = panelTabDestination(event, index, tabs);
+            if (!next) return;
+            event.preventDefault();
+            select(next);
+            next.focus();
+        });
+    });
+    if (tabs[0]) select(tabs.find(tab => tab.getAttribute('aria-selected') === 'true') || tabs[0]);
+}
+
+function initAudioSourceTabs() {
+    const tabs = Array.from(document.querySelectorAll('[data-audio-source]'));
+    const panels = {
+        link: document.getElementById('audioSourceLink'),
+        file: document.getElementById('audioSourceFile'),
+        folder: document.getElementById('audioSourceFolder'),
+        live: document.getElementById('audioSourceLive')
+    };
+    const select = tab => {
+        const target = tab.dataset.audioSource;
+        tabs.forEach(candidate => {
+            const selected = candidate === tab;
+            candidate.classList.toggle('active', selected);
+            candidate.setAttribute('aria-selected', String(selected));
+            candidate.tabIndex = selected ? 0 : -1;
+        });
+        Object.entries(panels).forEach(([name, panel]) => {
+            if (panel) panel.hidden = name !== target;
+        });
+    };
+    tabs.forEach((tab, index) => {
+        tab.addEventListener('click', () => select(tab));
+        tab.addEventListener('keydown', event => {
+            const next = panelTabDestination(event, index, tabs);
+            if (!next) return;
+            event.preventDefault();
+            select(next);
+            next.focus();
+        });
+    });
+    if (tabs[0]) select(tabs[0]);
+}
 
 /**
  * Every UI timing constant in one place. These were previously six different
@@ -43,8 +173,14 @@ const UI_TIMING = Object.freeze({
  */
 const TOGGLE_CONTROLS = Object.freeze(new Set([
     'lightsActive', 'lasersActive', 'ledWallActive', 'ledMonochrome',
-    'strobesActive', 'mirrorBallActive', 'laserSheetActive',
-    'smokeActive', 'spotStrobeActive'
+    'strobesActive', 'mirrorBallActive', 'mirrorBallRaysActive', 'laserSheetActive',
+    'smokeActive', 'spotStrobeActive', 'spotPrismActive'
+]));
+
+/** The panel's step/cycle buttons that change a light: pressing one takes the lights by hand (see takeLightControl). */
+const HAND_CONTROLS = Object.freeze(new Set([
+    'changeColor', 'changeLaserColor', 'matchAllColors', 'changeMirrorBallColor',
+    'cycleSpotMode', 'cyclePattern', 'goboActive', 'cycleGoboPattern', 'reverseGoboSpin', 'cycleStrobePattern'
 ]));
 
 // One list of names for every surface (this panel, the VR menu and the desk at the DJ table).
@@ -60,6 +196,15 @@ function setToggleState(button, on) {
     if (!button) return;
     button.classList.toggle('active', !!on);
     if (button.hasAttribute('aria-pressed')) button.setAttribute('aria-pressed', String(!!on));
+    if (!button.matches('.vj-button[data-control], .vj-button[data-people]')) return;
+    let state = button.querySelector('.button-state');
+    if (!state && !/:\s*(?:ON|OFF)\s*$/i.test(button.textContent)) {
+        state = document.createElement('span');
+        state.className = 'button-state';
+        state.setAttribute('aria-hidden', 'true');
+        button.append(state);
+    }
+    if (state) state.textContent = on ? 'ON' : 'OFF';
 }
 
 // =============================================================================
@@ -160,26 +305,86 @@ const mainExperience = document.getElementById('mainExperience');
     });
 })();
 
+const splashRoomInvite = document.getElementById('splashRoomInvite');
+const splashRoomLabel = document.getElementById('splashRoomLabel');
+const splashGuestName = document.getElementById('splashGuestName');
+const invitedEvent = typeof ClubMultiplayer !== 'undefined' ? ClubMultiplayer.inviteEventFromLocation() : null;
+const eventInviteRequested = new URLSearchParams(window.location.search).has('event');
+const invitedRoom = eventInviteRequested ? 'live-event' : (typeof ClubMultiplayer !== 'undefined' && typeof ClubMultiplayer.inviteRoomFromLocation === 'function')
+    ? ClubMultiplayer.inviteRoomFromLocation()
+    : null;
+
+(function initSplashRoomInvite() {
+    if (!invitedRoom || !splashRoomInvite) return;
+    splashRoomInvite.hidden = false;
+    const privateMatch = /^private-(\d{6})$/i.exec(invitedRoom);
+    const labelText = privateMatch
+        ? `Private room ${privateMatch[1].slice(0, 3)} ${privateMatch[1].slice(3)}`
+        : `Room "${invitedRoom}"`;
+    if (splashRoomLabel) splashRoomLabel.textContent = invitedEvent ? 'Invited to a live DJ event' : `Invited to ${labelText}`;
+    if (enterClubBtn) enterClubBtn.textContent = invitedEvent ? 'JOIN EVENT' : `JOIN ${privateMatch ? 'PRIVATE ROOM' : 'ROOM'}`;
+    if (splashGuestName) {
+        let savedName = '';
+        try { savedName = localStorage.getItem('vrclub.networkName') || ''; } catch (_) {}
+        splashGuestName.value = savedName;
+        splashGuestName.addEventListener('keydown', (e) => {
+            if (e.key === 'Enter' && enterClubBtn) {
+                e.preventDefault();
+                enterClubBtn.click();
+            }
+        });
+    }
+})();
+
 function announceNowPlaying(label) {
     entryNowPlaying = `\u25B6 ${label}`;
     const nowPlaying = document.getElementById('audioNowPlaying');
     if (nowPlaying) nowPlaying.textContent = entryNowPlaying;
     const playLabel = document.getElementById('playStreamBtnLabel');
-    if (playLabel) playLabel.textContent = 'Pause';
-    const playBtn = document.getElementById('playStreamBtn');
-    if (playBtn) playBtn.setAttribute('aria-label', 'Pause audio');
+    if (playLabel && typeof window.refreshMusicLinkButtons === 'function') window.refreshMusicLinkButtons();
 }
 
-/** Resume only an explicitly saved set, with the ENTER click's autoplay permission. */
+/** Starts the guest's saved set, or the club's own set when nothing is saved, with the ENTER click's autoplay permission. */
 function startEntryMusic(club, pointAtAudioMenu) {
     try { club._ensureAudioContext(); } catch (err) { uiLog.warn(`Audio context unavailable: ${err.message}`); }
     const library = ensureMusicLibrary(club);
     const item = library.current();
     const nowPlaying = document.getElementById('audioNowPlaying');
     if (!item) {
-        entryNowPlaying = 'No music included. Open Music to add your own set.';
+        // Nothing saved: the club plays its own original set rather than leave a guest in silence. It never replaces a saved
+        // set, and it stays quiet in someone else's room (the host owns the music there).
+        entryNowPlaying = 'Starting the club\u2019s own set\u2026';
         if (nowPlaying) nowPlaying.textContent = entryNowPlaying;
-        pointAtAudioMenu();
+        const noMusic = () => {
+            entryNowPlaying = 'No music selected. Add a link, file or folder below.';
+            if (nowPlaying) nowPlaying.textContent = entryNowPlaying;
+            pointAtAudioMenu();
+        };
+        const retryDefault = () => {
+            document.removeEventListener('pointerdown', retryDefault);
+            document.removeEventListener('keydown', retryDefault);
+            library.playDefault().then(started => { if (started) announceNowPlaying(library.defaultItem().name); })
+                .catch(error => uiLog.warn(`Club set unavailable: ${error.message}`));
+        };
+        library.playDefault().then(started => {
+            if (started) announceNowPlaying(library.defaultItem().name);
+            else noMusic();
+        }).catch(err => {
+            uiLog.warn(`Club set unavailable: ${err.message}`);
+            // The browser held the sound back until a gesture: say so, and start it on the first press or key.
+            if (err && err.name === 'NotAllowedError') {
+                entryNowPlaying = 'Press any key or click to start the club\u2019s set.';
+                if (nowPlaying) nowPlaying.textContent = entryNowPlaying;
+                document.addEventListener('pointerdown', retryDefault);
+                document.addEventListener('keydown', retryDefault);
+                uiTeardowns.push(() => {
+                    document.removeEventListener('pointerdown', retryDefault);
+                    document.removeEventListener('keydown', retryDefault);
+                });
+                return;
+            }
+            noMusic();
+        });
         return;
     }
     entryNowPlaying = `Starting ${item.name}\u2026`;
@@ -196,6 +401,11 @@ function startEntryMusic(club, pointAtAudioMenu) {
         // guest in a club that looks alive and makes no sound, with no indication that the
         // fix is behind the audio button.
         uiLog.warn(`Saved music unavailable: ${err.message}`);
+        // The club's own set takes over when the saved one fails (see MusicLibrary.fallBackToDefault), so the room is not silent.
+        if (library.isDefaultPlaying()) {
+            announceNowPlaying(library.defaultItem().name);
+            return;
+        }
         entryNowPlaying = 'No audio yet';
         if (nowPlaying) nowPlaying.textContent = entryNowPlaying;
         pointAtAudioMenu();
@@ -243,10 +453,30 @@ if (enterClubBtn) {
             }
         };
 
-        // Only explicitly saved user music may resume. Keep this in the click for autoplay permission.
-        startEntryMusic(window.vrClub, pointAtAudioMenu);
+        // Only explicitly saved user music may resume (or, with none saved, the club's own set). When entering via a
+        // room invite link, only unlock the AudioContext and join the room directly so the guest hears the room's music.
+        if (invitedRoom) {
+            try { window.vrClub._ensureAudioContext(); } catch (err) { uiLog.warn(`Audio context unavailable: ${err.message}`); }
+            const typedName = splashGuestName ? splashGuestName.value.trim() : '';
+            if (typedName) {
+                try { localStorage.setItem('vrclub.networkName', typedName); } catch (_) {}
+            }
+        } else {
+            // Keep this in the click for autoplay permission.
+            startEntryMusic(window.vrClub, pointAtAudioMenu);
+        }
+
+        // Immersive launch has no click to resume audio with: the first controller press does it (see ImmersiveLaunch).
+        // Through a room invite the host owns the music, exactly as for the desktop link, so no entry music starts.
+        if (window.ImmersiveLaunch && ImmersiveLaunch.requested()) {
+            window.vrClub._immersive = new ImmersiveLaunch(window.vrClub, {
+                onFirstGesture: () => { if (!invitedRoom) startEntryMusic(window.vrClub, pointAtAudioMenu); }
+            });
+            void window.vrClub._immersive.start();
+        }
         
         // Show loading state
+        if (splashRoomInvite) splashRoomInvite.hidden = true;
         enterClubBtn.style.display = 'none';
         splashLoading.classList.add('visible');
         const progressBar = document.getElementById('splashProgressBar');
@@ -259,6 +489,19 @@ if (enterClubBtn) {
         // Initialize UI menus now that VRClub exists (it is constructed synchronously
         // above, so there is nothing to wait for).
         initMenus();
+
+        if (invitedRoom && window.vrClub.multiplayer) {
+            const typedName = splashGuestName ? splashGuestName.value.trim() : '';
+            if (eventInviteRequested && !invitedEvent) {
+                window.vrClub.showErrorMessage('This live event invitation is invalid. Ask the event owner for a new audience link.');
+            } else {
+                window.vrClub.multiplayer.connect({
+                    room: invitedRoom,
+                    eventId: invitedEvent,
+                    name: typedName || window.vrClub.multiplayer.name
+                });
+            }
+        }
 
         // Hide the splash only when init() has actually RESOLVED.
         //
@@ -292,6 +535,7 @@ function hideSplashWhenReady() {
         // stay out of the tab order or focus walks behind it invisibly.
         if (mainExperience) mainExperience.removeAttribute('inert');
         if (canvas) canvas.focus({ preventScroll: true });
+        showFirstRunHint();
     };
 
     const capTimer = setTimeout(() => {
@@ -318,6 +562,28 @@ function hideSplashWhenReady() {
     });
 }
 
+function showFirstRunHint() {
+    const hint = document.getElementById('firstRunHint');
+    const close = document.getElementById('firstRunHintClose');
+    if (!hint || !close) return;
+    let dismissed = false;
+    try {
+        dismissed = localStorage.getItem('vrclub.welcomeDismissed') === '1';
+    } catch (error) {
+        uiLog.warn('Could not read the welcome hint preference:', error);
+    }
+    if (dismissed) return;
+    hint.hidden = false;
+    close.addEventListener('click', () => {
+        hint.hidden = true;
+        try {
+            localStorage.setItem('vrclub.welcomeDismissed', '1');
+        } catch (error) {
+            uiLog.warn('Could not save the welcome hint preference:', error);
+        }
+    }, { once: true });
+}
+
 // =============================================================================
 // VJ MENU CONTROLS
 // =============================================================================
@@ -340,6 +606,14 @@ function initMenus() {
     initVJMenu();
     initAudioMenu();
     initNetworkMenu();
+    vrClubInstance.initLiveInputMenu();
+    initPanelSwitchers();
+    initVJTabs();
+    initAudioSourceTabs();
+    if (new URLSearchParams(window.location.search).get('liveInput') === '1') {
+        window.openMusicSetup();
+        document.getElementById('audioSourceTabLive').click();
+    }
     initKeyboardShortcuts();
     uiLog.info('VJ/Audio menus initialized');
 }
@@ -354,6 +628,18 @@ function initVJMenu() {
     const vjTitle = document.getElementById('vjMenuTitle');
     
     if (!vjToggle || !vjMenu) return;
+    const spotRigSelection = document.getElementById('spotRigSelection');
+    if (spotRigSelection) {
+        VRClubUI.SPOT_GROUPS.forEach(({ name }, index) => {
+            const option = document.createElement('option');
+            option.value = String(index);
+            option.textContent = name;
+            spotRigSelection.appendChild(option);
+        });
+        spotRigSelection.addEventListener('change', () => {
+            if (vrClubInstance && vrClubInstance.selectSpotRigGroup(Number(spotRigSelection.value))) updateButtonStates();
+        });
+    }
     
     const teardowns = uiTeardowns;
     const closeVJMenu = (restoreFocus = true) => {
@@ -362,7 +648,9 @@ function initVJMenu() {
         if (restoreFocus) vjToggle.focus();
     };
     const openVJMenu = () => {
-        vjMenu.classList.remove('hidden', 'minimized');
+        closeOtherSidePanels('vjMenu');
+        vjMenu.classList.remove('hidden');
+        setPanelMinimized(vjMenu, vjMinimize, false, 'Show and Lights');
         vjToggle.setAttribute('aria-expanded', 'true');
         updateButtonStates();
         if (vjTitle) vjTitle.focus();
@@ -378,11 +666,7 @@ function initVJMenu() {
     // destroys the aria-hidden wrapper and exposes a bare "−" glyph to screen readers.
     if (vjMinimize) {
         vjMinimize.addEventListener('click', () => {
-            const minimized = vjMenu.classList.toggle('minimized');
-            const glyph = vjMinimize.querySelector('span') || vjMinimize;
-            glyph.textContent = minimized ? '+' : '\u2212';
-            vjMinimize.setAttribute('aria-label', minimized ? 'Expand VJ panel' : 'Minimize VJ panel');
-            vjMinimize.setAttribute('aria-expanded', String(!minimized));
+            setPanelMinimized(vjMenu, vjMinimize, !vjMenu.classList.contains('minimized'), 'Show and Lights');
         });
     }
     
@@ -392,7 +676,7 @@ function initVJMenu() {
     }
 
     const onVJKeyDown = e => {
-        if (e.key === 'Escape' && !vjMenu.classList.contains('hidden')) {
+        if (panelOwnsEscape(e, vjMenu)) {
             e.preventDefault();
             closeVJMenu();
         }
@@ -400,9 +684,9 @@ function initVJMenu() {
     document.addEventListener('keydown', onVJKeyDown);
     teardowns.push(() => document.removeEventListener('keydown', onVJKeyDown));
     
+    const goboDisplayName = name => name === 'circle' ? 'OPEN' : String(name || 'circle').toUpperCase();
     // Handle VJ control buttons
     const vjButtons = document.querySelectorAll('.vj-button[data-control]');
-    const goboDisplayName = name => name === 'circle' ? 'OPEN' : String(name || 'circle').toUpperCase();
 
     // Show the auto-detected graphics tier on the quality button so the label never
     // reads "AUTO" once we actually know what was picked.
@@ -418,15 +702,111 @@ function initVJMenu() {
     function updateShowReadout() {
         if (!showReadout || !vrClubInstance.showDirector) return;
         const s = vrClubInstance.showDirector;
+        const holdLookButton = document.getElementById('vjHoldLookBtn');
+        if (holdLookButton) {
+            const held = s.isHeld();
+            const reason = vrClubInstance.isFollowingHost() ? 'HOST ONLY' : vrClubInstance.showLookHoldUnavailableReason();
+            holdLookButton.disabled = !!reason;
+            holdLookButton.textContent = reason ? `HOLD THIS LOOK: ${reason}` : held ? 'RELEASE THIS LOOK' : 'HOLD THIS LOOK';
+            setToggleState(holdLookButton, held);
+        }
         if (!s.enabled) { showReadout.textContent = 'OFF'; return; }
         const st = s.getStatus();
-        showReadout.textContent = st.setPiece ? `⚡ ${st.setPiece}` : st.movement;
+        let text = st.setPiece ? `⚡ ${st.setPiece}` : st.movement;
+        // A section the guest asked to keep says so, and how long it will be kept when that has an end.
+        if (st.held) text += st.heldSecondsLeft === null ? ' (kept)' : ` (kept ${st.heldSecondsLeft} s)`;
+        showReadout.textContent = text;
     }
     const showToggleBtn = document.querySelector('.vj-button[data-control="toggleShow"]');
     if (showToggleBtn && vrClubInstance.showDirector) {
         setToggleState(showToggleBtn, vrClubInstance.showDirector.enabled);
     }
     updateShowReadout();
+
+    // ---- After I change something: the shared hold policy (keep it / return to auto / shuffle colours) ----
+    const holdButtons = [...document.querySelectorAll('.vj-button[data-hold]')];
+    const holdTiming = document.getElementById('vjHoldTiming');
+    const holdTimingLabel = document.getElementById('vjHoldTimingLabel');
+    const holdSummary = document.getElementById('vjHoldSummary');
+    const holdSecondsText = seconds => seconds < 60 ? `${seconds} seconds` : (seconds === 60 ? '1 minute' : `${seconds / 60} minutes`);
+    function renderHold() {
+        const hold = vrClubInstance.lightHold;
+        if (!hold) return;
+        for (const button of holdButtons) setToggleState(button, button.getAttribute('data-hold') === hold.mode);
+        const shuffle = hold.mode === 'shuffle';
+        if (holdTiming) {
+            const kind = shuffle ? 'shuffle' : 'resume';
+            // Rebuild the choices only when the mode changes the list, so an open dropdown is never reset by the poller.
+            if (holdTiming.dataset.kind !== kind) {
+                holdTiming.replaceChildren();
+                const list = shuffle ? VRClubCore.LIGHT_SHUFFLE_SECONDS : VRClubCore.LIGHT_HOLD_DELAYS;
+                for (const seconds of list) holdTiming.add(new Option(holdSecondsText(seconds), String(seconds)));
+                holdTiming.dataset.kind = kind;
+            }
+            holdTiming.value = String(shuffle ? hold.shuffle : hold.delay);
+            holdTiming.disabled = hold.mode === 'keep';
+        }
+        if (holdTimingLabel) {
+            holdTimingLabel.textContent = shuffle ? 'Change the colour every' : (hold.mode === 'keep' ? 'Time (not used while kept)' : 'Return to auto after');
+        }
+        if (holdSummary) {
+            holdSummary.textContent = hold.mode === 'keep'
+                ? 'Your lights stay exactly as you set them until you press Auto show.'
+                : shuffle
+                    ? `Your lights stay as you set them, but the colour changes to a new random one every ${holdSecondsText(hold.shuffle)}.`
+                    : `The automatic show returns after ${holdSecondsText(hold.delay)} without a change from you.`;
+        }
+    }
+    for (const button of holdButtons) {
+        button.addEventListener('click', () => {
+            vrClubInstance.setLightHold({ mode: button.getAttribute('data-hold') });
+            renderHold();
+        });
+    }
+    if (holdTiming) {
+        holdTiming.addEventListener('change', () => {
+            const hold = vrClubInstance.lightHold;
+            const seconds = Number(holdTiming.value);
+            vrClubInstance.setLightHold(hold.mode === 'shuffle' ? { shuffle: seconds } : { delay: seconds });
+            renderHold();
+        });
+    }
+    const autoShowNow = document.getElementById('vjAutoShowBtn');
+    const reducedSmoke = document.getElementById('reducedShowSmoke');
+    reducedSmoke?.addEventListener('click', () => {
+        vrClubInstance.toggleLightControl('toggleReducedShowSmoke');
+        reducedSmoke.textContent = `DENSE SHOW SMOKE FOR ME: ${vrClubInstance.aestheticControlValue('toggleReducedShowSmoke')}`;
+    });
+    const holdLookNow = document.getElementById('vjHoldLookBtn');
+    if (holdLookNow) {
+        holdLookNow.addEventListener('click', () => {
+            vrClubInstance.toggleShowLookHold();
+            updateShowReadout();
+        });
+    }
+    if (autoShowNow) {
+        autoShowNow.addEventListener('click', () => {
+            if (!vrClubInstance.guardHostControl('lights')) return;
+            vrClubInstance.resumeAutoShow();
+            updateShowReadout();
+            if (vrClubInstance.showErrorMessage) vrClubInstance.showErrorMessage('NOCTURNE auto show resumed');
+        });
+    }
+    // Jump to a named section of the show and keep it as the policy says.
+    for (const button of document.querySelectorAll('.vj-button[data-section]')) {
+        button.addEventListener('click', () => {
+            const title = vrClubInstance.pickShowSection(button.getAttribute('data-section'));
+            if (!title) return;
+            flashButton(button);
+            updateShowReadout();
+            if (vrClubInstance.showErrorMessage) vrClubInstance.showErrorMessage(`Section: ${title}`);
+        });
+    }
+    renderHold();
+    const strobePatternBtn = document.querySelector('.vj-button[data-control="cycleStrobePattern"]');
+    if (strobePatternBtn && typeof vrClubInstance.strobePatternName === 'function') {
+        strobePatternBtn.textContent = `STROBE PATTERN: ${vrClubInstance.strobePatternName()}`;
+    }
 
     // Restore every VJ control to a known-good state. Without this the only way back
     // from an exploratory session was a full page reload.
@@ -440,8 +820,8 @@ function initVJMenu() {
             if (modeBtn) modeBtn.textContent = `MODE: ${SPOT_MODE_NAMES[vrClubInstance.spotlightMode]}`;
             const patBtn = document.querySelector('.vj-button[data-control="cyclePattern"]');
             if (patBtn) patBtn.textContent = `AIM PATH: ${SPOT_PATTERN_NAMES[vrClubInstance.spotlightPattern]}`;
-            const goboBtn = document.querySelector('.vj-button[data-control="cycleGoboPattern"]');
-            if (goboBtn) goboBtn.textContent = `IMAGE: ${goboDisplayName(vrClubInstance.goboPatterns[vrClubInstance.goboPatternIndex])}`;
+            const strobeBtn = document.querySelector('.vj-button[data-control="cycleStrobePattern"]');
+            if (strobeBtn) strobeBtn.textContent = `STROBE PATTERN: ${vrClubInstance.strobePatternName()}`;
             updateButtonStates();
             if (vrClubInstance.showErrorMessage) vrClubInstance.showErrorMessage('VJ controls reset to defaults');
         });
@@ -476,9 +856,20 @@ function initVJMenu() {
         button.addEventListener('click', () => {
             const control = button.getAttribute('data-control');
             
-            if (control === 'changeColor') {
+            if (Object.prototype.hasOwnProperty.call(VRClubUI.SPOT_RIG_CONTROLS, control)) {
+                vrClubInstance.toggleLightControl(control);
+                updateButtonStates();
+            } else if (control === 'changeColor') {
                 const color = vrClubInstance.cycleSpotColor();
                 flashButton(button, `rgba(${color.r * 255}, ${color.g * 255}, ${color.b * 255}, 0.8)`);
+
+            } else if (control === 'changeLaserColor') {
+                const color = vrClubInstance.cycleLaserColor();
+                if (color) flashButton(button, `rgba(${color.r * 255}, ${color.g * 255}, ${color.b * 255}, 0.8)`);
+
+            } else if (control === 'matchAllColors') {
+                const color = vrClubInstance.matchAllLightColors();
+                if (color) flashButton(button, `rgba(${color.r * 255}, ${color.g * 255}, ${color.b * 255}, 0.8)`);
                 
             } else if (control === 'cycleGraphicsQuality') {
                 // Cycle render quality. Auto-detection is conservative, so this lets a
@@ -500,11 +891,28 @@ function initVJMenu() {
                 }
 
             } else if (control === 'nextMovement') {
-                const show = vrClubInstance.showDirector;
-                if (show && show.isDriving()) {
-                    show.nextMovement();
+                // The next section of the show, kept as the guest's hold policy says. It also hands the lights back to the
+                // show first when they were being held by hand.
+                const title = vrClubInstance.nextShowSection();
+                if (title) {
+                    flashButton(button);
                     updateShowReadout();
                 }
+
+            } else if (['cycleShowProgram', 'cycleSheetSpeed'].includes(control) ||
+                Object.hasOwn(VRClubUI.FIXTURE_BRIGHTNESS_CONTROLS, control)) {
+                vrClubInstance.toggleLightControl(control);
+                updateButtonStates();
+                flashButton(button);
+            } else if (control === 'cycleFogAmount' || control === 'cycleFogMode') {
+                vrClubInstance.toggleLightControl(control);
+                updateButtonStates();
+                flashButton(button);
+
+            } else if (control === 'cycleStrobePattern') {
+                vrClubInstance.cycleStrobePattern();
+                button.textContent = `STROBE PATTERN: ${vrClubInstance.strobePatternName()}`;
+                flashButton(button);
 
             } else if (control === 'showCountdown') {
                 // Fire THE COUNTDOWN: 4 bars of escalation into one beat of black.
@@ -558,24 +966,16 @@ function initVJMenu() {
                 flashButton(button);
                 
             } else if (TOGGLE_CONTROLS.has(control)) {
-                // Allow-listed boolean toggle. Anything not in the set is ignored rather
-                // than written straight onto the instance by name.
-                vrClubInstance[control] = !vrClubInstance[control];
-
-                // Same exclusivity rule the in-world desk applies, and the same
-                // explanation - silently discarding three of the user's choices with
-                // no feedback is what made this feel broken.
-                const note = vrClubInstance.applyFixtureExclusivity(control);
-                if (note && vrClubInstance.showErrorMessage) vrClubInstance.showErrorMessage(note);
+                vrClubInstance.toggleLightControl(control);
                 updateButtonStates();
-                
-                // Activate VJ manual mode for toggle controls
-                vrClubInstance.lastVJInteraction = performance.now() / 1000;
-                vrClubInstance.vjManualMode = true;
 
             } else {
                 uiLog.warn(`Unhandled VJ control: ${control}`);
             }
+            // A light changed by hand is the guest's from now on, under their hold policy: without this the colour,
+            // aim buttons changed a light the automatic show then simply overwrote on its next bar.
+            if (HAND_CONTROLS.has(control)) vrClubInstance.takeLightControl();
+            renderHold();
         });
     });
     
@@ -635,8 +1035,7 @@ function initVJMenu() {
 
     if (dropBtn) {
         vjMacros.drop = () => {
-            const d = vjDir();
-            if (d) { d.triggerDrop(); flashBtn(dropBtn); }
+            if (vrClubInstance.triggerShowPeak()) flashBtn(dropBtn);
         };
         dropBtn.addEventListener('click', vjMacros.drop);
     }
@@ -684,14 +1083,20 @@ function initVJMenu() {
         }, UI_TIMING.bpmPollMs);
     }
 
-    // === ACCESSIBILITY: Photosensitive Safe Mode + Bass Haptics ===
+    // === ACCESSIBILITY: Photosensitive Safe Mode + VR Comfort ===
     const safeModeBtn = document.getElementById('vjSafeModeBtn');
-    const bassHapticsBtn = document.getElementById('vjBassHapticsBtn');
     const vrComfortBtn = document.getElementById('vjVRComfortBtn');
     if (vrComfortBtn) {
         setToggleState(vrComfortBtn, vrClubInstance.vrComfortMode);
         vrComfortBtn.addEventListener('click', () => {
             vrClubInstance.setVRComfortMode(!vrClubInstance.vrComfortMode);
+        });
+    }
+    const autoQualityBtn = document.getElementById('vjAutoQualityBtn');
+    if (autoQualityBtn) {
+        setToggleState(autoQualityBtn, vrClubInstance.autoQuality);
+        autoQualityBtn.addEventListener('click', () => {
+            setToggleState(autoQualityBtn, vrClubInstance.setAutoQuality(!vrClubInstance.autoQuality));
         });
     }
     const splashSafeState = document.getElementById('splashSafeModeState');
@@ -707,24 +1112,41 @@ function initVJMenu() {
             if (splashSafeState) splashSafeState.textContent = next ? 'ON' : 'OFF';
         });
     }
-    if (bassHapticsBtn) {
-        setToggleState(bassHapticsBtn, vrClubInstance.bassHapticsEnabled);
-        bassHapticsBtn.addEventListener('click', () => {
-            const next = !vrClubInstance.bassHapticsEnabled;
-            vrClubInstance.setBassHapticsEnabled(next);
-            setToggleState(bassHapticsBtn, next);
-        });
-    }
 
     // === WHO IS IN THE CLUB: dancers, bystanders, the DJ ===
     // Every action lives on VRClub (setPeopleVisible / togglePeopleVisible); this surface only presses and renders,
     // exactly like the VR quick menu's COMFORT page.
     const peopleButtons = [...document.querySelectorAll('.vj-button[data-people]')];
+    const characterStyle = document.getElementById('characterStyle');
+    const lightweightCharacters = document.getElementById('lightweightCharacters');
+    const characterStyleStatus = document.getElementById('characterStyleStatus');
+    const retryCharacterStyle = document.getElementById('retryCharacterStyle');
+    if (retryCharacterStyle) retryCharacterStyle.addEventListener('click', () => vrClubInstance.retryCharacterStyle());
+    if (characterStyle) characterStyle.addEventListener('change', () => vrClubInstance.setCharacterStyle(characterStyle.value));
+    if (lightweightCharacters) lightweightCharacters.addEventListener('click', () => {
+        vrClubInstance.setLightweightCharacters(!vrClubInstance.characterStyleStatus().lightweight);
+    });
     function renderPeopleButtons() {
+        if (characterStyle) {
+            const state = vrClubInstance.characterStyleStatus();
+            characterStyle.value = state.selected;
+            characterStyle.disabled = vrClubInstance.isFollowingHost() || !!state.loading;
+            lightweightCharacters.disabled = false;
+            retryCharacterStyle.hidden = !state.error;
+            retryCharacterStyle.disabled = !!state.loading;
+            setToggleState(lightweightCharacters, state.lightweight);
+            characterStyleStatus.textContent = state.error ? `Could not change characters: ${state.error}. Retry loading or use lightweight characters.`
+                : state.loading ? 'Loading characters. The current cast stays until every replacement is ready.'
+                    : `Showing ${state.style === 'diverse' ? 'diverse adults' : 'Quaternius'}. ${state.lightweight ? 'Your lightweight override is on.' : "Your override never changes the host's room choice."}`;
+        }
         for (const button of peopleButtons) {
             const category = button.getAttribute('data-people');
             const names = category === 'all' ? ['dancers', 'bystanders', 'dj'] : [category];
             setToggleState(button, names.every(name => vrClubInstance.isPeopleVisible(name)));
+            if (category === 'dj' && vrClubInstance._roomDJVisible === false) {
+                const state = button.querySelector('.button-state');
+                if (state) state.textContent = 'HOST SENT HOME';
+            }
         }
     }
     for (const button of peopleButtons) {
@@ -732,11 +1154,15 @@ function initVJMenu() {
             const category = button.getAttribute('data-people');
             const here = vrClubInstance.togglePeopleVisible(category);
             renderPeopleButtons();
+            window.addEventListener('characterstylechange', renderPeopleButtons);
+            teardowns.push(() => window.removeEventListener('characterstylechange', renderPeopleButtons));
             flashButton(button);
             if (vrClubInstance.showErrorMessage) {
                 const who = category === 'all' ? 'Everyone' : button.textContent.trim().toLowerCase();
                 const label = who.charAt(0).toUpperCase() + who.slice(1);
-                vrClubInstance.showErrorMessage(here ? `${label}: back in the club` : `${label}: sent home`);
+                vrClubInstance.showErrorMessage(category === 'dj' && vrClubInstance._roomDJVisible === false
+                    ? 'The host has sent the room DJ home. Your own DJ preference is saved.'
+                    : here ? `${label}: back in the club` : `${label}: sent home`);
             }
         });
     }
@@ -745,11 +1171,34 @@ function initVJMenu() {
     // Update button states periodically
     function updateButtonStates() {
         if (!vrClubInstance || vjMenu.classList.contains('hidden')) return;
+        if (spotRigSelection) spotRigSelection.value = String(vrClubInstance._spotEditTarget || 0);
         renderPeopleButtons();
+        // The VR menu and the desk change these too: keep the panel in step.
+        renderHold();
+        updateShowReadout();
+        if (strobePatternBtn && typeof vrClubInstance.strobePatternName === 'function') {
+            strobePatternBtn.textContent = `STROBE PATTERN: ${vrClubInstance.strobePatternName()}`;
+        }
         
         vjButtons.forEach(button => {
             const control = button.getAttribute('data-control');
             if (!control) return;
+            if (['cycleShowProgram', 'cycleSheetSpeed'].includes(control) ||
+                Object.hasOwn(VRClubUI.FIXTURE_BRIGHTNESS_CONTROLS, control)) {
+                const label = VRClubUI.FIXTURE_BRIGHTNESS_CONTROLS[control]?.label ||
+                    (control === 'cycleShowProgram' ? 'SHOW STYLE' : 'SHEET SPEED');
+                button.textContent = `${label}: ${vrClubInstance.aestheticControlValue(control)}`;
+                return;
+            }
+            if (control === 'cycleFogAmount' || control === 'cycleFogMode') {
+                const label = control === 'cycleFogAmount' ? 'SMOKE AMOUNT' : 'SMOKE OUTPUT';
+                button.textContent = `${label}: ${vrClubInstance.smokeControlValue(control)}`;
+                return;
+            }
+            if (Object.prototype.hasOwnProperty.call(VRClubUI.SPOT_RIG_CONTROLS, control)) {
+                button.textContent = `${VRClubUI.SPOT_RIG_CONTROLS[control]}: ${vrClubInstance.spotRigControlValue(control)}`;
+                return;
+            }
             // Read the state from wherever it actually lives. The previous substring
             // test (`!control.includes('change'|'cycle'|'reverse')`) let `toggleShow`
             // fall into the generic branch and read `vrClubInstance.toggleShow`, which
@@ -760,10 +1209,12 @@ function initVJMenu() {
             } else if (control === 'toggleShow') {
                 setToggleState(button, !!(vrClubInstance.showDirector && vrClubInstance.showDirector.enabled));
             } else if (TOGGLE_CONTROLS.has(control)) {
+                if (control === 'mirrorBallRaysActive') {
+                    button.textContent = `MIRROR BEAMS: ${vrClubInstance[control] ? 'ON' : 'OFF'}`;
+                }
                 setToggleState(button, vrClubInstance[control]);
             }
-            // Momentary actions (changeColor, cycle*, nextMovement, showCountdown,
-            // reverseGoboSpin) carry no persistent state and are deliberately skipped.
+            // Momentary actions carry no persistent state and are deliberately skipped.
         });
         
         // Update speed slider
@@ -774,14 +1225,6 @@ function initVJMenu() {
             spotSpeed.setAttribute('aria-valuetext', text);
         }
         
-        // Update gobo speed slider - use VRClub properties directly
-        if (goboSpeed && goboSpeedValue) {
-            const speed = vrClubInstance.goboRotationSpeed || 1.0;
-            const text = `${speed.toFixed(1)}x`;
-            goboSpeed.value = speed;
-            goboSpeedValue.textContent = text;
-            goboSpeed.setAttribute('aria-valuetext', text);
-        }
     }
     
     // Update button states periodically (low frequency: VR frame budget).
@@ -860,7 +1303,7 @@ function initKeyboardShortcuts() {
     };
     const onKey = (e) => {
         const t = e.target;
-        if (e.defaultPrevented || isTextTarget(t)) return;
+        if (e.defaultPrevented || isTextTarget(t) || t?.closest?.('[aria-modal="true"], dialog[open]')) return;
         // Closing a panel leaves focus on its button; M and T must still work then. Space and Enter stay the button's.
         if (isActivatable(t) && (e.key === ' ' || e.key === 'Enter')) return;
         if (e.ctrlKey || e.metaKey || e.altKey) return;
@@ -871,14 +1314,10 @@ function initKeyboardShortcuts() {
             case 'e': case 'E':
                 if (!e.repeat && club.jumpDesktop()) e.preventDefault();
                 break;
-            case ' ': {
-                const el = club.audioElement;
-                if (!el) return;
+            case ' ':
                 e.preventDefault();
-                if (!club.guardHostControl('music')) break;
-                if (el.paused) el.play().catch(() => {}); else el.pause();
+                club.toggleAudioPlayback();
                 break;
-            }
             case 'b': case 'B':
                 if (vjMacros.blackout) {
                     e.preventDefault();
@@ -931,6 +1370,8 @@ function initAudioMenu() {
     const playStreamBtnLabel = document.getElementById('playStreamBtnLabel');
     const audioSourceHint = document.getElementById('audioSourceHint');
     const audioFileInput = document.getElementById('audioFileInput');
+    const audioFolderInput = document.getElementById('audioFolderInput');
+    const folderPlaybackMode = document.getElementById('folderPlaybackMode');
     const audioFileName = document.getElementById('audioFileName');
     const audioStatus = document.getElementById('audioStatus');
     const audioTitle = document.getElementById('audioMenuTitle');
@@ -947,11 +1388,150 @@ function initAudioMenu() {
         if (remembered && vrClubInstance._isSafeAudioUrl(remembered)) streamUrl.value = remembered;
     }
 
-    /** Update the play/pause affordance without destroying its icon/label spans. */
-    const setPlayLabel = (playing) => {
-        if (playStreamBtnLabel) playStreamBtnLabel.textContent = playing ? 'Pause' : 'Play';
-        if (playStreamBtn) playStreamBtn.setAttribute('aria-label', playing ? 'Pause audio' : 'Play audio');
+    vrClubInstance.initLiveInputMenu = function () {
+        const club = vrClubInstance;
+        const root = document.getElementById('audioSourceLive');
+        if (!root || !club.multiplayer) return;
+        const el = Object.fromEntries(['Device', 'Discover', 'Test', 'Stop', 'Status', 'Signal', 'Format', 'Left', 'Right', 'Monitor', 'PerformDJ', 'Title', 'Go', 'Pause', 'Invite']
+            .map(key => [key, document.getElementById(`liveInput${key}`)]));
+        let discovering = false, discoveryRevision = 0;
+        const setText = (element, value) => {
+            if (element.textContent !== value) element.textContent = value;
+        };
+        const setPressed = (element, value) => {
+            const pressed = String(value);
+            if (element.getAttribute('aria-pressed') !== pressed) element.setAttribute('aria-pressed', pressed);
+        };
+        const render = () => {
+            const input = club.liveInput, mp = club.multiplayer;
+            const blocked = mp.hasLiveEvent ? !input.retainsInputFor(mp.liveEvent) && !input.canTest : club.isFollowingHost();
+            const busy = input.busy || input.goingLive || discovering;
+            setText(el.Status, blocked && !input.stream
+                ? 'The session host supplies the music. Leave the session to test your own input.' : input.status);
+            setText(el.Signal, input.signal || '');
+            setText(el.Format, input.format);
+            el.Left.value = input.levels[0];
+            el.Right.value = input.levels[1];
+            el.Device.disabled = busy || !!input.stream || blocked;
+            el.Discover.disabled = busy || !!input.stream || blocked;
+            el.Test.disabled = busy || !!input.stream || blocked;
+            el.Stop.disabled = !input.active && !input.goingLive;
+            el.Monitor.disabled = !input.stream;
+            setPressed(el.Monitor, input.monitoring);
+            setText(el.Monitor, `Hear test audio: ${input.monitoring ? 'ON' : 'OFF'}`);
+            if (el.PerformDJ) {
+                el.PerformDJ.disabled = blocked;
+                setPressed(el.PerformDJ, input.performAsDJ);
+                setText(el.PerformDJ, `Perform as DJ in booth: ${input.performAsDJ ? 'ON' : 'OFF'}`);
+            }
+            el.Go.disabled = !input.stream || busy || !!input.publisher || blocked;
+            setText(el.Go, input.goingLive ? 'Connecting...' : input.live ? 'You are live' : 'Go live');
+            el.Pause.disabled = !input.publisher || input.goingLive;
+            el.Invite.disabled = !input.live || !mp.hasLiveEvent;
+        };
+        const input = club.liveInput = new window.LiveInput(club, render);
+        const report = error => {
+            input.status = window.LiveInput.inputError(error);
+            if (input.stream && !input.live) input.status += ' Your input is still a private test.';
+            club.showErrorMessage(input.status);
+            render();
+        };
+        const populate = async () => {
+            const selected = el.Device.value;
+            const devices = await navigator.mediaDevices.enumerateDevices();
+            el.Device.replaceChildren(new Option('Default audio input', ''));
+            for (const [index, device] of devices.filter(device => device.kind === 'audioinput').entries()) {
+                el.Device.add(new Option(device.label || `Audio input ${index + 1}`, device.deviceId));
+            }
+            if ([...el.Device.options].some(option => option.value === selected)) el.Device.value = selected;
+        };
+        el.Discover.addEventListener('click', async () => {
+            if (discovering || input.active) return;
+            const revision = ++discoveryRevision;
+            discovering = true;
+            input.status = 'Allow microphone permission to see your audio inputs. Nothing will be broadcast.';
+            render();
+            let permission;
+            try {
+                if (!navigator.mediaDevices?.getUserMedia) throw new Error('Use HTTPS or localhost to access an audio input.');
+                permission = await navigator.mediaDevices.getUserMedia(window.LiveInput.constraints());
+                if (revision !== discoveryRevision) return;
+                await populate();
+                if (revision !== discoveryRevision) return;
+                input.status = 'Choose your mixer from the list, then press Test my input.';
+            } catch (error) { if (revision === discoveryRevision) report(error); }
+            finally {
+                for (const track of permission?.getTracks() || []) track.stop();
+                if (revision === discoveryRevision) { discovering = false; render(); }
+            }
+        });
+        el.Test.addEventListener('click', async () => {
+            try { await input.start(el.Device.value); await populate(); }
+            catch (error) { report(error); }
+        });
+        el.Stop.addEventListener('click', () => input.stop());
+        el.Monitor.addEventListener('click', () => input.setMonitoring(!input.monitoring));
+        if (el.PerformDJ) {
+            el.PerformDJ.addEventListener('click', () => {
+                const next = !input.performAsDJ;
+                input.setPerformAsDJ(next);
+            });
+        }
+        el.Go.addEventListener('click', async () => {
+            try { await input.goLive(el.Title.value); }
+            catch (error) {
+                report(error);
+                if (error.code === 'online-safety' && document.getElementById('networkMenu').classList.contains('hidden')) {
+                    document.getElementById('networkToggle').click();
+                }
+            }
+        });
+        el.Pause.addEventListener('click', () => input.stopBroadcast());
+        el.Invite.addEventListener('click', async () => {
+            try {
+                await navigator.clipboard.writeText(club.multiplayer.inviteUrl());
+                input.status = 'Guest link copied. Send it to your guests; they hear your set when they join.';
+                render();
+            } catch (error) { report(new Error(`Could not copy the guest link: ${error.message}. Use Online to share the invitation.`)); }
+        });
+        uiTeardowns.push(club.multiplayer.onChange(render));
+        const pageHide = () => { ++discoveryRevision; };
+        window.addEventListener('pagehide', pageHide);
+        uiTeardowns.push(() => window.removeEventListener('pagehide', pageHide));
+        uiTeardowns.push(() => { ++discoveryRevision; input.dispose(); });
+        render();
     };
+
+    /**
+     * The Link tab's buttons follow the link in the field and what is playing: "Play now" saves and plays it, "Save to my
+     * sets" only saves it (so another set can keep playing). Pause and resume live in Transport, not here.
+     */
+    let linkBusy = false;
+    const saveStreamBtn = document.getElementById('saveStreamBtn');
+    const audioLinkNote = document.getElementById('audioLinkNote');
+    const refreshLinkButtons = () => {
+        if (!playStreamBtn || linkBusy || vrClubInstance.isFollowingHost()) return;
+        const audio = vrClubInstance.audioElement;
+        const info = vrClubInstance.getPlaybackInfo();
+        const active = {
+            url: vrClubInstance._audioKind !== 'network' && audio && audio.src ? audio.src : null,
+            playing: !!info.playing
+        };
+        const action = ensureMusicLibrary(vrClubInstance).linkAction(streamUrl ? streamUrl.value : '', active);
+        if (playStreamBtnLabel) playStreamBtnLabel.textContent = action.play.label;
+        playStreamBtn.setAttribute('aria-label', action.play.label);
+        playStreamBtn.disabled = action.play.disabled;
+        if (saveStreamBtn) {
+            saveStreamBtn.textContent = action.save.label;
+            saveStreamBtn.disabled = action.save.disabled;
+        }
+        if (audioLinkNote) {
+            audioLinkNote.textContent = action.note;
+            audioLinkNote.hidden = !action.note;
+        }
+    };
+    window.refreshMusicLinkButtons = refreshLinkButtons;
+    uiTeardowns.push(() => { if (window.refreshMusicLinkButtons === refreshLinkButtons) delete window.refreshMusicLinkButtons; });
     const setNowPlaying = (text) => { if (nowPlaying) nowPlaying.textContent = text; };
     const setSourceHint = (url) => {
         if (!audioSourceHint) return;
@@ -964,15 +1544,15 @@ function initAudioMenu() {
         }
         try {
             const parsed = new URL(value);
-            const missMelera = window.MusicLibrary &&
-                window.MusicLibrary.isColourizonUrl(parsed);
+            const ML = window.MusicLibrary;
+            const soundcloud = /(^|\.)soundcloud\.com$/.test(parsed.hostname);
+            const feed = !!ML && !soundcloud && ML.isFeedUrl(parsed);
             audioSourceHint.hidden = false;
-            audioSourceHint.dataset.source = missMelera ? 'analysed' :
-                ((/^(\.|.*\.)?soundcloud\.com$/.test(parsed.hostname)) ? 'player' : 'direct');
-            audioSourceHint.textContent = missMelera
-                ? 'Miss Melera Colourizon: analysed audio for beat-synced lights and dancing'
-                : audioSourceHint.dataset.source === 'player'
-                    ? 'SoundCloud: opens the official player; beat analysis is unavailable'
+            audioSourceHint.dataset.source = (soundcloud || feed) ? 'analysed' : 'direct';
+            audioSourceHint.textContent = soundcloud
+                ? 'SoundCloud: plays as analysed audio (lights and dancers follow it) when the creator shares the track with podcast players'
+                : feed
+                    ? 'Podcast feed: pick any episode below; the lights and dancers follow it'
                     : 'Direct audio: requires a CORS-enabled audio host';
         } catch (_) {
             audioSourceHint.hidden = true;
@@ -987,7 +1567,7 @@ function initAudioMenu() {
     };
 
     if (vrClubInstance.audioElement && !vrClubInstance.audioElement.paused) {
-        setPlayLabel(true);
+        refreshLinkButtons();
         setNowPlaying(entryNowPlaying || '\u25B6 Playing');
     }
     
@@ -998,7 +1578,9 @@ function initAudioMenu() {
         if (restoreFocus) audioToggle.focus();
     };
     const openAudioMenu = () => {
-        audioMenu.classList.remove('hidden', 'minimized');
+        closeOtherSidePanels('audioMenu');
+        audioMenu.classList.remove('hidden');
+        setPanelMinimized(audioMenu, audioMinimize, false, 'Music');
         audioToggle.setAttribute('aria-expanded', 'true');
         audioToggle.classList.remove('needs-attention');
         if (audioTitle) audioTitle.focus();
@@ -1028,11 +1610,7 @@ function initAudioMenu() {
     // delete the aria-hidden <span> and leave the label describing the wrong action.
     if (audioMinimize) {
         audioMinimize.addEventListener('click', () => {
-            const minimized = audioMenu.classList.toggle('minimized');
-            const glyph = audioMinimize.querySelector('span') || audioMinimize;
-            glyph.textContent = minimized ? '+' : '\u2212';
-            audioMinimize.setAttribute('aria-label', minimized ? 'Expand audio panel' : 'Minimize audio panel');
-            audioMinimize.setAttribute('aria-expanded', String(!minimized));
+            setPanelMinimized(audioMenu, audioMinimize, !audioMenu.classList.contains('minimized'), 'Music');
         });
     }
     
@@ -1042,7 +1620,7 @@ function initAudioMenu() {
     }
 
     const onAudioKeyDown = e => {
-        if (e.key === 'Escape' && !audioMenu.classList.contains('hidden')) {
+        if (panelOwnsEscape(e, audioMenu)) {
             e.preventDefault();
             closeAudioMenu();
         }
@@ -1117,7 +1695,7 @@ function initAudioMenu() {
 
     // Play stream URL
     if (playStreamBtn && streamUrl) {
-        streamUrl.addEventListener('input', () => setSourceHint(streamUrl.value));
+        streamUrl.addEventListener('input', () => { setSourceHint(streamUrl.value); refreshLinkButtons(); });
         if (pasteStreamBtn) {
             pasteStreamBtn.addEventListener('click', async () => {
                 if (!navigator.clipboard || typeof navigator.clipboard.readText !== 'function') {
@@ -1132,12 +1710,17 @@ function initAudioMenu() {
                         showStatus('The clipboard does not contain a URL.', 'error');
                         return;
                     }
-                    streamUrl.value = pasted;
+                    const canonical = (typeof window !== 'undefined' && window.MusicLibrary && typeof window.MusicLibrary.normalizeSoundCloudUrl === 'function')
+                        ? window.MusicLibrary.normalizeSoundCloudUrl(pasted)
+                        : pasted;
+                    const nextValue = canonical || pasted;
+                    streamUrl.value = nextValue;
                     streamUrl.setCustomValidity('');
-                    setSourceHint(pasted);
+                    setSourceHint(nextValue);
+                    refreshLinkButtons();
                     streamUrl.focus();
-                    streamUrl.setSelectionRange(pasted.length, pasted.length);
-                    showStatus('URL pasted. Choose Save & play when ready.', 'success');
+                    streamUrl.setSelectionRange(nextValue.length, nextValue.length);
+                    showStatus('URL pasted. Choose Play now, or Save to my sets to keep it for later.', 'success');
                 } catch (error) {
                     uiLog.warn('Clipboard read was blocked:', error);
                     streamUrl.focus();
@@ -1166,54 +1749,315 @@ function initAudioMenu() {
             const requestedUrl = new URL(url, window.location.href).href;
             const matchesActiveUrl = activeAudio && library.matchesPlaybackUrl(requestedUrl, activeAudio.src);
             if (matchesActiveUrl && !activeAudio.paused) {
-                activeAudio.pause();
-                setPlayLabel(false);
-                showStatus('Stream paused', 'success');
-                // If this guest is the room host, tell everyone else to pause too.
-                if (vrClubInstance.networkManager && vrClubInstance.networkManager.isHost()) {
-                    vrClubInstance.networkManager.sendMusic({ url: requestedUrl, playing: false, position: activeAudio.currentTime });
-                }
+                showStatus('That set is already playing. Use Transport to pause it.', 'success');
                 return;
             }
             // Paused on this very source part-way through: resume it, do not start it over.
             if (matchesActiveUrl && activeAudio.paused && !activeAudio.ended && activeAudio.currentTime > 0) {
                 vrClubInstance.toggleAudioPlayback();
-                setPlayLabel(true);
+                refreshLinkButtons();
                 showStatus('Resumed', 'success');
                 return;
             }
 
             playUrl(url, document.getElementById('setName').value);
         });
+        // Keep a link for later without interrupting whatever is playing now.
+        if (saveStreamBtn) {
+            saveStreamBtn.addEventListener('click', () => {
+                const url = streamUrl.value.trim();
+                streamUrl.setCustomValidity('');
+                if (!url || !vrClubInstance._isSafeAudioUrl(url)) {
+                    streamUrl.setCustomValidity('Enter a music link to save.');
+                    streamUrl.reportValidity();
+                    showStatus('Paste a music link first', 'error');
+                    return;
+                }
+                const nextUrl = window.MusicLibrary && typeof window.MusicLibrary.normalizeSoundCloudUrl === 'function'
+                    ? window.MusicLibrary.normalizeSoundCloudUrl(url) : url;
+                try {
+                    const item = library.save(nextUrl, document.getElementById('setName').value);
+                    showStatus(`Saved “${item.name}” to your sets. It keeps playing the current set; choose it under Saved sets and press Play saved set when you want it.`, 'success');
+                } catch (error) {
+                    showStatus(error.message, 'error');
+                }
+                refreshLinkButtons();
+            });
+        }
     }
 
     const library = ensureMusicLibrary(vrClubInstance);
     const savedSets = document.getElementById('savedSets');
+    const musicRecovery = document.getElementById('musicRecovery');
+    const musicRecoveryMessage = document.getElementById('musicRecoveryMessage');
+    const retrySavedSets = document.getElementById('retrySavedSets');
+    const resetSavedSets = document.getElementById('resetSavedSets');
+    let resetSavedSetsUntil = 0;
+    let resetSavedSetsTimer = null;
+    const feedEpisodeRow = document.getElementById('feedEpisodeRow');
+    const feedEpisode = document.getElementById('feedEpisode');
+    let episodeList = [];
+    let episodeToken = 0;
+    // A podcast feed set plays the newest episode unless the guest picks another (or random); the choice is saved.
+    const renderEpisodes = async () => {
+        if (!feedEpisodeRow || !feedEpisode) return;
+        const item = library.current();
+        const token = ++episodeToken;
+        if (!item || item.kind !== 'feed') {
+            feedEpisodeRow.hidden = true;
+            return;
+        }
+        feedEpisodeRow.hidden = false;
+        feedEpisode.disabled = true;
+        feedEpisode.replaceChildren(new Option('Loading episodes…', ''));
+        try {
+            const episodes = await library.listEpisodes();
+            if (token !== episodeToken) return;
+            episodeList = episodes.slice();
+            const chosen = item.episode;
+            if (chosen && chosen.url && !episodeList.some(episode => episode.url === chosen.url)) episodeList.push(chosen);
+            feedEpisode.replaceChildren();
+            feedEpisode.add(new Option('Newest episode', 'newest'));
+            feedEpisode.add(new Option('Random episode', 'random'));
+            episodeList.forEach((episode, index) => feedEpisode.add(new Option(episode.title, String(index))));
+            feedEpisode.value = !chosen ? 'newest' : (chosen.random ? 'random'
+                : String(episodeList.findIndex(episode => episode.url === chosen.url)));
+            feedEpisode.disabled = false;
+        } catch (error) {
+            if (token !== episodeToken) return;
+            uiLog.warn('Could not list episodes:', error);
+            feedEpisode.replaceChildren(new Option('Episodes unavailable', ''));
+            showStatus(`Could not load the episode list: ${error.message}`, 'error');
+        }
+    };
+    if (feedEpisode) {
+        feedEpisode.addEventListener('change', () => {
+            const value = feedEpisode.value;
+            if (!value) return;
+            try {
+                const item = library.setEpisode(value === 'newest' ? null : (value === 'random' ? 'random' : episodeList[Number(value)]));
+                playUrl(item.url, item.name);
+            } catch (error) {
+                showStatus(error.message, 'error');
+            }
+        });
+    }
     const renderSets = (playing) => {
         savedSets.replaceChildren();
-        if (!library.items.length) savedSets.add(new Option('No saved sets yet', ''));
+        if (!library.items.length) savedSets.add(new Option(library.readError ? 'Saved sets unavailable' : 'No saved sets yet', ''));
+        musicRecovery.hidden = !library.readError;
+        resetSavedSets.hidden = library.readError !== 'unreadable';
+        musicRecoveryMessage.textContent = library.readError === 'unreadable'
+            ? 'The saved list cannot be read. Retry after repairing it, or reset it to permanently erase the unreadable list.'
+            : library.readError ? 'Saved-set storage is unavailable. Retry when this device allows access.' : '';
         library.items.forEach((item, index) => savedSets.add(new Option(item.name, String(index))));
         savedSets.value = library.items.length ? String(library.selected) : '';
         const item = library.current();
         streamUrl.value = item ? item.url : '';
         document.getElementById('setName').value = item ? item.name : '';
+        setSourceHint(streamUrl.value);
+        refreshLinkButtons();
+        renderEpisodes();
         if (playing) announceNowPlaying(playing.name);
         if (vrClubInstance._vrQuickMenuVisible) vrClubInstance._refreshVRQuickMenu();
     };
     library.onChange = renderSets;
     renderSets();
+    retrySavedSets.addEventListener('click', () => {
+        resetSavedSetsUntil = 0;
+        clearTimeout(resetSavedSetsTimer);
+        resetSavedSets.textContent = 'Reset unreadable saved sets';
+        if (library.retrySavedSets()) showStatus('Saved sets loaded.', 'success');
+        else showStatus('Saved sets still cannot be read. Your stored list was not changed.', 'error');
+    });
+    resetSavedSets.addEventListener('click', () => {
+        if (Date.now() >= resetSavedSetsUntil) {
+            resetSavedSetsUntil = Date.now() + 4000;
+            resetSavedSets.textContent = 'Confirm permanent reset';
+            showStatus('Press Confirm permanent reset within four seconds to erase the unreadable saved list.', 'error');
+            clearTimeout(resetSavedSetsTimer);
+            resetSavedSetsTimer = setTimeout(() => { resetSavedSets.textContent = 'Reset unreadable saved sets'; }, 4000);
+            return;
+        }
+        resetSavedSetsUntil = 0;
+        clearTimeout(resetSavedSetsTimer);
+        resetSavedSets.textContent = 'Reset unreadable saved sets';
+        try {
+            library.resetUnreadableSets();
+            showStatus('Unreadable saved list reset on this device.', 'success');
+        } catch (error) { showStatus(error.message, 'error'); }
+    });
+    uiTeardowns.push(() => clearTimeout(resetSavedSetsTimer));
     setSourceHint(streamUrl.value);
+    if (folderPlaybackMode) {
+        folderPlaybackMode.value = vrClubInstance._localPlaylistShuffle ? 'shuffle' : 'order';
+        folderPlaybackMode.addEventListener('change', () => {
+            const shuffle = folderPlaybackMode.value === 'shuffle';
+            vrClubInstance.setLocalPlaylistShuffle(shuffle);
+            vrClubInstance._localPlaylistShuffle = shuffle;
+            showStatus(`Folder playback: ${shuffle ? 'shuffle' : 'filename order'}`, 'success');
+            if (vrClubInstance._vrQuickMenuVisible) vrClubInstance._refreshVRQuickMenu();
+        });
+    }
     savedSets.addEventListener('change', () => {
         try { library.select(Number(savedSets.value)); }
         catch (error) { showStatus(error.message, 'error'); }
     });
     document.getElementById('playSavedSetBtn').addEventListener('click', () => {
-        library.play().catch(error => showStatus(error.message, 'error'));
+        library.play()
+            .then(played => { if (played) hideSoundCloudFallback(); })
+            .catch(error => reportPlayError(error));
     });
     document.getElementById('removeSavedSetBtn').addEventListener('click', () => {
         try { library.remove(); }
         catch (error) { showStatus(error.message, 'error'); }
     });
+    const myCharacter = document.getElementById('myCharacter');
+    document.getElementById('editPersonalAvatar')?.addEventListener('click', () => {
+        vrClubInstance.avatarEditor ||= new window.AvatarEditor(vrClubInstance);
+        vrClubInstance.avatarEditor.open();
+    });
+    const customAvatarGlbInput = document.getElementById('customAvatarGlbInput');
+    const uploadCustomAvatarBtn = document.getElementById('uploadCustomAvatarBtn');
+    const toggleCustomAvatarBtn = document.getElementById('toggleCustomAvatarBtn');
+    const clearCustomAvatarBtn = document.getElementById('clearCustomAvatarBtn');
+    const liveInputUploadGlb = document.getElementById('liveInputUploadGlb');
+    const customAvatarStatus = document.getElementById('customAvatarStatus');
+    const customAvatarShare = document.getElementById('customAvatarShare');
+    const customAvatarShareStatus = document.getElementById('customAvatarShareStatus');
+    const sharingStatus = () => {
+        const value = vrClubInstance.customAvatarSharingStatus?.();
+        return typeof value === 'string' ? { message: value } : value || {
+            enabled: false, message: 'Sharing is unavailable on this client. Room guests see your club character.'
+        };
+    };
+    const renderCustomAvatarUi = () => {
+        const activeName = vrClubInstance.getCustomAvatarName ? vrClubInstance.getCustomAvatarName() : null;
+        const personalDJ = document.getElementById('personalDJOption');
+        if (personalDJ) personalDJ.hidden = !activeName;
+        const share = sharingStatus();
+        if (customAvatarShare) {
+            customAvatarShare.checked = share.enabled === true;
+            customAvatarShare.disabled = !activeName || !vrClubInstance.setCustomAvatarSharing;
+        }
+        for (const id of ['customAvatarShareLabel', 'customAvatarShareStatus', 'customAvatarSharePrivacy']) {
+            const element = document.getElementById(id);
+            if (element) element.hidden = !activeName;
+        }
+        if (customAvatarShareStatus) customAvatarShareStatus.textContent = share.message ||
+            (share.enabled ? 'Sharing requested. Check room transfer status before relying on it.' : 'Sharing is off. Room guests see your club character.');
+        const djStyle = document.getElementById('djStyle');
+        if (djStyle) djStyle.value = vrClubInstance._djWanted || vrClubInstance._djId || vrClubInstance._initialDJId();
+        if (uploadCustomAvatarBtn) {
+            uploadCustomAvatarBtn.textContent = activeName ? `CHANGE CUSTOM .GLB (${activeName})` : 'UPLOAD CUSTOM AVATAR (.GLB)';
+        }
+        if (liveInputUploadGlb) {
+            liveInputUploadGlb.textContent = activeName ? `Custom .GLB available: ${activeName} (change)` : 'Upload custom .GLB avatar';
+        }
+        if (clearCustomAvatarBtn) {
+            clearCustomAvatarBtn.hidden = !activeName;
+        }
+        if (toggleCustomAvatarBtn) {
+            toggleCustomAvatarBtn.hidden = !activeName;
+            toggleCustomAvatarBtn.textContent = vrClubInstance.isCustomAvatarSelected?.()
+                ? 'USE CLUB CHARACTER' : 'USE UPLOADED AVATAR';
+        }
+        if (customAvatarStatus) {
+            customAvatarStatus.textContent = activeName
+                ? `${vrClubInstance.isCustomAvatarSelected?.() ? 'Active' : 'Saved'} custom .glb avatar: ${activeName}. Select it and use Edit my character for fitted clothing and accessories. The face stays original. You can also choose it as the resident DJ on this device.`
+                : 'Choose a compatible humanoid .glb for your body and mirror. Sharing is off unless you choose it below.';
+        }
+    };
+    renderCustomAvatarUi();
+    window.addEventListener('customavatarchange', renderCustomAvatarUi);
+    window.addEventListener('customavatarsharingchange', renderCustomAvatarUi);
+    teardowns.push(() => window.removeEventListener('customavatarchange', renderCustomAvatarUi));
+    teardowns.push(() => window.removeEventListener('customavatarsharingchange', renderCustomAvatarUi));
+    customAvatarShare?.addEventListener('change', async () => {
+        customAvatarShare.disabled = true;
+        try {
+            await vrClubInstance.setCustomAvatarSharing(customAvatarShare.checked);
+        } catch (error) {
+            const message = error.message || 'Could not change uploaded-avatar sharing.';
+            showStatus(message, 'error');
+            vrClubInstance.showErrorMessage?.(message);
+        } finally { renderCustomAvatarUi(); }
+    });
+    if (uploadCustomAvatarBtn && customAvatarGlbInput) {
+        uploadCustomAvatarBtn.addEventListener('click', () => customAvatarGlbInput.click());
+    }
+    if (toggleCustomAvatarBtn) {
+        toggleCustomAvatarBtn.addEventListener('click', () => {
+            vrClubInstance.setCustomAvatarSelected(!vrClubInstance.isCustomAvatarSelected());
+        });
+    }
+    if (liveInputUploadGlb && customAvatarGlbInput) {
+        liveInputUploadGlb.addEventListener('click', () => customAvatarGlbInput.click());
+    }
+    if (clearCustomAvatarBtn) {
+        clearCustomAvatarBtn.addEventListener('click', () => {
+            if (!vrClubInstance.clearCustomAvatarGlb) return;
+            vrClubInstance.clearCustomAvatarGlb()
+                .then(() => {
+                    renderCustomAvatarUi();
+                    showStatus('Restored club avatar', 'info');
+                })
+                .catch(error => {
+                    const message = error.message || 'Could not remove custom avatar';
+                    showStatus(message, 'error');
+                    vrClubInstance.showErrorMessage(message);
+                });
+        });
+    }
+    if (customAvatarGlbInput) {
+        customAvatarGlbInput.addEventListener('change', (e) => {
+            const file = e.target.files && e.target.files[0];
+            if (!file || !vrClubInstance.loadCustomAvatarGlb) return;
+            vrClubInstance.loadCustomAvatarGlb(file, file.name)
+                .then(res => {
+                    renderCustomAvatarUi();
+                    const modeNote = res.rigMode === 'upper-body'
+                        ? 'upper-body rig'
+                        : res.rigMode === 'rigid'
+                            ? 'custom 3D model'
+                            : 'full humanoid rig';
+                    const message = res.persisted && !res.selectionPersisted
+                        ? `Saved ${res.name}, but its selection could not be saved. Check the selection after reloading.`
+                        : res.persisted ? `Loaded ${res.name} (${modeNote})` :
+                        `Loaded ${res.name} for this session only. It could not be saved; a previously saved avatar may return after reloading.`;
+                    showStatus(message, res.persisted && res.selectionPersisted ? 'success' : 'error');
+                    if (!res.persisted || !res.selectionPersisted) vrClubInstance.showErrorMessage(message);
+                })
+                .catch(error => {
+                    const message = error.message || 'Could not load .glb avatar';
+                    showStatus(message, 'error');
+                    vrClubInstance.showErrorMessage(message);
+                })
+                .finally(() => { customAvatarGlbInput.value = ''; });
+        });
+    }
+    if (myCharacter) {
+        const labels = (window.ClubMultiplayer && window.ClubMultiplayer.AVATAR_LABELS) || {};
+        for (const id of window.VRClubAudioCrowd.MY_CHARACTERS) {
+            const option = document.createElement('option');
+            option.value = id;
+            option.textContent = vrClubInstance.characterLabel ? vrClubInstance.characterLabel(id) : labels[id] || id;
+            myCharacter.appendChild(option);
+        }
+        myCharacter.value = vrClubInstance.getLocalCharacter() || '';
+        myCharacter.addEventListener('change', () => {
+            vrClubInstance.setLocalCharacter(myCharacter.value || null);
+            myCharacter.value = vrClubInstance.getLocalCharacter() || '';
+        });
+        const refreshCharacterLabels = () => {
+            myCharacter.value = vrClubInstance.getLocalCharacter() || '';
+            for (const option of myCharacter.options) if (option.value) option.textContent = vrClubInstance.characterLabel(option.value);
+        };
+        window.addEventListener('characterstylechange', refreshCharacterLabels);
+        window.addEventListener('localcharacterchange', refreshCharacterLabels);
+        teardowns.push(() => window.removeEventListener('characterstylechange', refreshCharacterLabels));
+        teardowns.push(() => window.removeEventListener('localcharacterchange', refreshCharacterLabels));
+    }
     const djStyle = document.getElementById('djStyle');
     djStyle.value = vrClubInstance._initialDJId();
     djStyle.addEventListener('change', () => {
@@ -1232,25 +2076,37 @@ function initAudioMenu() {
     const seekTotal = document.getElementById('audioSeekTotal');
     const seekBack = document.getElementById('audioSeekBack');
     const seekForward = document.getElementById('audioSeekForward');
+    const transportSection = document.getElementById('audioTransportSection');
+    const previousSource = document.getElementById('audioPreviousSource');
+    const playbackToggle = document.getElementById('audioPlaybackToggle');
+    const stopPlayback = document.getElementById('audioStop');
+    const nextSource = document.getElementById('audioNextSource');
+    const transportButtons = [previousSource, playbackToggle, stopPlayback, nextSource].filter(Boolean);
     let seekDragging = false;
     const SEEK_STEPS = 1000;
     const renderSeek = () => {
         if (!seek || !seekSection) return;
         const info = vrClubInstance.getPlaybackInfo();
-        // Keep the Play/Pause label honest when something else (the VR menu, a media key) changed it.
+        const hasSource = !!(vrClubInstance._audioKind ||
+            (vrClubInstance.audioElement && vrClubInstance.audioElement.src));
+        if (transportSection) transportSection.hidden = !!vrClubInstance.liveInput?.active;
+        if (transportSection) transportSection.setAttribute('aria-disabled', String(!hasSource));
+        transportButtons.forEach(button => { button.disabled = !hasSource; });
+        // Keep the link buttons honest when something else (the VR menu, a media key) changed what is playing.
         if (vrClubInstance._audioKind === 'soundcloud') {
-            if (playStreamBtnLabel) playStreamBtnLabel.textContent = 'Player open';
-            if (playStreamBtn) playStreamBtn.setAttribute('aria-label', 'SoundCloud player open');
             if (volume) {
                 volume.disabled = true;
                 volume.title = 'Use the SoundCloud player volume control';
             }
-        } else if (streamUrl && streamUrl.value && vrClubInstance.audioElement && vrClubInstance.audioElement.src) {
-            setPlayLabel(info.playing);
+        } else if (vrClubInstance.audioElement && vrClubInstance.audioElement.src) {
             if (volume) {
                 volume.disabled = false;
                 volume.title = 'Music playback volume';
             }
+        }
+        refreshLinkButtons();
+        if (vrClubInstance._audioKind && vrClubInstance.nowPlayingLabel) {
+            setNowPlaying(`${info.playing ? '\u25B6' : '\u23F8'} ${vrClubInstance.nowPlayingLabel}`);
         }
         seekSection.hidden = !info.seekable;
         if (!info.seekable) return;
@@ -1271,55 +2127,83 @@ function initAudioMenu() {
     }
     if (seekBack) seekBack.addEventListener('click', () => { vrClubInstance.seekAudioBy(-30); renderSeek(); });
     if (seekForward) seekForward.addEventListener('click', () => { vrClubInstance.seekAudioBy(30); renderSeek(); });
+    const runTransport = action => Promise.resolve(action()).then(() => renderSeek()).catch(error => {
+        showStatus(error.message, 'error');
+    });
+    if (previousSource) previousSource.addEventListener('click', () => runTransport(() => vrClubInstance.stepAudioSource(-1)));
+    if (playbackToggle) playbackToggle.addEventListener('click', () => runTransport(() => vrClubInstance.toggleAudioPlayback()));
+    if (stopPlayback) stopPlayback.addEventListener('click', () => runTransport(() => vrClubInstance.stopAudioPlayback()));
+    if (nextSource) nextSource.addEventListener('click', () => runTransport(() => vrClubInstance.stepAudioSource(1)));
     const seekTimer = setInterval(() => { if (!audioMenu.classList.contains('hidden')) renderSeek(); }, 250);
     teardowns.push(() => clearInterval(seekTimer));
     audioToggle.addEventListener('click', renderSeek);
 
     /** Start an http(s) URL and publish it as the room's music if this guest hosts. */
+    const soundCloudFallback = document.getElementById('soundCloudFallback');
+    const soundCloudFallbackText = document.getElementById('soundCloudFallbackText');
+    const soundCloudFallbackBtn = document.getElementById('soundCloudFallbackBtn');
+    const hideSoundCloudFallback = () => { if (soundCloudFallback) soundCloudFallback.hidden = true; };
+    // A SoundCloud track that is not shared as analysable audio is explained and stays on screen; SoundCloud's own
+    // player is offered only as the guest's explicit choice (it cannot drive the lights).
+    function reportPlayError(err) {
+        const current = library.current();
+        if (soundCloudFallback && soundCloudFallbackText && current && current.kind === 'soundcloud' &&
+            err && /^soundcloud-/.test(err.code || '')) {
+            soundCloudFallbackText.textContent = err.message;
+            if (soundCloudFallbackBtn) soundCloudFallbackBtn.hidden = err.code === 'soundcloud-not-a-track';
+            soundCloudFallback.hidden = false;
+            showStatus('This SoundCloud track cannot be analysed', 'error');
+        } else {
+            showStatus(`Error: ${err.message}`, 'error');
+        }
+        // The club's own set may have taken over from the one that failed.
+        setNowPlaying(library.isDefaultPlaying() ? `\u25B6 ${library.defaultItem().name}` : 'No audio yet');
+    }
+    if (soundCloudFallbackBtn) {
+        soundCloudFallbackBtn.addEventListener('click', () => {
+            library.playInSoundCloudPlayer()
+                .then(() => {
+                    hideSoundCloudFallback();
+                    refreshLinkButtons();
+                    showStatus('SoundCloud player opened — no beat analysis, so lights run on their own tempo', 'success');
+                    setNowPlaying(`\u25B6 ${library.current().name}`);
+                })
+                .catch(error => showStatus(error.message, 'error'));
+        });
+    }
+
     function playUrl(url, label) {
-        const previousLabel = playStreamBtnLabel ? playStreamBtnLabel.textContent : '';
+        const nextUrl = (typeof window !== 'undefined' && window.MusicLibrary && typeof window.MusicLibrary.normalizeSoundCloudUrl === 'function')
+            ? window.MusicLibrary.normalizeSoundCloudUrl(url)
+            : url;
+        const finish = () => {
+            linkBusy = false;
+            if (playStreamBtn) playStreamBtn.removeAttribute('aria-busy');
+            refreshLinkButtons();
+        };
+        linkBusy = true;
         if (playStreamBtn) {
             playStreamBtn.disabled = true;
             playStreamBtn.setAttribute('aria-busy', 'true');
         }
+        if (saveStreamBtn) saveStreamBtn.disabled = true;
         if (playStreamBtnLabel) playStreamBtnLabel.textContent = 'Starting…';
-        try { library.save(url, label); }
+        try { library.save(nextUrl, label); }
         catch (error) {
-            if (playStreamBtn) {
-                playStreamBtn.disabled = false;
-                playStreamBtn.removeAttribute('aria-busy');
-            }
-            if (playStreamBtnLabel) playStreamBtnLabel.textContent = previousLabel || 'Save & play';
+            finish();
             showStatus(error.message, 'error');
             return Promise.resolve(false);
         }
         return library.play()
             .then(() => {
-                const soundcloud = library.current().kind === 'soundcloud';
-                const analysed = library.current().kind === 'colourizon';
-                showStatus(analysed ? 'Colourizon resolved — lights and dancing are synced' :
-                    (soundcloud ? 'SoundCloud player opened' : `Playing: ${library.current().name}`), 'success');
-                if (soundcloud) {
-                    playStreamBtnLabel.textContent = 'Player open';
-                    playStreamBtn.setAttribute('aria-label', 'SoundCloud player open');
-                } else {
-                    setPlayLabel(true);
-                }
-                setNowPlaying(`\u25B6 ${library.current().name}`);
+                const current = library.current();
+                hideSoundCloudFallback();
+                showStatus(current.kind === 'soundcloud' ? 'Playing as analysed audio — lights and dancing are synced' :
+                    `Playing: ${current.name}`, 'success');
+                setNowPlaying(`\u25B6 ${vrClubInstance.nowPlayingLabel || current.name}`);
             })
-            .catch(err => {
-                showStatus(`Error: ${err.message}`, 'error');
-                setNowPlaying('No audio yet');
-            })
-            .finally(() => {
-                if (playStreamBtn) {
-                    playStreamBtn.disabled = false;
-                    playStreamBtn.removeAttribute('aria-busy');
-                }
-                if (playStreamBtnLabel && playStreamBtnLabel.textContent === 'Starting…') {
-                    playStreamBtnLabel.textContent = previousLabel || 'Save & play';
-                }
-            });
+            .catch(err => reportPlayError(err))
+            .finally(finish);
     }
     
     // Handle file upload
@@ -1329,7 +2213,7 @@ function initAudioMenu() {
             if (!file) return;
             // `accept="audio/*"` is a picker hint, not a constraint. Without this the
             // user gets a raw MediaError string from the decoder instead of an answer.
-            if (file.type && !file.type.startsWith('audio/')) {
+            if (!VRClubUI.isLocalAudioFile(file)) {
                 showStatus(`That doesn't look like an audio file (${file.type})`, 'error');
                 return;
             }
@@ -1339,7 +2223,7 @@ function initAudioMenu() {
             vrClubInstance.startAudioFromFile(file)
                 .then(() => {
                     showStatus(`\ud83c\udfb5 Playing: ${file.name}`, 'success');
-                    setPlayLabel(true);
+                    refreshLinkButtons();
                     setNowPlaying(`\u25B6 ${file.name}`);
                     const net = vrClubInstance.networkManager;
                     if (net && net.connected && net.isHost()) {
@@ -1347,6 +2231,27 @@ function initAudioMenu() {
                     }
                 })
                 .catch(err => showStatus(`Error: ${err.message}`, 'error'));
+        });
+    }
+
+    if (audioFolderInput && audioFileName) {
+        audioFolderInput.addEventListener('change', (e) => {
+            const files = Array.from(e.target.files || []);
+            if (!files.length) return;
+            const shuffle = folderPlaybackMode && folderPlaybackMode.value === 'shuffle';
+            vrClubInstance._localPlaylistShuffle = !!shuffle;
+            vrClubInstance.startAudioFolder(files, { shuffle })
+                .then(file => {
+                    const count = vrClubInstance._localPlaylist.files.length;
+                    const path = file.webkitRelativePath || file.name;
+                    const folder = path.includes('/') ? path.split('/')[0] : 'Selected folder';
+                    audioFileName.textContent = `${folder}: ${count} audio track${count === 1 ? '' : 's'}`;
+                    showStatus(`Playing ${folder} ${shuffle ? 'shuffled' : 'in filename order'}`, 'success');
+                    setNowPlaying(`\u25B6 ${file.name}`);
+                    refreshLinkButtons();
+                })
+                .catch(err => showStatus(`Could not play folder: ${err.message}`, 'error'))
+                .finally(() => { audioFolderInput.value = ''; });
         });
     }
     
@@ -1378,14 +2283,14 @@ function initAudioMenu() {
 /**
  * In someone else's room the host owns the music and the lights. Every control in the lighting and audio panels that
  * would change them is dimmed and swallowed (one capture-phase listener per panel, so a control added later is covered
- * too), and a note says whose they are. A guest's own comfort settings stay live: Safe Mode, VR comfort, haptics,
+ * too), and a note says whose they are. A guest's own comfort settings stay live: Safe Mode, VR comfort,
  * graphics quality, and the music and ambience volumes.
  */
 function initRoomGuestLock(mp) {
     const club = vrClubInstance;
     const panels = [
-        { id: 'vjMenu', what: 'show controls', keep: '#vjSafeModeBtn, #vjVRComfortBtn, #vjBassHapticsBtn, #vjMinimize, #vjClose, [data-control="cycleGraphicsQuality"], [data-people]' },
-        { id: 'audioMenu', what: 'music', keep: '#audioMinimize, #audioClose, #audioVolume, #crowdAmbience, #djStyle' }
+        { id: 'vjMenu', what: 'show controls', keep: '#reducedShowSmoke, #vjSafeModeBtn, #vjVRComfortBtn, #vjMinimize, #vjClose, [data-open-panel], [data-vj-tab-target], [data-control="cycleGraphicsQuality"], [data-control="cycleSpotTarget"], #spotRigSelection, [data-people], [data-hold], #vjHoldTiming, #djStyle, #myCharacter, #editPersonalAvatar, #uploadCustomAvatarBtn, #toggleCustomAvatarBtn, #clearCustomAvatarBtn, #customAvatarGlbInput, #customAvatarShare, #vjAutoQualityBtn, #lightweightCharacters, #retryCharacterStyle' },
+        { id: 'audioMenu', what: 'music', keep: '#audioMinimize, #audioClose, #audioVolume, #crowdAmbience, #retrySavedSets, #resetSavedSets, [data-open-panel], #audioSourceTabLive, #audioSourceLive button, #audioSourceLive input, #audioSourceLive select' }
     ];
     const renders = [];
     for (const panel of panels) {
@@ -1405,7 +2310,7 @@ function initRoomGuestLock(mp) {
         const disableable = controls.filter(el => el.tagName === 'INPUT' || el.tagName === 'BUTTON');
 
         const block = (e) => {
-            if (!club.isFollowingHost()) return;
+            if (!club.isFollowingHost() && !(panel.what === 'music' && mp.hasLiveEvent)) return;
             const hit = e.target && e.target.closest ? e.target.closest('.host-owned') : null;
             if (!hit) return;
             e.preventDefault();
@@ -1416,11 +2321,13 @@ function initRoomGuestLock(mp) {
         uiTeardowns.push(() => { for (const type of ['click', 'keydown', 'input', 'change']) root.removeEventListener(type, block, true); });
 
         renders.push(() => {
-            const following = mp.following;
+            const eventMusic = panel.what === 'music' && mp.hasLiveEvent;
+            const following = mp.following || eventMusic;
             note.hidden = !following;
             if (following) {
                 const host = mp.hostName();
-                note.textContent = `${host || 'The host'} is the host: they choose the ${panel.what}, and yours follow. Leave the room to take over.`;
+                note.textContent = eventMusic ? 'The live event DJ supplies the music. Personal volume stays yours. Leave the event to play your own set.'
+                    : `${host || 'The host'} is the host: they choose the ${panel.what}, and yours follow. Leave the room to take over.`;
             }
             for (const el of disableable) {
                 // Preserve controls disabled for their own reasons when leaving the room.
@@ -1465,16 +2372,22 @@ function initAudienceSelector(mp, root, scope) {
     const render = () => {
         const audience = mp[`${scope}Audience`];
         const people = mp.people();
-        const next = JSON.stringify([mp.connected, audience, people.map(p => [p.id, p.name])]);
+        const restrictedAllowed = mp.canRestrictAudience();
+        const next = JSON.stringify([mp.connected, restrictedAllowed, audience, people.map(p => [p.id, p.name])]);
         if (key === next) return;
         key = next;
         everyone.setAttribute('aria-pressed', String(audience === null));
         selected.setAttribute('aria-pressed', String(audience !== null));
-        everyone.disabled = selected.disabled = !mp.connected;
-        status.textContent = `${scope === 'voice' ? 'Microphone audience' : 'Chat audience'}: ${mp.audienceLabel(scope)}.`;
+        everyone.disabled = !mp.connected;
+        selected.disabled = !mp.connected || !restrictedAllowed;
+        status.textContent = restrictedAllowed
+            ? `${scope === 'voice' ? 'Microphone audience' : 'Chat audience'}: ${mp.audienceLabel(scope)}.`
+            : mp.connected
+                ? `Public-room ${scope} is shared with the room so the host can moderate it. Use a private room for selected recipients.`
+                : `${scope === 'voice' ? 'Microphone audience' : 'Chat audience'}: join a room first.`;
         const focused = list.contains(document.activeElement) ? document.activeElement.dataset.peer : null;
         list.replaceChildren();
-        list.hidden = audience === null;
+        list.hidden = audience === null || !restrictedAllowed;
         for (const person of people) {
             const label = document.createElement('label');
             const checkbox = document.createElement('input');
@@ -1616,7 +2529,9 @@ function initSocialBar(mp) {
     });
     // Escape closes the open tray or chat box; Escape in the message field also leaves it.
     const onKey = (e) => {
-        if (e.key !== 'Escape' || (tray.hidden && box.hidden)) return;
+        if (e.defaultPrevented || e.key !== 'Escape' || (tray.hidden && box.hidden)
+            || e.target?.closest?.('[aria-modal="true"], dialog[open]')) return;
+        e.preventDefault();
         closeAll();
         if (document.activeElement === input) input.blur();
     };
@@ -1642,6 +2557,11 @@ function initNetworkMenu() {
     const networkMinimize = document.getElementById('networkMinimize');
     const networkClose = document.getElementById('networkClose');
     const networkTitle = document.getElementById('networkMenuTitle');
+    const safetyGate = document.getElementById('networkSafetyGate');
+    const safetyPrivate = document.getElementById('networkSafetyPrivate');
+    const safetyContinue = document.getElementById('networkSafetyContinue');
+    const safetyCancel = document.getElementById('networkSafetyCancel');
+    const reviewSafety = document.getElementById('networkReviewSafety');
     const serverUrlInput = document.getElementById('networkServerUrl');
     const roomInput = document.getElementById('networkRoom');
     const nameInput = document.getElementById('networkName');
@@ -1653,9 +2573,6 @@ function initNetworkMenu() {
     const peerCountEl = document.getElementById('networkPeerCount');
     const emojiButtons = [...document.querySelectorAll('#networkEmojiGrid [data-emoji]')];
     const gestureButtons = [...document.querySelectorAll('#networkGestureGrid [data-gesture]')];
-    const listenAlongSection = document.getElementById('networkListenAlong');
-    const listenAlongBtn = document.getElementById('networkListenAlongBtn');
-    const musicInfoEl = document.getElementById('networkMusicInfo');
     const avatarSection = document.getElementById('networkAvatarSection');
     const poolButtons = [...document.querySelectorAll('#networkAvatarPool [data-avatar-pool]')];
     const avatarEl = document.getElementById('networkAvatar');
@@ -1667,9 +2584,13 @@ function initNetworkMenu() {
     const nameTagsBtn = document.getElementById('networkNameTags');
     const muteAllBtn = document.getElementById('networkMuteAll');
     const lockBtn = document.getElementById('networkLockRoom');
+    const moderationReports = document.getElementById('networkModerationReports');
     const privateRoomBtn = document.getElementById('networkPrivateRoom');
     const inviteBtn = document.getElementById('networkInviteBtn');
     const joinSection = document.getElementById('networkJoin');
+    const roomBrowser = document.getElementById('networkRoomBrowser');
+    const avatarPoolSection = document.getElementById('networkAvatarPool');
+    const safetySection = document.getElementById('networkSafety');
     const roomActions = document.getElementById('networkRoomActions');
     const roomInfo = document.getElementById('networkRoomInfo');
     const leaveBtn = document.getElementById('networkLeaveBtn');
@@ -1683,17 +2604,30 @@ function initNetworkMenu() {
     const roomsList = document.getElementById('networkRoomsList');
     const savedRoomInput = document.getElementById('networkSavedRoom');
     const saveRoom = document.getElementById('networkSaveRoom');
+    const live = Object.fromEntries(['Event', 'Status', 'Title', 'Create', 'Listen', 'Invite', 'DJ', 'Rotate', 'End', 'Private']
+        .map(key => [key, document.getElementById(`networkLive${key}`)]));
 
     if (!networkToggle || !networkMenu) return;
 
     const teardowns = uiTeardowns;
     // One session for the whole club: the VR quick menu's ONLINE pages drive the very same object.
     const mp = vrClubInstance.multiplayer || new ClubMultiplayer(vrClubInstance);
+    let safetyReviewing = false;
     initAudienceSelector(mp, document.getElementById('networkVoiceAudience'), 'voice');
 
     if (serverUrlInput) serverUrlInput.value = mp.serverUrl;
     if (roomInput) roomInput.value = mp.room;
     if (nameInput) nameInput.value = mp.name;
+    const ownerHelp = document.getElementById('networkDevOwner');
+    const ownerSignIn = document.getElementById('networkDevOwnerSignIn');
+    const renderOwnerHelp = () => {
+        if (ownerHelp) ownerHelp.hidden = !window.VRPayment?.ownerSignInUrl ||
+            ClubMultiplayer.roomFromCode(roomInput?.value || '') !== 'private-000032';
+        if (ownerSignIn && window.VRPayment?.ownerSignInUrl) ownerSignIn.href = window.VRPayment.ownerSignInUrl;
+    };
+    roomInput?.addEventListener('input', renderOwnerHelp);
+    teardowns.push(() => roomInput?.removeEventListener('input', renderOwnerHelp));
+    renderOwnerHelp();
 
     const closeNetworkMenu = (restoreFocus = true) => {
         networkMenu.classList.add('hidden');
@@ -1701,9 +2635,12 @@ function initNetworkMenu() {
         if (restoreFocus) networkToggle.focus();
     };
     const openNetworkMenu = () => {
-        networkMenu.classList.remove('hidden', 'minimized');
+        closeOtherSidePanels('networkMenu');
+        networkMenu.classList.remove('hidden');
+        setPanelMinimized(networkMenu, networkMinimize, false, 'Online');
         networkToggle.setAttribute('aria-expanded', 'true');
-        if (networkTitle) networkTitle.focus();
+        if (!mp.hasAcceptedOnlineSafety() && safetyGate) safetyGate.focus();
+        else if (networkTitle) networkTitle.focus();
     };
 
     networkToggle.addEventListener('click', () => {
@@ -1713,17 +2650,13 @@ function initNetworkMenu() {
 
     if (networkMinimize) {
         networkMinimize.addEventListener('click', () => {
-            const minimized = networkMenu.classList.toggle('minimized');
-            const glyph = networkMinimize.querySelector('span') || networkMinimize;
-            glyph.textContent = minimized ? '+' : '\u2212';
-            networkMinimize.setAttribute('aria-label', minimized ? 'Expand multiplayer panel' : 'Minimize multiplayer panel');
-            networkMinimize.setAttribute('aria-expanded', String(!minimized));
+            setPanelMinimized(networkMenu, networkMinimize, !networkMenu.classList.contains('minimized'), 'Online');
         });
     }
     if (networkClose) networkClose.addEventListener('click', () => closeNetworkMenu());
 
     const onNetworkKeyDown = (e) => {
-        if (e.key === 'Escape' && !networkMenu.classList.contains('hidden')) {
+        if (panelOwnsEscape(e, networkMenu)) {
             e.preventDefault();
             closeNetworkMenu();
         }
@@ -1738,7 +2671,7 @@ function initNetworkMenu() {
         button.setAttribute('aria-pressed', String(!!on));
         button.classList.toggle('active', !!on);
     };
-    const label = (id) => (ClubMultiplayer.AVATAR_LABELS[id] || id || 'Guest');
+    const label = (id) => (vrClubInstance.characterLabel ? vrClubInstance.characterLabel(id) : ClubMultiplayer.AVATAR_LABELS[id]) || id || 'Guest';
     /** A small button inside a list row. Built with the DOM API: first-party code never builds markup from strings. */
     const rowButton = (text, title, onClick, danger = false) => {
         const button = document.createElement('button');
@@ -1776,6 +2709,28 @@ function initNetworkMenu() {
             item.appendChild(rowButton(person.muted ? 'Unmute' : 'Mute', `${person.muted ? 'Unmute' : 'Mute'} ${person.name}`,
                 () => mp.togglePeerMute(person.id)));
             item.appendChild(rowButton('Block', `Block ${person.name}: you will not see or hear each other`, () => mp.blockPeer(person.id)));
+            const reportButton = rowButton('Report & block', `Report ${person.name} to the room host and immediately block contact both ways`, () => {
+                reportButton.disabled = true;
+                const picker = document.createElement('select');
+                picker.className = 'network-report-reason';
+                picker.setAttribute('aria-label', `Reason for reporting ${person.name}`);
+                for (const [reason, text] of Object.entries(ClubMultiplayer.REPORT_REASONS)) {
+                    const option = document.createElement('option');
+                    option.value = reason;
+                    option.textContent = text;
+                    picker.appendChild(option);
+                }
+                const send = rowButton('Report & block', `Report and block ${person.name}`, () => {
+                    if (!mp.reportAndBlockPeer(person.id, picker.value)) {
+                        vrClubInstance.showErrorMessage('The report was not sent. Please try again while connected.');
+                    }
+                    picker.remove();
+                    send.remove();
+                    reportButton.disabled = false;
+                }, true);
+                item.append(picker, send);
+            }, true);
+            item.appendChild(reportButton);
             if (host) {
                 const kickKey = `kick:${person.id}`, banKey = `ban:${person.id}`, hostKey = `host:${person.id}`;
                 const supported = mp.client.hostTransferSupported;
@@ -1819,17 +2774,38 @@ function initNetworkMenu() {
 
     function render() {
         const connected = mp.connected, connecting = mp.connecting;
+        const safetyAccepted = mp.hasAcceptedOnlineSafety();
+        const showSafety = !safetyAccepted || safetyReviewing;
         setStatus(mp.statusText());
         // Before joining only the join form shows; once in a room, the things you can do there.
-        if (joinSection) joinSection.hidden = connected;
+        if (safetyGate) safetyGate.hidden = !showSafety;
+        if (joinSection) joinSection.hidden = showSafety || connected;
+        if (roomBrowser) roomBrowser.hidden = showSafety;
+        if (avatarPoolSection) avatarPoolSection.hidden = showSafety;
+        if (safetySection) safetySection.hidden = showSafety;
         if (roomActions) roomActions.hidden = !connected;
         for (const section of inRoomSections) section.hidden = !connected;
         if (hostTools) hostTools.hidden = !(connected && mp.isHost());
+        if (live.Event) {
+            const active = mp.hasLiveEvent, owner = active && mp.liveEvent.canManage;
+            live.Event.hidden = !(connected && mp.client.liveEventsSupported);
+            live.Status.textContent = mp.liveEventStatus();
+            live.Title.hidden = active || !mp.isHost();
+            live.Title.labels?.forEach(label => { label.hidden = live.Title.hidden; });
+            live.Create.hidden = active || !mp.isHost();
+            live.Listen.hidden = !active;
+            live.Invite.hidden = !active;
+            live.DJ.hidden = !owner;
+            live.Rotate.hidden = !owner;
+            live.End.hidden = !owner;
+            live.Private.hidden = !owner;
+            for (const key of ['Create', 'Invite', 'DJ', 'Rotate', 'End']) live[key].disabled = mp.liveEventBusy;
+        }
         if (roomInfo && connected) {
             const code = /^private-(\d{6})$/.exec(mp.currentRoom || '');
             roomInfo.textContent = code
-                ? `Private room. Friends join with the code ${code[1].slice(0, 3)} ${code[1].slice(3)}, or the invite link. The first person in a room is its host: they choose the music and the lights.`
-                : 'The first person in a room is its host: they choose the music and the lights. Send the invite link to bring friends here.';
+                ? `Private room ${code[1].slice(0, 3)} ${code[1].slice(3)}. It is unlisted, but anyone with the code can join. Lock it after trusted guests arrive.`
+                : 'Public room: strangers can join. Chat and voice are shared with the room so the host can moderate them. Leave, mute, or use Report & block at the first unwanted contact.';
         }
         if (connectBtnLabel) connectBtnLabel.textContent = connecting ? 'Cancel' : 'Join room';
         for (const input of [nameInput, roomInput, serverUrlInput]) if (input) input.disabled = connecting;
@@ -1870,17 +2846,40 @@ function initNetworkMenu() {
             lockBtn.textContent = `Lock room: ${mp.locked ? 'ON (nobody new can join)' : 'OFF'}`;
             setPressed(lockBtn, mp.locked);
         }
-        const pending = mp.pendingMusicInfo();
-        if (listenAlongSection) listenAlongSection.hidden = !pending;
-        if (pending && musicInfoEl) {
-            musicInfoEl.textContent = mp.pendingMusic.broadcast
-                ? `The host ${pending.playing ? 'is broadcasting' : 'paused'} a local audio file. Press Listen along to receive it over WebRTC (your IP address is shared with the host).`
-                : pending.playing
-                ? `The host is playing music from ${pending.origin}. Press Listen along to hear it too (that site will see your IP address).`
-                : `The host paused music from ${pending.origin}.`;
-        }
         renderPeople();
         renderBlocked();
+        if (moderationReports) {
+            moderationReports.replaceChildren();
+            for (const report of mp.moderationReports) {
+                const item = document.createElement('li');
+                item.className = 'network-person';
+                const text = document.createElement('span');
+                text.className = 'network-person-name';
+                const reason = ClubMultiplayer.REPORT_REASONS[report.reason] || 'Safety concern';
+                text.textContent = `${report.reporter?.name || 'Guest'} reported ${report.target?.name || 'guest'}: ${reason}`;
+                item.appendChild(text);
+                const target = mp.people().find(person => person.id === report.target?.id);
+                if (target) {
+                    const kickKey = `report-kick:${report.at}`, banKey = `report-ban:${report.at}`;
+                    item.appendChild(rowButton(armed.has(kickKey) && armed.get(kickKey) > Date.now() ? 'Confirm kick' : 'Kick',
+                        `Remove ${target.name} from the room`, () => {
+                            if (confirmed(kickKey) && mp.kickPeer(target.id)) mp.dismissModerationReport(report.at);
+                        }, true));
+                    item.appendChild(rowButton(armed.has(banKey) && armed.get(banKey) > Date.now() ? 'Confirm ban' : 'Ban',
+                        `Ban ${target.name} from this room`, () => {
+                            if (confirmed(banKey) && mp.banPeer(target.id)) mp.dismissModerationReport(report.at);
+                        }, true));
+                }
+                item.appendChild(rowButton('Dismiss', 'Dismiss this safety report', () => mp.dismissModerationReport(report.at)));
+                moderationReports.appendChild(item);
+            }
+            if (!mp.moderationReports.length) {
+                const none = document.createElement('li');
+                none.className = 'audio-file-name';
+                none.textContent = 'No safety reports.';
+                moderationReports.appendChild(none);
+            }
+        }
         const directory = mp.roomDirectory;
         if (browseRooms) browseRooms.disabled = directory.loading;
         if (saveRoom) saveRoom.disabled = directory.loading;
@@ -1915,6 +2914,27 @@ function initNetworkMenu() {
     render();
 
     // ---- actions: every one is a call into the controller ----------------------------------------------------------
+    if (safetyContinue) safetyContinue.addEventListener('click', () => {
+        mp.acceptOnlineSafety();
+        safetyReviewing = false;
+        render();
+        if (nameInput) nameInput.focus();
+    });
+    if (safetyPrivate) safetyPrivate.addEventListener('click', () => {
+        mp.acceptOnlineSafety();
+        safetyReviewing = false;
+        if (mp.joinNewPrivateRoom() && roomInput) roomInput.value = mp.currentRoom;
+    });
+    if (safetyCancel) safetyCancel.addEventListener('click', () => {
+        safetyReviewing = false;
+        render();
+        closeNetworkMenu();
+    });
+    if (reviewSafety) reviewSafety.addEventListener('click', () => {
+        safetyReviewing = true;
+        render();
+        safetyGate?.focus();
+    });
     if (browseRooms) browseRooms.addEventListener('click', () => {
         void mp.refreshRooms({ serverUrl: serverUrlInput ? serverUrlInput.value : mp.serverUrl });
     });
@@ -1933,7 +2953,6 @@ function initNetworkMenu() {
             void mp.refreshRooms({ serverUrl });
         }
     });
-    if (listenAlongBtn) listenAlongBtn.addEventListener('click', () => mp.acceptListenAlong());
 
     if (connectBtn) {
         connectBtn.addEventListener('click', () => {
@@ -1976,6 +2995,33 @@ function initNetworkMenu() {
             } catch (_) {
                 vrClubInstance.showErrorMessage(`Could not copy. Share the room code instead: ${mp.currentRoom}`);
             }
+            let liveArmed = null;
+            const liveAction = async action => {
+                try {
+                    if (action === 'create' || action === 'rotate' || action === 'end') {
+                        if (action !== 'create') {
+                            if (liveArmed?.action !== action || liveArmed.until < Date.now()) {
+                                liveArmed = { action, until: Date.now() + 4000 };
+                                vrClubInstance.showErrorMessage(action === 'end'
+                                    ? 'Press End live event again within four seconds to disconnect its audio.'
+                                    : 'Press Replace DJ invitation again within four seconds to disconnect the current broadcaster.');
+                                return;
+                            }
+                            liveArmed = null;
+                        }
+                        await mp.manageLiveEvent(action, live.Title?.value || 'Live DJ set');
+                        vrClubInstance.showErrorMessage(action === 'end' ? 'Live event ended.' : 'Ready. Copy the private DJ link and send it only to your DJ.');
+                    } else if (action === 'listen') mp.retryLiveEventAudio();
+                    else {
+                        const url = action === 'dj' ? mp.publisherInviteUrl() : mp.inviteUrl();
+                        await navigator.clipboard.writeText(url);
+                        vrClubInstance.showErrorMessage(action === 'dj' ? 'Private DJ link copied. Do not send it to the audience.' : 'Live event audience link copied.');
+                    }
+                } catch (error) { vrClubInstance.showErrorMessage(error.message || 'The live event action failed.'); }
+            };
+            for (const [key, action] of Object.entries({ Create: 'create', Listen: 'listen', Invite: 'invite', DJ: 'dj', Rotate: 'rotate', End: 'end' })) {
+                live[key]?.addEventListener('click', () => { void liveAction(action); });
+            }
         });
     }
     // The music and the lights are the host's, and the host's alone: the panels tell a guest so and stand down.
@@ -2001,6 +3047,56 @@ function initNetworkMenu() {
 
     uiLog.info('Multiplayer menu initialized');
 }
+
+// =============================================================================
+// INSTALL PROMPT (PWA)
+// =============================================================================
+// Browsers that support installation fire `beforeinstallprompt`; keep the event and offer an Install button in the
+// About panel, since the event can only be replayed from a user gesture. Nothing shows in an installed window, in a
+// browser that never fires the event, or after the app has been installed.
+const initInstallPrompt = () => {
+    const panel = document.getElementById('installApp');
+    const button = document.getElementById('installAppBtn');
+    if (!panel || !button) return;
+    const isInstalled = () => (window.matchMedia && window.matchMedia('(display-mode: standalone)').matches)
+        || navigator.standalone === true;
+    let deferred = null;
+    const onBeforeInstall = (event) => {
+        event.preventDefault();
+        if (isInstalled()) return;
+        deferred = event;
+        panel.hidden = false;
+    };
+    const onInstalled = () => {
+        deferred = null;
+        panel.hidden = true;
+    };
+    const onClick = async () => {
+        const prompt = deferred;
+        if (!prompt) return;
+        // The saved event is single-use: the browser refuses a second prompt() on it.
+        deferred = null;
+        button.disabled = true;
+        try {
+            await prompt.prompt();
+            await prompt.userChoice;
+        } catch (error) {
+            uiLog.info('Install prompt unavailable:', error);
+        }
+        // Accepted or dismissed, this event is spent; a later `beforeinstallprompt` shows the button again.
+        panel.hidden = true;
+        button.disabled = false;
+    };
+    window.addEventListener('beforeinstallprompt', onBeforeInstall);
+    window.addEventListener('appinstalled', onInstalled);
+    button.addEventListener('click', onClick);
+    uiTeardowns.push(() => {
+        window.removeEventListener('beforeinstallprompt', onBeforeInstall);
+        window.removeEventListener('appinstalled', onInstalled);
+        button.removeEventListener('click', onClick);
+    });
+};
+initInstallPrompt();
 
 // =============================================================================
 // SERVICE WORKER REGISTRATION (PWA Offline Shell & Fast Startup)
@@ -2077,3 +3173,7 @@ if (typeof navigator !== 'undefined' && 'serviceWorker' in navigator) {
         window.location.reload();
     });
 }
+
+// The Quest app opens the club with ?immersive=1 and nobody to press ENTER: the launch module runs the rest in VR.
+// Last in the file on purpose: the click handler reaches menu state declared above, which must exist by now.
+if (enterClubBtn && window.ImmersiveLaunch && ImmersiveLaunch.requested()) enterClubBtn.click();

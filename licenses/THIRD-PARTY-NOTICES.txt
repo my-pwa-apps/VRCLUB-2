@@ -10,7 +10,8 @@ The vendored upstream runtime bundles have not been modified.
 Asset licences and derivative notices are recorded in ASSETS.md and the
 in-app Credits & licences panel. That record covers:
 - CC BY 4.0: TwoPixels.studio's Pioneer DJ Console, Sousinho's Stage
-  Speaker - Black, darksoundlab's Bass Bin 3, and karlwirbelwind's five
+  Speaker - Black, darksoundlab's Bass Bin 3, Oliver Triplett's Old Couch,
+  Ivan_WSK's Yamaha HS8 Studio Monitor, and karlwirbelwind's five
   Decal - Graffiti Textures packs. Attribution and source/licence links
   must remain available in any redistributed or packaged version.
 - CC0: Quaternius characters, outfits, animations, city and props;

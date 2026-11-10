@@ -4,8 +4,110 @@ const STROBE_FLASH_S = 0.040;       // one burst at strobeSpeed 1
 const STROBE_DROP_FLASH_S = 0.032;  // during a drop
 const STROBE_MIN_FLASH_S = 0.022;   // however fast the strobe runs
 const STROBE_MIN_INTERVAL_S = 0.34; // free-running timer floor: under three flashes a second
+const STROBE_RING_4 = Object.freeze([0, 1, 3, 2]);
+const strobeRingIndex = (count, index) => count === 4 ? STROBE_RING_4[index] : index;
 
 class VRClubAnimationFinish extends VRClubAnimationFixtures {
+    /**
+     * Strobe patterns, in the order the controls step through them. 'all' fires every corner together, 'chase' is the
+     * show's own (clockwise around the room on the beat, improvised when free-running); the others are the classic club
+     * sequences and each flashes ONE sequence step per burst, under the same three-flashes-a-second room limit.
+     */
+    static get STROBE_PATTERNS() {
+        return this._strobePatterns || (this._strobePatterns = Object.freeze(
+            ['all', 'chase', 'circle', 'reverse', 'pingpong', 'sides', 'frontback', 'cross', 'build', 'random', 'burst']));
+    }
+
+    static get STROBE_PATTERN_NAMES() {
+        return this._strobePatternNames || (this._strobePatternNames = Object.freeze({
+            all: 'ALL AT ONCE', chase: 'CHASE', circle: 'CIRCLE', reverse: 'CIRCLE BACK', pingpong: 'PING-PONG',
+            sides: 'LEFT / RIGHT', frontback: 'FRONT / BACK', cross: 'CROSS', build: 'BUILD UP',
+            random: 'IRREGULAR FLASH', burst: 'QUICK BURST'
+        }));
+    }
+
+    /** The patterns that need an even tempo to read as a pattern. */
+    static get STROBE_STEADY() {
+        return this._strobeSteady || (this._strobeSteady = new Set(
+            ['all', 'chase', 'circle', 'reverse', 'pingpong', 'sides', 'frontback', 'cross', 'build']));
+    }
+
+    /** Free-running interval: IRREGULAR alternates short stabs with clearly longer pauses; QUICK BURST fires 3 rapid flashes then pauses. */
+    static strobeInterval(pattern, baseInterval, speed = 1, rand = Math.random, step = 0) {
+        const safeSpeed = Math.max(0.1, speed);
+        if (pattern === 'burst') {
+            const endOfTriplet = ((Math.max(0, step | 0) + 1) % 3) === 0;
+            const interval = endOfTriplet ? 1.25 : 0.35;
+            return Math.max(STROBE_MIN_INTERVAL_S, interval / Math.sqrt(safeSpeed));
+        }
+        if (pattern === 'random') {
+            const quick = rand() < 0.58;
+            const interval = quick
+                ? 0.34 + rand() * 0.20
+                : 0.85 + rand() * 0.75;
+            return Math.max(STROBE_MIN_INTERVAL_S, interval / Math.sqrt(safeSpeed));
+        }
+        const variation = this.STROBE_STEADY.has(pattern) ? 1 : 0.85 + rand() * 0.30;
+        return Math.max(STROBE_MIN_INTERVAL_S, (baseInterval * variation) / safeSpeed);
+    }
+
+    /**
+     * Which strobes fire on burst number `step`. The four truss corners are indexed 0 front-left, 1 front-right,
+     * 2 back-left, 3 back-right, so the ring around the floor is 0, 1, 3, 2 (the plain index order is a Z, not a circle).
+     * Pure: no scene, no clock.
+     * @param {string} pattern one of STROBE_PATTERNS
+     * @param {number} count how many strobes there are
+     * @param {number} step 0, 1, 2 ... for each burst
+     * @param {() => number} [rand] Math.random, injectable for tests
+     * @param {number} [last] the single strobe the previous burst used, or -1 (so 'random' never repeats it)
+     * @returns {number[]} indices into the strobes, never empty
+     */
+    static strobeTargets(pattern, count, step, rand = Math.random, last = -1, out = []) {
+        const n = Math.max(1, count | 0);
+        out.length = 0;
+        if (n === 1) { out.push(0); return out; }
+        const s = Math.max(0, step | 0);
+        switch (pattern) {
+            case 'chase':
+            case 'circle': out.push(strobeRingIndex(n, s % n)); return out;
+            case 'reverse': out.push(strobeRingIndex(n, (n - 1) - (s % n))); return out;
+            case 'pingpong': {
+                const period = 2 * (n - 1);
+                const k = s % period;
+                out.push(strobeRingIndex(n, k < n ? k : period - k));
+                return out;
+            }
+            case 'sides':
+                for (let i = 0; i < n; i++) if (i % 2 === (s % 2)) out.push(i);
+                return out;
+            case 'frontback':
+                for (let i = 0; i < n; i++) if ((i < n / 2) === (s % 2 === 0)) out.push(i);
+                return out;
+            case 'cross':
+                out.push(strobeRingIndex(n, s % 2));
+                if ((s % 2) + 2 < n) out.push(strobeRingIndex(n, (s % 2) + 2));
+                return out;
+            case 'build':
+                for (let i = 0; i < (s % n) + 1; i++) out.push(strobeRingIndex(n, i));
+                return out;
+            case 'random': {
+                let first = Math.floor(rand() * n);
+                if (first === last) first = (first + 1) % n;
+                // Now and then two corners at once, so it does not read as a metronome.
+                if (rand() < 0.3) {
+                    const second = (first + 1 + Math.floor(rand() * (n - 1))) % n;
+                    out.push(first, second);
+                    return out;
+                }
+                out.push(first);
+                return out;
+            }
+            default:
+                for (let i = 0; i < n; i++) out.push(i);
+                return out;
+        }
+    }
+
     updateStrobes(ctx) {
         const { time, dt, audio: audioData } = ctx;
         const master = this.masterIntensity == null ? 1 : Math.min(1, Math.max(0, this.masterIntensity));
@@ -33,6 +135,12 @@ class VRClubAnimationFinish extends VRClubAnimationFixtures {
             if (ambient) ambient.intensity = this._preStrobeAmbientIntensity;
             this._preStrobeAmbientIntensity = undefined;
         }
+        if (this._preStrobeFogSaved && this.scene?.fogColor && this._preStrobeFogColor) {
+            this.scene.fogColor.r = this._preStrobeFogColor.r;
+            this.scene.fogColor.g = this._preStrobeFogColor.g;
+            this.scene.fogColor.b = this._preStrobeFogColor.b;
+            this._preStrobeFogSaved = false;
+        }
         if (this.strobeRetinalFlash?.color) this.strobeRetinalFlash.color.a = 0;
         if (this.strobes && this.strobes.length > 0) {
             // Photosensitive Safe Mode hard-disables strobes regardless of VJ state
@@ -48,7 +156,10 @@ class VRClubAnimationFinish extends VRClubAnimationFixtures {
                 // Beat-locked when the show drives: a strobe that fires on a random timer
                 // never lands on the kick, which is the whole point of one. null = legacy
                 // free-running timer (manual VJ, no director, or a 'free' look).
-                const syncDue = typeof this._strobeSyncDue === 'function' ? this._strobeSyncDue() : null;
+                // QUICK BURST ('burst') uses its own 3-flash rapid burst + pause cadence.
+                const syncDue = this.strobePattern === 'burst'
+                    ? null
+                    : (typeof this._strobeSyncDue === 'function' ? this._strobeSyncDue() : null);
                 const due = syncDue === null
                     ? (this._nextStrobeBurstTime === undefined || time >= this._nextStrobeBurstTime)
                     : syncDue;
@@ -67,14 +178,18 @@ class VRClubAnimationFinish extends VRClubAnimationFixtures {
                         (inDropMode ? STROBE_DROP_FLASH_S : STROBE_FLASH_S) / Math.sqrt(strobeSpeedMultiplier)
                     );
                     const intensity = Math.min(100, intensityBase);
-                    let chaseIndex = -1;
-                    if (this.strobePattern === 'chase') {
+                    // Which corners fire this burst. 'all' = every one; 'chase' keeps its original behaviour (a look's
+                    // grid step on the beat, improvised when free-running); every other pattern steps through its own
+                    // sequence, one burst at a time, so the whole club-wide limit of three flashes a second still holds.
+                    const pattern = this.strobePattern || 'all';
+                    let targets = null;   // null = every strobe
+                    if (pattern === 'chase') {
                         if (this.strobes.length === 1) {
-                            chaseIndex = 0;
+                            targets = [0];
                         } else if (syncDue !== null) {
                             // On the grid the chase must read as a pattern, not a dice roll.
                             this._strobeChaseStep = ((Number.isInteger(this._strobeChaseStep) ? this._strobeChaseStep : -1) + 1) % this.strobes.length;
-                            chaseIndex = this._strobeChaseStep;
+                            targets = VRClubAnimationFinish.strobeTargets('chase', this.strobes.length, this._strobeChaseStep);
                         } else {
                             // Pick any corner except the previous one. This reads as
                             // improvised without allowing one fixture to double-hit.
@@ -83,13 +198,19 @@ class VRClubAnimationFinish extends VRClubAnimationFixtures {
                                 this._lastStrobeChaseIndex < this.strobes.length
                                 ? this._lastStrobeChaseIndex : -1;
                             const candidateCount = this.strobes.length - (last >= 0 ? 1 : 0);
-                            chaseIndex = Math.floor(Math.random() * candidateCount);
+                            let chaseIndex = Math.floor(Math.random() * candidateCount);
                             if (last >= 0 && chaseIndex >= last) chaseIndex++;
+                            targets = [chaseIndex];
                         }
-                        this._lastStrobeChaseIndex = chaseIndex;
+                        this._lastStrobeChaseIndex = targets[0];
+                    } else if (pattern !== 'all' && VRClubAnimationFinish.STROBE_PATTERNS.includes(pattern)) {
+                        this._strobePatternStep = (Number.isInteger(this._strobePatternStep) ? this._strobePatternStep : -1) + 1;
+                        targets = VRClubAnimationFinish.strobeTargets(pattern, this.strobes.length, this._strobePatternStep,
+                            Math.random, this._lastStrobeTarget, this._strobeTargetBuffer || (this._strobeTargetBuffer = []));
+                        this._lastStrobeTarget = targets.length === 1 ? targets[0] : -1;
                     }
                     this.strobes.forEach((strobe, index) => {
-                        const active = this.strobePattern !== 'chase' || index === chaseIndex;
+                        const active = targets === null || targets.includes(index);
                         strobe.currentIntensity = active ? intensity : 0;
                         strobe.flashDuration = active ? flashDuration : 0;
                         strobe._burstOn = active;
@@ -106,13 +227,10 @@ class VRClubAnimationFinish extends VRClubAnimationFixtures {
                         }
                     });
                     const baseInterval = inDropMode ? 0.18 : (inBuildMode ? 0.32 : 0.65);
-                    const intervalVariation = 0.6 + Math.random() * 1.0;
-                    // Never faster than the three-flashes-a-second limit, whatever the speed or
-                    // drop state: the free-running timer used to reach 9 a second in a drop.
-                    this._nextStrobeBurstTime = time + Math.max(
-                        STROBE_MIN_INTERVAL_S,
-                        (baseInterval * intervalVariation) / strobeSpeedMultiplier
-                    );
+                    // Never faster than the shared room governor. IRREGULAR deliberately
+                    // alternates short stabs and longer silences instead of metronomic jitter.
+                    this._nextStrobeBurstTime = time + VRClubAnimationFinish.strobeInterval(
+                        pattern, baseInterval, strobeSpeedMultiplier, Math.random, this._strobePatternStep);
                 }
                 
                 this.strobes.forEach((strobe) => {
@@ -183,7 +301,7 @@ class VRClubAnimationFinish extends VRClubAnimationFixtures {
                     });
                     if (maxIntensity > 0) {
                         const impulse = VRClubAnimationFinish.strobeImpulse(this);
-                        if (this.strobePattern === 'chase' && brightestStrobe && this.strobeFlashLight.position) {
+                        if (this.strobePattern && this.strobePattern !== 'all' && brightestStrobe && this.strobeFlashLight.position) {
                             this.strobeFlashLight.position.copyFrom(brightestStrobe.mesh.position);
                         } else if (this.strobeFlashLight.position) {
                             this.strobeFlashLight.position.set(0, 8, -12);
@@ -197,6 +315,17 @@ class VRClubAnimationFinish extends VRClubAnimationFixtures {
                         if (ambient) {
                             this._preStrobeAmbientIntensity = ambient.intensity;
                             ambient.intensity = ambient.intensity + (impulse.ambient - ambient.intensity) * master;
+                        }
+                        if (this.scene?.fogColor) {
+                            const fog = this.scene.fogColor;
+                            const save = this._preStrobeFogColor || (this._preStrobeFogColor = { r: 0, g: 0, b: 0 });
+                            save.r = fog.r; save.g = fog.g; save.b = fog.b;
+                            this._preStrobeFogSaved = true;
+                            const smokeNow = Number.isFinite(this._smokeLevel) ? this._smokeLevel : (this.smokeActive === false ? 0 : 1);
+                            const fogFlash = (0.04 + 0.14 * smokeNow) * master * Math.min(1, maxIntensity / 90);
+                            fog.r = Math.min(0.35, fog.r + fogFlash * 0.94);
+                            fog.g = Math.min(0.35, fog.g + fogFlash * 0.97);
+                            fog.b = Math.min(0.38, fog.b + fogFlash * 1.00);
                         }
                         if (this.strobeRetinalFlash?.color) {
                             this.strobeRetinalFlash.color.a = impulse.retinal * master;
@@ -412,7 +541,7 @@ class VRClubAnimationFinish extends VRClubAnimationFixtures {
         // this private timer must not also advance it — otherwise the wall drifts
         // off whatever the current cue chose a few beats after every change.
         const showOwnsPattern = !!(this.showDirector && this.showDirector.isDriving());
-        if (!showOwnsPattern && time - this.ledPatternSwitchTime > patternChangeTime) {
+        if (!showOwnsPattern && !this.colorLockActive && time - this.ledPatternSwitchTime > patternChangeTime) {
             this.ledPattern = (this.ledPattern + 1) % patterns.length;
             this.ledPatternSwitchTime = time;
         }
@@ -437,7 +566,7 @@ class VRClubAnimationFinish extends VRClubAnimationFixtures {
         
         // Execute current pattern with error handling
         const currentPattern = patterns[this.ledPattern];
-        const activeColor = showOwnsPattern && !this.ledMonochrome && this.ledShowColor
+        const activeColor = (showOwnsPattern || this.colorLockActive) && !this.ledMonochrome && this.ledShowColor
             ? this.ledShowColor
             : colors[this.ledColorIndex % colors.length];
         if (currentPattern && typeof currentPattern === 'function') {
@@ -496,9 +625,13 @@ class VRClubAnimationFinish extends VRClubAnimationFixtures {
      */
     _applyLedLevel(time) {
         const master = this.masterIntensity == null ? 1 : Math.min(1, Math.max(0, this.masterIntensity));
+        const brightness = Number.isFinite(this.ledWallBrightness)
+            ? Math.min(this.photosensitiveSafeMode ? 1 : 2, Math.max(0, this.ledWallBrightness)) : 1;
         const target = (this.ledWallLevel == null ? 1 : this.ledWallLevel) * master;
-        if (target >= 0.999) {
-            this._ledFade = 1;
+        if (target <= 0.001) {
+            this._ledFade = 0;
+        } else if (target >= 0.999) {
+            this._ledFade = target;
         } else {
             const relit = this._ledFadeT === undefined || time - this._ledFadeT > 0.25;
             if (relit) this._ledFade = 0;
@@ -506,8 +639,8 @@ class VRClubAnimationFinish extends VRClubAnimationFixtures {
             this._ledFade += (target - this._ledFade) * (1 - Math.exp(-dtFade * 2.5));
         }
         this._ledFadeT = time;
-        const level = this._ledFade;
-        if (level < 0.999) {
+        const level = this._ledFade * brightness;
+        if (Math.abs(level - 1) > 0.001) {
             for (let i = 0; i < this.ledPanels.length; i++) {
                 const panel = this.ledPanels[i];
                 const c = panel.material.emissiveColor;

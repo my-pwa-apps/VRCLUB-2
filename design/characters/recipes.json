@@ -1,0 +1,1807 @@
+[
+  {
+    "id": "amara",
+    "label": "Amara",
+    "description": "Adult woman, fuller build, afro, midnight cut-out dress",
+    "gender": 0.0,
+    "age": 0.52,
+    "weight": 0.65,
+    "muscle": 0.42,
+    "height": 0.48,
+    "heightMetres": 1.64,
+    "race": {
+      "african": 0.85,
+      "asian": 0.05,
+      "caucasian": 0.1
+    },
+    "skin": "young_african_female",
+    "hair": "afro01",
+    "clothes": "toigo_cut_out_dress",
+    "shoes": "toigo_ballet_flats",
+    "clothingTint": [
+      0.035,
+      0.045,
+      0.09
+    ],
+    "footwearStyle": "pumps",
+    "sources": [
+      "young_african_female",
+      "low-poly",
+      "eyebrow001",
+      "afro01",
+      "toigo_cut_out_dress",
+      "toigo_ballet_flats"
+    ],
+    "license": "CC0-1.0",
+    "plainTop": false,
+    "expression": {
+      "style": "source-neutral",
+      "targets": {}
+    },
+    "triangles": 9494,
+    "materials": 2,
+    "textureSizes": [
+      1024,
+      512
+    ],
+    "bytes": 1802724,
+    "bones": 53,
+    "hairAlpha": "MASK; production hair is alpha-tested and writes depth",
+    "animation": "Base breathing reference; scripts/characters/build.mjs authors production role/player clips and procedural DJ rigs"
+  },
+  {
+    "id": "jin",
+    "label": "Jin",
+    "description": "Mature fictional male DJ, lean face, dark loosely parted wavy hair curling around the ears and nape, charcoal crew-neck tee and jeans",
+    "gender": 1.0,
+    "age": 0.82,
+    "weight": 0.38,
+    "muscle": 0.42,
+    "height": 0.5,
+    "heightMetres": 1.78,
+    "race": {
+      "african": 0.08,
+      "asian": 0.12,
+      "caucasian": 0.8
+    },
+    "skin": "old_caucasian_male",
+    "hair": "long01",
+    "clothes": "male_casualsuit06",
+    "shoes": "shoes01",
+    "hairShape": "loose-nape-waves",
+    "hairTint": [
+      0.035,
+      0.026,
+      0.02
+    ],
+    "clothingTint": [
+      0.055,
+      0.06,
+      0.07
+    ],
+    "sources": [
+      "old_caucasian_male",
+      "low-poly",
+      "eyebrow001",
+      "long01",
+      "male_casualsuit06",
+      "shoes01"
+    ],
+    "license": "CC0-1.0",
+    "plainTop": true,
+    "expression": {
+      "style": "source-neutral",
+      "targets": {}
+    },
+    "triangles": 9495,
+    "materials": 2,
+    "textureSizes": [
+      1024,
+      512
+    ],
+    "bytes": 1603460,
+    "bones": 53,
+    "hairAlpha": "MASK; production hair is alpha-tested and writes depth",
+    "animation": "Base breathing reference; scripts/characters/build.mjs authors production role/player clips and procedural DJ rigs"
+  },
+  {
+    "id": "ellis",
+    "label": "Ellis",
+    "description": "Older man, lean build, silver hair",
+    "gender": 1.0,
+    "age": 0.9,
+    "weight": 0.38,
+    "muscle": 0.35,
+    "height": 0.58,
+    "heightMetres": 1.87,
+    "race": {
+      "african": 0.1,
+      "asian": 0.1,
+      "caucasian": 0.8
+    },
+    "skin": "old_caucasian_male",
+    "hair": "short04",
+    "clothes": "male_elegantsuit01",
+    "shoes": "shoes01",
+    "sources": [
+      "old_caucasian_male",
+      "low-poly",
+      "eyebrow001",
+      "short04",
+      "male_elegantsuit01",
+      "shoes01"
+    ],
+    "license": "CC0-1.0",
+    "plainTop": false,
+    "expression": {
+      "style": "source-neutral",
+      "targets": {}
+    },
+    "triangles": 9497,
+    "materials": 2,
+    "textureSizes": [
+      1024,
+      512
+    ],
+    "bytes": 1739340,
+    "bones": 53,
+    "hairAlpha": "MASK; production hair is alpha-tested and writes depth",
+    "animation": "Base breathing reference; scripts/characters/build.mjs authors production role/player clips and procedural DJ rigs"
+  },
+  {
+    "id": "leila",
+    "label": "Leila",
+    "description": "Adult woman, flowing teal camisole dress, blunt bob with bangs",
+    "gender": 0.0,
+    "age": 0.56,
+    "weight": 0.48,
+    "muscle": 0.38,
+    "height": 0.5,
+    "heightMetres": 1.7,
+    "race": {
+      "african": 0.25,
+      "asian": 0.3,
+      "caucasian": 0.45
+    },
+    "skin": "young_caucasian_female",
+    "hair": "toigo_blunt_bob_with_bangs",
+    "clothes": "toigo_camisole_dress_with_full_skirt",
+    "shoes": "shoes03",
+    "clothingTint": [
+      0.03,
+      0.36,
+      0.32
+    ],
+    "footwearStyle": "loafers",
+    "sources": [
+      "young_caucasian_female",
+      "low-poly",
+      "eyebrow001",
+      "toigo_blunt_bob_with_bangs",
+      "toigo_camisole_dress_with_full_skirt",
+      "shoes03"
+    ],
+    "license": "CC0-1.0",
+    "eyeAtlas": [
+      0.50390625,
+      0.50390625,
+      0.99609375,
+      0.99609375
+    ],
+    "plainTop": false,
+    "expression": {
+      "style": "source-neutral",
+      "targets": {}
+    },
+    "triangles": 9494,
+    "materials": 2,
+    "textureSizes": [
+      1024,
+      512
+    ],
+    "bytes": 1740520,
+    "bones": 53,
+    "hairAlpha": "MASK; production hair is alpha-tested and writes depth",
+    "animation": "Base breathing reference; scripts/characters/build.mjs authors production role/player clips and procedural DJ rigs"
+  },
+  {
+    "id": "nia",
+    "label": "Nia",
+    "description": "Middle-aged woman, fuller build, knee-length violet halter dress",
+    "gender": 0.0,
+    "age": 0.7,
+    "weight": 0.68,
+    "muscle": 0.42,
+    "height": 0.45,
+    "heightMetres": 1.66,
+    "race": {
+      "african": 0.9,
+      "asian": 0.05,
+      "caucasian": 0.05
+    },
+    "skin": "middleage_african_female",
+    "hair": "afro01",
+    "clothes": "toigo_halter_dress_knee_length",
+    "shoes": "toigo_stiletto_booties",
+    "clothingTint": [
+      0.32,
+      0.07,
+      0.4
+    ],
+    "footwearStyle": "heels",
+    "sources": [
+      "middleage_african_female",
+      "low-poly",
+      "eyebrow001",
+      "afro01",
+      "toigo_halter_dress_knee_length",
+      "toigo_stiletto_booties"
+    ],
+    "license": "CC0-1.0",
+    "plainTop": false,
+    "expression": {
+      "style": "source-neutral",
+      "targets": {}
+    },
+    "triangles": 9497,
+    "materials": 2,
+    "textureSizes": [
+      1024,
+      512
+    ],
+    "bytes": 1526764,
+    "bones": 53,
+    "hairAlpha": "MASK; production hair is alpha-tested and writes depth",
+    "animation": "Base breathing reference; scripts/characters/build.mjs authors production role/player clips and procedural DJ rigs"
+  },
+  {
+    "id": "mei",
+    "label": "Mei",
+    "description": "Older woman, silver inverted bob with bangs, blouse and skirt",
+    "gender": 0.0,
+    "age": 0.88,
+    "weight": 0.48,
+    "muscle": 0.35,
+    "height": 0.4,
+    "heightMetres": 1.59,
+    "race": {
+      "african": 0.05,
+      "asian": 0.9,
+      "caucasian": 0.05
+    },
+    "skin": "old_asian_female",
+    "hair": "toigo_inverted_bob_with_bangs",
+    "clothes": "female_elegantsuit01",
+    "shoes": "shoes03",
+    "hairTint": [
+      0.55,
+      0.55,
+      0.57
+    ],
+    "clothingTint": [
+      0.12,
+      0.22,
+      0.35
+    ],
+    "footwearStyle": "loafers",
+    "sources": [
+      "old_asian_female",
+      "low-poly",
+      "eyebrow001",
+      "toigo_inverted_bob_with_bangs",
+      "female_elegantsuit01",
+      "shoes03"
+    ],
+    "license": "CC0-1.0",
+    "eyeAtlas": [
+      0.50390625,
+      0.50390625,
+      0.99609375,
+      0.99609375
+    ],
+    "plainTop": false,
+    "expression": {
+      "style": "source-neutral",
+      "targets": {}
+    },
+    "triangles": 9495,
+    "materials": 2,
+    "textureSizes": [
+      1024,
+      512
+    ],
+    "bytes": 1270848,
+    "bones": 53,
+    "hairAlpha": "MASK; production hair is alpha-tested and writes depth",
+    "animation": "Base breathing reference; scripts/characters/build.mjs authors production role/player clips and procedural DJ rigs"
+  },
+  {
+    "id": "sofia",
+    "label": "Sofia",
+    "description": "Adult woman, athletic build, burgundy shift dress, ponytail",
+    "gender": 0.0,
+    "age": 0.54,
+    "weight": 0.43,
+    "muscle": 0.72,
+    "height": 0.43,
+    "heightMetres": 1.62,
+    "race": {
+      "african": 0.15,
+      "asian": 0.15,
+      "caucasian": 0.7
+    },
+    "skin": "young_caucasian_female2",
+    "hair": "ponytail01",
+    "clothes": "toigo_shift_dress",
+    "shoes": "toigo_ballet_flats",
+    "clothingTint": [
+      0.38,
+      0.04,
+      0.1
+    ],
+    "footwearStyle": "pumps",
+    "sources": [
+      "young_caucasian_female2",
+      "low-poly",
+      "eyebrow001",
+      "ponytail01",
+      "toigo_shift_dress",
+      "toigo_ballet_flats"
+    ],
+    "license": "CC0-1.0",
+    "plainTop": false,
+    "expression": {
+      "style": "source-neutral",
+      "targets": {}
+    },
+    "triangles": 9496,
+    "materials": 2,
+    "textureSizes": [
+      1024,
+      512
+    ],
+    "bytes": 1669600,
+    "bones": 53,
+    "hairAlpha": "MASK; production hair is alpha-tested and writes depth",
+    "animation": "Base breathing reference; scripts/characters/build.mjs authors production role/player clips and procedural DJ rigs"
+  },
+  {
+    "id": "rosa",
+    "label": "Rosa",
+    "description": "Adult woman, curvy build, blunt bob with bangs, graphite camisole and tiered mini skirt",
+    "gender": 0.0,
+    "age": 0.62,
+    "weight": 0.7,
+    "muscle": 0.45,
+    "height": 0.51,
+    "heightMetres": 1.73,
+    "race": {
+      "african": 0.35,
+      "asian": 0.1,
+      "caucasian": 0.55
+    },
+    "skin": "middleage_caucasian_female",
+    "hair": "toigo_blunt_bob_with_bangs",
+    "clothes": "toigo_camisole_top",
+    "shoes": "toigo_ballet_flats",
+    "clothingTint": [
+      0.07,
+      0.085,
+      0.1
+    ],
+    "bottom": "toigo_tiered_mini_skirt",
+    "footwearStyle": "pumps",
+    "sources": [
+      "middleage_caucasian_female",
+      "low-poly",
+      "eyebrow001",
+      "toigo_blunt_bob_with_bangs",
+      "toigo_camisole_top",
+      "toigo_tiered_mini_skirt",
+      "toigo_ballet_flats"
+    ],
+    "license": "CC0-1.0",
+    "eyeAtlas": [
+      0.3369140625,
+      0.6708984375,
+      0.662109375,
+      0.99609375
+    ],
+    "plainTop": false,
+    "expression": {
+      "style": "source-neutral",
+      "targets": {}
+    },
+    "triangles": 9495,
+    "materials": 2,
+    "textureSizes": [
+      1024,
+      512
+    ],
+    "bytes": 1284984,
+    "bones": 53,
+    "hairAlpha": "MASK; production hair is alpha-tested and writes depth",
+    "animation": "Base breathing reference; scripts/characters/build.mjs authors production role/player clips and procedural DJ rigs"
+  },
+  {
+    "id": "malik",
+    "label": "Malik",
+    "description": "Adult man, muscular build, forest fitted shirt and trousers",
+    "gender": 1.0,
+    "age": 0.56,
+    "weight": 0.58,
+    "muscle": 0.85,
+    "height": 0.56,
+    "heightMetres": 1.85,
+    "race": {
+      "african": 0.92,
+      "asian": 0.04,
+      "caucasian": 0.04
+    },
+    "skin": "young_african_male",
+    "hair": "short01",
+    "clothes": "male_casualsuit01",
+    "shoes": "shoes01",
+    "clothingTint": [
+      0.08,
+      0.32,
+      0.18
+    ],
+    "sources": [
+      "young_african_male",
+      "low-poly",
+      "eyebrow001",
+      "short01",
+      "male_casualsuit01",
+      "shoes01"
+    ],
+    "license": "CC0-1.0",
+    "plainTop": false,
+    "expression": {
+      "style": "source-neutral",
+      "targets": {}
+    },
+    "triangles": 9495,
+    "materials": 2,
+    "textureSizes": [
+      1024,
+      512
+    ],
+    "bytes": 1959340,
+    "bones": 53,
+    "hairAlpha": "MASK; production hair is alpha-tested and writes depth",
+    "animation": "Base breathing reference; scripts/characters/build.mjs authors production role/player clips and procedural DJ rigs"
+  },
+  {
+    "id": "luca",
+    "label": "Luca",
+    "description": "Adult man, lean build, ivory long-sleeve top and dark trousers, longer hair",
+    "gender": 1.0,
+    "age": 0.6,
+    "weight": 0.42,
+    "muscle": 0.48,
+    "height": 0.5,
+    "heightMetres": 1.79,
+    "race": {
+      "african": 0.08,
+      "asian": 0.12,
+      "caucasian": 0.8
+    },
+    "skin": "young_caucasian_male2",
+    "hair": "short03",
+    "clothes": "male_casualsuit02",
+    "shoes": "shoes01",
+    "clothingTint": [
+      0.68,
+      0.65,
+      0.58
+    ],
+    "sources": [
+      "young_caucasian_male2",
+      "low-poly",
+      "eyebrow001",
+      "short03",
+      "male_casualsuit02",
+      "shoes01"
+    ],
+    "license": "CC0-1.0",
+    "plainTop": true,
+    "expression": {
+      "style": "source-neutral",
+      "targets": {}
+    },
+    "triangles": 9497,
+    "materials": 2,
+    "textureSizes": [
+      1024,
+      512
+    ],
+    "bytes": 1861028,
+    "bones": 53,
+    "hairAlpha": "MASK; production hair is alpha-tested and writes depth",
+    "animation": "Base breathing reference; scripts/characters/build.mjs authors production role/player clips and procedural DJ rigs"
+  },
+  {
+    "id": "alex",
+    "label": "Alex",
+    "description": "Nonbinary adult, androgynous build, short textured hair, amber keyhole tank and cargo trousers",
+    "identity": "nonbinary",
+    "pronouns": "they/them",
+    "gender": 0.45,
+    "age": 0.55,
+    "weight": 0.48,
+    "muscle": 0.55,
+    "height": 0.48,
+    "heightMetres": 1.72,
+    "race": {
+      "african": 0.15,
+      "asian": 0.65,
+      "caucasian": 0.2
+    },
+    "skin": "young_asian_female",
+    "hair": "cortu_short_messy_hair",
+    "clothes": "toigo_keyhole_tank_top",
+    "shoes": "shoes03",
+    "clothingTint": [
+      0.58,
+      0.35,
+      0.06
+    ],
+    "bottom": "cortu_cargo_pants",
+    "footwearStyle": "loafers",
+    "sources": [
+      "young_asian_female",
+      "low-poly",
+      "eyebrow001",
+      "cortu_short_messy_hair",
+      "toigo_keyhole_tank_top",
+      "cortu_cargo_pants",
+      "shoes03"
+    ],
+    "license": "CC0-1.0",
+    "eyeAtlas": [
+      0.3369140625,
+      0.6708984375,
+      0.662109375,
+      0.99609375
+    ],
+    "plainTop": false,
+    "expression": {
+      "style": "source-neutral",
+      "targets": {}
+    },
+    "triangles": 9495,
+    "materials": 2,
+    "textureSizes": [
+      1024,
+      512
+    ],
+    "bytes": 1478708,
+    "bones": 53,
+    "hairAlpha": "MASK; production hair is alpha-tested and writes depth",
+    "animation": "Base breathing reference; scripts/characters/build.mjs authors production role/player clips and procedural DJ rigs"
+  },
+  {
+    "id": "river",
+    "label": "River",
+    "description": "Nonbinary adult, broad build, plum blouse and skirt, bob",
+    "identity": "nonbinary",
+    "pronouns": "they/them",
+    "gender": 0.65,
+    "age": 0.68,
+    "weight": 0.62,
+    "muscle": 0.48,
+    "height": 0.54,
+    "heightMetres": 1.81,
+    "race": {
+      "african": 0.5,
+      "asian": 0.1,
+      "caucasian": 0.4
+    },
+    "skin": "middleage_african_male",
+    "hair": "bob01",
+    "clothes": "female_elegantsuit01",
+    "shoes": "shoes02",
+    "clothingTint": [
+      0.25,
+      0.07,
+      0.22
+    ],
+    "sources": [
+      "middleage_african_male",
+      "low-poly",
+      "eyebrow001",
+      "bob01",
+      "female_elegantsuit01",
+      "shoes02"
+    ],
+    "license": "CC0-1.0",
+    "plainTop": false,
+    "expression": {
+      "style": "source-neutral",
+      "targets": {}
+    },
+    "triangles": 9494,
+    "materials": 2,
+    "textureSizes": [
+      1024,
+      512
+    ],
+    "bytes": 2010056,
+    "bones": 53,
+    "hairAlpha": "MASK; production hair is alpha-tested and writes depth",
+    "animation": "Base breathing reference; scripts/characters/build.mjs authors production role/player clips and procedural DJ rigs"
+  },
+  {
+    "id": "asha",
+    "label": "Asha",
+    "description": "Adult woman, lean athletic build, bronze high-neck crop top and cargo trousers, curled-under bob",
+    "gender": 0.0,
+    "age": 0.59,
+    "weight": 0.44,
+    "muscle": 0.62,
+    "height": 0.54,
+    "heightMetres": 1.76,
+    "race": {
+      "african": 0.7,
+      "asian": 0.2,
+      "caucasian": 0.1
+    },
+    "skin": "young_african_female",
+    "hair": "toigo_curled_under_bob",
+    "clothes": "punkduck_high_neck_crop_top",
+    "shoes": "toigo_stiletto_booties",
+    "clothingTint": [
+      0.56,
+      0.28,
+      0.04
+    ],
+    "bottom": "cortu_cargo_pants",
+    "footwearStyle": "heels",
+    "sources": [
+      "young_african_female",
+      "low-poly",
+      "eyebrow001",
+      "toigo_curled_under_bob",
+      "punkduck_high_neck_crop_top",
+      "cortu_cargo_pants",
+      "toigo_stiletto_booties"
+    ],
+    "license": "CC0-1.0 AND CC-BY-4.0",
+    "eyeAtlas": [
+      0.3369140625,
+      0.6708984375,
+      0.662109375,
+      0.99609375
+    ],
+    "plainTop": false,
+    "expression": {
+      "style": "source-neutral",
+      "targets": {}
+    },
+    "triangles": 9494,
+    "materials": 2,
+    "textureSizes": [
+      1024,
+      512
+    ],
+    "bytes": 1260972,
+    "bones": 53,
+    "hairAlpha": "MASK; production hair is alpha-tested and writes depth",
+    "animation": "Base breathing reference; scripts/characters/build.mjs authors production role/player clips and procedural DJ rigs"
+  },
+  {
+    "id": "vera",
+    "label": "Vera",
+    "description": "Older woman, fuller build, silver braid, charcoal knit sweater and tailored trousers",
+    "gender": 0.0,
+    "age": 0.92,
+    "weight": 0.63,
+    "muscle": 0.3,
+    "height": 0.49,
+    "heightMetres": 1.69,
+    "race": {
+      "african": 0.06,
+      "asian": 0.04,
+      "caucasian": 0.9
+    },
+    "skin": "old_caucasian_female",
+    "hair": "braid01",
+    "clothes": "toigo_fisherman_sweater",
+    "shoes": "shoes03",
+    "hairTint": [
+      0.58,
+      0.56,
+      0.53
+    ],
+    "clothingTint": [
+      0.1,
+      0.11,
+      0.13
+    ],
+    "bottom": "toigo_wool_pants",
+    "footwearStyle": "loafers",
+    "sources": [
+      "old_caucasian_female",
+      "low-poly",
+      "eyebrow001",
+      "braid01",
+      "toigo_fisherman_sweater",
+      "toigo_wool_pants",
+      "shoes03"
+    ],
+    "license": "CC0-1.0",
+    "eyeAtlas": [
+      0.3369140625,
+      0.6708984375,
+      0.662109375,
+      0.99609375
+    ],
+    "plainTop": false,
+    "expression": {
+      "style": "source-neutral",
+      "targets": {}
+    },
+    "triangles": 9495,
+    "materials": 2,
+    "textureSizes": [
+      1024,
+      512
+    ],
+    "bytes": 1131976,
+    "bones": 53,
+    "hairAlpha": "MASK; production hair is alpha-tested and writes depth",
+    "animation": "Base breathing reference; scripts/characters/build.mjs authors production role/player clips and procedural DJ rigs"
+  },
+  {
+    "id": "hana",
+    "label": "Hana",
+    "description": "Adult woman, petite build, blue fluted halter dress, long hair",
+    "gender": 0.0,
+    "age": 0.57,
+    "weight": 0.4,
+    "muscle": 0.4,
+    "height": 0.38,
+    "heightMetres": 1.55,
+    "race": {
+      "african": 0.02,
+      "asian": 0.95,
+      "caucasian": 0.03
+    },
+    "skin": "young_asian_female",
+    "hair": "long01",
+    "clothes": "toigo_halter_dress_with_fluted_skirt",
+    "shoes": "toigo_ballet_flats",
+    "clothingTint": [
+      0.05,
+      0.14,
+      0.42
+    ],
+    "footwearStyle": "pumps",
+    "sources": [
+      "young_asian_female",
+      "low-poly",
+      "eyebrow001",
+      "long01",
+      "toigo_halter_dress_with_fluted_skirt",
+      "toigo_ballet_flats"
+    ],
+    "license": "CC0-1.0",
+    "plainTop": false,
+    "expression": {
+      "style": "source-neutral",
+      "targets": {}
+    },
+    "triangles": 9496,
+    "materials": 2,
+    "textureSizes": [
+      1024,
+      512
+    ],
+    "bytes": 1694668,
+    "bones": 53,
+    "hairAlpha": "MASK; production hair is alpha-tested and writes depth",
+    "animation": "Base breathing reference; scripts/characters/build.mjs authors production role/player clips and procedural DJ rigs"
+  },
+  {
+    "id": "zara",
+    "label": "Zara",
+    "description": "Adult fictional female DJ, slender build, long side-parted blonde hair, charcoal tee and jeans",
+    "gender": 0.0,
+    "age": 0.6,
+    "weight": 0.4,
+    "muscle": 0.4,
+    "height": 0.46,
+    "heightMetres": 1.68,
+    "race": {
+      "african": 0.08,
+      "asian": 0.07,
+      "caucasian": 0.85
+    },
+    "skin": "middleage_caucasian_female",
+    "hair": "long01",
+    "clothes": "male_casualsuit06",
+    "shoes": "toigo_stiletto_booties",
+    "hairTint": [
+      0.65,
+      0.51,
+      0.3
+    ],
+    "clothingTint": [
+      0.055,
+      0.06,
+      0.07
+    ],
+    "footwearStyle": "heels",
+    "sources": [
+      "middleage_caucasian_female",
+      "low-poly",
+      "eyebrow001",
+      "long01",
+      "male_casualsuit06",
+      "toigo_stiletto_booties"
+    ],
+    "license": "CC0-1.0",
+    "plainTop": true,
+    "expression": {
+      "style": "source-neutral",
+      "targets": {}
+    },
+    "triangles": 9494,
+    "materials": 2,
+    "textureSizes": [
+      1024,
+      512
+    ],
+    "bytes": 1497020,
+    "bones": 53,
+    "hairAlpha": "MASK; production hair is alpha-tested and writes depth",
+    "animation": "Base breathing reference; scripts/characters/build.mjs authors production role/player clips and procedural DJ rigs"
+  },
+  {
+    "id": "iris",
+    "label": "Iris",
+    "description": "Adult woman, tall slender build, copper inverted bob, stone halter top and cargo trousers",
+    "gender": 0.0,
+    "age": 0.53,
+    "weight": 0.35,
+    "muscle": 0.42,
+    "height": 0.6,
+    "heightMetres": 1.83,
+    "race": {
+      "african": 0.1,
+      "asian": 0.05,
+      "caucasian": 0.85
+    },
+    "skin": "young_caucasian_female2",
+    "hair": "toigo_inverted_bob",
+    "clothes": "toigo_turtleneck_halter_top",
+    "shoes": "shoes03",
+    "hairTint": [
+      0.38,
+      0.12,
+      0.04
+    ],
+    "clothingTint": [
+      0.62,
+      0.58,
+      0.49
+    ],
+    "bottom": "cortu_cargo_pants",
+    "footwearStyle": "loafers",
+    "sources": [
+      "young_caucasian_female2",
+      "low-poly",
+      "eyebrow001",
+      "toigo_inverted_bob",
+      "toigo_turtleneck_halter_top",
+      "cortu_cargo_pants",
+      "shoes03"
+    ],
+    "license": "CC0-1.0",
+    "eyeAtlas": [
+      0.3369140625,
+      0.6708984375,
+      0.662109375,
+      0.99609375
+    ],
+    "plainTop": false,
+    "expression": {
+      "style": "source-neutral",
+      "targets": {}
+    },
+    "triangles": 9494,
+    "materials": 2,
+    "textureSizes": [
+      1024,
+      512
+    ],
+    "bytes": 1239812,
+    "bones": 53,
+    "hairAlpha": "MASK; production hair is alpha-tested and writes depth",
+    "animation": "Base breathing reference; scripts/characters/build.mjs authors production role/player clips and procedural DJ rigs"
+  },
+  {
+    "id": "luz",
+    "label": "Luz",
+    "description": "Adult woman, shorter curvy build, red keyhole dress, ponytail",
+    "gender": 0.0,
+    "age": 0.65,
+    "weight": 0.6,
+    "muscle": 0.5,
+    "height": 0.42,
+    "heightMetres": 1.61,
+    "race": {
+      "african": 0.4,
+      "asian": 0.1,
+      "caucasian": 0.5
+    },
+    "skin": "middleage_caucasian_female",
+    "hair": "ponytail01",
+    "clothes": "toigo_keyhole_neck_dress",
+    "shoes": "toigo_stiletto_booties",
+    "clothingTint": [
+      0.45,
+      0.06,
+      0.07
+    ],
+    "footwearStyle": "heels",
+    "sources": [
+      "middleage_caucasian_female",
+      "low-poly",
+      "eyebrow001",
+      "ponytail01",
+      "toigo_keyhole_neck_dress",
+      "toigo_stiletto_booties"
+    ],
+    "license": "CC0-1.0",
+    "plainTop": false,
+    "expression": {
+      "style": "source-neutral",
+      "targets": {}
+    },
+    "triangles": 9497,
+    "materials": 2,
+    "textureSizes": [
+      1024,
+      512
+    ],
+    "bytes": 1983748,
+    "bones": 53,
+    "hairAlpha": "MASK; production hair is alpha-tested and writes depth",
+    "animation": "Base breathing reference; scripts/characters/build.mjs authors production role/player clips and procedural DJ rigs"
+  },
+  {
+    "id": "sana",
+    "label": "Sana",
+    "description": "Middle-aged woman, medium build, teal blouse and skirt, dark bob",
+    "gender": 0.0,
+    "age": 0.72,
+    "weight": 0.55,
+    "muscle": 0.55,
+    "height": 0.47,
+    "heightMetres": 1.68,
+    "race": {
+      "african": 0.1,
+      "asian": 0.6,
+      "caucasian": 0.3
+    },
+    "skin": "middleage_asian_female",
+    "hair": "bob01",
+    "clothes": "female_elegantsuit01",
+    "shoes": "shoes03",
+    "clothingTint": [
+      0.04,
+      0.24,
+      0.26
+    ],
+    "footwearStyle": "loafers",
+    "sources": [
+      "middleage_asian_female",
+      "low-poly",
+      "eyebrow001",
+      "bob01",
+      "female_elegantsuit01",
+      "shoes03"
+    ],
+    "license": "CC0-1.0",
+    "plainTop": false,
+    "expression": {
+      "style": "source-neutral",
+      "targets": {}
+    },
+    "triangles": 9495,
+    "materials": 2,
+    "textureSizes": [
+      1024,
+      512
+    ],
+    "bytes": 1532604,
+    "bones": 53,
+    "hairAlpha": "MASK; production hair is alpha-tested and writes depth",
+    "animation": "Base breathing reference; scripts/characters/build.mjs authors production role/player clips and procedural DJ rigs"
+  },
+  {
+    "id": "eden",
+    "label": "Eden",
+    "description": "Adult woman, athletic build, plum midi halter dress, bob",
+    "gender": 0.0,
+    "age": 0.6,
+    "weight": 0.47,
+    "muscle": 0.7,
+    "height": 0.53,
+    "heightMetres": 1.74,
+    "race": {
+      "african": 0.4,
+      "asian": 0.1,
+      "caucasian": 0.5
+    },
+    "skin": "young_african_female",
+    "hair": "bob02",
+    "clothes": "toigo_halter_dress_midi",
+    "shoes": "toigo_ballet_flats",
+    "clothingTint": [
+      0.3,
+      0.05,
+      0.23
+    ],
+    "footwearStyle": "pumps",
+    "sources": [
+      "young_african_female",
+      "low-poly",
+      "eyebrow001",
+      "bob02",
+      "toigo_halter_dress_midi",
+      "toigo_ballet_flats"
+    ],
+    "license": "CC0-1.0",
+    "plainTop": false,
+    "expression": {
+      "style": "source-neutral",
+      "targets": {}
+    },
+    "triangles": 9495,
+    "materials": 2,
+    "textureSizes": [
+      1024,
+      512
+    ],
+    "bytes": 1839788,
+    "bones": 53,
+    "hairAlpha": "MASK; production hair is alpha-tested and writes depth",
+    "animation": "Base breathing reference; scripts/characters/build.mjs authors production role/player clips and procedural DJ rigs"
+  },
+  {
+    "id": "owen",
+    "label": "Owen",
+    "description": "Adult man, sturdy build, tucked T-shirt and cargo trousers",
+    "gender": 1.0,
+    "age": 0.58,
+    "weight": 0.62,
+    "muscle": 0.65,
+    "height": 0.52,
+    "heightMetres": 1.82,
+    "race": {
+      "african": 0.08,
+      "asian": 0.07,
+      "caucasian": 0.85
+    },
+    "skin": "young_caucasian_male",
+    "hair": "short02",
+    "clothes": "toigo_basic_tucked_t-shirt",
+    "shoes": "shoes03",
+    "bottom": "cortu_cargo_pants",
+    "sources": [
+      "young_caucasian_male",
+      "low-poly",
+      "eyebrow001",
+      "short02",
+      "toigo_basic_tucked_t-shirt",
+      "cortu_cargo_pants",
+      "shoes03"
+    ],
+    "license": "CC0-1.0",
+    "eyeAtlas": [
+      0.3369140625,
+      0.6708984375,
+      0.662109375,
+      0.99609375
+    ],
+    "plainTop": false,
+    "expression": {
+      "style": "source-neutral",
+      "targets": {}
+    },
+    "triangles": 9493,
+    "materials": 2,
+    "textureSizes": [
+      1024,
+      512
+    ],
+    "bytes": 1242500,
+    "bones": 53,
+    "hairAlpha": "MASK; production hair is alpha-tested and writes depth",
+    "animation": "Base breathing reference; scripts/characters/build.mjs authors production role/player clips and procedural DJ rigs"
+  },
+  {
+    "id": "kwame",
+    "label": "Kwame",
+    "description": "Older man, broad build, grey short hair, warm jacket and trousers",
+    "gender": 1.0,
+    "age": 0.86,
+    "weight": 0.66,
+    "muscle": 0.48,
+    "height": 0.55,
+    "heightMetres": 1.86,
+    "race": {
+      "african": 0.95,
+      "asian": 0.02,
+      "caucasian": 0.03
+    },
+    "skin": "old_african_male",
+    "hair": "short04",
+    "clothes": "male_casualsuit05",
+    "shoes": "shoes01",
+    "hairTint": [
+      0.37,
+      0.38,
+      0.39
+    ],
+    "clothingTint": [
+      0.3,
+      0.2,
+      0.09
+    ],
+    "sources": [
+      "old_african_male",
+      "low-poly",
+      "eyebrow001",
+      "short04",
+      "male_casualsuit05",
+      "shoes01"
+    ],
+    "license": "CC0-1.0",
+    "plainTop": false,
+    "expression": {
+      "style": "source-neutral",
+      "targets": {}
+    },
+    "triangles": 9495,
+    "materials": 2,
+    "textureSizes": [
+      1024,
+      512
+    ],
+    "bytes": 2183364,
+    "bones": 53,
+    "hairAlpha": "MASK; production hair is alpha-tested and writes depth",
+    "animation": "Base breathing reference; scripts/characters/build.mjs authors production role/player clips and procedural DJ rigs"
+  },
+  {
+    "id": "tao",
+    "label": "Tao",
+    "description": "Older man, medium build, silver hair, navy tailored suit",
+    "gender": 1.0,
+    "age": 0.89,
+    "weight": 0.51,
+    "muscle": 0.42,
+    "height": 0.46,
+    "heightMetres": 1.72,
+    "race": {
+      "african": 0.03,
+      "asian": 0.91,
+      "caucasian": 0.06
+    },
+    "skin": "old_asian_male",
+    "hair": "short01",
+    "clothes": "male_elegantsuit01",
+    "shoes": "shoes01",
+    "hairTint": [
+      0.58,
+      0.59,
+      0.6
+    ],
+    "clothingTint": [
+      0.04,
+      0.08,
+      0.16
+    ],
+    "sources": [
+      "old_asian_male",
+      "low-poly",
+      "eyebrow001",
+      "short01",
+      "male_elegantsuit01",
+      "shoes01"
+    ],
+    "license": "CC0-1.0",
+    "plainTop": false,
+    "expression": {
+      "style": "source-neutral",
+      "targets": {}
+    },
+    "triangles": 9494,
+    "materials": 2,
+    "textureSizes": [
+      1024,
+      512
+    ],
+    "bytes": 2250428,
+    "bones": 53,
+    "hairAlpha": "MASK; production hair is alpha-tested and writes depth",
+    "animation": "Base breathing reference; scripts/characters/build.mjs authors production role/player clips and procedural DJ rigs"
+  },
+  {
+    "id": "diego",
+    "label": "Diego",
+    "description": "Adult man, athletic build, russet T-shirt and trousers, short textured hair",
+    "gender": 1.0,
+    "age": 0.54,
+    "weight": 0.48,
+    "muscle": 0.76,
+    "height": 0.51,
+    "heightMetres": 1.81,
+    "race": {
+      "african": 0.32,
+      "asian": 0.08,
+      "caucasian": 0.6
+    },
+    "skin": "young_caucasian_male2",
+    "hair": "cortu_short_messy_hair",
+    "clothes": "male_casualsuit04",
+    "shoes": "shoes05",
+    "clothingTint": [
+      0.42,
+      0.12,
+      0.05
+    ],
+    "sources": [
+      "young_caucasian_male2",
+      "low-poly",
+      "eyebrow001",
+      "cortu_short_messy_hair",
+      "male_casualsuit04",
+      "shoes05"
+    ],
+    "license": "CC0-1.0",
+    "eyeAtlas": [
+      0.50390625,
+      0.50390625,
+      0.99609375,
+      0.99609375
+    ],
+    "plainTop": true,
+    "expression": {
+      "style": "source-neutral",
+      "targets": {}
+    },
+    "triangles": 9493,
+    "materials": 2,
+    "textureSizes": [
+      1024,
+      512
+    ],
+    "bytes": 1970120,
+    "bones": 53,
+    "hairAlpha": "MASK; production hair is alpha-tested and writes depth",
+    "animation": "Base breathing reference; scripts/characters/build.mjs authors production role/player clips and procedural DJ rigs"
+  },
+  {
+    "id": "noah",
+    "label": "Noah",
+    "description": "Adult man, short fuller build, short textured hair, teal polo and tailored trousers",
+    "gender": 1.0,
+    "age": 0.56,
+    "weight": 0.74,
+    "muscle": 0.4,
+    "height": 0.39,
+    "heightMetres": 1.64,
+    "race": {
+      "african": 0.05,
+      "asian": 0.15,
+      "caucasian": 0.8
+    },
+    "skin": "young_caucasian_male",
+    "hair": "cortu_short_messy_hair",
+    "clothes": "namuhekam_male_polo_shirt",
+    "shoes": "shoes06",
+    "clothingTint": [
+      0.04,
+      0.28,
+      0.36
+    ],
+    "bottom": "toigo_wool_pants",
+    "sources": [
+      "young_caucasian_male",
+      "low-poly",
+      "eyebrow001",
+      "cortu_short_messy_hair",
+      "namuhekam_male_polo_shirt",
+      "toigo_wool_pants",
+      "shoes06"
+    ],
+    "license": "CC0-1.0",
+    "eyeAtlas": [
+      0.3369140625,
+      0.6708984375,
+      0.662109375,
+      0.99609375
+    ],
+    "plainTop": false,
+    "expression": {
+      "style": "source-neutral",
+      "targets": {}
+    },
+    "triangles": 9497,
+    "materials": 2,
+    "textureSizes": [
+      1024,
+      512
+    ],
+    "bytes": 1623936,
+    "bones": 53,
+    "hairAlpha": "MASK; production hair is alpha-tested and writes depth",
+    "animation": "Base breathing reference; scripts/characters/build.mjs authors production role/player clips and procedural DJ rigs"
+  },
+  {
+    "id": "idris",
+    "label": "Idris",
+    "description": "Middle-aged man, tall broad build, braid, crimson jacket and trousers",
+    "gender": 1.0,
+    "age": 0.69,
+    "weight": 0.6,
+    "muscle": 0.62,
+    "height": 0.61,
+    "heightMetres": 1.94,
+    "race": {
+      "african": 0.86,
+      "asian": 0.06,
+      "caucasian": 0.08
+    },
+    "skin": "middleage_african_male",
+    "hair": "braid01",
+    "clothes": "male_casualsuit05",
+    "shoes": "shoes03",
+    "clothingTint": [
+      0.34,
+      0.05,
+      0.06
+    ],
+    "sources": [
+      "middleage_african_male",
+      "low-poly",
+      "eyebrow001",
+      "braid01",
+      "male_casualsuit05",
+      "shoes03"
+    ],
+    "license": "CC0-1.0",
+    "plainTop": false,
+    "expression": {
+      "style": "source-neutral",
+      "targets": {}
+    },
+    "triangles": 9492,
+    "materials": 2,
+    "textureSizes": [
+      1024,
+      512
+    ],
+    "bytes": 2167956,
+    "bones": 53,
+    "hairAlpha": "MASK; production hair is alpha-tested and writes depth",
+    "animation": "Base breathing reference; scripts/characters/build.mjs authors production role/player clips and procedural DJ rigs"
+  },
+  {
+    "id": "ren",
+    "label": "Ren",
+    "description": "Adult man, slender build, bob, long-sleeve tee and trousers",
+    "gender": 0.85,
+    "age": 0.52,
+    "weight": 0.36,
+    "muscle": 0.45,
+    "height": 0.47,
+    "heightMetres": 1.71,
+    "race": {
+      "african": 0.03,
+      "asian": 0.9,
+      "caucasian": 0.07
+    },
+    "skin": "young_asian_male",
+    "hair": "bob02",
+    "clothes": "male_casualsuit02",
+    "shoes": "shoes05",
+    "clothingTint": [
+      0.17,
+      0.14,
+      0.35
+    ],
+    "sources": [
+      "young_asian_male",
+      "low-poly",
+      "eyebrow001",
+      "bob02",
+      "male_casualsuit02",
+      "shoes05"
+    ],
+    "license": "CC0-1.0",
+    "plainTop": true,
+    "expression": {
+      "style": "source-neutral",
+      "targets": {}
+    },
+    "triangles": 9497,
+    "materials": 2,
+    "textureSizes": [
+      1024,
+      512
+    ],
+    "bytes": 2256348,
+    "bones": 53,
+    "hairAlpha": "MASK; production hair is alpha-tested and writes depth",
+    "animation": "Base breathing reference; scripts/characters/build.mjs authors production role/player clips and procedural DJ rigs"
+  },
+  {
+    "id": "samir",
+    "label": "Samir",
+    "description": "Adult man, medium build, ochre patterned shirt and trousers",
+    "gender": 1.0,
+    "age": 0.63,
+    "weight": 0.58,
+    "muscle": 0.53,
+    "height": 0.5,
+    "heightMetres": 1.8,
+    "race": {
+      "african": 0.18,
+      "asian": 0.32,
+      "caucasian": 0.5
+    },
+    "skin": "middleage_caucasian_male",
+    "hair": "short01",
+    "clothes": "male_casualsuit03",
+    "shoes": "shoes01",
+    "clothingTint": [
+      0.41,
+      0.24,
+      0.06
+    ],
+    "sources": [
+      "middleage_caucasian_male",
+      "low-poly",
+      "eyebrow001",
+      "short01",
+      "male_casualsuit03",
+      "shoes01"
+    ],
+    "license": "CC0-1.0",
+    "plainTop": false,
+    "expression": {
+      "style": "source-neutral",
+      "targets": {}
+    },
+    "triangles": 9495,
+    "materials": 2,
+    "textureSizes": [
+      1024,
+      512
+    ],
+    "bytes": 2532932,
+    "bones": 53,
+    "hairAlpha": "MASK; production hair is alpha-tested and writes depth",
+    "animation": "Base breathing reference; scripts/characters/build.mjs authors production role/player clips and procedural DJ rigs"
+  },
+  {
+    "id": "felix",
+    "label": "Felix",
+    "description": "Older man, lean build, silver hair, olive button shirt and trousers",
+    "gender": 1.0,
+    "age": 0.93,
+    "weight": 0.38,
+    "muscle": 0.48,
+    "height": 0.48,
+    "heightMetres": 1.76,
+    "race": {
+      "african": 0.05,
+      "asian": 0.05,
+      "caucasian": 0.9
+    },
+    "skin": "old_caucasian_male",
+    "hair": "short04",
+    "clothes": "male_casualsuit01",
+    "shoes": "shoes04",
+    "hairTint": [
+      0.65,
+      0.64,
+      0.6
+    ],
+    "clothingTint": [
+      0.28,
+      0.34,
+      0.08
+    ],
+    "sources": [
+      "old_caucasian_male",
+      "low-poly",
+      "eyebrow001",
+      "short04",
+      "male_casualsuit01",
+      "shoes04"
+    ],
+    "license": "CC0-1.0",
+    "plainTop": false,
+    "expression": {
+      "style": "source-neutral",
+      "targets": {}
+    },
+    "triangles": 9494,
+    "materials": 2,
+    "textureSizes": [
+      1024,
+      512
+    ],
+    "bytes": 2292028,
+    "bones": 53,
+    "hairAlpha": "MASK; production hair is alpha-tested and writes depth",
+    "animation": "Base breathing reference; scripts/characters/build.mjs authors production role/player clips and procedural DJ rigs"
+  },
+  {
+    "id": "ari",
+    "label": "Ari",
+    "description": "Adult man, soft medium build, long hair, silver-grey blouse and skirt",
+    "gender": 0.9,
+    "age": 0.55,
+    "weight": 0.5,
+    "muscle": 0.4,
+    "height": 0.56,
+    "heightMetres": 1.88,
+    "race": {
+      "african": 0.12,
+      "asian": 0.16,
+      "caucasian": 0.72
+    },
+    "skin": "young_caucasian_male2",
+    "hair": "long01",
+    "clothes": "female_elegantsuit01",
+    "shoes": "shoes03",
+    "clothingTint": [
+      0.32,
+      0.38,
+      0.46
+    ],
+    "sources": [
+      "young_caucasian_male2",
+      "low-poly",
+      "eyebrow001",
+      "long01",
+      "female_elegantsuit01",
+      "shoes03"
+    ],
+    "license": "CC0-1.0",
+    "plainTop": false,
+    "expression": {
+      "style": "source-neutral",
+      "targets": {}
+    },
+    "triangles": 9496,
+    "materials": 2,
+    "textureSizes": [
+      1024,
+      512
+    ],
+    "bytes": 2285632,
+    "bones": 53,
+    "hairAlpha": "MASK; production hair is alpha-tested and writes depth",
+    "animation": "Base breathing reference; scripts/characters/build.mjs authors production role/player clips and procedural DJ rigs"
+  },
+  {
+    "id": "robin",
+    "label": "Robin",
+    "description": "Nonbinary adult, short fuller build, charcoal jacket and trousers",
+    "identity": "nonbinary",
+    "pronouns": "they/them",
+    "gender": 0.5,
+    "age": 0.64,
+    "weight": 0.65,
+    "muscle": 0.46,
+    "height": 0.43,
+    "heightMetres": 1.67,
+    "race": {
+      "african": 0.12,
+      "asian": 0.7,
+      "caucasian": 0.18
+    },
+    "skin": "middleage_asian_male",
+    "hair": "short02",
+    "clothes": "male_casualsuit05",
+    "shoes": "shoes05",
+    "clothingTint": [
+      0.075,
+      0.085,
+      0.11
+    ],
+    "sources": [
+      "middleage_asian_male",
+      "low-poly",
+      "eyebrow001",
+      "short02",
+      "male_casualsuit05",
+      "shoes05"
+    ],
+    "license": "CC0-1.0",
+    "plainTop": false,
+    "expression": {
+      "style": "source-neutral",
+      "targets": {}
+    },
+    "triangles": 9495,
+    "materials": 2,
+    "textureSizes": [
+      1024,
+      512
+    ],
+    "bytes": 2417888,
+    "bones": 53,
+    "hairAlpha": "MASK; production hair is alpha-tested and writes depth",
+    "animation": "Base breathing reference; scripts/characters/build.mjs authors production role/player clips and procedural DJ rigs"
+  },
+  {
+    "id": "kai",
+    "label": "Kai",
+    "description": "Nonbinary adult, tall lean build, bob, violet tailored suit",
+    "identity": "nonbinary",
+    "pronouns": "they/them",
+    "gender": 0.35,
+    "age": 0.51,
+    "weight": 0.43,
+    "muscle": 0.52,
+    "height": 0.55,
+    "heightMetres": 1.78,
+    "race": {
+      "african": 0.76,
+      "asian": 0.12,
+      "caucasian": 0.12
+    },
+    "skin": "young_african_female",
+    "hair": "bob02",
+    "clothes": "male_elegantsuit01",
+    "shoes": "shoes04",
+    "clothingTint": [
+      0.24,
+      0.09,
+      0.32
+    ],
+    "sources": [
+      "young_african_female",
+      "low-poly",
+      "eyebrow001",
+      "bob02",
+      "male_elegantsuit01",
+      "shoes04"
+    ],
+    "license": "CC0-1.0",
+    "plainTop": false,
+    "expression": {
+      "style": "source-neutral",
+      "targets": {}
+    },
+    "triangles": 9495,
+    "materials": 2,
+    "textureSizes": [
+      1024,
+      512
+    ],
+    "bytes": 2319496,
+    "bones": 53,
+    "hairAlpha": "MASK; production hair is alpha-tested and writes depth",
+    "animation": "Base breathing reference; scripts/characters/build.mjs authors production role/player clips and procedural DJ rigs"
+  },
+  {
+    "id": "mara",
+    "label": "Mara",
+    "description": "Adult woman, tall broad build, copper braid, rose halter dress",
+    "gender": 0.0,
+    "age": 0.73,
+    "weight": 0.61,
+    "muscle": 0.58,
+    "height": 0.56,
+    "heightMetres": 1.79,
+    "race": {
+      "african": 0.12,
+      "asian": 0.58,
+      "caucasian": 0.3
+    },
+    "skin": "middleage_asian_female",
+    "hair": "braid01",
+    "clothes": "toigo_halter_dress_with_fluted_skirt",
+    "shoes": "toigo_ballet_flats",
+    "hairTint": [
+      0.3,
+      0.11,
+      0.05
+    ],
+    "clothingTint": [
+      0.48,
+      0.24,
+      0.32
+    ],
+    "footwearStyle": "pumps",
+    "sources": [
+      "middleage_asian_female",
+      "low-poly",
+      "eyebrow001",
+      "braid01",
+      "toigo_halter_dress_with_fluted_skirt",
+      "toigo_ballet_flats"
+    ],
+    "license": "CC0-1.0",
+    "plainTop": false,
+    "expression": {
+      "style": "source-neutral",
+      "targets": {}
+    },
+    "triangles": 9494,
+    "materials": 2,
+    "textureSizes": [
+      1024,
+      512
+    ],
+    "bytes": 1731676,
+    "bones": 53,
+    "hairAlpha": "MASK; production hair is alpha-tested and writes depth",
+    "animation": "Base breathing reference; scripts/characters/build.mjs authors production role/player clips and procedural DJ rigs"
+  },
+  {
+    "id": "jonas",
+    "label": "Jonas",
+    "description": "Older man, shorter stocky build, silver hair, indigo T-shirt and jeans",
+    "gender": 1.0,
+    "age": 0.86,
+    "weight": 0.72,
+    "muscle": 0.44,
+    "height": 0.43,
+    "heightMetres": 1.71,
+    "race": {
+      "african": 0.34,
+      "asian": 0.42,
+      "caucasian": 0.24
+    },
+    "skin": "old_asian_male",
+    "hair": "short03",
+    "clothes": "male_casualsuit04",
+    "shoes": "shoes06",
+    "hairTint": [
+      0.48,
+      0.47,
+      0.45
+    ],
+    "clothingTint": [
+      0.08,
+      0.12,
+      0.4
+    ],
+    "sources": [
+      "old_asian_male",
+      "low-poly",
+      "eyebrow001",
+      "short03",
+      "male_casualsuit04",
+      "shoes06"
+    ],
+    "license": "CC0-1.0",
+    "plainTop": true,
+    "expression": {
+      "style": "source-neutral",
+      "targets": {}
+    },
+    "triangles": 9494,
+    "materials": 2,
+    "textureSizes": [
+      1024,
+      512
+    ],
+    "bytes": 2413484,
+    "bones": 53,
+    "hairAlpha": "MASK; production hair is alpha-tested and writes depth",
+    "animation": "Base breathing reference; scripts/characters/build.mjs authors production role/player clips and procedural DJ rigs"
+  }
+]

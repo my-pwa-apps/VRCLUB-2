@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import { createHmac } from 'node:crypto';
 import { handlePayments, invitationCodeHash } from '../worker/src/payments.js';
+import relay from '../worker/src/relay.js';
 
 const ORIGIN = 'https://nocturne.mitwee.nl';
 let DatabaseSync;
@@ -72,6 +73,56 @@ function oldCookie(subject) {
     const payload = `${subject}.${Math.floor(Date.now() / 1000) + 3600}`;
     return `nocturne_vr_session=${Buffer.from(payload).toString('base64url')}.${createHmac('sha256', 'recovery-fixture').update(payload).digest('base64url')}`;
 }
+
+test('DEV room authorization requires the verified owner session, not the code, a legacy cookie or an email header', { skip: !DatabaseSync }, async t => {
+    const { env, call, verify, sqlite } = await setup(t);
+    Object.assign(env, { DEV_ROOM_ENABLED: '1', DEV_ROOM_OWNERS: 'owner@example.com', MEDIA_TRANSPORT: 'sfu' });
+    assert.equal((await call('dev-room', {})).status, 401);
+    assert.equal((await call('dev-room', {}, '', { 'Cf-Access-Authenticated-User-Email': 'owner@example.com' })).status, 401);
+    assert.equal((await call('dev-room', {}, oldCookie('1'))).status, 401);
+    const stranger = await verify('stranger@example.com');
+    assert.equal((await call('dev-room', {}, stranger.cookie)).status, 403);
+    const owner = await verify();
+    const allowed = await call('dev-room', {}, owner.cookie);
+    assert.equal(allowed.status, 200);
+    assert.equal(allowed.headers.get('cache-control'), 'no-store');
+    assert.deepEqual(await allowed.json(), { room: 'private-000032' });
+    assert.equal((await call('dev-room', {}, owner.cookie, { Origin: 'https://other.example' })).status, 403);
+    env.DEV_ROOM_ENABLED = '0';
+    assert.equal((await call('dev-room', {}, owner.cookie)).status, 503);
+    env.DEV_ROOM_ENABLED = '1';
+    sqlite.prepare('UPDATE access_sessions SET expires_at = 0 WHERE user_id = (SELECT id FROM users WHERE email = ?)').run('owner@example.com');
+    assert.equal((await call('dev-room', {}, owner.cookie)).status, 401);
+});
+
+test('DEV WebSocket upgrades recheck owner access before touching the DO and strip external proof and cookies', { skip: !DatabaseSync }, async t => {
+    const { env, verify, sqlite } = await setup(t);
+    let forwarded = null;
+    Object.assign(env, {
+        DEV_ROOM_ENABLED: '1', DEV_ROOM_OWNERS: 'owner@example.com', MEDIA_TRANSPORT: 'sfu', ALLOWED_ORIGINS: ORIGIN,
+        CLUB_ROOM: { idFromName: name => name, get: () => ({ fetch(request) { forwarded = request; return new Response('forwarded'); } }) }
+    });
+    const request = (cookie = '', origin = ORIGIN) => new Request('https://api.mitwee.nl/?room=private-000032&sfu=1', {
+        headers: { Upgrade: 'websocket', Origin: origin, Cookie: cookie, 'X-Nocturne-Dev-Owner': 'verified' }
+    });
+    assert.equal((await relay.fetch(request(), env)).status, 401);
+    assert.equal(forwarded, null);
+    const { cookie } = await verify();
+    assert.equal((await relay.fetch(request(cookie, 'https://other.example'), env)).status, 403);
+    assert.equal(forwarded, null);
+    assert.equal((await relay.fetch(request(cookie), env)).status, 200);
+    assert.equal(forwarded.headers.get('X-Nocturne-Dev-Owner'), 'verified');
+    assert.equal(forwarded.headers.has('Cookie'), false);
+    forwarded = null;
+    sqlite.prepare('UPDATE access_sessions SET revoked_at = ?').run(Date.now());
+    assert.equal((await relay.fetch(request(cookie), env)).status, 401);
+    assert.equal(forwarded, null);
+    const ordinary = new Request('https://api.mitwee.nl/?room=lobby&sfu=1', {
+        headers: { Upgrade: 'websocket', Origin: ORIGIN, 'X-Nocturne-Dev-Owner': 'verified' }
+    });
+    await relay.fetch(ordinary, env);
+    assert.equal(forwarded.headers.has('X-Nocturne-Dev-Owner'), false);
+});
 
 test('numeric invitations require verification and enforce account attempt limits even when IPs change', { skip: !DatabaseSync }, async t => {
     const { sqlite, call, verify } = await setup(t);

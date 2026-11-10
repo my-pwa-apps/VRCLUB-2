@@ -15,6 +15,11 @@
 //
 //   node scripts/build-dj-glbs.mjs --ubc "<unzipped Universal Base Characters[Standard]>" [--out js/models/avatars]
 //   npm run optimize:avatars -- js/models/avatars/club-dj-male.glb js/models/avatars/club-dj-female.glb
+//   node scripts/build-dj-glbs.mjs --refine-male [--source <existing male DJ.glb>]
+//
+// The male's final pass shapes opaque nape waves, softens the superhero cheek/jaw planes and adds subtle vertex-colour
+// age creases. It preserves topology, joints, eye/ear landmarks and existing headphone geometry. --refine-male applies
+// that same idempotent pass to a shipped derivative without needing the original packs or rewriting the female DJ.
 //
 // Every hair glTF must have the same ordered joint list as the guest skeleton (the same rule build-avatar-glb.mjs
 // enforces for every accessory).
@@ -34,14 +39,93 @@ const argument = name => {
 };
 const ubc = argument('--ubc');
 const headphonesDir = argument('--headphones');
+const refineMale = process.argv.includes('--refine-male');
 const outDir = argument('--out') || join(ROOT, 'js/models/avatars');
-if (!ubc) {
+if (!ubc && !refineMale) {
     console.error('usage: node scripts/build-dj-glbs.mjs --ubc "<unzipped Universal Base Characters[Standard]>" [--headphones "<unzipped Headphones dir>"] [--out <dir>]');
     process.exit(1);
 }
 
 const io = new NodeIO().registerExtensions(ALL_EXTENSIONS);
 const KEEP_CLIP = 'Idle_Loop';
+
+/** Offline, topology-preserving styling of the shipped opaque Quaternius male DJ. */
+function matureMaleDJ(document) {
+    for (const mesh of document.getRoot().listMeshes()) for (const primitive of mesh.listPrimitives()) {
+        const colour = primitive.getAttribute('COLOR_0');
+        if (!colour) continue;
+        const values = colour.getArray();
+        if (values instanceof Float32Array || values instanceof Uint16Array) {
+            const scale = values instanceof Uint16Array && colour.getNormalized() ? 255 / 65535 : 255;
+            colour.setArray(Uint8Array.from(values, value => Math.round(Math.max(0, Math.min(255, value * scale)))));
+        }
+        colour.setNormalized(true);
+    }
+    if (document.getRoot().getExtras().maleDJStyle === 'mature-nape-waves-v1') return;
+    const head = measureHead(document);
+    let hairVertices = 0, faceVertices = 0, creaseVertices = 0;
+    for (const node of document.getRoot().listNodes()) {
+        if (!node.getMesh() || node.getName() === 'Headphones') continue;
+        for (const primitive of node.getMesh().listPrimitives()) {
+            const hair = /^Hair_/.test(node.getName());
+            const face = /superhero/i.test(primitive.getMaterial()?.getName() || '');
+            if (!hair && !face) continue;
+            const positions = primitive.getAttribute('POSITION').getArray();
+            const colours = face ? new Uint8Array(positions.length / 3 * 4).fill(255) : null;
+            for (let i = 0; i < positions.length; i += 3) {
+                const x = positions[i], y = positions[i + 1], z = positions[i + 2];
+                if (hair) {
+                    const lower = Math.max(0, Math.min(1, (head.earY + 0.035 - y) / 0.12));
+                    if (!lower) continue;
+                    const angle = Math.atan2(x, head.earZ - z);
+                    const wave = Math.sin((head.earY - y) * 65 + angle * 3);
+                    const radial = Math.hypot(x, z - head.earZ) || 1;
+                    const flare = lower * (0.008 + wave * 0.014 - 0.015 * lower ** 3);
+                    positions[i] += x / radial * flare;
+                    positions[i + 2] += (z - head.earZ) / radial * flare;
+                    positions[i + 1] += lower * 0.024 + lower * lower * 0.009 * Math.sin(angle * 5);
+                    hairVertices++;
+                } else if (Math.abs(x) < head.earX * 0.78 && z > head.earZ + 0.055) {
+                    // Keep ears, crown, eyes and the skeleton untouched; soften the superhero cheek/jaw planes.
+                    const cheek = Math.exp(-(((Math.abs(x) - 0.042) / 0.022) ** 2) - ((y - (head.earY - 0.030)) / 0.040) ** 2);
+                    const jaw = Math.exp(-(((Math.abs(x) - 0.048) / 0.026) ** 2) - ((y - (head.earY - 0.080)) / 0.035) ** 2);
+                    positions[i + 2] -= cheek * 0.006;
+                    positions[i + 1] -= jaw * 0.005;
+                    positions[i] *= 1 - cheek * 0.025;
+                    const eyeLine = head.earY + 0.010 - (Math.abs(x) - 0.042) * 0.28;
+                    const eyeCrease = Math.exp(-(((y - eyeLine) / 0.0035) ** 2) - ((Math.abs(x) - 0.050) / 0.020) ** 2);
+                    const forehead = [0.065, 0.078].reduce((sum, offset) =>
+                        sum + Math.exp(-(((y - head.earY - offset) / 0.0025) ** 2) - (x / 0.065) ** 6), 0);
+                    const fold = Math.exp(-(((Math.abs(x) - 0.026 - (head.earY - y) * 0.14) / 0.0035) ** 2) -
+                        ((y - head.earY + 0.043) / 0.025) ** 2);
+                    const crease = Math.min(1, eyeCrease * 0.8 + forehead * 0.5 + fold * 0.55);
+                    for (let k = 0; k < 3; k++) colours[i / 3 * 4 + k] = Math.round((1 - crease * 0.24) * 255);
+                    if (crease > 0.25) creaseVertices++;
+                    faceVertices++;
+                }
+            }
+            if (colours) primitive.setAttribute('COLOR_0', document.createAccessor('matureFaceColour').setType('VEC4').setNormalized(true)
+                .setArray(colours).setBuffer(document.getRoot().listBuffers()[0]));
+            const normals = new Float32Array(positions.length);
+            const indices = primitive.getIndices().getArray();
+            for (let i = 0; i < indices.length; i += 3) {
+                const a = indices[i] * 3, b = indices[i + 1] * 3, c = indices[i + 2] * 3;
+                const u = [0, 1, 2].map(k => positions[b + k] - positions[a + k]);
+                const v = [0, 1, 2].map(k => positions[c + k] - positions[a + k]);
+                const n = [u[1] * v[2] - u[2] * v[1], u[2] * v[0] - u[0] * v[2], u[0] * v[1] - u[1] * v[0]];
+                for (const at of [a, b, c]) for (let k = 0; k < 3; k++) normals[at + k] += n[k];
+            }
+            for (let i = 0; i < normals.length; i += 3) {
+                const length = Math.hypot(normals[i], normals[i + 1], normals[i + 2]) || 1;
+                for (let k = 0; k < 3; k++) normals[i + k] /= length;
+            }
+            primitive.getAttribute('NORMAL').setArray(normals);
+        }
+    }
+    if (hairVertices < 100 || faceVertices < 20) throw new Error('Male DJ head/hair landmarks no longer match the styling recipe');
+    document.getRoot().setExtras({ ...document.getRoot().getExtras(), maleDJStyle: 'mature-nape-waves-v1' });
+    console.log(`male styling: ${hairVertices} opaque hair vertices, ${faceVertices} facial vertices, ${creaseVertices} subtle crease vertices; ears and headphones unchanged`);
+}
 
 /** A glTF with external buffers and images, read from disk (the pack ships some textures as `<name>_png.png`). */
 async function readGltf(path) {
@@ -324,6 +408,7 @@ async function build({ from, to, beard, hair }) {
         }
         added = swapHair(document, await readGltf(hairPath), hair);
     }
+    if (to === 'club-dj-male.glb') matureMaleDJ(document);
     if (headphonesDir) added = [...added, await addHeadphones(document, headphonesDir)];
     if (beard) {
         const beardPath = join(ubc, 'Hairstyles', 'Rigged to Head Bone', 'glTF (Godot -Unreal)', 'Hair_Beard.gltf');
@@ -346,5 +431,12 @@ async function build({ from, to, beard, hair }) {
     console.log(`${to}: from ${from}, clip ${KEEP_CLIP}${added.length ? `, + ${added.join(', ')}` : ''}`);
 }
 
-await build({ from: 'club-guest-male.glb', to: 'club-dj-male.glb', hair: { style: 'Hair_Long', keep: 0.5, keepCap: true, shave: true, trimFront: { front: 0.0, below: 1 } } });
-await build({ from: 'club-guest-female.glb', to: 'club-dj-female.glb' });
+if (refineMale) {
+    // No asset pack or download is needed to restyle an existing opaque DJ derivative.
+    const document = await io.read(argument('--source') || join(ROOT, 'js/models/avatars/club-dj-male.glb'));
+    matureMaleDJ(document);
+    await io.write(join(outDir, 'club-dj-male.glb'), document);
+} else {
+    await build({ from: 'club-guest-male.glb', to: 'club-dj-male.glb', hair: { style: 'Hair_Long', keep: 0.5, keepCap: true, shave: true, trimFront: { front: 0.0, below: 1 } } });
+    await build({ from: 'club-guest-female.glb', to: 'club-dj-female.glb' });
+}

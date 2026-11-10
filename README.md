@@ -1,29 +1,181 @@
 # VR Club
 
+### Selective production reliability and venue port
+
+`js/restroomInteractions.js` owns acknowledged shared toilet-seat/lid, flush and tap
+actions, controller-derived rinse water, and procedural spatial water sound controlled
+by **Ambience**, never Music. `worker/src/restroomState.js` validates the retained
+room state. Deploying the updated production Worker is required for online controls;
+older relays explicitly report unsupported controls. No deployment is performed by
+building the site.
+
+`js/lightingPresets.js` provides twelve validated, device-local lighting slots.
+DOM Show & Lights, VR BRIGHTNESS / RIG and the desk's BRIGHTNESS / RIG page share
+fixture controls: spots, lasers and wall up to 200%, sheet up to 300%, independent
+head/row/column power, colour and aim, beat-based sequences, prism and smoke settings.
+Save/select/delete stay personal; recalling or changing fixtures is host-gated.
+Safe Mode caps brightness boosts and denies flashes; master zero remains blackout.
+Preset overwrite/delete requires a second matching press within four seconds.
+
+Normal avatar, wardrobe and editor container downloads reuse ModelLoader's fingerprinted
+byte cache and download deadlines; parsing remains per container with clips stopped.
+Unreadable saved music never triggers or overwrites the default list. Music offers
+retry and an explicitly confirmed permanent reset; corrupt playback positions do not
+discard valid saved links. LED containment corrects tracked and deferred XR positions.
+The static server rejects private paths and symlink destinations.
+
+Static ceiling service pipes are merged without consolidating pickable fixtures.
+Licensed venue finishes, Door Handle 3 and hinged toilet geometry are recorded in
+ASSETS.md with rebuild recipes. This selective port does not include live-DJ events,
+uploaded avatars, branding/ADE artwork, advanced smoke scattering, development
+access bypasses or demo music. Existing production access and deployment remain unchanged.
+
 Hyperrealistic WebXR nightclub built with Babylon.js for compatible VR headsets and desktop browsers, with Meta Quest used as the primary tested headset. The experience includes a PBR club environment, DJ booth, LED wall, lasers, spotlights, mirror ball effects, audio-reactive lighting, local audio files, and stream URL playback.
 
 ## Quick Start
 
-### Quest branch
+Shared safety, SFU room capacity, optional character styles and owner-only DEV-room
+support are integrated from the ADE development branch. Default builds retain NOCTURNE;
+ADE pitch services and deployment commands are not imported.
 
-This branch is a **Quest distribution candidate**, not an uploaded or signed store release.
+### Optional venue branding (development review)
+
+`npm run build -- --branding=ade` (or `$env:VRCLUB_BRANDING='ade'; npm run build`)
+builds the ADE-dressed variant in `dist/`. Serve it with
+`node scripts/serve.mjs --dist`. `npm run build -- --branding=nocturne` explicitly
+restores the default, overriding the environment; with neither setting, NOCTURNE is used.
+Source-server `npm start` stays NOCTURNE: this is a build choice, not a URL or saved preference.
+
+The artwork comes from local `adefixes` (ADE worktree, commit `36def1f`):
+yellow 30Y-logo wall/front signs, DJ-table fascia and street entrance signs/flags.
+`scripts/branding.mjs` selects and validates the build preset;
+`js/venueBranding.js` owns the optional artwork geometry and disposal.
+It is additive: the NOCTURNE splash, neon wordmark and show remain unchanged,
+as in that source. The unused campaign key visual is not imported or shipped.
+Only ADE builds copy the verified local logo and its source/usage notice, and
+About identifies the independent concept. No external artwork is fetched.
+Variant changes invalidate the app-shell service worker.
+The dressing is four merged opaque draws with three textures; physical-headset
+visibility and frame cost remain unmeasured.
+Validate with `node --test test\branding.test.mjs` and
+`npx playwright test branding.spec.mjs` (use `VRCLUB_BRANDING=ade`
+for the ADE browser pass; unset it for the default pass).
+
+**Review only:** ADE artwork is not MIT/CC-licensed; obtain written permission
+and brand guidance before public publication or store distribution.
+See `branding/ade/notice.txt`. This option changes no deployment host,
+robots policy, VR access gate, room/event service or lighting ownership.
+
+### Edit your personal character
+
+Open **Show → Club → Edit my character** on a computer or phone, or
+**Comfort → Me → Edit my character** in VR. Choose one of 17 adult bases,
+original/short/long hair or a bald head, an original/casual/smart fitted outfit,
+glasses, facial hair, headwear, shoes and tights, and skin, hair, top and bottom colours.
+Frames include round, square, heart, star and sunglasses; facial hair includes
+stubble and a beard. Moustache options remain unavailable until an officially
+avatar-accompanied asset with clear redistribution terms is verified; older
+saved moustache choices reset to none. Hats include a cap, beanie, fedora and
+bucket hat; older party-cone selections migrate to the bucket hat. Headwear
+hides the fitted hair to avoid clipping, and facial hair follows Hair color.
+Casual outfits include original graphic prints;
+selected NPC shirts and sweaters also carry abstract wave/orbit graphics or
+Japanese 音 (sound) and 光 (light). Tailored outfits stay plain.
+Rotate the 3D preview before saving; Cancel
+leaves your character unchanged. Reset removes customization and keeps the
+chosen base. This is a wardrobe editor, not a body/face sculpting tool.
+Faces keep their source-authored expressions; no custom smile shaping is applied.
+Official expression controls are not currently integrated.
+
+Your choice is saved on this device and shared with guests in rooms. Sharing
+requires the updated relay; an older relay gives an explicit error rather than
+pretending others can see it. Custom personal bodies use detailed models even
+in a lightweight room; other people's colours and NPC outfits are not changed.
+Only a selected wardrobe is downloaded (about 2.4–3.0 MiB), not all 17 at entry.
+The complete optional wardrobe payload is about 45 MiB.
+No camera, upload, account sync or external avatar service is involved.
+Controller comfort, clothing fit in every pose and frame cost on a physical
+headset still require headset review.
+
+`js/wardrobeCatalog.js` lists the on-demand wardrobe assets;
+`js/avatarAccessoryAssets.js` contains eyewear generated from the selected
+CC0 MakeHuman Community assets by `scripts/build-avatar-accessories.mjs`;
+`js/avatarDetails.js` fits the authored glasses and remaining procedural
+accessories to measured heads, and a phone to the outside queue caller's
+animated hand in both character styles;
+`js/avatarAppearance.js` owns validation, shared-texture instantiation, device
+preferences and authoritative room updates; `js/avatarEditor.js` owns the
+desktop/phone modal and the VR preview.
+`js/customAvatarAppearance.js` fits opaque skinned tops and trousers to supported
+single-mesh humanoid uploads, preserving the original face texture and removing
+only instance-owned covered triangles. Its uploaded-body editor offers original,
+casual and smart outfits, two garment colours, glasses and headwear; unsupported
+fits retain the current look. `js/uploadedAvatarSharing.js` owns optional room
+model transfer. Sharing requires an explicit choice; guests can retain downloaded
+models. No private uploaded model is bundled with the application. Clothing fit,
+accessory alignment and cost on a physical headset remain unmeasured.
+Old eight-field v1 and complete v2 wardrobes remain valid. The editor saves
+complete v3 descriptors, negotiating `appearanceAccessories` and
+`appearanceFootwear` before publishing them. Deploy the frontend and relay
+together for shared accessories and footwear; old relays report unsupported
+sharing without discarding the device preference.
+
+### Audio-only live DJ events
+
+**Music / Live input** offers a guided mixer setup before joining a room:
+choose an input, **Test my input**, then **Go live**. Tests drive the real crowd
+and light detectors without transmitting audio; local monitoring is off until
+**Hear test audio** is enabled (use headphones). Go live creates a private room
+if necessary, after the existing Online safety guide, and publishes only after
+that explicit action. **Copy guest link** brings listeners straight into the set.
+Stop broadcast returns to private testing; Stop input releases the recording device.
+The standalone broadcaster also supports a private sound check without an invitation.
+
+A room host can create a live event from **Online / Live DJ event** and issue a
+private DJ link. Its lightweight [broadcaster](broadcast/index.html) takes a
+mixer/interface recording input, without a camera or local speaker monitor.
+An audience invite joins an available room automatically: up to eight rooms
+of 32 people share the same event-owned SFU music feed, while each room keeps
+its own conversation. The actual received audio drives the crowd and lights.
+These are admission bounds, not a 256-person performance or latency claim.
+
+The Worker and frontend changes must both be deployed before this is available.
+See [the live-audio runbook](docs/SCALING.md#live-audio-events-and-automatic-overflow)
+for permissions, sound setup, private invitations, revocation, limits and validation.
+There is no Twitch audio extraction, video or artist likeness.
+
+### Quest distribution and QuestDev
+
+The Quest distribution is a candidate, not an uploaded or signed store release.
+This distribution retains verified VR access and the shared production relay.
+Applicable QuestDev features are integrated without its free-access bypass,
+development relay selection or seeded music. Its isolated owner-login deployment
+is documented separately in [docs/SCALING.md](docs/SCALING.md#questdev-owner-login).
 Run `npm run build:quest` for the web payload. See [docs/QUEST.md](docs/QUEST.md) for
 signing, Meta Bubblewrap packaging, Digital Asset Links, release checks and remaining blockers.
 
-No music is included. Open **Music**, choose a local file, paste a direct HTTPS audio link,
-or paste a SoundCloud track/set page in the same **Choose a file or paste a URL** section,
-optionally name it, and press **Save & play**. Up to eight sets are saved on this device.
+The default music is the original generated club set (`audio/nocturne-house.mp3`), which plays
+until you add music of your own. Open **Music**, choose a local file, paste a direct HTTPS audio link,
+or paste one SoundCloud track page in the same **Choose a file or paste a URL** section,
+optionally name it, and press **Play now** to save and play it, or **Save to my sets**
+to keep it without interrupting the current music. Up to eight sets are saved on this device.
 Choose them from the VR Music menu; **ADD MUSIC** returns to the setup panel for the Quest
-keyboard/file picker, then **Enter VR** returns to the club. SoundCloud uses its official
-visible player: its seek/volume controls work, but VR Club cannot analyse, spatialize or
-share that audio. YouTube/Spotify page URLs are not playable. Direct audio hosts must allow
-CORS; no proxy is provided.
-SoundCloud's official Widget API is loaded only when a set is chosen. Confirmed playback
-gives the crowd varied dance moves and the DJ an active performance on a shared 120 BPM
-animation clock, not detected beats. Pause, finish, errors and source changes restore calm
-movement; choosing a set or blocked autoplay alone never starts the dance fallback.
+keyboard/file picker, then **Enter VR** returns to the club. A SoundCloud track plays through
+the club's analysed audio graph when its creator publishes it to podcast players: the relay
+verifies that public stream, and the PA, lights, crowd, DJ, seeking and room sharing work as
+for other audio. Playlists are not supported. If SoundCloud does not publish the track that
+way, the saved link is kept and Music explains why; **Open in SoundCloud player** is an
+explicit fallback whose audio cannot be analysed, spatialized or shared. The Widget API is
+loaded only for that fallback. YouTube and Spotify page URLs are not playable. Other direct
+audio hosts must allow CORS.
 Only explicitly saved music resumes on entry; historical podcast/stream preferences are ignored.
-Generic **Male DJ / Female DJ** choices are in the Music panel and VR CROWD → CHOOSE DJ.
+If the saved list cannot be read, Music offers a retry or a confirmed reset; resetting permanently
+erases the unreadable local list. Storage access failures can be retried without resetting. The
+same recovery controls are available under VR Music Sources, including in immersive mode.
+Generic **Male DJ / Female DJ** choices are in Show & Lights → Club and VR CROWD → CHOOSE DJ.
+The fictional male DJ has mature styling and longer, softly wavy nape-length hair
+in both character styles; the detailed Jin look carries the stronger facial age cues.
+The supplied hairstyle reference is not bundled, and this is not an artist likeness or endorsement.
 The Quest payload uses CC0 dancers only; historical Mixamo files do not ship.
 
 ```powershell
@@ -32,6 +184,9 @@ npm start
 ```
 
 Open `http://localhost:8000`, click **ENTER CLUB**, then use the on-screen controls or camera presets to inspect the scene. For Quest testing, open the same server from the headset browser using your PC IP address, for example `http://192.168.1.100:8000`.
+The development server binds to all network interfaces by default; it denies hidden
+files and the Worker tree, except public `.well-known` files. Set `HOST=127.0.0.1`
+when LAN access is not needed.
 
 Build and serve the production bundle with content-hashed assets:
 
@@ -40,6 +195,26 @@ npm run start:prod
 ```
 
 ## Project Layout
+
+Venue surfaces use locally bundled CC0 Poly Haven maps: white restroom tiles to
+1.5 m with matte plaster above, brushed-concrete ceilings and rusty DJ-platform
+sides. The anti-slip platform top stays unchanged; the DJ worktop reuses the bar's
+dark wood maps. `node scripts/build-venue-textures.mjs` recreates the four new
+512/1024 px sets and their source-hash provenance. No runtime CDN is required.
+The unlicensed supplied `audio/demo.mp3` stays out of production builds until
+redistribution permission is confirmed.
+
+Catalog people, crowd, DJs and wardrobe previews reuse the equipment loader's
+`VRClubModelCache` IndexedDB binary store. Visited sources can reload offline
+without the browser HTTP cache; online loads revalidate their fingerprints.
+Downloads have a 120-second header/body deadline and share in-flight requests.
+Decoded containers keep their existing sharing, generation guards and retirement;
+this does not cache other guests' uploaded private models or all wardrobe bases.
+
+Static ceiling service pipes share one material draw instead of three. Geometry,
+material, picking and collision behavior are retained; moving fixtures, seats,
+doors and district visibility boundaries are not merged. This is a small draw
+reduction, not a measured headset frame-time improvement.
 
 Development sources remain plain `<script>` files that publish classes onto `window`, so
 their order in `index.html` is a tested contract. `npm run build` feeds those sources to
@@ -63,15 +238,25 @@ js/showDirector.js         "NOCTURNE" — the composed, beat-locked cue engine
 js/ledPatterns.js          LED wall pattern methods mixed into VRClub.prototype
 js/barProps.js             Bar bottles: lathe shapes, shelf stocking and the label atlas (pure data)
 js/nocturneLogo.js         The NOCTURNE wordmark as path geometry — the one source for the splash SVG and both neon signs
+js/restroomArt.js          The restroom's posters, stickers, marker tags and backlit NOCTURNE box: one runtime-painted atlas plus the placement plan
+js/restroomInteractions.js Shared hinged toilet seats/lids, flush and timed taps, tracked-hand rinsing and bounded spatial water audio
 js/venueDressing.js        Entrance stair hall (down from the street door) and bar (counter, back bar, stools, lights) mixed into VRClub.prototype
 js/mezzanine.js            Steel balcony and stair along the left wall, plus the walking-surface follow, mixed into VRClub.prototype
 js/cityDistrict.js         The street outside (baked GLB), its sky and skyline, fence, street door and "outdoors" amount, mixed into VRClub.prototype
-js/vjDesk.js               The VJ desk at the DJ table: two touch panels (who has the lights, the DJ, music, macros, faders; every light), mixed into VRClub.prototype
+js/vjDesk.js               The VJ desk: Auto show/DJ/presets, fixture/spot-rig/settings pages and a separate player/effects panel
+js/lightingPresets.js      Twelve local lighting preset slots, validated backups and desktop/phone naming and transfer
+js/characterCatalog.js     Generated CC0 MakeHuman adult cast, measured eyes, NPC assignments and compatible player IDs
+js/characterStyles.js      Shared room style, personal lightweight override and live model replacement preserving NPC/session state
 js/avatarRig.js            Procedural player body on the dancer skeleton: planted gait, turning, head, IK arms and legs
+js/frameStats.js           Frame-time distribution recorder (frame interval, update and submit CPU time, p95/p99, missed frames)
+js/playerHeight.js         Pure player-height maths: standing eye-height estimator and the Seated mode view lift
 js/djPerformer.js          The DJ's live set as a pose for AvatarRig: mixing, cueing, knobs, crowd, hands up on a drop, waves at visitors, on the beat
 js/crowdDance.js           The crowd's choreographer: who dances which move, on the beat; claps in a build, hands up on a drop, sway or stand when the kick goes
 js/minglerClock.js         Shared room-time mingler round: deterministic positions, activities and clip phase, independent of host, startup and graphics tier
-js/networkClient.js        Multiplayer WebSocket/WebRTC client (presence, voice, emoji, shared music)
+js/sfuClient.js            Room-authorised SFU audio transport; loaded before networkClient
+js/liveAudioClient.js      Event-owned live music, private publisher/listener authorization and bounded media reconnects
+js/liveInput.js            Private mixer testing, input meters, optional monitoring and explicit live-event publication
+js/networkClient.js        Multiplayer WebSocket/WebRTC client (presence, mesh/SFU voice, emoji, shared music)
 js/avatarManager.js        Remote guests as clip-driven Quaternius people: idle/walk/run, wave, nod, dance; name tags, spatial voice, mute and the personal-space bubble
 js/multiplayer.js          One multiplayer session for the whole club (DOM panel and VR menu): connect, mic, gestures, block, mute, kick/ban/lock, shared music
 js/club/01-core.js         VRClub constructor, shared state, and device settings
@@ -83,20 +268,92 @@ js/club/06-effects.js      Fixture lights, laser sheet, and mirror ball
 js/club/07-animation-core.js Frame context, fog, mirror ball, and VJ updates
 js/club/08-animation-fixtures.js LED, laser, and spotlight animation
 js/club/09-animation-finish.js Strobe, speaker, and LED wall animation
-js/club/10-ui.js           In-scene controls, audio UI, camera, and gobos
-js/club/11-audio-crowd.js  Audio analysis, accessibility, avatars, and diagnostics
+js/club/10-ui-controls.js Shared fixture controls and host/safety gates
+js/club/10-ui-menu.js     VR quick-menu drawing, pages, selection, and music seek
+js/club/10-ui-social.js   VR network pages, social actions, and thumbstick wheel
+js/club/10-ui.js          Seating, pointer routing, music transport, comfort, and camera
+js/club/11-audio.js       Web Audio graph, effects, analysis, acoustics, and volume
+js/club/11-avatars.js     Avatar loading, personal bodies, appearance, and resident DJ
+js/club/11-crowd.js       Crowd placement, visibility, contact shadows, and choreography
+js/club/11-audio-crowd.js Bartender, bar regular, mingler activities, and diagnostics
 js/club_hyperrealistic.js  Public VRClub class assembled from the focused layers
 js/ui-init.js              Splash, desktop VJ menu, and audio menu wiring; constructs VRClub
 scripts/serve.mjs          Dependency-free static server honouring $PORT (used by Procfile)
 scripts/build.mjs          Production bundler and static-asset copier
 scripts/build-city-assets.mjs Bakes the street from the Quaternius Downtown City MegaKit into js/models/city/downtown.glb
 scripts/build-crowd-glbs.mjs Builds the 17-person crowd (`club-crowd-*.glb`) from the Quaternius Modular Women/Men packs: retargets the club's clips, recolours, bakes vertex colours
+scripts/arm-frame.mjs      Shared offline arm-axis/elbow-hinge frame alignment for lightweight and detailed dance authoring
 scripts/build-dj-glbs.mjs  Derives the two DJs from the guest files
+scripts/characters/build.mjs Builds the 34 detailed adults with NPC/player clips from the verified source GLBs
 test/contract.test.mjs     Contract tests — load order, wiring, assets, hygiene
 test/unit.test.mjs         Runtime unit tests for security, caching, materials, and show logic
 textures/                  Local PBR environment textures
 js/models/                 Local GLB models and model textures
 ```
+
+Dance authoring shares `scripts/arm-frame.mjs` across lightweight and detailed
+people, aligning the limb axis and elbow hinge plane together. A real shipped
+`Groove_Bounce` reproduced a ~54-degree hinge mismatch under the old independent
+swing-only rotations; the real-rig tests now enforce >0.98 alignment on both arms
+across grooves and `Dance_Loop`. Shared `armPronation()` puts 70% of palm roll
+into the forearm, capped at 75 degrees, preserving exact world palm targets;
+the regression checks upper-arm hinge alignment >0.98, forearm rotation below
+76 degrees and wrist roll below 61 degrees (the previous detailed ArmsWide
+wrist roll reached 134 degrees).
+Default groove hands inherit forearm roll; explicit palm targets still win.
+Pump alternates overlapping, eased 1.5-beat raises and returns, keeping one
+hand up on every beat without the previous quarter-second swaps and 44–59-degree
+arm snaps. The real-rig regression also limits rotation per 50 ms to <0.65 rad.
+`--refresh-static` also reauthors `Dance_Loop` from local guest sources.
+Rebuild lightweight people/variants, then use
+`node scripts\characters\build.mjs --refresh-dance` and
+`node scripts\characters\build.mjs --wardrobe --refresh-dance` to refresh only
+dance clips in existing detailed/wardrobe GLBs, preserving artwork, hair,
+accessories and all nondance clips. Selective refresh prunes only unused
+accessors/buffers, preserving anatomical helper nodes, normals, UVs and wardrobe
+masks; its pruning regression was fixed and checked with the full suite.
+No runtime IK/allocation is added;
+physical-headset appearance is unverified.
+
+### Optional detailed characters
+
+In **Show → Club → Crowd**, choose **Character style → Diverse adults**. In VR the
+same choice is under **CROWD → CHARACTER STYLE**. Quaternius remains the default;
+the detailed models are not fetched until selected. The host chooses the room's
+style. **LIGHTWEIGHT CHARACTERS FOR ME** (VR: **LIGHTWEIGHT FOR ME**) forces
+Quaternius on this device without changing the room's choice, including when the
+host uses that override.
+If a change cannot load, the active cast stays in place. Use **Retry loading
+characters** (VR: **RETRY CHARACTERS**) or switch to the personal lightweight
+override, which remains available while characters load.
+
+The 34 fictional CC0 adults include varied ages, builds, skin tones, genders,
+hair, dresses, skirts and casual clothing. Existing tier counts are unchanged:
+Ultra has fourteen dancers, eight indoor guests, bartender, bouncer, eight people
+queueing and one selected DJ (33 placed people; the other DJ is an alternative).
+The same role behaviours, music, visibility, seats and room connection remain
+when styles change. The local body/mirror and remote player bodies change too.
+Network identity IDs and women/men/anyone pools remain compatible with the relay:
+the seventeen existing player identities resolve to seventeen detailed adults,
+separately from NPC slots. This does not expand the relay's identity pool.
+
+The detailed cast has two draws and fewer than 10,000 triangles per person;
+each DJ adds fitted headphones (three draws, fewer than 13,000 triangles).
+It uses textured skin and hair, more joints and substantially more animation
+data than Quaternius. A first change downloads/parses the required models and
+can pause rendering briefly. Quest CPU/GPU cost and physical-controller feel
+have not been measured; keep the lightweight override available.
+
+`npm run build:characters` rebuilds the shipped models and generated catalogue
+from `design/characters/base/` and `recipes.json`, using the existing Quaternius
+CC0 animation sources. Source generation uses Blender 5.2 and MPFB 2.0.18:
+set `VRCLUB_CHARACTER_TOOLS` to an external verified asset/MPFB tooling directory,
+`BLENDER_USER_RESOURCES` to its isolated Blender profile, and run
+`scripts/characters/generate.py` with Blender. `AVATAR_ONLY` optionally limits
+generation to comma-separated IDs. Asset pack hashes and selected CC0 sources
+are recorded in `design/characters/provenance.json` and the recipes. MPFB's
+software licence is separate from its CC0 output assets. Source models, Blender
+intermediates and tooling do not enter the production build.
 
 ## Controls
 
@@ -111,20 +368,31 @@ while their cookie is present; otherwise contact the issuer. See
   on the floor even when looking up/down. Press `E` for a short jump; holding it does
   not repeat the jump. `Q` no longer flies downward. Stairs, the balcony and DJ riser
   carry the player's feet.
-- **VR**: the 🥽 **Enter VR** button sits top-right and is hidden on incompatible devices. On compatible devices it reads **Preparing VR…** while the background models finish loading. By default, the **left stick walks in the direction you look** (without flying when you look up/down), and the **right stick turns smoothly**. Walk up/down the left-hand stairs to reach or leave the balcony. Click the left thumbstick or squeeze a grip to sprint; `A`/`X` to jump. **VR Comfort** switches to teleport and snap turn, disabling sprint/jump. Press `Y`/`B` (or the controller menu button when exposed) for the world-locked, paged quick menu. It provides headset-friendly pages for lighting, effects, the automatic show, **CROWD** (send the dancers, the other guests or the DJ home), comfort, safety and quality (**Balanced / High / Ultra**), and travel.
+- **VR**: the 🥽 **Enter VR** button sits top-right and is hidden on incompatible devices. On compatible devices it reads **Preparing VR…** while the background models finish loading. By default, the **left stick walks in the direction you look** (without flying when you look up/down), and the **right stick turns smoothly**. Walk up/down the left-hand stairs to reach or leave the balcony. Click the left thumbstick or squeeze a grip to sprint; `A`/`X` to jump. **VR Comfort** switches to teleport and snap turn, disabling sprint/jump. **Seated mode** (comfort page) lets you sit while your avatar stays standing: your view is lifted to standing eye height. In standing mode your avatar takes your real height, estimated as you play (or press **Measure height** and stand tall for three seconds), and other guests see a person your size. Press `Y`/`B` (or the controller menu button when exposed) for the world-locked, paged quick menu. It provides headset-friendly pages for lighting, effects, the automatic show, **CROWD** (send the dancers, the other guests or the DJ home), comfort, safety and quality (**Balanced / High / Ultra**), and travel.
 - **The crowd**: up to 14 dancers and 8 guests drawn from the CC0 Quaternius Modular Women / Men cast. Quest replaces the three historical Mixamo slots with CC0 people (some appearances repeat at Ultra). Lower quality tiers show fewer people and download fewer characters. They are built by `scripts/build-crowd-glbs.mjs`; see `ASSETS.md`.
+- **Natural club life**: the guest who works the room now periodically joins the dance floor and follows a hand-cleared route around every stool and standing guest. A regular sits on a real bar stool, alternates quiet time with bartender conversation, and occasionally lifts a bottle from the counter for a drink using authored seated animation.
+- **Inclusive player bodies and seats**: physical headset height never shortens the visible avatar, so seated play still presents the same standing silhouette. Players can intentionally click or ray-select empty bar stools, either balcony stool, or one of three places on the lightweight Chesterfield-style lounge bench; moving or selecting the seat again stands up. Multiplayer guests see the authored seated pose too.
 - **Laser speed**: rotating ceiling beams now move at one quarter of their previous rate. The VJ laser-speed slider still changes their speed; laser-sheet motion is unchanged.
-- **The street**: the club is a basement. From its front doorway a carpeted stair climbs between the ticket desk and the coat check to the street door, which opens onto a night avenue lined with lit buildings (or press `6` / use the Street button / the VR menu's Travel page). A bouncer in a black suit watches the door, and a line of people waits behind a velvet rope to get in (longer on higher graphics tiers). Out there the music is only the low bass coming through the walls, loudest at the door and quieter the further you walk from it (about half as loud 8 m away, much quieter at the end of the block). The street is drawn only while you are near the entrance, and the door stays shut if it cannot load. Its source kit is not in the repo; see ASSETS.md.
-- **Mirror ball**: 96 surface spots on Balanced, 180 on High, 280 on Ultra. Outgoing-ray counts and the two-batch rendering layout are unchanged; High and Ultra headset GPU cost is not yet measured.
-- **🎛️ Lights** (top-left, the VJ menu): safe mode, haptics, fixture toggles, spotlight/gobo settings, graphics quality, the NOCTURNE show, live macros and a reset.
-- **Take over from the DJ** (the VJ desk on the DJ table): go to the booth (**Go to → DJ Booth**, or the VR menu's TRAVEL page) and use the two touch panels either side of the DJ controller, with the mouse or a controller ray. The left panel, **SHOW**, says who has the lights right now. It holds **AUTO SHOW** (hand the lights back to the automatic show), **RESIDENT DJ** (send the DJ home and the decks are yours), **MUSIC** (play/pause, or start a set), DROP, BLACKOUT, NEXT SECTION, TAP TEMPO, BEAMS TO FLOOR and RESET LIGHTS, plus BRIGHTNESS and MOVEMENT SPEED faders. The right panel, **LIGHTS**, switches every fixture on or off and steps the spot colour, moves, aim, gobo, wall picture and mirror colour, each showing its current value. Touching any light makes you the VJ; the lights stay yours while you stand at the desk and go back to the automatic show a minute after you walk away, or at once with AUTO SHOW.
-- **Music** (bottom-right): save/play your direct HTTPS audio links, choose a saved set or local file, select a generic male/female DJ, seek with the slider or +/-30 seconds, and adjust music/ambience independently. The VR Music page offers saved-set controls and a ray-selectable seek strip; ADD LINKS / FILE returns to the setup panel.
-- **Music on entry:** only a set you explicitly saved resumes. Fresh profiles have no music downloads. Sets play once, without an automatic queue. DJs are a separate local choice.
-- **A DJ who plays the set:** the DJ mixes on the jog wheels, works the mixer knobs, holds a headphone cup to one ear, looks out over the crowd (with a fist pump when it is loud), throws both hands up when a drop lands, and waves at you when you walk up to the booth. They nod and bounce on the beat, harder when the music is louder. With no music they keep a calm groove of their own.
+- **The street**: the club is a basement. From its front doorway a carpeted stair climbs between the ticket desk and the coat check to the street door, which opens onto a night avenue lined with lit buildings (or press `6` / use the Street button / the VR menu's Travel page). Every VR entry starts on the opposite pavement, facing the entrance from about 16 metres away so the logo and queue are in view; tracked eye height is preserved. If the street cannot load, a notice explains the indoor fallback. A bouncer in a black suit watches the door, and a line of people waits behind a velvet rope to get in (longer on higher graphics tiers). Out there the music is only the low bass coming through the walls, loudest at the door and quieter the further you walk from it (about half as loud 8 m away, much quieter at the end of the block). The street is drawn only while you are near the entrance, and the door stays shut if it cannot load. Its source kit is not in the repo; see ASSETS.md.
+- **Mirror ball**: 96 surface spots on Balanced, 180 on High, 280 on Ultra. The VJ and VR Lighting controls can hide the outgoing rays while retaining the reflected spots around the room. Outgoing-ray counts and the two-batch rendering layout are unchanged; High and Ultra headset GPU cost is not yet measured.
+- **🎛️ Lights** (top-left, the VJ menu): safe mode, fixture toggles, spotlight movement and multi-beam filter, graphics quality, the NOCTURNE show, live macros and a reset.
+- **Smoke:** choose **SMOKE AMOUNT** (low to maximum) and **SMOKE OUTPUT** (steady or steady with bursts) in Effects; either action switches smoke on. The same controls are in VR **EFFECTS → SMOKE SETTINGS** and the desk's **LIGHTS → SETTINGS**. Maximum gradually fills the room with up to three times normal scene-fog density and stronger machine jets, within existing particle capacities and tier limits. **DENSE SHOW SMOKE FOR ME** also suppresses this extra manual density/output on your device. Switching smoke off gradually clears the air. The automatic show alternates clear, steady and heavier burst passages. Room guests follow the host's lighting.
+- **Take over from the DJ** (the VJ desk on the DJ table): go to the booth (**Go to → DJ Booth**, or the VR menu's TRAVEL page) and use the panels with the mouse or a controller ray. The left **SHOW** panel contains only **AUTO SHOW** (on/off), **SEND DJ HOME / BRING DJ BACK**, and **lighting presets**. The right **LIGHTS** panel switches fixtures and steps colours/pictures; **SPOT RIG** edits individual heads, rows and columns. **LIGHTS → SETTINGS** holds brightness, movement speed, Safe Mode, reset and your return-to-auto timing. The centre player/effects panel appears when the DJ is away. Touching a light or recalling a preset makes you the VJ; the lights stay yours at the desk and follow your existing keep/return/shuffle preference when you leave.
+- **Save a lighting setup:** choose one of twelve slots on the left panel, then **SAVE LIGHTING**. **RECALL PRESET** restores fixtures, exact colours, independent spotlight groups, patterns, speeds and brightness; it never changes music, audio effects, DJ presence or Safe Mode. Selecting a slot does not apply it. Replacing or deleting requires a second press within four seconds. Presets are saved only on this device; a host's recalled lighting is shared with the room through the existing lighting sync. **NAME / TRANSFER** opens a desktop/phone dialog for names and JSON export/import (it says **LEAVES VR** in a headset; immersive-only apps keep save/recall in VR but require a normal browser for file management). Import explicitly replaces all twelve slots after validating the backup. Saving, naming and importing do not take over the room's lights; only the host can recall a preset while following a host.
+- **Automatic column lighting:** the show includes twelve-bar Column Fill passages, both stationary and with a slow beat-synced sweep. Each fills the left column, then both columns, then clears before repeating; the sweeping version keeps all three heads in a column moving together, with the opposite column mirrored. Safe Mode retains its gradual, lower-brightness fades.
+- **Show controls:** brightness also scales the automatic show. **PEAK NOW** starts its immediate release; **COUNTDOWN** builds for four bars first. In manual lighting, the peak switches away from the laser sheet and mirror ball. Photosensitive Safe Mode still takes precedence.
+- **Show style:** choose **SHOW STYLE** in the desktop Show tab, VR SHOW page or desk SHOW panel. **NOCTURNE** remains the default; **AESTHETIC** pairs long single-colour downlight and inward-and-back mirror sweeps with one-beat row chase/fill, including multi-beam passages. Sweeps start vertically, reach toward the dance floor and return vertically over four or eight bars. Row timing smooths detector/remote-clock nudges without reversing or rapidly catching up. Its wall alternates subtle breathing colour with eight softly blended, beat-synchronized abstract shape programs, lifting their presence during occasional peaks without adding LED flashes. The multi-beam filter preserves the beam colour without extra emission gain. Dense-smoke passages rotate through five hue offsets, held throughout each passage and shared by the host. Dense passages use bounded existing scene fog, not an additional volumetric renderer. **REDUCE SHOW SMOKE** is a personal, session-only opt-out. The host shares the program; updated clients follow it.
+- **Fixture brightness / sheet settings:** desktop Effects and VR/desk **LIGHTS → BRIGHTNESS / SHEET** offer separate spot, ceiling-laser, sheet and wall brightness. Spots, lasers and wall reach 200%; the sheet reaches 300%, using stronger emission with bounded opacity. These trims survive automatic cue changes, are host-synced and saved in lighting presets; older presets default the new trims to 100%. **WHOLE SHOW BRIGHTNESS** remains the overall dimmer. Safe Mode caps boosts at 100%, and zero master still blacks out every fixture. Independent sheet speed does not change ceiling-laser speed or bypass the motion cap. Appearance, smoke comfort and frame cost still require physical-headset testing.
+- **LED wall containment:** the continuous backing stops ordinary walking; a measured room-side boundary also catches tracked headset poses and queued movement that bypass mesh collisions. A player already behind the wall is returned before the stage surface drops away, including during jumps. Physical Quest comfort still requires testing.
+- **Music** (bottom-right): save/play your direct HTTPS audio links, choose a saved set or local file, select a generic male/female DJ, seek with the slider or +/-30 seconds, and adjust music/ambience independently. A finite saved set resumes from its last position after restarting the app when the same source remains selected. The VR Music page offers saved-set controls and a ray-selectable seek strip; ADD LINKS / FILE returns to the setup panel.
+- **Music on entry:** a set you saved resumes; with none saved the club plays the original generated set (`audio/nocturne-house.mp3`) so nobody stands in a silent club. It loops, is never saved to your list, never plays over your own music, and stays quiet in someone else's room. Your own sets play once, without an automatic queue. DJs are a separate local choice.
+- **A DJ who plays the set:** the DJ mixes on the jog wheels, works the mixer knobs, holds a headphone cup to one ear, looks out over the crowd with their hands on the console, and waves when you walk up to the booth. A drop can earn one restrained, staggered raise and return, at most once in 24 seconds; there is no repeated arm pumping or automatic hands-up loop from loud music. They still nod and shift their weight on the beat.
+- **Your character:** choose **Show → Club → My character**, or **VR → Comfort → Me → My character**. Your exact choice is saved on this device and used for your body, reflection and room appearance, including reconnects. **Default** restores the mannequin offline and a random room character online. Online random-look/pool changes clear an exact choice when they reroll. Explicit choices can repeat another guest's look. Deploy the updated frontend and relay together; older relays explain that exact selection is unsupported instead of pretending to change your shared appearance.
 - **A crowd that dances on the beat:** the people on the floor switch between nine moves (a bounce, side taps, clapping, fist pumps, the twist, hands up, a sway and the original dance), each at the track's tempo and locked to its beat, each dancer with their own favourites, changing on bar lines. More clapping in a build, hands up on the drop; when the kick drops out they sway slowly or just stand until it returns.
 - **A show that follows the kick:** the club listens to the kick drum on its own (a 120 Hz band, separate from the bass/mid/treble analyser), so the beat grid locks to real kicks rather than the bassline. The whole rig dips between kicks and hits on them (at most 2.5 hits a second, whatever the tempo), the moving heads dip toward the floor on each kick, and fixture speed and the show's energy follow how loud the low end is now against the last ~20 seconds: a breakdown calms the room, a drop lifts it. Photosensitive Safe Mode keeps the old shallow breathing.
-- **Direct audio hosts** must provide CORS for reactive lighting. Music is not extracted from webpage links or proxied through the multiplayer relay.
+- **Direct audio hosts** must provide CORS for reactive lighting. SoundCloud is the narrow exception: the relay resolves and streams only individual tracks that SoundCloud itself publishes to podcast players; it does not scrape or unlock other audio.
 - **`js/paymentGate.js`** keeps desktop preview free while requiring a server-verified Stripe entitlement before immersive VR entry.
+- **`js/immersiveLaunch.js`** (opt-in, `?immersive=1`) opens the club straight into VR for a headset app: the photosensitivity choice, access check, a short free preview and a phone-paired code screen, all inside the headset.
 - **📷 Go to** (bottom-centre): jump to a viewpoint (entrance, dance floor, booth, lights, balcony, street).
 
 ### Keyboard shortcuts
@@ -144,16 +412,86 @@ All shortcuts are ignored while a text field has focus.
 
 ## Multiplayer (optional)
 
+### Separate QuestDev scaling deployment
+
+The separate `QuestDev` branch uses a Pages project (`nocturne-dev`), relay
+(`vrclub-network-dev`), room-directory database and Realtime SFU application.
+The intended development URL is https://nocturnedev.mitwee.nl. On that exact
+hostname and `nocturne-dev.pages.dev`, VR needs no payment or production
+entitlement, and the Access/purchase dialog is not installed in that branch.
+This production frontend does not contain that bypass. The development
+Worker rejects payment and administration routes. Production resources are not
+used by this deployment.
+
+Every remote guest retains their assigned skinned body at every distance and
+graphics tier; the capsule is invisible and used for collision, including
+while the body loads. Clearly rearward poses can pause, but nearby people and
+people visible in an active restroom mirror keep animating. The capacity is
+an admission limit, not a measured Quest frame-time guarantee.
+
+Changed poses, including tracked hands, are batched at up to 20 Hz; stationary
+guests retain a heartbeat. Runtime `getDiagnostics().multiplayer` reports
+loaded and loading avatars and voice streams. The default legacy
+eight-person relay policy and cadence remain available for compatibility.
+See [scaling architecture](docs/SCALING.md) for the SFU transport, authorization
+and development validation requirements.
+
+`js/sfuClient.js` loads before `js/networkClient.js`. The relay's welcome
+selects SFU mode for configured production and development deployments; legacy mode retains the mesh.
+The SFU app ID is a Worker variable and its app secret is stored only as a
+Worker secret. Each microphone or host music publication is uploaded once,
+and the backend authorizes and revokes subscriptions for room membership,
+two-way blocks, selected microphone audiences and music Listen along.
+
 The **👥 People** button (top-right) opens the Multiplayer panel, which lets several guests share one club: each
 other as characters, voice, typed chat, emoji and gestures, and one shared "now playing" stream and light show. It is
 entirely opt-in: nobody connects until a guest presses **Join room**. In a room, a bar at the bottom of the screen has
 **Mic**, **React** and **Chat** (keys **M** and **T**), and the music is lowered while anyone talks (switchable). In VR the quick menu's first row in a room is **TALK**, **REACT** and **CHAT** (one-tap ready-made messages).
 For faster access, click the **right thumbstick** while in a room to open the social wheel, tilt toward Chat,
 Reactions or Microphone, click to choose, and center the stick before choosing again. Microphone and chat
-can target Everyone, nobody, or selected guests. Right-stick turning pauses while the wheel is open; the
+can target Everyone, nobody, or selected guests in private rooms; public-room audiences stay room-wide
+(with personal mutes and two-way blocks still available). Right-stick turning pauses while the wheel is open; the
 left-stick click and grips still sprint, and `Y`/`B` still opens the complete quick menu.
 Both local testing and the deployed site default to the hosted relay:
 `wss://vrclub-network.garfieldapp.workers.dev`. No local Worker is required.
+
+**QuestProtect safety.** The desktop Online panel and VR ONLINE page first show a
+versioned **Before you go online** guide: keep personal/contact details private,
+leave if pressured, and use **Report & block**. Acceptance is remembered on this
+device; Safety can reopen it. Report & block sends a reason to the room host before
+blocking contact both ways. Hosts receive a bounded, session-only report list with
+remove/ban controls. Reports are not a staffed ADE reporting service, evidence
+archive, age verification or guaranteed protection against abuse. An official
+event still needs appointed moderators, escalation procedures and an admission policy.
+
+**Larger rooms.** This branch integrates QuestDev's SFU/presence experiment and
+configures the shared relay for **32 connected guests per room**, public or private.
+The coordinated production rollout completed on 19 October 2026: migration 0009,
+dedicated production SFU credentials, all three supported frontends and the shared
+Worker are deployed. Old open tabs need reloading. SFU audio avoids a 32-person browser-to-browser
+mesh; detailed remote bodies are bounded to the nearest 6/10/14 on
+Balanced/High/Ultra, with capsule fallbacks for the rest. The 17-character pool can
+repeat once exhausted. Admission is tested, not a claim of 32-person headset
+performance or festival broadcast delivery. See [SCALING.md](docs/SCALING.md)
+for setup, compatibility, safety enforcement, tests and rollout.
+
+**Owner-only DEV room.** On the updated Quest or SideQuest site, join room **000032** through the
+normal Online menu or VR room-code keypad. An already verified owner account on
+that device is recognized automatically; otherwise verify it through Access first.
+The code is a selector, not a password: non-owner accounts cannot enter.
+The relay fills unused places to 32 total with fictional, internationally named attendees who walk
+between individually chosen activities: dancing, watching the floor from a wall or
+balcony, chatting in small indoor/outdoor groups, getting fresh air, resting on the
+couch or balcony chairs, sitting at the bar and visiting a toilet. They linger rather
+than following a shared circuit. Conversations use occasional short scripted chat
+balloons, gestures and emoji, not generated speech or an AI service. Dancers sometimes
+cheer toward the DJ. Limited simultaneous walking and reserved clear paths avoid
+walking queues; real players can request an occupied seat or toilet and the simulated
+guest makes room before the player sits. Another authorized owner takes a simulated guest's place.
+Only real owners can host; leaving the last owner removes the simulation.
+These are server-generated poses, not 31 real sockets or voice publishers.
+Every attendee retains their assigned Quaternius body. See
+[the DEV-room runbook](docs/SCALING.md#owner-only-dev-room-000032) for limits and configuration.
 
 ### Immersive VR access
 
@@ -234,7 +572,15 @@ ROOM**. The first guest in is the room's **host** (named in the status line); if
 guest becomes host. The host owns the music and the lights: everyone else hears the same track at the same
 position and sees the same show, and their lighting and music controls are dimmed (VR buttons read
 *HOST ONLY*). A guest's own comfort settings stay theirs: Safe Mode (it still removes the host's
-strobes), volume, quality, VR comfort, haptics and the generic DJ choice. No host stream is fetched until the guest
+strobes), volume, quality, VR comfort and the generic DJ appearance. The host's DJ on/off choice
+sets whether the room DJ is present for everyone. Guests can additionally hide that DJ personally,
+but cannot bring back one the host sent home; the host's choice never overwrites their saved preferences.
+All nine host audio controls (low-pass, high-pass, echo, flanger, reverb, phaser, noise sweep, gater and
+crossfader) follow the same host frames in automatic and manual lighting modes. Saved-link listeners
+apply them locally; local-file broadcasts already contain them, so receivers do not apply them twice.
+These are control-setting updates, not sample-accurate synchronization of modulation or WebRTC audio.
+Both clients and the relay must support these optional fields; older clients retain their former behavior.
+No host stream is fetched until the guest
 chooses **Listen along**, because loading it discloses their IP address to that server. Local files
 the host plays are automatically offered over a separate **WebRTC music broadcast**, also gated by
 Listen along (a direct connection shares IP addresses with the host). The file is not uploaded:
@@ -278,7 +624,9 @@ never a private room code or a participant's name.
 
 The relay accepts browser connections only from origins listed in `ALLOWED_ORIGINS`
 (`worker/wrangler.toml`); loopback and private-LAN origins always pass. Add your own site's
-origin before deploying a relay for it. Rooms hold up to 8 guests (voice is a full mesh, and eight is how many are drawn as characters), and per-connection
+origin before deploying a relay for it. The shared relay configuration targets 32 guests using SFU
+audio; unconfigured custom relays retain eight-person mesh rooms. Rooms above eight require SFU.
+Detailed character counts are independent of room capacity, and per-connection
 rate limits disconnect clients that flood the room.
 For a custom relay's room browser, also add its HTTP(S) origin to `connect-src` in
 `index.html`; the shipped policy permits the hosted relay and API without allowing
@@ -287,7 +635,9 @@ arbitrary HTTP(S) connections.
 ## Offline use
 
 After one successful online visit, the app shell (service worker) and the models, textures and
-environment (IndexedDB) are cached on the device.
+environment (IndexedDB) are cached on the device. NOCTURNE is an installable PWA: in a supporting browser, open
+**About, Credits & licences** and press **Install app** (or use the browser's own install button) to run it in its own
+window.
 
 | Workflow | Needs a network? |
 |----------|------------------|

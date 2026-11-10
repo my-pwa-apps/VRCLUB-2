@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { readFileSync } from 'node:fs';
+import { readClubSource } from './club-sources.mjs';
 import vm from 'node:vm';
 import { createRequire } from 'node:module';
 
@@ -10,7 +10,7 @@ function load() {
     const window = {};
     const context = vm.createContext({ window, BABYLON, VRClubUI: class {}, console });
     for (const file of ['venueDressing', 'mezzanine', 'minglerClock', 'club/11-audio-crowd']) {
-        vm.runInContext(readFileSync(new URL(`../js/${file}.js`, import.meta.url), 'utf8'), context);
+        vm.runInContext(readClubSource(new URL(`../js/${file}.js`, import.meta.url)), context);
     }
     const club = new window.VRClubAudioCrowd(), route = club._minglerRoute(), slots = club._guestSlots();
     const create = seed => new window.MinglerClock(route, seed,
@@ -36,12 +36,14 @@ test('a room-time mingler is identical for late joiners, render hitches and all 
 });
 
 test('the shared round keeps two physical bar sips, rail before talk and canonical dwell even without partners', () => {
-    const { create } = load(), clock = create(55);
-    const stages = clock.segments.filter(segment => segment.node === 9 && segment.phase === 'dwell');
+    const { create, route } = load(), clock = create(55);
+    const barNode = route.nodes.findIndex(node => node.bartender);
+    const balconyNode = route.nodes.findIndex(node => node.activity === 'balcony');
+    const stages = clock.segments.filter(segment => segment.node === barNode && segment.phase === 'dwell');
     assert.equal(stages.length, 24, 'the bar is visited in both directions');
     assert.deepEqual(Array.from(stages.slice(0, 12), stage => stage.activity),
         ['order', 'serve', 'served', 'pickup', 'drink', 'return', 'returned', 'pickup', 'drink', 'return', 'returned', 'clear']);
-    const balcony = clock.segments.filter(segment => segment.node === 24 && segment.phase === 'dwell');
+    const balcony = clock.segments.filter(segment => segment.node === balconyNode && segment.phase === 'dwell');
     assert.deepEqual(Array.from(balcony, stage => stage.activity), ['balcony', 'talk']);
     const walking = clock.segments.filter(segment => segment.phase === 'walk').reduce((sum, s) => sum + s.duration, 0);
     assert.ok(walking / clock.period < 0.4);
@@ -53,16 +55,18 @@ test('the shared round keeps two physical bar sips, rail before talk and canonic
 });
 
 test('late joins on either stair and the balcony resolve the authoritative surface, not the floor below', () => {
-    const { club, create, window } = load(), clock = create(7);
+    const { club, create, route, window } = load(), clock = create(7);
+    const balconyNode = route.nodes.findIndex(node => node.activity === 'balcony');
+    const mezzStairNode = route.nodes.findIndex(node => node.x === -11.4 && node.z === -8.3);
     let balcony = false, street = false, stair = false;
     for (const segment of clock.segments) {
         for (const fraction of [0.1, 0.5, 0.9]) {
             const sample = clock.sample(5 + segment.start + segment.duration * fraction);
             const level = club._minglerSurfaceLevel(sample.x, sample.z, sample.level);
             assert.ok(Number.isFinite(level) && level >= 0 && level <= 3);
-            if (sample.node === 24) { assert.equal(level, 3); balcony = true; }
+            if (sample.node === balconyNode) { assert.equal(level, 3); balcony = true; }
             if (sample.activity === 'smoke') { assert.equal(level, window.VenueLayout.vestibule.streetLevel); street = true; }
-            if (sample.node === 22 && sample.phase === 'walk') {
+            if (sample.node === mezzStairNode && sample.phase === 'walk') {
                 assert.ok(sample.dir > 0 ? level > 0 && level < 1.5 : level > 1.5 && level < 3);
                 stair = true;
             }

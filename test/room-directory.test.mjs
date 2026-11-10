@@ -12,6 +12,7 @@ async function setup(t) {
     const sqlite = new DatabaseSync(':memory:');
     t.after(() => sqlite.close());
     sqlite.exec(await readFile(new URL('../worker/migrations/0006_room_directory.sql', import.meta.url), 'utf8'));
+    sqlite.exec(await readFile(new URL('../worker/migrations/0009_room_capacity.sql', import.meta.url), 'utf8'));
     const DB = {
         prepare(sql) {
             return { bind(...args) { return {
@@ -47,6 +48,21 @@ async function setup(t) {
     });
     return { sqlite, DB, env, lookedUp, request };
 }
+
+test('capacity migration preserves existing room rows and expiry index while expanding only the count bound', { skip: !DatabaseSync }, async t => {
+    const sqlite = new DatabaseSync(':memory:');
+    t.after(() => sqlite.close());
+    sqlite.exec(await readFile(new URL('../worker/migrations/0006_room_directory.sql', import.meta.url), 'utf8'));
+    sqlite.exec("INSERT INTO public_rooms VALUES ('existing', 8, 1, 12345)");
+    sqlite.exec(await readFile(new URL('../worker/migrations/0009_room_capacity.sql', import.meta.url), 'utf8'));
+    assert.deepEqual({ ...sqlite.prepare('SELECT * FROM public_rooms').get() },
+        { room: 'existing', people: 8, locked: 1, expires_at: 12345 });
+    sqlite.exec("UPDATE public_rooms SET people = 32 WHERE room = 'existing'");
+    assert.throws(() => sqlite.exec("UPDATE public_rooms SET people = 33"), /CHECK constraint/);
+    assert.throws(() => sqlite.exec("UPDATE public_rooms SET locked = 2"), /CHECK constraint/);
+    assert.equal(sqlite.prepare("SELECT name FROM sqlite_master WHERE type = 'index' AND name = 'public_rooms_expiry'").get().name,
+        'public_rooms_expiry');
+});
 
 test('public directory excludes every private prefix, expired and empty room, and paginates without personal data', { skip: !DatabaseSync }, async t => {
     const { DB, sqlite, env, request } = await setup(t);
@@ -98,6 +114,20 @@ test('room lookups are rate limited persistently and database errors are explici
     assert.equal((await handleRoomDirectory(request(), {}, 'https://club.example')).status, 503);
     env.DB = { batch() { throw new Error('fixture outage'); }, prepare() { return {}; } };
     assert.equal((await handleRoomDirectory(request(), env, 'https://club.example')).status, 503);
+});
+
+test('public and private room listings retain the configured 32-person capacity', { skip: !DatabaseSync }, async t => {
+    const { env, DB, request } = await setup(t);
+    env.ROOM_CAPACITY = '32';
+    await publishRoom(DB, 'ade-event', 24, false);
+    const publicRooms = await (await relay.fetch(request(), env)).json();
+    assert.equal(publicRooms.rooms[0].capacity, 32);
+    assert.equal(publicRooms.rooms[0].people, 24);
+    const privateRooms = await (await relay.fetch(request('/rooms/status', { rooms: ['private-123456'] }), env)).json();
+    assert.equal(privateRooms.rooms[0].capacity, 32, 'legacy status responses use the relay capacity');
+    env.CLUB_ROOM.get = () => ({ fetch: async () => Response.json({ people: 16, locked: false, capacity: 16 }) });
+    const advertised = await (await relay.fetch(request('/rooms/status', { rooms: ['private-123456'] }), env)).json();
+    assert.equal(advertised.rooms[0].capacity, 16, 'explicit room capacity is not overwritten');
 });
 
 test('live room snapshots follow joins, lock, heartbeat and departure; private rooms never publish', { skip: !DatabaseSync }, async t => {

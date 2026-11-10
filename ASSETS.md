@@ -1,14 +1,65 @@
 # Third-party assets
 
+## Selectively ported venue finishes and restroom mechanics
+
+The following Poly Haven textures are **CC0**:
+
+| Deployed folder | Source | Authors | Size |
+|---|---|---|---|
+| `textures/restroomTiles/` | [Long White Tiles](https://polyhaven.com/a/long_white_tiles) | Jenelle van Heerden, Sergej Majboroda | 1024 |
+| `textures/restroomPlaster/` | [Plastered Wall 04](https://polyhaven.com/a/plastered_wall_04) | Rob Tuytel | 512 |
+| `textures/brushedCeiling/` | [Brushed Concrete](https://polyhaven.com/a/brushed_concrete) | Dario Barresi, Dimitrios Savva | 1024 |
+| `textures/stageRust/` | [Rusty Metal 04](https://polyhaven.com/a/rusty_metal_04) | Amal Kumar | 512 |
+
+Each folder includes `diff.jpg`, DirectX `normal.jpg`, packed `orm.jpg` and
+`provenance.json` recording exact source/output hashes. `scripts/build-venue-textures.mjs`
+rebuilds bounded-size, packed maps. New folder names avoid stale texture cache keys.
+Existing bar wood also dresses the stall doors and DJ worktop.
+
+`js/models/restroom/source/door_handle_3.glb`: **Door Handle 3**, plaggy,
+[Sketchfab](https://sketchfab.com/3d-models/cc0-door-handle-3-0f4459df86af469dad41c5d025973d87), [CC0](https://creativecommons.org/publicdomain/zero/1.0/).
+`scripts/build-door-handle.mjs` bakes the transform, centres the rosette and
+removes textures; one draw, 766 triangles, 18,540 bytes. Its adjacent provenance
+file pins the licensed original and output. Four hinge-parented instances dress
+both sides of the two existing stall doors.
+
+`js/models/restroom/source/toilet.glb` retains the previously documented Quaternius
+CC0 source. `scripts/lib/toilet-mechanics.mjs` separates its authored lid and adds
+an original hinged ring seat: three independently movable draws, one shared
+vertex-colour material, no textures, 658 triangles. Run
+`node scripts/prepare-toilet-mechanics.mjs`, or rebuild via
+`scripts/build-restroom-monitor-assets.mjs`. There are no new downloaded sound assets:
+the flush, tap and rinse sounds are original procedural Web Audio.
+
 Every binary shipped in this repository, with its licence and provenance.
+
+## Optional ADE development-review artwork
+
+`branding/ade/ade26-30y-black.png` is the owner-supplied ADE26 30Y logo,
+imported without changes from local `adefixes` (`36def1f`) as a 512 px raster.
+It is **not MIT, CC0 or CC BY**; no general redistribution permission was found.
+The original supplied-source links, source/raster checksums and modifications
+are preserved in `branding/ade/notice.txt`. Obtain written permission and brand
+guidance before public publication or store distribution.
+
+Only `--branding=ade` / `VRCLUB_BRANDING=ade` builds include the logo and notice,
+for independent development review. Default builds exclude them. The logo
+appears on yellow venue signs, the DJ fascia and entrance flags, with an About
+disclosure; the unused ADE campaign image and pitch services are not imported.
 
 ## Quest distribution profile
 
-The `Quest` branch builds a user-music-only candidate. No podcast catalogue is loaded,
-no podcast relay is contacted, and no music recording is bundled. The male/female DJs
+The `Quest` branch builds a user-music-first candidate, without a built-in podcast
+catalogue. On the exact development hosts `nocturnedev.mitwee.nl` and
+`nocturne-dev.pages.dev`, a fresh library starts with the latest Resident podcast,
+resolved from its public feed on playback; saved or explicitly empty libraries are
+preserved. The generated house set is the same-origin fallback, not a bundled
+podcast recording. The supplied demo remains excluded pending redistribution
+permission. The male/female DJs
 are fictional CC0 characters, selected locally, not named artists or endorsements.
-The three historical Mixamo GLBs remain in the source repository but are not referenced,
-loaded or copied to `dist/`. Their former slot ids now use CC0 crowd models.
+Only the historical Mixamo `house.glb` remains, as a real-rig test fixture; it is
+never loaded or copied to `dist/`. The unused hip-hop and rumba sources were removed.
+Their former slot ids now use CC0 crowd models.
 `js/podcasts.js` and the optional Worker's historical podcast utility are also not part
 of the Quest web build. Do not distribute the source tree as the Quest product.
 
@@ -31,13 +82,326 @@ in `index.html`).
 
 ## 3D models
 
+### Creator-authored avatar eyewear
+
+The round, square and sunglasses choices use Sagerfrog's Glasses 01, 02 and 03,
+adapted for MakeHuman by spamrakuen from the official
+[MakeHuman Community glasses01 pack](https://static.makehumancommunity.org/assets/assetpacks/glasses01.html).
+The selected `.mhclo`, `.mhmat` and `.obj` source files each declare CC0; the pack
+manifest is retained beside them in `design/characters/accessories/`.
+`npm run build:avatar-accessories` validates those notices, samples the original
+diffuse maps into vertex colours and rebuilds `js/avatarAccessoryAssets.js`.
+At runtime the meshes are fitted to the measured eye landmarks and merged with
+the avatar's existing head-skinned adornment mesh; they add no draw call, texture
+or material. Novelty glasses and beard/stubble remain original procedural
+designs; no moustache geometry is generated or offered. The facial-hair pack
+was not used because its pack-level CC0 metadata
+conflicts with AGPL3 notices in its individual OBJ files. The queue caller's
+phone also remains procedural; no verified authored phone source was found.
+
+### Optional detailed adult cast
+
+The following 34 fictional adults are generated from MakeHuman/MPFB's **CC0
+base assets**, verified CC0 clothing, hair and shoes, plus punkduck's explicitly
+licensed **CC BY 4.0** High Neck Crop Top on Asha. Sources:
+[MPFB](https://github.com/makehumancommunity/mpfb2),
+[system asset pack](https://static.makehumancommunity.org/assets/assetpacks/makehuman_system_assets.html),
+[dress01](https://static.makehumancommunity.org/assets/assetpacks/dress01.html).
+The per-person selected assets, authors, URLs and recipes are in
+`design/characters/recipes.json`; exact pack hashes and upstream tool revision
+are in `design/characters/provenance.json`. MPFB software is GPL-3.0-or-later;
+the base assets are **CC0-1.0**, not GPL source code. Asha's dressed character
+and wardrobe additionally contain the attributed **CC BY 4.0** garment below;
+do not redistribute that derivative as CC0-only.
+Faces retain their source-neutral expressions in both base and wardrobe models.
+No smiles are painted, procedurally shaped or baked from generic face-shape sliders.
+Expression changes must use verified official expression options supplied for that
+avatar; none are currently integrated. Recipes and shipped model metadata record
+`source-neutral` with no expression targets. The lightweight cast keeps its authored faces.
+Regenerate with Blender 5.2 using `scripts/characters/generate.py`,
+`VRCLUB_CHARACTER_TOOLS` pointing at the existing MPFB/assets tooling directory,
+and a separate `BLENDER_USER_RESOURCES` profile. Repeat with `AVATAR_WARDROBE=1`
+for fitted personal parts, then run `npm run build:characters` and
+`npm run build:wardrobe`. `AVATAR_ONLY` accepts comma-separated cast IDs for a
+targeted source regeneration; the production builders always rebuild their full catalogs.
+
+Changes: adult body/face recipes, fitted clothing and hair, hidden-body removal,
+decimation below 10,000 triangles, 1024 px body/512 px hair WebP atlases,
+53-joint skinning, and offline world-space retargeting of the club's existing
+CC0 Quaternius dances, locomotion, gestures, seating and social clips. Hand
+contacts are fitted to anatomy and role props; knee planes follow each person's
+own anatomy. Shared offline `scripts/arm-frame.mjs` aligns each arm's limb axis
+and elbow hinge plane together, rather than swinging upper/lower arms independently.
+Its shared `armPronation()` transfers 70% of palm roll into the forearm, capped
+at 75 degrees, preserving exact world palm targets rather than concentrating
+all roll in the wrist.
+Non-skin metacarpal helpers support the existing tracked-arm driver.
+Standing idles preserve the source's measured hip-to-neck direction rather than
+amplifying its short upper-spine segment on a differently proportioned body;
+bar, rail, dance and work poses retain their intentional bends. Regenerate both
+the detailed cast and personal wardrobe after changing `scripts/characters/retarget.mjs`.
+Measured eye landmarks place the self body. Both DJs reuse
+[Headphones by nisu](https://opengameart.org/content/headphones), CC0, fitted to
+each head and skinned to its Head joint (3,324 extra triangles).
+The procedural cue hand contacts the measured cup shell in the moving Head
+frame, with its own palm length, on both detailed and lightweight DJs.
+No proprietary scans, branded outfits or externally hosted avatar service.
+
+The detailed night-out wardrobe combines cropped tops and trousers, fitted
+shirts, tailored layers, halter silhouettes and the CC0 cut-out dress
+([MargaretToigo](http://www.makehumancommunity.org/node/1704)) and midi halter
+([MargaretToigo](http://www.makehumancommunity.org/node/1854)).
+Residents sharing a clothing mesh use distinct baked palettes: Luca wears an
+ivory long-sleeve top, Noah teal, and Felix an olive button shirt. Jonas wears
+indigo, Mara a rose halter dress and Ari silver-grey.
+These colours are baked into clothing atlas cells, never into skin or runtime
+material clones. `test/wardrobe.test.mjs` samples the shipped torso textures.
+Stock MakeHuman graphics on `male_casualsuit02`, `04` and `06` are removed
+from their verified shirt UV region before either atlas is baked. The club
+adds at most one original print, and only to catalogued plain print surfaces;
+unknown textured garments never receive an overlapping graphic.
+
+#### Curated night-out separates and modern hair
+
+The owner approves both CC0 and CC-BY with verified terms and attribution.
+The following source-only packs extend the existing silhouettes without changing
+identities, rigs, clips, editor enums or live draw budgets:
+
+| Asset / title | Creator | Licence | Original source |
+|---|---|---|---|
+| High Neck Crop Top | punkduck | [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/) | [node 1088](http://www.makehumancommunity.org/node/1088) |
+| Turtleneck Halter Top | MargaretToigo | CC0-1.0 | [node 1642](http://www.makehumancommunity.org/node/1642) |
+| Camisole Top | MargaretToigo | CC0-1.0 | [node 1726](http://www.makehumancommunity.org/node/1726) |
+| Fisherman Sweater | MargaretToigo | CC0-1.0 | [node 1187](http://www.makehumancommunity.org/node/1187) |
+| Keyhole Tank Top | MargaretToigo | CC0-1.0 | [node 1606](http://www.makehumancommunity.org/node/1606) |
+| Basic Tucked T-shirt | MargaretToigo | CC0-1.0 | [node 1203](http://www.makehumancommunity.org/node/1203) |
+| Male Polo Shirt | namuhekam | CC0-1.0 | [node 2909](http://www.makehumancommunity.org/node/2909) |
+| Tiered Mini Skirt | MargaretToigo | CC0-1.0 | [node 1668](http://www.makehumancommunity.org/node/1668) |
+| Wool Pants | MargaretToigo | CC0-1.0 | [node 1194](http://www.makehumancommunity.org/node/1194) |
+| Cargo Pants | Cortu | CC0-1.0 | [node 2798](http://www.makehumancommunity.org/node/2798) |
+| Short Messy Hair | Cortu | CC0-1.0 | [node 2809](http://www.makehumancommunity.org/node/2809) |
+| Inverted Bob / with Bangs | MargaretToigo | CC0-1.0 | [node 1673](http://www.makehumancommunity.org/node/1673), [1685](http://www.makehumancommunity.org/node/1685) |
+| Curled-under Bob / Blunt Bob with Bangs | MargaretToigo | CC0-1.0 | [node 1677](http://www.makehumancommunity.org/node/1677), [1681](http://www.makehumancommunity.org/node/1681) |
+
+Official packs: [shirts01](https://static.makehumancommunity.org/assets/assetpacks/shirts01.html),
+[shirts03](https://static.makehumancommunity.org/assets/assetpacks/shirts03.html),
+[skirts01](https://static.makehumancommunity.org/assets/assetpacks/skirts01.html),
+[pants01](https://static.makehumancommunity.org/assets/assetpacks/pants01.html),
+[hair01](https://static.makehumancommunity.org/assets/assetpacks/hair01.html).
+Download hashes and selected asset metadata are pinned in
+`design/characters/provenance.json`. The crop top's author-original `.mhclo`
+explicitly says `# license CC BY 4.0`; its exact file hash is checked before
+generation. Generic pack JSON only says CC-BY, which is not enough to assume
+a version. Unversioned CC-BY candidates and an incompatible extended-basemesh
+lace blouse were not imported.
+
+Changes: fit to the existing fictional adult bodies; recolour to the room's
+graphite, bronze, stone, teal and amber palette; combine tops and bottoms,
+union garment-covered skin masks, atlas-bake, simplify, skin and retarget.
+Wardrobe top and bottom retain independent colours and the same two garment
+draws. Eye landmarks use their actual atlas cell rather than assuming a 2x2
+layout. Hair remains alpha-tested with depth writes, never alpha-blended.
+Modern short/bob choices reuse the editor's existing slots; existing long hair
+and ponytails remain. Two French-braid sources were evaluated but not shipped
+after real previews exposed poor scalp coverage at the wardrobe budget.
+No face expression, smile, runtime light, texture clone or per-frame updater
+is added. Physical-headset appearance and performance remain unmeasured.
+
+Detailed women wear a deterministic mix of sock-free leather loafers,
+closed ballet pumps and high-heeled ankle boots. Loafers derive from the
+CC0 MakeHuman system `shoes03` footwear with the separate sock and lace
+geometry removed. Fitted shoes include a small leather-thickness clearance
+to prevent toes poking through independently decimated footwear and skin.
+The other choices are fitted derivatives of
+[Ballet flats](http://www.makehumancommunity.org/node/1734) and
+[Stiletto booties](http://www.makehumancommunity.org/node/1694) by MargaretToigo,
+from the verified CC0-only
+[MakeHuman shoes01 pack](https://static.makehumancommunity.org/assets/assetpacks/shoes01.html).
+Changes: plain leather recolouring, sock removal and a low collar on the loafers,
+shape fitting, measured sole-to-floor alignment, skin occlusion, atlas baking
+and triangle reduction. Footwear fitting does not change the skeleton or clips.
+The pumps are flat ballet pumps, not stilettos; the high-heel option is an
+ankle boot. No socks are added to these three options. The lightweight cast
+keeps its original authored footwear.
+The existing lightweight CC0 cast retains its original geometry and expressions;
+these face and silhouette changes belong to the optional detailed cast and wardrobe.
+
+| File | Fictional adult | Role |
+|------|------------------|------|
+| `js/models/characters/nia.glb` | Nia | Dancer/player |
+| `js/models/characters/luca.glb` | Luca | Dancer/player |
+| `js/models/characters/robin.glb` | Robin | Dancer |
+| `js/models/characters/tao.glb` | Tao | Dancer/player |
+| `js/models/characters/sofia.glb` | Sofia | Dancer/player |
+| `js/models/characters/asha.glb` | Asha | Dancer/player |
+| `js/models/characters/diego.glb` | Diego | Dancer/player |
+| `js/models/characters/iris.glb` | Iris | Dancer/player |
+| `js/models/characters/eden.glb` | Eden | Dancer |
+| `js/models/characters/ren.glb` | Ren | Dancer/player |
+| `js/models/characters/felix.glb` | Felix | Dancer/player |
+| `js/models/characters/kai.glb` | Kai | Dancer |
+| `js/models/characters/jonas.glb` | Jonas | Dancer |
+| `js/models/characters/mara.glb` | Mara | Dancer |
+| `js/models/characters/ellis.glb` | Ellis | Indoor guest/player |
+| `js/models/characters/amara.glb` | Amara | Seated bar guest/player |
+| `js/models/characters/malik.glb` | Malik | Mingler/player |
+| `js/models/characters/mei.glb` | Mei | Balcony guest/player |
+| `js/models/characters/rosa.glb` | Rosa | Indoor guest/player |
+| `js/models/characters/samir.glb` | Samir | Indoor guest/player |
+| `js/models/characters/luz.glb` | Luz | Indoor guest |
+| `js/models/characters/ari.glb` | Ari | Indoor guest |
+| `js/models/characters/leila.glb` | Leila | Queue/player |
+| `js/models/characters/kwame.glb` | Kwame | Queue |
+| `js/models/characters/hana.glb` | Hana | Queue |
+| `js/models/characters/owen.glb` | Owen | Queue |
+| `js/models/characters/alex.glb` | Alex | Queue |
+| `js/models/characters/vera.glb` | Vera | Queue, phone |
+| `js/models/characters/noah.glb` | Noah | Queue |
+| `js/models/characters/river.glb` | River | Queue |
+| `js/models/characters/sana.glb` | Sana | Bartender |
+| `js/models/characters/idris.glb` | Idris | Bouncer/player |
+| `js/models/characters/jin.glb` | Jin | Male DJ |
+| `js/models/characters/zara.glb` | Zara | Female DJ |
+
+Generic stool and low-seat clips use reachable, relaxed hand targets close to the
+lap with bent elbows, rather than straight arms reaching for an assumed counter.
+The low-seat pose adds a small forward lean; feet and pelvis retain their authored
+seat contacts. The bar regular's separate counter-and-bottle clips are unchanged.
+After editing generic seated poses, `node scripts/build-crowd-glbs.mjs --refresh-static --seated-only --optimize`
+refreshes only those two clips on the lightweight cast, then `npm run build:characters`
+and `npm run build:wardrobe` transfer them to detailed bodies and personal outfits.
+The shipped-rig and browser seated-pose tests check elbows and foot stability;
+browser screenshots provide front and side inspection views.
+
+The two fictional DJs' current styling takes broad hair, wardrobe and build cues
+from reference photographs supplied by the owner: mature, lean, loose dark waves
+around the ears and into the nape, and a charcoal crew-neck tee for the male; long side-parted blonde hair and a
+charcoal tee for the female. They remain Jin and Zara, not representations of
+Hernan Cattaneo or Miss Melera and not an endorsement. The photographs and their
+printed clothing artwork are not bundled or copied. Both recipes reuse only the
+verified CC0 system assets above, including `long01` hair and a
+plain `male_casualsuit06` tee/jeans mesh fitted to each body. Jin uses the mature
+male skin and age parameter 0.82; his lower hair panels are re-authored into
+13 tapered curved clumps, retaining the parted roots. He remains 1.78 m tall,
+with the same 53-bone rig and three draws. `AVATAR_ONLY=jin` limits the offline
+generator and `npm run build:characters` to his recipe without rebuilding the
+other runtime people. The lightweight male DJ also has longer opaque nape
+waves, softened cheek/jaw geometry and subtle age creases; the effect is more
+stylized than Jin's. `node scripts/build-dj-glbs.mjs --refine-male` refreshes
+those refinements idempotently without the source packs; full regeneration
+applies them too. Headphone geometry and bind matrices remain unchanged,
+and the lightweight DJ stays at seven draws.
+Reference provenance is recorded in `design/characters/provenance.json`.
+
+All table entries are **CC0-1.0**, credited in-app as a courtesy. Quaternius
+remains the default; the detailed cast is opt-in and has a personal lightweight
+override. Existing room identity IDs and capacities are unchanged.
+
 | File | Title | Creator | Licence | Attribution shown in-app |
 |------|-------|---------|---------|--------------------------|
 | `js/models/djgear/source/pioneer_DJ_console.glb` | [Pioneer DJ Console](https://sketchfab.com/3d-models/pioneer-dj-console-0ba527fa6b164c34aa050dcecbaa2ffb) | TwoPixels.studio (<https://sketchfab.com/twopixels.studio>) | CC BY 4.0 | Yes, with source and modification notice |
 | `js/models/paspeakers/source/stage_speaker___black.glb` | [Stage Speaker — Black](https://sketchfab.com/3d-models/stage-speaker-black-f3209a6a45b844df92560099f982a508) | Sousinho (<https://sketchfab.com/sousinho>) | CC BY 4.0 | Yes, including source and derivative notice |
 | `js/models/bassbin/source/bass_bin_3.glb` | [Bass Bin 3 - Subwoofer](https://sketchfab.com/3d-models/bass-bin-3-subwoofer-0f5b16da5e704357aa94fbf632a88455) | darksoundlab (<https://sketchfab.com/darksoundlab>) | CC BY 4.0 | Yes, including source and derivative notice |
 | `js/models/barstool/source/bar_stool.glb` | [Metal Stool 03](https://polyhaven.com/a/metal_stool_03) | Flo Tasser, Poly Haven | CC0 1.0 | Credited as courtesy |
+| `js/models/lounge/source/old_couch.glb` | [Old Couch](https://sketchfab.com/3d-models/old-couch-8da7e0d122f544e2862b4e592988e183) | Oliver Triplett (<https://sketchfab.com/OliverTriplett>) | CC BY 4.0 | Yes, with source and modification notice |
+| `js/models/monitors/source/monitor_speaker.glb` | [Yamaha HS8 Studio Monitor](https://sketchfab.com/3d-models/yamaha-hs8-studio-monitor-d82ed6ea096c40358229fc0c31b0e8e8) | Ivan_WSK (<https://sketchfab.com/ivan-wsk>) | CC BY 4.0 | Yes, with source and modification notice |
+| `js/models/restroom/source/toilet.glb` | [Toilet](https://poly.pizza/m/WAu50yGFVt) | Quaternius (<https://quaternius.com>) | CC0 1.0 | Credited as courtesy |
+| `js/models/restroom/source/door_handle_3.glb` | [Door Handle 3](https://sketchfab.com/3d-models/cc0-door-handle-3-0f4459df86af469dad41c5d025973d87) | plaggy | [CC0 1.0](https://creativecommons.org/publicdomain/zero/1.0/) | Courtesy credit; transforms baked, rosette recentered, maps replaced by shared steel |
+| `js/models/restroom/source/bathroom_sink.glb` | [Bathroom Sink](https://poly.pizza/m/OMCJDgMUui) | Quaternius (<https://quaternius.com>) | CC0 1.0 | Credited as courtesy |
+| `js/models/restroom/source/metal_trash_can.glb` | [Metal Trash Can](https://polyhaven.com/a/metal_trash_can) | GurJas Studios, Poly Haven | CC0 1.0 | Credited as courtesy |
+| `js/models/restroom/source/wet_floor_sign.glb` | [Wet Floor Sign 01](https://polyhaven.com/a/WetFloorSign_01) | Fran Calvente, Poly Haven | CC0 1.0 | Credited as courtesy |
+| `js/models/restroom/source/plunger.glb` | [Plunger](https://polyhaven.com/a/plunger) | James Ray Cock, Poly Haven | CC0 1.0 | Credited as courtesy |
 | `js/models/city/downtown.glb` | [Downtown City MegaKit (Standard)](https://quaternius.com), [Car Pack](https://quaternius.com) and [Ultimate House Interior Pack](https://quaternius.com) | Quaternius (<https://quaternius.com>) | CC0 1.0 | Credited as courtesy |
+
+### Modular personal wardrobe
+
+`js/models/wardrobe/` contains fitted derivatives of the same verified CC0
+MakeHuman assets and the attributed CC BY 4.0 crop top on Asha listed above. The seventeen files
+are `js/models/wardrobe/nia.glb`, `js/models/wardrobe/asha.glb`,
+`js/models/wardrobe/sofia.glb`, `js/models/wardrobe/iris.glb`,
+`js/models/wardrobe/leila.glb`, `js/models/wardrobe/amara.glb`,
+`js/models/wardrobe/mei.glb`, `js/models/wardrobe/rosa.glb`,
+`js/models/wardrobe/tao.glb`, `js/models/wardrobe/luca.glb`,
+`js/models/wardrobe/diego.glb`, `js/models/wardrobe/ellis.glb`,
+`js/models/wardrobe/felix.glb`, `js/models/wardrobe/malik.glb`,
+`js/models/wardrobe/ren.glb`, `js/models/wardrobe/samir.glb`
+and `js/models/wardrobe/idris.glb`.
+Their base recipes and original clothing/hair/shoe sources remain
+`design/characters/recipes.json`. Additional fitted choices are system hair
+`short03` / `long01` and clothing `male_casualsuit06` / `male_casualsuit01`
+(fallbacks `short02`, `ponytail01`, `male_casualsuit04` and
+`male_elegantsuit01` keep alternatives distinct from the original),
+verified against the existing CC0 pack manifest by the generator.
+
+Changes: bake a separate body surface for each outfit using its authored
+skin-occlusion mask (never draw full skin through the trousers or blouse), fit all
+choices to each base's shape and common skeleton, decimate skin/hair/outfits,
+bake neutral tintable 1024 px skin/outfit and 512 px hair atlases, retain
+textured eyes/shoes, split clothing into top/bottom material regions, alpha-test
+hair, and retarget the existing CC0 locomotion/gesture/seating clips offline.
+Only the selected hair and outfit draw (up to six meshes); per-person material
+instances share the original textures without cloning or mutating them.
+All bases also include original shoes, loafers, ballet pumps and heeled ankle
+boots. Eyes are merged into each shoe option to retain the six-draw ceiling.
+Three outfit skin meshes carry four-channel shoe-occlusion masks, not twelve
+duplicated bodies. Production packs decoded normalized coverage into bytes.
+Selection filters triangles on instance-owned geometry,
+never the shared source or another visitor's body.
+Optional sheer black/nude tights tint only leg-weighted skin vertices; they
+remain opaque, require no texture, mesh or per-frame updater, and default to
+bare legs. Original legacy shoes are retained as a separate choice.
+Complete v3 appearance descriptors add `shoes` and `legwear`; v1/v2 still
+select their original shoes and bare legs. The relay must advertise
+`appearanceFootwear` before a v3 look can be shared; unsupported relays preserve
+the saved preference and report that sharing requires an update.
+The editor has no face/body morphs or proprietary likeness models.
+
+`js/avatarDetails.js` adds original code-authored glasses (round, square,
+heart, star and sunglasses), beard/stubble shapes and cap/beanie/fedora/bucket
+headwear. Moustaches are not generated or offered: that choice stays unavailable
+until an officially avatar-accompanied asset with clear redistribution terms
+is verified. Older saved moustache choices normalize to none. This procedural geometry is covered by
+the repository's MIT licence; it does not import a model, logo or texture.
+One vertex-coloured skinned mesh draws selected accessories together.
+Facial hair is fitted to the actual face surface, not a floating face card.
+All four hat styles use measured upper-head bounds and a scalp-envelope profile,
+not eye-level face width or a fixed-height crown. Brims rest near the brow,
+crowns clear the scalp by millimetres and full brims extend only about 2.4 cm.
+The real-GLB tests check scalp coverage and size across both casts and all
+seventeen personal wardrobe bases.
+Accessories follow the head and disappear with the first-person head while
+remaining visible in the mirror. Personal wardrobes retain the six-draw
+ceiling and shared source textures. Headwear hides the fitted hair.
+The same deterministic accessory assignments dress both NPC styles.
+Selected shirts and long-sleeve tops also carry original orbit/wave graphics
+and hand-authored Japanese 音 (sound) / 光 (light) lettering; personal Casual
+outfits receive the same bounded designs. Meanings were checked against
+[音](https://jlearn.net/dictionary/%E9%9F%B3) and
+[光](https://jlearn.net/dictionary/%E5%85%89). No brand, artist graphic,
+font download or faux-language marks are used. The ink is clipped to the
+actual garment triangles and retains interpolated torso skin weights,
+merged into that same accessory draw: no texture download or per-frame
+projection. Only head accessories collapse with the first-person head.
+Detailed Idris/the bouncer, Ellis and Ren have bald heads. The lightweight bouncer
+and m7 expose their existing scalp by removing connected crown-hair geometry,
+retaining eyebrows/side hair, skin, rig and animation; vm4 inherits m7's silhouette.
+Lightweight m4 and its vm5 variant retain their full original hair. The pack-free
+`node scripts/build-crowd-glbs.mjs --restore-hair --optimize` restores m4's crown
+from the matching m3 rig, followed by
+`node scripts/build-crowd-glbs.mjs --variants --only vm5 --optimize`.
+The queue caller's original generic phone is one opaque, vertex-coloured mesh
+fitted to the raised palm and parented to the wrist, with no per-frame updater.
+It is created/disposed with that caller in either character style and uses
+the existing scoped street lighting. Physical-headset appearance is unmeasured.
+
+Authoring: run `scripts/characters/generate.py` in the same verified MPFB/Blender
+environment as the base cast with `AVATAR_WARDROBE=1`; source-only GLBs go to
+`design/characters/wardrobe/`. `npm run build:wardrobe` retargets/compresses them
+and generates `js/wardrobeCatalog.js` with measured eye landmarks from the
+wardrobe itself. These files total 47.9 MiB and are loaded on demand.
+Real-Babylon tests enforce all 17 clip sets, selected-part draw counts,
+per-person colour isolation, texture sharing and depth/light policies.
+Fit under every pose and physical-headset performance are not certified.
 
 ### Textures bundled with the models
 
@@ -64,6 +428,49 @@ A steel balcony along the left wall (deck 2.7 x 8.6 m at y 3) with a 16-step sta
 two stools. Textures are the two Poly Haven sets above; the rails use the project's own `steelGirder` preset; the stools are
 the bar's *Metal Stool 03* instances (no extra download). Everything else is procedural. `node scripts/build-mezzanine-assets.mjs`
 regenerates both texture sets.
+
+### The lounge couch
+
+A worn two-seat sofa stands against the entrance wall, centred between the doorway and the bar-side wall and facing the DJ. It is
+*Old Couch* by Oliver Triplett (CC BY 4.0), downloaded from Sketchfab while signed in. It is an **optimised derivative**,
+produced by `npm run optimize:models`: its three 1024 px PNG maps become 512 px WebP and its seven parts are joined into one
+mesh, so it is one draw, 936 triangles and 0.5 MB (the source was 4.3 MB). Geometry and materials are otherwise unchanged. At
+run time the loader sizes it to 2.1 m wide and turns it toward the DJ; the two cushions are the interactive seats.
+
+### The DJ booth monitor speakers and the club restroom
+
+Two nearfield studio monitor speakers stand on the DJ table behind the console, one either side of it (`VenueLayout.monitors`, 0.30 m
+tall), facing the DJ and toed in toward the middle of the booth. A pair of balanced signal cables (one merged mesh) runs from each
+cabinet's rear connector across the table to the console's rear jacks. They use *Yamaha HS8 Studio Monitor* by Ivan_WSK (CC BY 4.0,
+Sketchfab), a one-off derivative: the geometry was simplified to 5,614 triangles and its 4096 px base-colour atlas (one-pixel
+strips per polygon, which turn to noise when downscaled) was sampled into vertex colour, so the GLB carries no textures
+(`js/models/monitors/source/monitor_speaker.glb`, 1 draw, 0.2 MB; the right monitor is an instance of the left).
+
+The club restroom (`VenueLayout.restroom`) opens off the front-left corner of the hall through a 1.8 m doorway under a pink neon `WC`
+sign. Its two stalls and wash area use Quaternius's *Toilet* (`js/models/restroom/source/toilet.glb`, 3 draws, 658 triangles) and
+*Bathroom Sink* (`js/models/restroom/source/bathroom_sink.glb`, 1 draw, 350 triangles), both CC0 1.0, with vertex-baked porcelain
+and brushed-steel colours, instanced for the second stall and second basin, and lit by the scoped `restroomLight` accent. Both toilets
+are tagged as interactive seats. `node scripts/build-restroom-monitor-assets.mjs` rebuilds the restroom GLBs from their CC0 sources.
+The toilet preserves its authored body/lid and adds an original open seat ring; the
+seat and lid are separate hinged meshes prepared by `scripts/lib/toilet-mechanics.mjs`.
+Wooden stall doors reuse the bar wood maps. Four instances of plaggy's CC0
+*Door Handle 3* share one geometry and the existing steel material (766 triangles
+per handle, 18,540-byte texture-free source). Rebuild with
+`node scripts/build-door-handle.mjs "<downloaded GLB>"`; the source/output hashes
+and modification notice are in `door_handle_3.provenance.json` beside the GLB.
+Flush/tap water and control labels are original procedural geometry and audio,
+not downloaded recordings. Physical-headset fit and cost remain unmeasured.
+
+Three small Poly Haven props (CC0) dress it: a metal waste bin under the hand dryer (1,221 triangles, 1 draw; the asset's rusty twin and
+lids are left out), a wet floor sign in the aisle (228 triangles, 1 draw) and a plunger in the first stall (1,147 triangles, 1 draw),
+each with 512 px WebP maps and a few hundred KiB (`node scripts/build-restroom-props.mjs` rebuilds them from Poly Haven). Foliage was
+left out deliberately: its alpha-masked cards cannot be drawn in the club, where every imported surface is forced opaque.
+
+The walls are dressed from ONE painted atlas, `js/restroomArt.js` (2048 x 1024, painted at run time with Canvas 2D, no image files and
+no web fonts): a backlit NOCTURNE poster in a steel box at the end of the aisle, an event flyer and a hygiene and no-smoking sign on the
+dividers, and a safety poster, marker tags and a few stickers inside the stalls and on the stall doors. It is original artwork
+with generic wording (no brands, no artists), costing two draws plus one per door. A toilet roll, paper holder, soap dispenser pumps
+and hand-dryer nozzle are procedural.
 
 ### The street
 
@@ -133,13 +540,13 @@ these three images before stripping the embedded copies.
 |------|--------|---------|
 | `js/models/avatars/club-dancer-female.glb` | Quaternius Universal Base Characters + Modular Character Outfits - Fantasy + Universal Animation Library (`Dance_Loop`) | CC0 1.0 |
 | `js/models/avatars/club-dancer-male.glb` | Quaternius Universal Base Characters + Modular Character Outfits - Fantasy + Universal Animation Library (`Dance_Loop`) | CC0 1.0 |
-| `js/models/avatars/club-dj-male.glb` | Fictional male DJ, derived from `club-guest-male.glb`: beard removed, shortened Universal Base Characters `Hair_Long` added over the cap, CC0 headphones added, `Idle_Loop` retained. Dark-brown hair and grey top through runtime tints | CC0 1.0 |
+| `js/models/avatars/club-dj-male.glb` | Fictional male DJ, derived from `club-guest-male.glb`: beard removed, Universal Base Characters `Hair_Long` reworked into opaque nape waves over the cap, softened cheek/jaw and subtle age creases, CC0 headphones added, `Idle_Loop` retained. Dark-brown hair and grey top through runtime tints | CC0 1.0 |
 | `js/models/avatars/club-dj-female.glb` | Fictional female DJ, derived from `club-guest-female.glb`: CC0 headphones added, `Idle_Loop` retained. Blond hair and grey top through runtime tints | CC0 1.0 |
 | `js/models/avatars/club-guest-female.glb` | Quaternius Universal Base Characters + Modular Character Outfits - Fantasy (Ranger outfit without its hood and pauldron) + Universal Animation Library (`Dance_Loop`, `Idle_Talking_Loop`, `Idle_Loop`) + Universal Animation Library 2 (`Yes`, `Idle_FoldArms_Loop`, `Idle_TalkingPhone_Loop`). At runtime it is the bartender (black outfit through a tint); it is also the source the DJ and crowd builds derive from | CC0 1.0 |
 | `js/models/avatars/club-guest-male.glb` | As `club-guest-female.glb`, male. Not loaded at runtime any more (the guests are the `club-crowd-*` people); kept as the source `scripts/build-dj-glbs.mjs` and `scripts/build-crowd-glbs.mjs` derive from | CC0 1.0 |
-| `js/models/avatars/Hip Hop Dancing.glb` | Adobe Mixamo character and hip-hop animation | Mixamo terms of use |
-| `js/models/avatars/house.glb` | Adobe Mixamo character and house-dance animation | Mixamo terms of use |
-| `js/models/avatars/rumba_dancing_female_character.glb` | Adobe Mixamo character and rumba animation | Mixamo terms of use |
+| `js/models/avatars/house.glb` | Adobe Mixamo character and house-dance animation; retained only as a real-rig regression fixture in `test/rig.test.mjs`, excluded from production builds | Mixamo terms of use |
+| `js/models/avatars/Hip Hop Dancing.glb` (removed) | Formerly an Adobe Mixamo character and hip-hop animation; unused and removed from the repository | Mixamo terms of use |
+| `js/models/avatars/rumba_dancing_female_character.glb` (removed) | Formerly an Adobe Mixamo character and rumba animation; unused and removed from the repository | Mixamo terms of use |
 
 ### The DJs' headphones
 
@@ -158,6 +565,30 @@ Seventeen people, plus the bouncer at the street door, built by `scripts/build-c
 packs (the "Individual Characters" glTF downloads), recoloured into a varied cast and carrying the club's own dance
 and idle clips retargeted onto their rig. The eleven floor dancers also carry eight dance moves (`Groove_*`) that the
 script authors procedurally onto the rig itself (no third-party animation; see `js/crowdDance.js`). The scripts and tests treat them as `club-crowd-<id>.glb`:
+
+Dance authoring and detailed retargeting share `scripts/arm-frame.mjs`: both the
+limb axis and elbow hinge plane are aligned. The shipped `Groove_Bounce` exposed
+a ~54-degree hinge mismatch in the previous independent swing-only rotations.
+`test/rig.test.mjs` now enforces >0.98 hinge alignment on both arms across
+lightweight/detailed grooves and `Dance_Loop`. `--refresh-static` reauthors
+`Dance_Loop` too from the local guest sources. Rebuild lightweight people and
+variants, then run `node scripts\characters\build.mjs --refresh-dance` and
+`node scripts\characters\build.mjs --wardrobe --refresh-dance` after arm-frame
+changes. These selective builds refresh only dance clips in the existing
+detailed/wardrobe GLBs, preserving artwork, hair, accessories and nondance clips.
+Selective refresh prunes only unused accessors/buffers; anatomical helper nodes,
+all normals, UVs and wardrobe masks remain intact. A pruning regression was
+found and fixed using the full suite.
+`armPronation()` distributes 70% of palm roll into the forearm (75-degree cap);
+the real-rig tests retain upper-arm hinge alignment >0.98 and bound forearm
+rotation below 76 degrees and wrist roll below 61 degrees. This removes the
+previous detailed ArmsWide wrist roll of up to 134 degrees without moving its
+world-space palm target.
+Default groove hands inherit forearm roll while explicit palm targets remain
+honored. Pump alternates overlapping, eased 1.5-beat raises and returns rather
+than quarter-second swaps: one hand stays up on every beat without the previous
+44–59-degree arm snaps. The real-rig test also caps rotation per 50 ms at <0.65 rad.
+No runtime IK or per-frame allocations are introduced; headset appearance remains unverified.
 
 | File | Base character | Look | Clips |
 |------|----------------|------|-------|
@@ -178,7 +609,38 @@ script authors procedurally onto the rig itself (no third-party animation; see `
 | `js/models/avatars/club-crowd-m7.glb` | Men / Suit | Deep skin, black hair, burgundy suit, pistol removed | `Dance_Loop` |
 | `js/models/avatars/club-crowd-m8.glb` | Men / Beach | Light skin, blond hair, cream shirt, blue shorts | all six |
 | `js/models/avatars/club-crowd-m9.glb` | Men / Casual 2 | Medium skin, brown hair, purple tee | `Dance_Loop` |
-| `js/models/avatars/club-crowd-bouncer.glb` | Men / Suit | The bouncer at the street door: espresso skin, black hair, black suit, shirt and tie, pistol removed | all six |
+| `js/models/avatars/club-crowd-bouncer.glb` | Men / Suit | The bouncer at the street door: unchanged espresso skin and black hair, charcoal suit, light slate shirt and dark tie, pistol removed | all six |
+| `js/models/avatars/club-crowd-vf1.glb` | Women / Formal (f4) | Olive skin, chestnut hair, emerald dress | `Dance_Loop` |
+| `js/models/avatars/club-crowd-vf2.glb` | Women / Casual (f1) | Golden skin, platinum hair, mustard top, black trousers | `Dance_Loop` |
+| `js/models/avatars/club-crowd-vf3.glb` | Women / Punk (f3) | Pale skin, pink mohawk, plum outfit | `Dance_Loop` |
+| `js/models/avatars/club-crowd-vf5.glb` | Women / Casual (f8) | Light skin, auburn hair, rose top, slate trousers | all six |
+| `js/models/avatars/club-crowd-vf6.glb` | Women / Suit (f7) | Tan skin, dark hair, rose shirt, indigo suit | all six + `Idle_Railing_Loop` |
+| `js/models/avatars/club-crowd-vf7.glb` | Women / Casual (f8) | Deep skin, black hair, jade top, black trousers | all six |
+| `js/models/avatars/club-crowd-vm1.glb` | Men / Casual 2 (m1) | Umber skin, auburn hair, red tee, charcoal trousers | `Dance_Loop` |
+| `js/models/avatars/club-crowd-vm2.glb` | Men / Casual 2 (m9) | Pale skin, ginger hair, teal shirt, navy trousers | `Dance_Loop` |
+| `js/models/avatars/club-crowd-vm3.glb` | Men / Casual Hoodie (m3) | Espresso skin, black hair, ochre hoodie, navy trousers | `Dance_Loop` |
+| `js/models/avatars/club-crowd-vm4.glb` | Men / Suit (m7) | Tan skin, dark hair, navy suit, plum shirt | `Dance_Loop` |
+| `js/models/avatars/club-crowd-vm5.glb` | Men / Casual Hoodie (m4) | Medium skin, brown hair, steel-blue hoodie | all six |
+| `js/models/avatars/club-crowd-vm6.glb` | Men / Beach (m8) | Umber skin, auburn hair, brown shirt, orange-trimmed blue shorts | all six |
+| `js/models/avatars/club-crowd-vm7.glb` | Men / Punk (m5) | Brown skin, green mohawk, teal shirt, dark-red jacket | `Dance_Loop` |
+
+The thirteen `v*` files are **recoloured copies** of the cast above, made by `node scripts/build-crowd-glbs.mjs --variants`
+(`VARIANTS` in that script; no asset packs needed, and `--refresh-static` and a full build regenerate them). A person is
+one vertex-coloured mesh whose colours fall into flat clusters (skin, hair, top, trousers, shoes), so a variant swaps the
+skin tone, hair and garment colours and copies the body, skeleton and every clip unchanged. They exist so that nobody in
+the club is the same person twice (dancers, side guests and the queue outside use one file each). They are not player
+avatars: the relay's pool stays `f1`..`m9`. They are derived works under the same CC0 licence as their base.
+
+Garment clusters down to 60 vertices are recoloured: the old 270-vertex floor
+silently left several tops unchanged while only recolouring trousers.
+`node scripts/build-crowd-glbs.mjs --refresh-wardrobe --optimize` rebuilds these
+variants and the bouncer's clothing without the packs or changes to his skin,
+skeleton or clips. Bald recipes additionally remove the connected crown-hair
+shell while preserving the existing scalp. The existing scoped entrance lamp also lights his face
+more clearly; live character swaps re-register accent-light ordering. No extra
+light or texture is added. Optional NPC accessories add one shared-material
+draw per dressed person, and the caller's phone adds one draw. Appearance is browser-tested in both
+styles; physical-headset readability and timing remain unmeasured.
 
 "All six" is `Dance_Loop`, `Idle_Loop`, `Idle_Talking_Loop`, `Idle_FoldArms_Loop`, `Idle_TalkingPhone_Loop` and `Yes`:
 the guests, who stand and talk instead of dancing, need the idle poses. Every file also keeps the packs' own `Idle`,
@@ -213,11 +675,14 @@ The checked-in GLBs were combined with `scripts/build-avatar-glb.mjs` and then r
 and skinned parts that share a skin and a material merged into one mesh (about six draw calls
 per character instead of a dozen). The skin, joints, weights and clips are unchanged.
 
-The three Mixamo-derived GLBs are retained in the historical source only; Quest does not ship them.
-They are not covered by this repository's MIT licence. Adobe permits Mixamo characters
-and animations in projects under its published terms, but redistribution of editable or
-extractable raw character files may be restricted. Confirm that shipping these GLBs is
-compatible with the intended distribution before a public release.
+The unused `Hip Hop Dancing.glb` and `rumba_dancing_female_character.glb` source files were
+removed: no runtime, build or test authoring path uses them. They were never production
+assets. `house.glb` remains only as the real-rig regression fixture in `test/rig.test.mjs`;
+it is excluded from production builds. Mixamo assets are not covered by this repository's
+MIT licence. Adobe permits Mixamo characters and animations in projects under its published
+terms, but redistribution of editable or extractable raw character files may be restricted.
+Confirm that shipping the test fixture is compatible with the intended distribution before a
+public release.
 
 ## Environment / surface textures
 
@@ -225,9 +690,22 @@ compatible with the intended distribution before a public release.
 |------|--------|---------|
 | `textures/factoryFloor/` | Poly Haven — [Concrete Floor Damaged 01](https://polyhaven.com/a/concrete_floor_damaged_01) by Rob Tuytel (1K JPG: diff, nor_dx, and an `orm.jpg` packed from rough and ao by `scripts/pack-orm.mjs`) | CC0 1.0 (public domain) |
 | `textures/walls/`, `textures/ceiling/` | Poly Haven | CC0 1.0 (public domain) |
+| `textures/brushedCeiling/` | [Brushed Concrete](https://polyhaven.com/a/brushed_concrete), photography by Dimitrios Savva, processing by Dario Barresi; 1K diffuse, DirectX normal and packed ARM. Replaces the active ceiling set. | CC0 1.0 |
+| `textures/restroomTiles/` | [Long White Tiles](https://polyhaven.com/a/long_white_tiles), photography by Sergej Majboroda, processing by Jenelle van Heerden; 1K diffuse, DirectX normal and packed ARM. Restroom interior walls below 1.5 m. | CC0 1.0 |
+| `textures/restroomPlaster/` | [Plastered Wall 04](https://polyhaven.com/a/plastered_wall_04) by Rob Tuytel; 512 px diffuse, DirectX normal and packed ARM. Matte restroom walls above the tiles. | CC0 1.0 |
+| `textures/stageRust/` | [Rusty Metal 04](https://polyhaven.com/a/rusty_metal_04) by Amal Kumar; 512 px diffuse, DirectX normal and packed ARM. DJ platform sides; the anti-slip top is unchanged. | CC0 1.0 |
 | `textures/environment/empty_warehouse_01_256.env` | Poly Haven — [Empty Warehouse 01](https://polyhaven.com/a/empty_warehouse_01) HDRI by Sergej Majboroda, prefiltered (see below) | CC0 1.0 (public domain) |
 
 The reflection environment is a derivative: the 1k `.hdr` (MD5 `ab2931b0191b050b97b1e08ab67b0fb0`, from <https://dl.polyhaven.org/file/ph-assets/HDRIs/hdr/1k/empty_warehouse_01_1k.hdr>) loaded as a Babylon `HDRCubeTexture` at 256 px and written with `BABYLON.EnvironmentTextureTools.CreateEnvTextureAsync` as WebP (152 KB). Replace it by the same route; the file name carries the resolution because the service worker and browsers cache by URL.
+
+The four venue sets above were imported on 1 November 2026 under
+[Poly Haven's CC0 licence](https://polyhaven.com/license). Rebuild with
+`node scripts/build-venue-textures.mjs`; it checks the reviewed upstream revision.
+Each set's `provenance.json` records authors, exact source URLs/revision and
+source/output SHA-256 hashes. Modifications: resized where listed, JPEG re-encoding
+with full-resolution chroma, restrained runtime normal strength and neutral albedo
+tints. ARM is used unchanged as ORM (R occlusion, G roughness, B metallic).
+The DJ worktop reuses the existing Dark Wood set, with no additional texture images.
 
 ### Graffiti
 
@@ -249,6 +727,21 @@ cell and the five were packed into one atlas; the GLB geometry is not shipped. T
 all five listings, the creator and the licence, and states the change. Sketchfab downloads need an account, so to rebuild,
 download the five GLBs and run `node scripts/build-graffiti-atlas.mjs <folder>` (packs are matched by the source URL
 embedded in each GLB, not by file name).
+
+## Music
+
+| Path | What it is | Licence |
+|------|------------|---------|
+| `audio/demo.mp3` | User-supplied recording, approximately 3:59, stereo 48 kHz MP3; kept locally and excluded from production builds. | Licence/provenance not supplied; confirm redistribution rights before public release. |
+| `audio/nocturne-house.mp3` | The club's own original house set: 3 cycles, 15.5 minutes at 124 BPM, 160 kbps joint-stereo. | MIT, original work of this project |
+
+Every sound in it is synthesised from maths by `scripts/build-default-set.mjs` (kick, claps, hats, bass, pads and a lead,
+arranged in 16-bar phrases with builds, a breakdown and drops so the light show and crowd have a real structure to follow).
+It uses no samples, no recordings and no third-party material, so there is nothing to license or credit. This generated
+house set is the release default. It loops only when a guest has no selected music
+and is not following a host or live event, and also serves as the existing stream-error fallback. Regenerate the house set with
+`node scripts/build-default-set.mjs` (needs ffmpeg with libmp3lame; the output is deterministic). The file must stay under
+Cloudflare Pages' 25 MiB per-file limit (the script refuses to finish above it).
 
 ## Runtime libraries
 

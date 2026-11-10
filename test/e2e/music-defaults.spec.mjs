@@ -3,7 +3,7 @@ import { useQuestHarness, enterClub, enterVR, expectHealthyRuntime } from './sup
 
 useQuestHarness();
 
-test('fresh Quest entry contacts no music provider and ignores historical stream preferences', async ({ page }) => {
+test('fresh Quest entry contacts no music provider, plays the club\u2019s own set and ignores historical stream preferences', async ({ page }) => {
     test.setTimeout(900_000);
     const requests = [];
     page.on('request', request => requests.push(request.url()));
@@ -14,10 +14,43 @@ test('fresh Quest entry contacts no music provider and ignores historical stream
     await enterClub(page);
     expect(requests.some(url => /podbean|soundcloud|hernancattaneo|old-music\.example/.test(url))).toBe(false);
     expect(await page.evaluate(() => window.vrClub.musicLibrary.items.length)).toBe(0);
-    expect(await page.evaluate(() => window.vrClub.audioElement?.src || '')).toBe('');
+    // Nothing of the guest's, so the club's own file (same origin) is what is loaded.
+    expect(await page.evaluate(() => window.vrClub.audioElement?.src || '')).toMatch(/\/audio\/nocturne-house\.mp3$/);
     await page.locator('#audioToggle').click();
     await expect(page.locator('#savedSets')).toContainText('No saved sets yet');
     await expect(page.locator('#splashRadioOnEntry')).toHaveCount(0);
+    await expectHealthyRuntime(page);
+});
+
+test('a corrupt playback checkpoint leaves saved sets available after entry', async ({ page }) => {
+    await page.addInitScript(() => {
+        localStorage.setItem('vrclub.questMusic', JSON.stringify({
+            items: [{ url: 'https://audio.example/e2e/set.mp3', name: 'Saved set' }], selected: 0
+        }));
+        localStorage.setItem('vrclub.questMusicPlayback', '{invalid');
+    });
+    await enterClub(page);
+    await page.locator('#audioToggle').click();
+    await expect(page.locator('#savedSets')).toContainText('Saved set');
+    expect(await page.evaluate(() => JSON.parse(localStorage.getItem('vrclub.questMusic')).items.length)).toBe(1);
+    await expectHealthyRuntime(page);
+});
+
+test('unreadable saved sets require an explicit confirmed reset', async ({ page }) => {
+    await page.addInitScript(() => localStorage.setItem('vrclub.questMusic', '{invalid'));
+    await enterClub(page);
+    await page.locator('#audioToggle').click();
+    await expect(page.locator('#savedSets')).toContainText('Saved sets unavailable');
+    await expect(page.locator('#musicRecoveryMessage')).toContainText('permanently erase');
+    await page.locator('#retrySavedSets').click();
+    expect(await page.evaluate(() => localStorage.getItem('vrclub.questMusic'))).toBe('{invalid');
+    await page.locator('#resetSavedSets').click();
+    await expect(page.locator('#resetSavedSets')).toHaveText('Confirm permanent reset');
+    expect(await page.evaluate(() => localStorage.getItem('vrclub.questMusic'))).toBe('{invalid');
+    await page.locator('#resetSavedSets').click();
+    await expect(page.locator('#musicRecovery')).toBeHidden();
+    await expect(page.locator('#savedSets')).toContainText('No saved sets yet');
+    expect(await page.evaluate(() => JSON.parse(localStorage.getItem('vrclub.questMusic')).items)).toEqual([]);
     await expectHealthyRuntime(page);
 });
 
@@ -35,7 +68,8 @@ test('VR setup and licences return to the panel and allow re-entry', async ({ pa
     await page.waitForFunction(() => !window.vrClub.isInVRMode, null, { timeout: 30_000 });
     await expect(page.locator('#modelCredits')).toHaveAttribute('open', '');
     await expect(page.locator('#modelCredits')).toContainText('TwoPixels.studio');
-    await expect(page.locator('#modelCredits')).toContainText('No music, podcasts or third-party sound recordings');
+    await expect(page.locator('#modelCredits')).toContainText("only music included is the club's own original house set");
+    await expect(page.locator('#modelCredits')).toContainText('No podcasts or third-party sound recordings');
     await page.locator('#modelCredits summary').click();
     await enterVR(page);
     await expectHealthyRuntime(page);

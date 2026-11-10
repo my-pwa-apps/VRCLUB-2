@@ -1,15 +1,19 @@
 import { transform } from 'esbuild';
 import { createHash } from 'node:crypto';
-import { cp, mkdir, readFile, rm, writeFile } from 'node:fs/promises';
+import { cp, mkdir, readFile, readdir, rm, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { resolveBranding, validateBranding, brandHtml } from './branding.mjs';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const dist = path.join(root, 'dist');
+const emitSourceMap = process.env.VRCLUB_SOURCEMAP === '1';
+const branding = resolveBranding(process.argv.slice(2), process.env);
+await validateBranding(branding, root);
 
 const digest = content => createHash('sha256').update(content).digest('hex').slice(0, 12);
 
-const indexHtml = await readFile(path.join(root, 'index.html'), 'utf8');
+const indexHtml = brandHtml(await readFile(path.join(root, 'index.html'), 'utf8'), branding);
 
 // SINGLE SOURCE OF TRUTH.
 //
@@ -38,19 +42,18 @@ const result = await transform(combined, {
     loader: 'js',
     format: 'iife',
     minify: true,
-    // 'external' plus an explicit comment below: transform() (unlike build()) does
-    // NOT append a //# sourceMappingURL, so the 1.2 MB map was previously deployed
-    // and unusable. sourcesContent is off so the map does not publish the full
-    // unminified first-party source at a guessable URL.
-    sourcemap: 'external',
+    // Production deploys no source map. Set VRCLUB_SOURCEMAP=1 for a local,
+    // explicitly requested external map without embedding source content.
+    sourcemap: emitSourceMap ? 'external' : false,
     sourcesContent: false,
     sourcefile: 'vrclub.js',
     target: ['es2020'],
 });
 
 const jsName = `app-${digest(result.code)}.js`;
-await writeFile(path.join(dist, 'assets', jsName), `${result.code}\n//# sourceMappingURL=${jsName}.map\n`);
-await writeFile(path.join(dist, 'assets', `${jsName}.map`), result.map);
+await writeFile(path.join(dist, 'assets', jsName),
+    emitSourceMap ? `${result.code}\n//# sourceMappingURL=${jsName}.map\n` : result.code);
+if (emitSourceMap) await writeFile(path.join(dist, 'assets', `${jsName}.map`), result.map);
 
 const cssSource = await readFile(path.join(root, 'css/styles.css'), 'utf8');
 const css = (await transform(cssSource, {
@@ -60,6 +63,24 @@ const css = (await transform(cssSource, {
 })).code;
 const cssName = `styles-${digest(css)}.css`;
 await writeFile(path.join(dist, 'assets', cssName), css);
+
+const broadcastHtml = await readFile(path.join(root, 'broadcast', 'index.html'), 'utf8');
+const broadcastSources = [...broadcastHtml.matchAll(/<script\s+src="([^"]+)"\s*><\/script>/g)].map(match => match[1]);
+if (!broadcastSources.length) throw new Error('build: broadcaster script order is missing.');
+const broadcastCode = (await Promise.all(broadcastSources.map(source =>
+    readFile(path.resolve(root, 'broadcast', source), 'utf8')))).join('\n');
+const broadcastResult = await transform(broadcastCode, { loader: 'js', format: 'iife', minify: true, target: ['es2020'] });
+const broadcastName = `broadcast-${digest(broadcastResult.code)}.js`;
+await writeFile(path.join(dist, 'assets', broadcastName), broadcastResult.code);
+const broadcastCss = (await transform(await readFile(path.join(root, 'broadcast', 'broadcast.css'), 'utf8'),
+    { loader: 'css', minify: true, target: ['es2020'] })).code;
+const broadcastCssName = `broadcast-${digest(broadcastCss)}.css`;
+await writeFile(path.join(dist, 'assets', broadcastCssName), broadcastCss);
+await mkdir(path.join(dist, 'broadcast'), { recursive: true });
+await writeFile(path.join(dist, 'broadcast', 'index.html'), broadcastHtml
+    .replace('href="broadcast.css"', `href="../assets/${broadcastCssName}"`)
+    .replace(/<script\s+src="[^"]+"\s*><\/script>/g, '')
+    .replace('</body>', `<script src="../assets/${broadcastName}"></script>\n</body>`));
 
 const html = indexHtml
     .replace(/<link rel="stylesheet" href="css\/styles\.css\?v=[^"]+">/, `<link rel="stylesheet" href="assets/${cssName}">`)
@@ -84,18 +105,17 @@ if (remainingFirstParty.length) {
 // HTML uses, and VERSION is derived from the bundle so a deploy always invalidates
 // the previous cache.
 const swSource = await readFile(path.join(root, 'sw.js'), 'utf8');
-const swVersion = `vrclub-v${digest(result.code + css)}`;
+const swVersion = `vrclub-v${digest(result.code + css + html)}`;
 const distPrecache = [
     './',
     './index.html',
     './manifest.json',
     './icons/icon-192.png',
+    './icons/icon-180.png',
     './icons/icon-512.png',
+    ...branding.assets.map(relative => `./${relative}`),
     `./assets/${jsName}`,
-    `./assets/${cssName}`,
-    './js/vendor/babylon.js',
-    './js/vendor/babylonjs.proceduralTextures.min.js',
-    './js/vendor/babylonjs.loaders.min.js'
+    `./assets/${cssName}`
 ];
 const swBuilt = swSource
     .replace(/const VERSION = '[^']+';/, `const VERSION = '${swVersion}';`)
@@ -135,9 +155,17 @@ for (const reference of modelReferences) {
 }
 
 await Promise.all([
+    ...branding.assets.map(relative => cp(path.join(root, relative), path.join(dist, relative), { recursive: true })),
     cp(path.join(root, 'js/vendor'), path.join(dist, 'js/vendor'), { recursive: true }),
     cp(path.join(root, 'textures'), path.join(dist, 'textures'), { recursive: true }),
     cp(path.join(root, 'icons'), path.join(dist, 'icons'), { recursive: true }),
+    cp(path.join(root, 'screenshots'), path.join(dist, 'screenshots'), { recursive: true }),
+    // The phone page that pairs a headset: plain files, no bundle (it shares nothing with the club).
+    cp(path.join(root, 'link'), path.join(dist, 'link'), { recursive: true }),
+    cp(path.join(root, 'audio'), path.join(dist, 'audio'), {
+        recursive: true,
+        filter: source => path.basename(source) !== 'demo.mp3'
+    }),
     cp(path.join(root, 'manifest.json'), path.join(dist, 'manifest.json')),
     cp(path.join(root, 'robots.txt'), path.join(dist, 'robots.txt')),
     cp(path.join(root, 'sitemap.xml'), path.join(dist, 'sitemap.xml')),
@@ -167,6 +195,27 @@ if (association) {
     await writeFile(path.join(dist, '.well-known', 'assetlinks.json'), association);
 }
 
+const distFiles = [];
+const collectDistFiles = async directory => {
+    const entries = await readdir(directory, { withFileTypes: true });
+    for (const entry of entries) {
+        const absolute = path.join(directory, entry.name);
+        if (entry.isDirectory()) await collectDistFiles(absolute);
+        else distFiles.push(path.relative(dist, absolute).split(path.sep).join('/'));
+    }
+};
+await collectDistFiles(dist);
+if (!emitSourceMap && distFiles.some(file => file.endsWith('.map'))) {
+    throw new Error('build: production dist must not contain source maps');
+}
+for (const sourceOnly of ['js/podcasts.js', 'worker/src/podcast.js']) {
+    if (distFiles.includes(sourceOnly)) throw new Error(`build: source-only file was copied to dist: ${sourceOnly}`);
+}
+if (branding.id === 'nocturne' && distFiles.some(file => file.startsWith('branding/'))) {
+    throw new Error('build: opt-in branding artwork entered the default distribution');
+}
+
 console.log(`Built dist/ with assets/${jsName} and assets/${cssName}`);
+console.log(`Venue branding: ${branding.id}`);
 console.log(`Service worker version: ${swVersion}`);
 console.log(`Deployed ${modelReferences.size} referenced model path(s)`);

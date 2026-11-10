@@ -54,6 +54,7 @@ class VRClubLifecycle extends VRClubCore {
         // added to the scene - every dancer is instantiated from them - so
         // scene.dispose() will not reclaim them and dispose() has to do it by hand.
         this._avatarContainers = [];
+        this._initCharacterStyles();
         
         // Load environment for PBR reflections.
         // Vendored under js/vendor/ for the same reason the Babylon runtime is: a CDN
@@ -66,7 +67,8 @@ class VRClubLifecycle extends VRClubCore {
             "./textures/environment/empty_warehouse_01_256.env",
             this.scene
         );
-        this.scene.environmentIntensity = 0.4; // Enhanced PBR reflections for hyperrealistic surfaces
+        // One source of truth with applyDesktopSettings(): the desktop value is what the club starts with and returns to after VR.
+        this.scene.environmentIntensity = this.vrSettings.desktop.environmentIntensity;
         
         // Atmospheric fog for depth and haze machine simulation
         // Real clubs have warm-gray smoke machine haze that scatters light beams
@@ -154,6 +156,17 @@ class VRClubLifecycle extends VRClubCore {
         this._setupXRSession(vrHelper);
         
         this._buildVenue();
+        if (window.VenueBranding?.requested()) {
+            this._venueBranding = new window.VenueBranding(this);
+            const artworkReady = this._venueBranding.mount().catch(error => {
+                this._venueBranding.dispose();
+                if (!this._disposed) {
+                    log.warn('Optional venue artwork unavailable:', error);
+                    this.showToast('ADE artwork could not load; the NOCTURNE venue remains available.');
+                }
+            });
+            this.modelLoadPromise = Promise.all([this.modelLoadPromise, artworkReady]);
+        }
         this._reportInitProgress(0.72, 'Loading performers...');
         
         // Setup UI
@@ -185,6 +198,12 @@ class VRClubLifecycle extends VRClubCore {
         
         this._finalizeRenderQuality();
 
+        // Compile the base scene behind the splash instead of letting the first visible
+        // frames pay the shader cost. Background GLBs still have their own hidden,
+        // deduplicated pre-warm in ModelLoader.
+        this._reportInitProgress(0.94, 'Compiling the first view...');
+        await this._waitForBaseSceneReady();
+
         // Verify scene is ready
         log.info('🎬 Scene initialization complete:');
         log.info(`  📷 Camera: ${this.camera.position.toString()}`);
@@ -202,8 +221,20 @@ class VRClubLifecycle extends VRClubCore {
         // Quest, on top of the compositor's own) and a guaranteed phase error between
         // the camera matrix and the head-bob written into it.
         this._renderLoop = () => {
+            // Babylon briefly exposes zero-sized XR attachments while swapping render targets.
+            // Rendering during ENTERING/EXITING_XR produced hundreds of incomplete-framebuffer
+            // warnings and no useful frame, so skip only that transition window.
+            if (this._xrTransitioning) return;
+            // A minimised or collapsed window gives the canvas no size, and every post-process target with it: each draw
+            // then fails with an incomplete framebuffer. Wait for the next resize to give it a size back.
+            if (!this.isInVRMode && this.canvas && (!this.canvas.clientWidth || !this.canvas.clientHeight)) return;
+            const t0 = performance.now();
             this.updateAnimations();
+            const t1 = performance.now();
             this.scene.render();
+            const t2 = performance.now();
+            if (this._frameStats) this._frameStats.add(t0, t1 - t0, t2 - t1);
+            if (this.autoQuality) this._updateAutoQuality(t0 / 1000);
             this.updatePerformanceMonitor();
         };
         this.engine.runRenderLoop(this._renderLoop);
@@ -214,10 +245,29 @@ class VRClubLifecycle extends VRClubCore {
         this._reportInitProgress(1, 'Ready');
     }
 
+    async _waitForBaseSceneReady(timeoutMs = 20000) {
+        if (!this.scene || typeof this.scene.whenReadyAsync !== 'function') return;
+        let timeoutId;
+        try {
+            await Promise.race([
+                this.scene.whenReadyAsync(),
+                new Promise((_, reject) => {
+                    timeoutId = setTimeout(() => reject(new Error(`Base scene compile exceeded ${timeoutMs} ms`)), timeoutMs);
+                })
+            ]);
+        } catch (error) {
+            const message = error && error.message ? error.message : String(error);
+            log.warn('Base scene did not finish compiling behind the splash:', message);
+            this.recordDiagnostic('render', 'Base scene compile wait ended early', { error: message });
+        } finally {
+            if (timeoutId) clearTimeout(timeoutId);
+        }
+    }
+
     /** WebXR default experience for Quest; resolves to null (desktop mode) when XR is unavailable. */
-    _initXRHelper() {
+    async _initXRHelper() {
         // Enable VR with teleportation on floor - optimized for Quest 3S
-        return this._createXRExperience({
+        const helper = await this._createXRExperience({
             floorMeshes: [this.floorMesh],
             optionalFeatures: true,
             disableTeleportation: false,
@@ -228,20 +278,39 @@ class VRClubLifecycle extends VRClubCore {
             // The quick menu uses far pointer rays. Near interaction creates a
             // decorative touch orb by fetching a material from snippet.babylonjs.com.
             disableNearInteraction: true,
+            // Both hands point and click. Babylon otherwise routes clicks through ONE controller (the first it sees) and the other
+            // hand's first trigger pull only switches the pointer to it, so a menu press with the "wrong" hand did nothing.
+            pointerSelectionOptions: {
+                enablePointerSelectionOnAllControllers: true,
+                customLasterPointerMeshGenerator: () => {
+                    const laser = BABYLON.MeshBuilder.CreateCylinder('laserPointer', {
+                        height: 1, diameterTop: 0.0002, diameterBottom: 0.004, tessellation: 20, subdivisions: 1
+                    }, this.scene);
+                    (this._xrPointerVisuals || (this._xrPointerVisuals = [])).push({ laser, cursor: null });
+                    return laser;
+                },
+                customSelectionMeshGenerator: () => {
+                    const cursor = BABYLON.MeshBuilder.CreateTorus('gazeTracker', {
+                        diameter: 0.0105, thickness: 0.0075, tessellation: 20
+                    }, this.scene);
+                    const visuals = this._xrPointerVisuals;
+                    visuals[visuals.length - 1].cursor = cursor;
+                    return cursor;
+                }
+            },
             // #vrButton is the single entry point: it feature-detects, explains
             // failures and waits for background loading. Babylon's overlay icon
             // would bypass all three.
             disableDefaultUI: true,
             inputOptions: {
-                // Input components, poses, haptics and pointer rays remain active;
+                // Input components, poses and pointer rays remain active;
                 // only the decorative controller GLB from Babylon's snippet server
                 // is skipped so XR remains entirely same-origin.
                 doNotLoadControllerMeshes: true
             },
-            // CRITICAL: Configure XR layer with anti-aliasing enabled
             outputCanvasOptions: {
                 canvasOptions: {
-                    antialias: true, // Enable anti-aliasing in XR layer
+                    antialias: true,
                     depth: true,
                     stencil: true,
                     alpha: true,
@@ -255,6 +324,101 @@ class VRClubLifecycle extends VRClubCore {
             this.recordDiagnostic('xr', 'WebXR helper initialization failed', { error: message });
             return null;
         });
+        if (this.xrMultiviewProbe && this.xrMultiviewProbe.requested) {
+            const abandonProbe = () => {
+                this.xrMultiviewProbe.enabled = false;
+                const caps = this.engine && typeof this.engine.getCaps === 'function'
+                    ? this.engine.getCaps()
+                    : null;
+                if (caps && this.xrMultiviewProbe.originalOculusMultiview) {
+                    caps.oculusMultiview = this.xrMultiviewProbe.originalOculusMultiview;
+                }
+            };
+            if (!helper) {
+                const reason = 'WebXR helper is unavailable';
+                log.warn(`XR multiview probe unavailable: ${reason}`);
+                this.recordDiagnostic('xr', 'Multiview probe unavailable', { reason });
+                abandonProbe();
+            } else if (!this.xrMultiviewProbe.enabled) {
+                this.recordDiagnostic('xr', 'Multiview probe unavailable', { reason: this.xrMultiviewProbe.reason });
+            } else {
+                const featureManager = helper.baseExperience && helper.baseExperience.featuresManager;
+                const layersFeature = BABYLON.WebXRFeatureName && BABYLON.WebXRFeatureName.LAYERS;
+                if (!featureManager || typeof featureManager.enableFeature !== 'function' || !layersFeature) {
+                    const reason = 'Babylon WebXR Layers feature is unavailable';
+                    log.warn(`XR multiview probe unavailable: ${reason}`);
+                    this.recordDiagnostic('xr', 'Multiview probe unavailable', { reason });
+                    abandonProbe();
+                } else {
+                    try {
+                        this.xrMultiviewLayerFeature = featureManager.enableFeature(
+                            layersFeature,
+                            'latest',
+                            { preferMultiviewOnInit: true },
+                            true,
+                            false
+                        );
+                        log.warn('XR multiview probe configured for OVR_multiview2 with MSAA disabled.');
+                        this.recordDiagnostic('xr', 'Opt-in OVR_multiview2 probe configured', {
+                            extension: this.xrMultiviewProbe.extension,
+                            msaaSamples: 1
+                        });
+                    } catch (error) {
+                        const reason = error && error.message ? error.message : String(error);
+                        log.warn(`XR multiview probe could not enable WebXR Layers: ${reason}`);
+                        this.recordDiagnostic('xr', 'Multiview probe setup failed', { error: reason });
+                        abandonProbe();
+                    }
+                }
+            }
+        }
+        return helper;
+    }
+
+    _isXRPointerTarget(mesh) {
+        if (!mesh) return false;
+        if (mesh.metadata?.vrclubSeats || mesh.metadata?.vrclubDoor !== undefined) return true;
+        for (let node = mesh; node; node = node.parent) {
+            if (node === this._vrQuickMenuRoot) return true;
+        }
+        const panels = this._vjDesk?.panels;
+        if (panels) {
+            for (const panel of panels) if (panel.mesh === mesh) return true;
+        }
+        return false;
+    }
+
+    _updateXRPointerVisibility() {
+        const visuals = this._xrPointerVisuals;
+        const selection = this.vrHelper?.pointerSelection;
+        if (!visuals || !selection || !this.isInVRMode) return;
+        for (let i = visuals.length - 1; i >= 0; i--) {
+            const visual = visuals[i];
+            if (visual.laser.isDisposed()) {
+                visuals.splice(i, 1);
+                continue;
+            }
+            let controller = null;
+            for (const candidate of this._xrControllers) {
+                if (candidate.pointer === visual.laser.parent || candidate.grip === visual.laser.parent) {
+                    controller = candidate;
+                    break;
+                }
+            }
+            // Gaze-based XR input has no controller and retains Babylon's default.
+            if (!controller) {
+                visual.laser.visibility = 1;
+                if (visual.cursor) visual.cursor.visibility = 1;
+                continue;
+            }
+            const trigger = controller.motionController?.getComponent?.('xr-standard-trigger');
+            const button = controller.inputSource?.gamepad?.buttons?.[0];
+            const pressed = !!(trigger?.pressed || trigger?.value > 0.1 || button?.pressed || button?.value > 0.1);
+            const target = selection.getMeshUnderPointer(controller.uniqueId);
+            const visible = pressed || this._isXRPointerTarget(target);
+            visual.laser.visibility = visible ? 1 : 0;
+            if (visual.cursor) visual.cursor.visibility = visible ? 1 : 0;
+        }
     }
 
     /** Room, booth, speakers, LED wall, lasers, fixtures, haze, mirror ball and signage (after the floor and XR helper). */
@@ -264,7 +428,6 @@ class VRClubLifecycle extends VRClubCore {
         this.createCollisionBoundaries(); // Add invisible collision walls
         this.createCeiling();
         this.createDJBooth();
-        this.createDJBoothAccessories(); // Add laptop stand with laptop
         this.createPASpeakers();
         
         // Use modular LED wall system
@@ -294,7 +457,11 @@ class VRClubLifecycle extends VRClubCore {
         this.createSafetyDetails(); // Exit signs only
         this.createEntranceArea(); // Door, vestibule and street door (after createLights: its accent light sorts first)
         this.createBar(); // Counter, back bar, bottles, stools (the bartender joins with the crowd)
+        this.createLoungeCouch(); // Two-seat sofa on the entrance wall, facing the DJ (loads with the models)
+        this.createDJMonitors(); // Nearfield monitor speakers on the left and right ends of the DJ table
+        this.createRestroom(); // Underground club restroom off the front-left hall
         this.createMezzanine(); // Steel balcony and stair along the left wall
+        if (typeof this.createVenueContactShadows === 'function') this.createVenueContactShadows();
     }
 
     /** Scene-wide quality passes that must see the finished scene (probe, light budgets, filtering, SSR fallback). */
@@ -313,7 +480,7 @@ class VRClubLifecycle extends VRClubCore {
         // Apply the tier's render scale. Below 1.0 this supersamples: the scene renders
         // above native resolution and is downsampled on present. applyDesktopSettings()
         // only runs when EXITING VR, so the initial desktop load has to set it here.
-        this.engine.setHardwareScalingLevel(this.tierSettings.renderScale);
+        this.engine.setHardwareScalingLevel(this.getDesktopRenderScale());
 
         // The SSR pipeline wants the probe cube map as its miss-fallback. The probe is
         // only available now, so wire it up (or build SSR if the pipeline was created
@@ -370,14 +537,20 @@ class VRClubLifecycle extends VRClubCore {
     _createGlowLayer() {
         // A GlowLayer redraws only selected emissive meshes into its own render target. The opaque venue and
         // characters are absent from that depth buffer, so emitters and halos behind them appear to shine through.
-        // Keep the object for fixture registration and diagnostics, but disable its composite. The default rendering
-        // pipeline's bloom runs on the already depth-tested camera image and supplies the same visible glow safely.
-        this.glowLayer = new BABYLON.GlowLayer("glow", this.scene, {
-            mainTextureFixedSize: 512,
-            blurKernelSize: 32  // Wider blur for more realistic light halos
-        });
-        this.glowLayer.intensity = this.vrSettings.desktop.glowIntensity;
-        this.glowLayer.isEnabled = false;
+        // Keep a lightweight descriptor for fixture registration and diagnostics without allocating the three unused
+        // EffectLayer/GlowLayer render targets. The default rendering pipeline's bloom runs on the already depth-tested
+        // camera image and supplies the same visible glow safely.
+        const includedOnly = new Set();
+        const excluded = new Set();
+        this.glowLayer = {
+            name: 'glow',
+            isEnabled: false,
+            intensity: this.vrSettings.desktop.glowIntensity,
+            addIncludedOnlyMesh(mesh) { if (mesh) includedOnly.add(mesh); },
+            addExcludedMesh(mesh) { if (mesh) { excluded.add(mesh); includedOnly.delete(mesh); } },
+            hasMesh(mesh) { return Boolean(mesh) && !excluded.has(mesh) && (includedOnly.size === 0 || includedOnly.has(mesh)); },
+            dispose: () => { includedOnly.clear(); excluded.clear(); }
+        };
         
         // Custom glow intensity per mesh type - selective glow for realism
         // LED panels and strobes get strong glow, lasers get intense glow, structures get none
@@ -500,7 +673,34 @@ class VRClubLifecycle extends VRClubCore {
      * session wiring is readable on its own; behaviour is unchanged.
      */
     _setupXRSession(vrHelper) {
+        if (vrHelper?.pointerSelection && this.scene?.onBeforeRenderObservable && !this._xrPointerVisibilityObserver) {
+            this._xrPointerVisibilityObserver = this.scene.onBeforeRenderObservable.add(() => this._updateXRPointerVisibility());
+        }
         if (vrHelper?.baseExperience) this._xrHeadHeight();
+        if (vrHelper?.baseExperience) {
+            vrHelper.baseExperience.onInitialXRPoseSetObservable.add(camera => {
+                const street = this._streetDoor?.open ? window.CityLayout : null;
+                this.standFromSeat(false);
+                // Babylon adds the first tracked eye height to this floor offset.
+                camera.position.set(street ? street.vrEntry.x : 0, street ? street.groundY : 0,
+                    street ? street.vrEntry.z : -12);
+                camera.rotationQuaternion.set(0, 1, 0, 0);
+                camera.cameraDirection.set(0, 0, 0);
+                camera.cameraRotation.set(0, 0);
+                camera._deferredUpdated = false;
+                this._walkLevel = street ? street.groundY : 0;
+                this._vrFallSpeed = 0;
+                if (this.jumpState) this.jumpState.active = false;
+                if (!street) this.showErrorMessage('The street is unavailable. Starting inside the club.', 'info');
+            });
+            vrHelper.baseExperience.onStateChangedObservable.add(state => {
+                if (state === BABYLON.WebXRState.ENTERING_XR || state === BABYLON.WebXRState.EXITING_XR) {
+                    this._xrTransitioning = true;
+                } else if (state === BABYLON.WebXRState.NOT_IN_XR) {
+                    this._xrTransitioning = false;
+                }
+            });
+        }
         // Subscribe before session entry. Some runtimes publish controller identities
         // between session creation and the IN_XR state callback below.
         if (vrHelper?.input) {
@@ -562,19 +762,14 @@ class VRClubLifecycle extends VRClubCore {
             });
         }
         
-        // Set VR starting position at dance floor center (below mirror ball).
         // `baseExperience` can be absent when session creation fails after the helper
         // object is constructed; without this guard init() throws on those platforms
         // and drops a plain desktop browser onto the fatal-error retry splash.
         if (vrHelper && vrHelper.baseExperience) {
             vrHelper.baseExperience.onStateChangedObservable.add((state) => {
                 if (state === BABYLON.WebXRState.IN_XR) {
-                    // Position user at dance floor center below mirror ball
                     const xrCamera = vrHelper.baseExperience.camera;
                     if (xrCamera) {
-                        xrCamera.position.x = 0;
-                        xrCamera.position.z = -12;
-                        
                         // Configure depth range for better VR rendering (now that session is active)
                         if (vrHelper.baseExperience.sessionManager && vrHelper.baseExperience.sessionManager.session) {
                             vrHelper.baseExperience.sessionManager.updateRenderStateAsync({
@@ -587,10 +782,12 @@ class VRClubLifecycle extends VRClubCore {
                         
                         // Apply VR-optimized settings
                         this.applyVRSettings(xrCamera);
+                        this._xrTransitioning = false;
                         log.info('🥽 VR mode activated with optimized settings');
                     }
                 } else if (state === BABYLON.WebXRState.NOT_IN_XR) {
                     this._closeVRSocialWheel(true);
+                    this.avatarEditor?.closeVR();
                     // CRITICAL: Re-enable frame-skip optimizations on desktop
                     this.isInVRMode = false;
 
@@ -674,7 +871,8 @@ class VRClubLifecycle extends VRClubCore {
             });
         }
 
-        // 3. JUMP FEATURE: Press A (Right) or X (Left) to jump
+        // 3. JUMP FEATURE: Press A (Right) or X (Left) to jump. With the ray on a desk knob or the crossfader the same press
+        // resets that control instead (the quick default of a real mixer) and never jumps.
         // Lazy-init the per-frame physics observer ONCE per VRClub instance
         // (previous bug: a new observer was added every first jump and never removed,
         // accumulating across XR sessions and continuing to raycast every frame.)
@@ -694,6 +892,13 @@ class VRClubLifecycle extends VRClubCore {
             const btn = motionController.getComponent(id);
             if (btn) {
                 btn.onButtonStateChangedObservable.add((c) => {
+                    if (!c.pressed) { c._vrclubDeskConsumed = false; return; }
+                    if (c._vrclubDeskConsumed) return;
+                    if (c.changes && c.changes.pressed && typeof this.resetVJDeskFromController === 'function'
+                        && this.resetVJDeskFromController(motionController)) {
+                        c._vrclubDeskConsumed = true;
+                        return;
+                    }
                     if (c.pressed && !this.vrComfortMode && !this.jumpState.active) {
                         log.info('🦘 VR Jump activated');
                         this._startVRJump(xrCamera);
@@ -775,9 +980,24 @@ class VRClubLifecycle extends VRClubCore {
      * "reload the page" is currently the only recovery mechanism.
      */
     dispose() {
+        this._avatarSharing?.dispose();
+        this._customAvatarBytes = null;
         if (this._disposed) return;
+        this.liveInput?.dispose();
+        this.lightingPresets?.dispose();
+        this.avatarEditor?.dispose();
+        this.restroomInteractions?.dispose();
+        this._restroomHandleInstances?.forEach(entry => entry.dispose());
+        this._restroomHandleSource?.dispose();
+        this._appearancePending?.reject('The club has closed.');
+        if (this._wardrobeCleanupTimer) clearTimeout(this._wardrobeCleanupTimer);
+        this._wardrobeCleanupTimer = null;
+        this._wardrobeSources?.clear();
         this._disposed = true;
+        this._venueBranding?.dispose();
+        this._cancelDevSeatWait();
         window.VRPayment?.onXRStateChange?.(false);
+        try { this._immersive?.dispose(); } catch (_) { /* launch state only */ }
 
         try {
             if (this._renderLoop) this.engine.stopRenderLoop(this._renderLoop);
@@ -829,7 +1049,7 @@ class VRClubLifecycle extends VRClubCore {
         }
         // Per-frame observers registered against the scene during an XR session.
         if (this.scene && this.scene.onBeforeRenderObservable) {
-            for (const key of ['_jumpObserver', 'vrYLockObserver']) {
+            for (const key of ['_jumpObserver', 'vrYLockObserver', '_xrPointerVisibilityObserver']) {
                 if (this[key]) {
                     try { this.scene.onBeforeRenderObservable.remove(this[key]); } catch (_) { /* ignore */ }
                     this[key] = null;
@@ -880,8 +1100,10 @@ class VRClubLifecycle extends VRClubCore {
             this._streamRecovery = null;
         }
         if (this.audioElement && this._onAudioFault) {
+            this.audioElement.removeEventListener('waiting', this._onAudioWaiting);
             this.audioElement.removeEventListener('error', this._onAudioFault);
             this.audioElement.removeEventListener('playing', this._onAudioPlaying);
+            this._onAudioWaiting = null;
             this._onAudioFault = null;
             this._onAudioPlaying = null;
         }
@@ -897,6 +1119,14 @@ class VRClubLifecycle extends VRClubCore {
         }
         if (typeof this._stopSoundCloudPlayer === 'function') this._stopSoundCloudPlayer();
         if (this.audioContext && this.audioContext.state !== 'closed') {
+            if (this.djFxFlangerLfo) {
+                try { this.djFxFlangerLfo.stop(); } catch (_) { /* already stopped */ }
+            }
+            if (this.djFxExtra) {
+                for (const source of this.djFxExtra.sources) {
+                    try { source.stop(); } catch (_) { /* already stopped */ }
+                }
+            }
             if (this.crowdAmbienceSource) {
                 try { this.crowdAmbienceSource.stop(); } catch (_) { /* already stopped */ }
                 this.crowdAmbienceSource = null;
@@ -906,6 +1136,19 @@ class VRClubLifecycle extends VRClubCore {
         this.audioContext = null;
         this.audioAnalyser = null;
         this.audioSource = null;
+        this._djEffects = null;
+        this.djFxInput = null;
+        this.djFxOutput = null;
+        this.djFxLowpass = null;
+        this.djFxHighpass = null;
+        this.djFxEchoFeedback = null;
+        this.djFxEchoWet = null;
+        this.djFxFlangerWet = null;
+        this.djFxFlangerLfo = null;
+        this.djFxChannel = null;
+        this.djFxReverb = null;
+        this.djFxGate = null;
+        this.djFxExtra = null;
 
         if (this.vjDirector) this.vjDirector = null;
         if (this.showDirector) this.showDirector = null;
@@ -922,10 +1165,17 @@ class VRClubLifecycle extends VRClubCore {
             try { this.networkManager.dispose(); } catch (_) { /* ignore */ }
             this.networkManager = null;
         }
+        if (typeof this._disposeMirrorDouble === 'function') this._disposeMirrorDouble();
         if (this._localRig) {
             try { this._localRig.dispose(); } catch (_) { /* ignore */ }
             this._localRig = null;
         }
+        if (this._customAvatarContainer) {
+            this._customAvatarContainer.dispose();
+            this._customAvatarContainer = null;
+        }
+        this._customAvatarRevision = (this._customAvatarRevision || 0) + 1;
+        this._fallbackAvatarCache?.close();
         if (this._bartenderRig) {
             try { this._bartenderRig.dispose(); } catch (_) { /* ignore */ }
             this._bartenderRig = null;
@@ -972,7 +1222,7 @@ class VRClubLifecycle extends VRClubCore {
         // the parked desktop chain while an XR session is active: disposing mid-session
         // without it leaks an entire second HDR pipeline.
         for (const key of ['ssrPipeline', 'motionBlur', 'renderPipeline', '_desktopRenderPipeline',
-                           'ssaoPipeline', 'glowLayer', 'floorReflectionProbe', 'strobeRetinalFlash']) {
+                           'ssaoPipeline', 'glowLayer', 'floorReflectionProbe', 'restroomMirrorTexture', 'strobeRetinalFlash']) {
             if (this[key]) {
                 try { this[key].dispose(); } catch (_) { /* ignore */ }
                 this[key] = null;

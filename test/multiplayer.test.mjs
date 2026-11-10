@@ -6,6 +6,7 @@ import { performance } from 'node:perf_hooks';
 import assert from 'node:assert/strict';
 import vm from 'node:vm';
 import { readFileSync } from 'node:fs';
+import { readClubSource } from './club-sources.mjs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -31,6 +32,7 @@ class FakeStorage {
     constructor() { this.map = new Map(); }
     getItem(key) { return this.map.has(key) ? this.map.get(key) : null; }
     setItem(key, value) { this.map.set(key, String(value)); }
+    removeItem(key) { this.map.delete(key); }
 }
 
 class FakeManager {
@@ -46,6 +48,7 @@ class FakeManager {
     updatePeerState() {}
     removePeer(id) { this.peers.delete(id); }
     setAvatar(id, avatar) { this.calls.push(['avatar', id, avatar]); }
+    setAppearance(id, appearance) { const peer = this.peers.get(id); if (peer) peer.appearance = appearance; }
     showEmoji(id, emoji) { this.calls.push(['emoji', id, emoji]); }
     showChat(id, text) { this.calls.push(['chat', id, text]); }
     anyoneSpeaking() { return false; }
@@ -77,6 +80,46 @@ function welcomed(client, extra = {}) {
     socket.receive({ type: 'welcome', id: 'me', pid: PID_A, avatar: 'f3', hostId: 'me', locked: false, peers: [], ...extra });
     return socket;
 }
+
+test('DEV entry preflights the owner account, keeps the room parameters and cannot open after cancellation', async () => {
+    const { window, NetworkClient } = load();
+    let resolve;
+    window.VRPayment = { prepareDevRoom: () => new Promise(done => { resolve = done; }) };
+    const client = new NetworkClient({ serverUrl: 'wss://relay.example', room: 'private-000032', name: 'Owner' });
+    client.connect();
+    client.connect();
+    assert.equal(FakeSocket.instances.length, 0);
+    client.disconnect();
+    resolve('wss://api.mitwee.nl/');
+    await new Promise(done => setImmediate(done));
+    assert.equal(FakeSocket.instances.length, 0);
+    window.VRPayment.prepareDevRoom = async () => 'wss://api.mitwee.nl/';
+    client.connect();
+    await new Promise(done => setImmediate(done));
+    const socket = FakeSocket.instances.at(-1), url = new URL(socket.url);
+    assert.equal(url.host, 'api.mitwee.nl');
+    assert.equal(url.searchParams.get('room'), 'private-000032');
+    assert.equal(url.searchParams.get('name'), 'Owner');
+    assert.equal(url.searchParams.get('sfu'), '1');
+    assert.equal(url.searchParams.has('token'), false);
+    client.disconnect();
+});
+
+test('DEV owner denial is explicit and does not schedule socket retries', async () => {
+    const { window, NetworkClient } = load();
+    const denied = new Error('Owner only');
+    window.VRPayment = { prepareDevRoom: async () => { throw denied; } };
+    const client = new NetworkClient({ serverUrl: 'wss://relay.example', room: 'private-000032' });
+    let error;
+    client.onError = value => { error = value; };
+    client.connect();
+    await new Promise(done => setImmediate(done));
+    assert.equal(error, denied);
+    assert.equal(client.status, 'error');
+    assert.equal(client._reconnectTimer, null);
+    assert.equal(FakeSocket.instances.length, 0);
+    client.disconnect();
+});
 
 test('shared world time uses a monotonic clock, validates the relay shape and corrects authenticated ping replies', () => {
     const { NetworkClient, context } = load();
@@ -224,9 +267,9 @@ function makeController(options = {}) {
     return { ...env, club, storage, mp };
 }
 
-function connectedController(peers = [{ id: 'p1', pid: PID_B, name: 'Bo', avatar: 'm1' }], welcome = {}) {
+function connectedController(peers = [{ id: 'p1', pid: PID_B, name: 'Bo', avatar: 'm1' }], welcome = {}, room = 'r') {
     const env = makeController();
-    env.mp.connect({ serverUrl: 'wss://relay.example', room: 'r' });
+    env.mp.connect({ serverUrl: 'wss://relay.example', room });
     const socket = FakeSocket.instances.at(-1);
     socket.receive({ type: 'welcome', id: 'me', pid: PID_A, avatar: 'f3', hostId: 'me', locked: false, peers, ...welcome });
     return { ...env, socket };
@@ -241,6 +284,17 @@ test('a guest gets a stable secret uid and a name, saved on first use', () => {
     assert.match(mp.name, /^Guest\d{4}$/);
     storage.setItem(ClubMultiplayer.PREFS.uid, 'bad');
     assert.notEqual(mp.uid, 'bad');
+});
+
+test('online safety acceptance is versioned, persisted and announced to every surface', () => {
+    const { mp, storage, ClubMultiplayer } = makeController();
+    let changes = 0;
+    mp.onChange(() => { changes++; });
+    assert.equal(mp.hasAcceptedOnlineSafety(), false);
+    mp.acceptOnlineSafety();
+    assert.equal(mp.hasAcceptedOnlineSafety(), true);
+    assert.equal(storage.getItem(ClubMultiplayer.PREFS.onlineSafety), ClubMultiplayer.ONLINE_SAFETY_VERSION);
+    assert.equal(changes, 1);
 });
 
 test('connecting is opt-in, one at a time, and joins with uid, room and the saved block list', () => {
@@ -276,6 +330,19 @@ test('blocking from the controller persists the guest, removes them and survives
     assert.equal(mp.unblock(PID_B), true);
     assert.deepEqual(plain(mp.blockedList()), []);
     assert.equal(mp.unblock(PID_B), false);
+});
+
+test('report and block sends the report before removing the peer and stores the block', () => {
+    const { mp, socket, storage, ClubMultiplayer } = connectedController();
+    assert.equal(mp.reportAndBlockPeer('p1', 'harassment'), true);
+    const safetyFrames = socket.sent.filter(frame => frame.type === 'report' || frame.type === 'block');
+    assert.deepEqual(plain(safetyFrames), [
+        { type: 'report', target: 'p1', reason: 'harassment' },
+        { type: 'block', pid: PID_B }
+    ]);
+    assert.equal(mp.people().length, 0);
+    assert.equal(JSON.parse(storage.getItem(ClubMultiplayer.PREFS.blocked))[0].pid, PID_B);
+    assert.match(mp.notice, /reported and blocked/i);
 });
 
 test('unblockAll lifts every block and tells the relay about each', () => {
@@ -334,14 +401,13 @@ test('host transfer is advertised, host-only, targets a visible person and waits
 test('the VR person page delegates host transfer, confirms a second press, hides it for guests and disables old relays', async () => {
     const { mp, context, window, socket } = connectedController(undefined, { hostTransfer: true });
     context.VRClubAnimationFinish = class {};
-    vm.runInContext(readFileSync(join(ROOT, 'js/club/10-ui.js'), 'utf8'), context);
+    vm.runInContext(readClubSource(join(ROOT, 'js/club/10-ui.js')), context);
     const ui = Object.create(window.VRClubUI.prototype);
     ui._multiplayer = () => mp;
     ui.isFollowingHost = () => mp.following;
     ui._refreshVRQuickMenu = () => {};
     ui._showVRQuickMenuPage = () => {};
     ui.showErrorMessage = () => {};
-    ui.pulseHaptic = () => {};
     ui._vrPerson = 'p1';
     const common = { back: { action: 'back' }, close: { action: 'close' } };
     const button = ui._vrNetPageDefinitions('person', common).find(item => item.op === 'peerHost');
@@ -432,14 +498,11 @@ test('a head nod in VR becomes the nod gesture, once, and never when looking up 
     assert.equal(quiet.socket.sent.filter(m => m.gesture === 'nod').length, 0);
 });
 
-test('shared music needs consent: nothing loads until Listen along, and the host is exempt', () => {
+test('shared music plays automatically for guests, and the host is exempt', () => {
     const { mp, club } = connectedController(undefined, { hostId: 'p1' });
     const started = [];
     club.startAudioStream = url => { started.push(url); return Promise.resolve(); };
     mp._applyMusic({ url: 'https://stream.example/a.mp3', playing: true, position: 0, updatedAt: Date.now() });
-    assert.deepEqual(plain(started), []);
-    assert.deepEqual(plain(mp.pendingMusicInfo()), { origin: 'stream.example', playing: true });
-    mp.acceptListenAlong();
     assert.deepEqual(plain(started), ['https://stream.example/a.mp3']);
     assert.equal(mp.pendingMusicInfo(), null);
     mp._applyMusic({ url: 'javascript:alert(1)', playing: true });
@@ -463,7 +526,7 @@ class MusicConnection {
     async addIceCandidate(candidate) { (this.ice ||= []).push(candidate); }
 }
 
-test('local music is host-only, consent-gated and independent of microphone muting', async () => {
+test('local music is host-only, automatic for room guests and independent of microphone muting', async () => {
     const { client, context, socket } = (() => {
         const env = load();
         const client = new env.NetworkClient({ serverUrl: 'wss://relay.example' });
@@ -474,7 +537,6 @@ test('local music is host-only, consent-gated and independent of microphone muti
     const track = { id: 'music' };
     const stream = { getAudioTracks: () => [track] };
     client.setLocalMusic(stream, { playing: true, title: 'Local file' });
-    assert.equal(client.peers.get('p1').musicPc, undefined);
     assert.equal(socket.last('rtc-signal').signal.channel, 'music');
     await client._onSignal('p1', { channel: 'music', kind: 'listen', enabled: true });
     const pc = client.peers.get('p1').musicPc;
@@ -491,7 +553,7 @@ test('local music is host-only, consent-gated and independent of microphone muti
     assert.equal(client.musicStream, null);
 });
 
-test('broadcast offers and ICE require consent and the current visible host; ICE before SDP is queued', async () => {
+test('broadcast offers and ICE require the current visible host; ICE before SDP is queued', async () => {
     const env = load();
     env.context.RTCPeerConnection = MusicConnection;
     const client = new env.NetworkClient({ serverUrl: 'wss://relay.example' });
@@ -517,7 +579,7 @@ test('broadcast offers and ICE require consent and the current visible host; ICE
     assert.equal(client.peers.get('host').musicPc, null);
 });
 
-test('broadcast metadata uses the existing Listen along surfaces, stops on block and does not enter voice audio', async () => {
+test('broadcast metadata automatically starts listening, stops on block and does not enter voice audio', async () => {
     const { mp, club, socket } = connectedController(undefined, { hostId: 'p1' });
     club._ensureAudioContext = () => {};
     club._stopSoundCloudPlayer = () => {};
@@ -526,10 +588,7 @@ test('broadcast metadata uses the existing Listen along surfaces, stops on block
     club.stopNetworkMusic = remote => { remote.stopped = true; };
     mp.client.onRemoteStream = () => assert.fail('music must not be attached as voice');
     await mp.client._onSignal('p1', { channel: 'music', kind: 'state', available: true, playing: true, title: 'A.wav' });
-    assert.match(mp.pendingMusicInfo().origin, /WebRTC.*IP/);
-    mp.client.onRemoteMusic('p1', {});
-    assert.equal(played.length, 0);
-    mp.acceptListenAlong();
+    assert.equal(mp.pendingMusicInfo(), null);
     assert.equal(socket.last('rtc-signal').signal.kind, 'listen');
     mp.client.onRemoteMusic('p1', {});
     assert.equal(played.length, 1);
@@ -562,7 +621,7 @@ test('host audio capture reuses one raw-source destination, keeps pauses availab
     assert.equal(mp.client.musicState.available, false);
 });
 
-test('host handover clears the old broadcast and requires new consent even when the guest still follows a host', async () => {
+test('host handover clears the old broadcast and automatically follows the new host', async () => {
     const { mp, club, socket } = connectedController([
         { id: 'p1', pid: PID_B }, { id: 'p2', pid: 'c'.repeat(16) }
     ], { hostId: 'p1' });
@@ -571,22 +630,21 @@ test('host handover clears the old broadcast and requires new consent even when 
     club.startNetworkMusic = () => ({ gain: { gain: { value: 1 } } });
     club.stopNetworkMusic = remote => { remote.stopped = true; };
     await mp.client._onSignal('p1', { channel: 'music', kind: 'state', available: true, playing: true });
-    mp.acceptListenAlong();
     mp.client.onRemoteMusic('p1', {});
     const remote = mp._remoteMusic;
     socket.receive({ type: 'host', id: 'p2' });
     assert.equal(mp.following, true);
     assert.equal(remote.stopped, true);
-    assert.equal(mp.listenAlong, false);
+    assert.equal(mp.listenAlong, true);
     assert.equal(mp._broadcastState, null);
     await mp.client._onSignal('p1', { channel: 'music', kind: 'state', available: true, playing: true });
-    assert.equal(mp.pendingMusic, null, 'old host cannot announce a broadcast');
+    assert.equal(mp._broadcastState, null, 'old host cannot announce a broadcast');
     await mp.client._onSignal('p2', { channel: 'music', kind: 'state', available: true, playing: true });
-    assert.equal(mp.pendingMusic.broadcast, true);
+    assert.equal(mp._broadcastState.available, true);
 });
 
-test('a late joiner is offered the paused local file immediately, without starting a music connection', () => {
-    const { mp, club, socket } = connectedController([]);
+test('a late joiner is offered and connected to the host local file immediately', () => {
+    const { club, socket } = connectedController([]);
     const stream = { getAudioTracks: () => [], getTracks: () => [] };
     club.audioContext = { createMediaStreamDestination: () => ({ stream, disconnect() {} }) };
     club.audioSource = { connect() {}, disconnect() {} };
@@ -599,7 +657,6 @@ test('a late joiner is offered the paused local file immediately, without starti
     assert.equal(message.signal.available, true);
     assert.equal(message.signal.playing, false);
     assert.equal(message.signal.title, 'Paused local file');
-    assert.equal(mp.client.peers.get('p1').musicPc, undefined);
 });
 
 test('dispose releases the session and detaches from the club', () => {
@@ -610,7 +667,7 @@ test('dispose releases the session and detaches from the club', () => {
 });
 
 test('the VR menu and the DOM panel only call the controller; neither writes a block or a kick itself', () => {
-    const vr = readFileSync(join(ROOT, 'js/club/10-ui.js'), 'utf8');
+    const vr = readClubSource(join(ROOT, 'js/club/10-ui.js'));
     const dom = readFileSync(join(ROOT, 'js/ui-init.js'), 'utf8');
     const start = vr.indexOf('_runVRNetworkAction');
     assert.ok(start > 0);
@@ -629,8 +686,10 @@ function fakeRig(club) {
     const calls = [];
     club.vjManualMode = false;
     club.showDirector = {
+        program: 'nocturne',
         follower: false,
         enabled: true,
+        setProgram(program) { this.program = program; },
         setFollower(on) { this.follower = on; },
         isDriving() { return this.enabled && !club.vjManualMode; },
         snapshot() { return { mv: 'pulse', cue: 1, cb: 2, sp: null, spt: null, spb: 0, bib: 0, bar: 8 }; },
@@ -644,6 +703,333 @@ function fakeRig(club) {
     };
     return calls;
 }
+
+function spotController() {
+    const env = makeController();
+    fakeRig(env.club);
+    env.context.VRClubAnimationCore = class {};
+    vm.runInContext(readFileSync(join(ROOT, 'js/club/08-animation-fixtures.js'), 'utf8'), env.context);
+    env.context.VRClubAnimationFinish = class extends env.window.VRClubAnimationFixtures {
+        static STROBE_PATTERNS = ['all', 'chase'];
+    };
+    vm.runInContext(readClubSource(join(ROOT, 'js/club/10-ui.js')), env.context);
+    env.club.spotRigBeat = env.window.VRClubAnimationFixtures.prototype.spotRigBeat;
+    env.club.spotSequenceBeat = env.window.VRClubAnimationFixtures.prototype.spotSequenceBeat;
+    env.club.resetSpotRig = env.window.VRClubUI.prototype.resetSpotRig;
+    env.club.resetSpotRig();
+    env.club.vjBPM = 120;
+    env.club.vjDirector.beatNumber = 300;
+    env.club.barPhase = 0.125;
+    return env;
+}
+
+test('spot rig: real relay sanitization retains every head and the timestamped beat in automatic and manual frames', async () => {
+    const { sanitizeShow, MAX_SHOW_FIXTURES } = await import('../worker/src/relay.js');
+    const { mp, club } = spotController();
+    mp.connect({ serverUrl: 'wss://relay.example', room: 'r' });
+    const socket = FakeSocket.instances.at(-1);
+    socket.receive({ type: 'welcome', id: 'me', hostId: 'me', peers: [{ id: 'p1', name: 'Bo' }] });
+    club.spotSequence = 4;
+    club.spotHead0Color = 2;
+    club.spotHead3Enabled = false;
+    club.spotHead5Motion = 1;
+    club.spotPrismActive = true;
+    for (const manual of [false, true]) {
+        club.vjManualMode = manual;
+        const frame = mp._buildShowFrame();
+        const retained = sanitizeShow(frame);
+        assert.equal(retained.m, manual ? 'manual' : 'show');
+        assert.equal(retained.fx.spotSequence, 4);
+        assert.equal(retained.fx.spotHead0Color, 2);
+        assert.equal(retained.fx.spotHead3Enabled, false);
+        assert.equal(retained.fx.spotHead5Motion, 1);
+        assert.equal(retained.fx.spotPrismActive, true);
+        assert.equal(retained.fx.spotSequenceBeat, 300.5);
+        assert.equal(retained.fx.spotSequenceBpm, 120);
+        assert.equal(retained.fx.spotSequenceAt, frame.fx.spotSequenceAt, 'numeric epoch milliseconds would be clamped by the relay');
+        assert.ok(Object.keys(retained.fx).length <= MAX_SHOW_FIXTURES);
+    }
+    mp.disconnect();
+});
+
+test('spot rig: shared frames retain the rendered sequence phase after a missed detector beat', async () => {
+    const { sanitizeShow } = await import('../worker/src/relay.js');
+    const { mp, club } = spotController();
+    mp.connect({ serverUrl: 'wss://relay.example', room: 'r' });
+    FakeSocket.instances.at(-1).receive({ type: 'welcome', id: 'me', hostId: 'me', peers: [{ id: 'p1', name: 'Bo' }] });
+    club.spotSequence = 4;
+    club._spotSequenceClock = { sequence: 4, beat: 301.5, time: performance.now() / 1000 };
+    const frame = sanitizeShow(mp._buildShowFrame());
+    assert.ok(Math.abs(frame.fx.spotSequenceBeat - 301.5) < 0.05, 'published the stalled detector instead of the visible row phase');
+    mp.disconnect();
+});
+
+test('aesthetic program and sheet settings survive relay sanitization in both show modes', async () => {
+    const { sanitizeShow } = await import('../worker/src/relay.js');
+    const { mp, club } = connectedController();
+    fakeRig(club);
+    club.showDirector.program = 'aesthetic';
+    club.laserSheetSpeed = 1.5;
+    club.laserSheetBrightness = 0.25;
+    Object.assign(club, { spotBrightness: 0.5, laserBrightness: 2, ledWallBrightness: 1.5 });
+    for (const manual of [false, true]) {
+        club.vjManualMode = manual;
+        const frame = sanitizeShow(mp._buildShowFrame());
+        assert.equal(frame.fx.showProgram, 'aesthetic');
+        assert.equal(frame.fx.laserSheetSpeed, 1.5);
+        assert.equal(frame.fx.laserSheetBrightness, 0.25);
+        assert.equal(frame.fx.spotBrightness, 0.5);
+        assert.equal(frame.fx.laserBrightness, 2);
+        assert.equal(frame.fx.ledWallBrightness, 1.5);
+    }
+    mp._applyFixtures({ laserSheetSpeed: 100, laserSheetBrightness: -2 }, true);
+    assert.equal(club.laserSheetSpeed, 2);
+    assert.equal(club.laserSheetBrightness, 0);
+    mp._applyFixtures({ spotBrightness: 9, laserBrightness: -1, ledWallBrightness: 1.75, laserSheetBrightness: 3 }, true);
+    assert.equal(club.spotBrightness, 2);
+    assert.equal(club.laserBrightness, 0);
+    assert.equal(club.ledWallBrightness, 1.75);
+    assert.equal(club.laserSheetBrightness, 3);
+});
+
+test('aesthetic program switches force cue application, promotion retains it and departure restores local sheet settings', () => {
+    const { mp, club } = spotController();
+    const calls = [];
+    club.showDirector.program = 'nocturne';
+    club.showDirector.setProgram = function (program) { this.program = program; };
+    club.showDirector.applyRemote = (frame, force) => calls.push(force);
+    club.laserSheetSpeed = 0.5;
+    club.laserSheetBrightness = 0.75;
+    club.spotBrightness = 0.5;
+    mp.connect({ serverUrl: 'wss://relay.example', room: 'r' });
+    const socket = FakeSocket.instances.at(-1);
+    socket.receive({ type: 'welcome', id: 'me', hostId: 'p1', peers: [{ id: 'p1', name: 'Host' }] });
+    const frame = { type: 'show', m: 'show', mv: 'arrival', cue: 0,
+        fx: { showProgram: 'aesthetic', laserSheetSpeed: 2, laserSheetBrightness: 0.25, spotBrightness: 2 } };
+    socket.receive({ ...frame, fx: { ...frame.fx, showProgram: 'nocturne' } });
+    socket.receive(frame);
+    assert.equal(calls.at(-1), true, 'a program change reapplies even the same movement and cue index');
+    assert.equal(club.showDirector.program, 'aesthetic');
+    mp.disconnect();
+    assert.equal(club.showDirector.program, 'nocturne');
+    assert.equal(club.laserSheetSpeed, 0.5);
+    assert.equal(club.laserSheetBrightness, 0.75);
+    assert.equal(club.spotBrightness, 0.5);
+    mp.connect({ serverUrl: 'wss://relay.example', room: 'r' });
+    const next = FakeSocket.instances.at(-1);
+    next.receive({ type: 'welcome', id: 'me', hostId: 'p1', peers: [{ id: 'p1', name: 'Host' }] });
+    next.receive(frame);
+    next.receive({ type: 'host', id: 'me' });
+    assert.equal(club.showDirector.program, 'aesthetic');
+    assert.equal(club.laserSheetSpeed, 2);
+    assert.equal(club.laserSheetBrightness, 0.25);
+    assert.equal(club.spotBrightness, 2);
+    mp.disconnect();
+});
+
+test('row choreography: steady grouped aims and individual overrides retain the host clock through the real relay sanitizer', async () => {
+    const { sanitizeShow } = await import('../worker/src/relay.js');
+    const { mp, club } = spotController();
+    mp.connect({ serverUrl: 'wss://relay.example', room: 'r' });
+    const socket = FakeSocket.instances.at(-1);
+    socket.receive({ type: 'welcome', id: 'me', hostId: 'me', peers: [{ id: 'p1', name: 'Bo' }] });
+    club.spotlightPattern = 0;
+    assert.equal(mp._buildShowFrame().fx.spotSequenceAt, undefined);
+    for (const manual of [false, true]) {
+        club.vjManualMode = manual;
+        for (const individual of [false, true]) {
+            club.spotlightPattern = individual ? 0 : 5;
+            club.spotHead0Motion = individual ? 7 : 0;
+            const frame = sanitizeShow(mp._buildShowFrame());
+            assert.equal(frame.fx.spotSequence, 0);
+            assert.equal(frame.fx.spotSequenceBeat, 300.5);
+            assert.equal(frame.fx.spotSequenceBpm, 120);
+            assert.equal(frame.fx.spotSequenceAt.length, 24);
+            assert.equal(frame.fx.spotHead0Motion, individual ? 7 : 0);
+        }
+    }
+    mp.disconnect();
+});
+
+test('spot rig: a late welcome applies groups without overriding automatic fixtures; leaving restores local groups', () => {
+    const { mp, club } = spotController();
+    club.spotPrismActive = false;
+    club.spotHead0Color = 3;
+    club.lightsActive = true;
+    mp.connect({ serverUrl: 'wss://relay.example', room: 'r' });
+    const socket = FakeSocket.instances.at(-1);
+    socket.receive({ type: 'welcome', id: 'me', hostId: 'p1', peers: [{ id: 'p1', name: 'Host' }],
+        show: { m: 'show', mv: 'pulse', cue: 1, fx: {
+            spotSequence: 2, spotSequenceRate: 4, spotHead0Enabled: false, spotHead0Color: 2,
+            spotHead5Motion: 1, spotPrismActive: true, goboEnabled: true, goboPatternIndex: 2,
+            lightsActive: false, spotlightPattern: 3,
+            spotSequenceBeat: 17.5, spotSequenceAt: new Date().toISOString(), spotSequenceBpm: 180
+        } } });
+    assert.equal(club.spotSequence, 2);
+    assert.equal(club.spotHead0Enabled, false);
+    assert.equal(club.spotHead0Color, 2);
+    assert.equal(club.spotHead5Motion, 1);
+    assert.equal(club.spotPrismActive, true);
+    assert.equal(club.goboEnabled, undefined);
+    assert.equal(club.lightsActive, true, 'the extra group metadata overrode an automatic cue');
+    assert.ok(club._spotRemoteBeat >= 17.5 && club._spotRemoteBeat < 17.7);
+    assert.equal(club._spotRemoteBpm, 180, 'a guest not listening to host music still needs the same sequence cadence');
+    mp.disconnect();
+    assert.equal(club.spotSequence, 0);
+    assert.equal(club.spotHead0Color, 3);
+    assert.equal(club.spotHead0Enabled, true);
+    assert.equal(club.spotPrismActive, false);
+});
+
+test('automatic show master follows the host, survives promotion, and restores after leaving', async () => {
+    const { sanitizeShow } = await import('../worker/src/relay.js');
+    const { mp, club } = spotController();
+    club.vjDirector.showMasterIntensity = 0.7;
+    mp.connect({ serverUrl: 'wss://relay.example', room: 'r' });
+    const socket = FakeSocket.instances.at(-1);
+    socket.receive({ type: 'welcome', id: 'me', hostId: 'p1', peers: [{ id: 'p1', name: 'Host' }] });
+    socket.receive({ type: 'show', m: 'show', mv: 'pulse', cue: 1, fx: { vjMaster: 0 } });
+    assert.equal(club.vjDirector.showMasterIntensity, 0);
+    socket.receive({ type: 'show', m: 'show', mv: 'pulse', cue: 1, fx: {} });
+    assert.equal(club.vjDirector.showMasterIntensity, 1, 'older hosts default to full show master');
+    socket.receive({ type: 'show', m: 'show', mv: 'pulse', cue: 1, fx: { vjMaster: 0.4 } });
+    socket.receive({ type: 'host', id: 'me' });
+    assert.equal(club.vjDirector.showMasterIntensity, 0.4);
+    assert.equal(sanitizeShow(mp._buildShowFrame()).fx.vjMaster, 0.4);
+    socket.receive({ type: 'host', id: 'p1' });
+    socket.receive({ type: 'show', m: 'show', mv: 'pulse', cue: 1, fx: { vjMaster: 0.2 } });
+    mp.disconnect();
+    assert.equal(club.vjDirector.showMasterIntensity, 0.4, 'leaving restores the pre-following level');
+});
+
+test('spot rig: promotion preserves the visible sequence phase and settings; old hosts and malformed values cannot leave stale overrides', () => {
+    const { mp, club } = spotController();
+    mp.connect({ serverUrl: 'wss://relay.example', room: 'r' });
+    const socket = FakeSocket.instances.at(-1);
+    socket.receive({ type: 'welcome', id: 'me', hostId: 'p1', peers: [{ id: 'p1', name: 'Host' }] });
+    socket.receive({ type: 'show', m: 'manual', fx: {
+        spotSequence: 3, spotSequenceRate: 4, spotHead5Color: 8, spotHead5Motion: 1,
+        spotHead0Enabled: 'false', spotHead0Color: '2', spotHead0Motion: NaN,
+        spotSequenceBeat: 17.5, spotSequenceAt: new Date().toISOString()
+    } });
+    assert.equal(club.spotHead0Enabled, true);
+    assert.equal(club.spotHead0Color, -1);
+    assert.equal(club.spotHead0Motion, 0);
+    const before = club.spotRigBeat();
+    socket.receive({ type: 'host', id: 'me' });
+    assert.ok(Math.abs(club.spotRigBeat() - before) < 0.01, 'handover jumped to an unrelated local beat count');
+    assert.equal(club.spotSequence, 3);
+    assert.equal(club.spotHead5Color, 8);
+    socket.receive({ type: 'host', id: 'p1' });
+    socket.receive({ type: 'show', m: 'manual', fx: { spotlightPattern: 1 } });
+    assert.equal(club.spotSequence, 0);
+    assert.equal(club.spotHead5Color, -1);
+    assert.equal(club.spotPrismActive, false);
+    mp.disconnect();
+});
+
+function attachPerformance(env) {
+    env.context.localStorage = env.storage;
+    env.context.VRClubUI = class {};
+    for (const file of ['js/club/01-core.js', 'js/club/11-audio-crowd.js']) {
+        vm.runInContext(readClubSource(join(ROOT, file)), env.context, { filename: file });
+    }
+    const proto = env.window.VRClubAudioCrowd.prototype;
+    for (const name of ['_djEffectsState', 'djEffectsSnapshot', '_applySharedDJEffects', 'resetDJEffects',
+        'isPeopleVisible', 'setRoomDJVisible', 'setPeopleVisible', 'togglePeopleVisible', '_persistPeopleVisibility',
+        'applyPeopleVisibility', '_applyDJVisibility']) env.club[name] = proto[name];
+    Object.assign(env.club, {
+        peopleVisibility: { dancers: true, bystanders: true, dj: true },
+        isFollowingHost: () => env.mp.following,
+        _writeDJEffects() { this.effectWrites = (this.effectWrites || 0) + 1; },
+        _applyCrowdSize() {},
+        _refreshVRQuickMenu() {}
+    });
+    fakeRig(env.club);
+    return env;
+}
+
+test('room DJ and all nine audio controls travel in automatic and manual frames and changes publish within the existing limit', () => {
+    const env = attachPerformance(connectedController());
+    const { mp, club, socket } = env;
+    const names = Object.keys(env.window.VRClubAudioCrowd.DJ_EFFECT_DEFAULTS);
+    assert.equal(names.length, 9);
+    club._applySharedDJEffects(Object.fromEntries(names.map((name, index) => [name, (index + 1) / 10])));
+    club.setPeopleVisible('dj', false);
+    mp._syncShared(1000);
+    assert.equal(socket.last('show').dj, false);
+    assert.deepEqual(plain(socket.last('show').audioFx), plain(club.djEffectsSnapshot()));
+    club._applySharedDJEffects({ lowpass: 0.9, channel: 0 });
+    mp._syncShared(1100);
+    assert.equal(socket.last('show').audioFx.channel, 0.9, 'the existing publication rate is respected');
+    mp._syncShared(1400);
+    assert.equal(socket.last('show').audioFx.channel, 0);
+    assert.equal(socket.last('show').audioFx.lowpass, 0.9, 'an effect-only change does not wait for a bar or heartbeat');
+    club.vjManualMode = true;
+    club.setPeopleVisible('dj', true);
+    mp._syncShared(1800);
+    assert.equal(socket.last('show').m, 'manual');
+    assert.equal(socket.last('show').dj, true);
+    assert.deepEqual(plain(socket.last('show').audioFx), plain(env.window.VRClubAudioCrowd.DJ_EFFECT_DEFAULTS));
+});
+
+test('followers adopt room performance without persisting the host DJ choice, restore on leaving, and keep effects on promotion', () => {
+    const env = attachPerformance(connectedController(undefined, { hostId: 'p1' }));
+    const { club, mp, socket, storage } = env;
+    club._applySharedDJEffects({ lowpass: 0.2, channel: 0.8 });
+    mp._roleApplied = null;
+    mp._syncRole();
+    const saved = club.djEffectsSnapshot();
+    const send = (dj, audioFx) => socket.receive({ type: 'show', m: 'show', mv: 'pulse', cue: 1, dj, audioFx });
+    send(false, { lowpass: 0.75, channel: 0.4, arbitrary: 1, echo: '1' });
+    assert.equal(club.isPeopleVisible('dj'), false);
+    assert.equal(club.peopleVisibility.dj, true);
+    assert.equal(club._djEffects.lowpass, 0.75);
+    assert.equal(club._djEffects.channel, 0.4);
+    assert.equal(club._djEffects.echo, 0);
+    assert.equal(Object.hasOwn(club._djEffects, 'arbitrary'), false);
+    club.setPeopleVisible('bystanders', false);
+    assert.equal(storage.getItem('vrclub.hiddenPeople'), 'bystanders', 'the host absence never enters a personal preference');
+    club.setPeopleVisible('dj', false);
+    send(true, { lowpass: 0.5, channel: 0.6 });
+    assert.equal(club.isPeopleVisible('dj'), false, 'a personal hide wins when the host returns the DJ');
+    club.setPeopleVisible('dj', true);
+    assert.equal(club.isPeopleVisible('dj'), true);
+    assert.equal(club._djEffects.channel, 0.6, 'personal visibility changes cannot clear the host effects');
+    socket.receive({ type: 'show', m: 'show', mv: 'pulse', cue: 1 });
+    assert.equal(club._roomDJVisible, null, 'an older host does not leave a stale DJ override');
+    assert.deepEqual(plain(club.djEffectsSnapshot()), plain(saved));
+    send(false, { lowpass: 0.9, channel: 0.3 });
+    socket.receive({ type: 'host', id: 'me' });
+    assert.equal(club._roomDJVisible, null);
+    assert.equal(club.isPeopleVisible('dj'), true, 'the new host decides presence from their own preference');
+    assert.equal(club._djEffects.channel, 0.3, 'handover keeps the heard effects');
+    assert.equal(mp._buildShowFrame().audioFx.lowpass, 0.9);
+    mp.disconnect();
+});
+
+test('disconnecting or blocking the host restores the local effects and DJ preference, and late welcome frames apply performance', () => {
+    for (const action of ['disconnect', 'block']) {
+        const env = attachPerformance(makeController());
+        const { club, mp } = env;
+        club._applySharedDJEffects({ channel: 0.8 });
+        mp.connect({ serverUrl: 'wss://relay.example', room: 'r' });
+        const socket = FakeSocket.instances.at(-1);
+        socket.receive({ type: 'welcome', id: 'me', pid: PID_A, hostId: 'p1',
+            peers: [{ id: 'p1', pid: PID_B, name: 'Bo', avatar: 'm1' }],
+            show: { m: 'show', mv: 'pulse', cue: 1, dj: false, audioFx: { channel: 0.3 } } });
+        assert.equal(club.isPeopleVisible('dj'), false);
+        assert.equal(club._djEffects.channel, 0.3);
+        if (action === 'disconnect') mp.disconnect();
+        else mp.blockPeer('p1');
+        assert.equal(mp.following, false);
+        assert.equal(club.isPeopleVisible('dj'), true);
+        assert.equal(club._djEffects.channel, 0.8);
+        socket.receive({ type: 'show', m: 'show', dj: false, audioFx: { channel: 0 } });
+        assert.equal(club._djEffects.channel, 0.8, 'an unfollowed host cannot change restored settings');
+        mp.disconnect();
+    }
+});
 
 test('the host publishes the show on change, on every bar, and on a heartbeat, but not faster than the relay allows', () => {
     const { mp, socket, club } = connectedController();
@@ -682,7 +1068,9 @@ test('under manual control the host publishes its console and never the director
     const frame = socket.last('show');
     assert.equal(frame.m, 'manual');
     assert.ok(!('mv' in frame));
-    assert.deepEqual({ ...frame.fx }, { lightsActive: true, lasersActive: false, laserSpeed: 1.5, spotlightMode: 2, ledPattern: 7, vjMaster: 0.8 });
+    assert.deepEqual({ ...frame.fx }, { lightsActive: true, lasersActive: false, laserSpeed: 1.5, spotlightMode: 2, ledPattern: 7, vjMaster: 0.8, spotPrismActive: false,
+        showProgram: 'nocturne', laserSheetSpeed: 1, laserSheetBrightness: 1,
+        spotBrightness: 1, laserBrightness: 1, ledWallBrightness: 1 });
 });
 
 test('a lone host sends nothing, and a newcomer is brought in at once', () => {
@@ -708,6 +1096,35 @@ test('a guest follows the host: its director and colour engine are handed over, 
     assert.equal(mp.following, false);
     assert.equal(club.showDirector.follower, false);
     assert.equal(club.vjDirector.remoteDriven, false);
+});
+
+test('stall doors are shared: the welcome hands over the room\'s doors, a peer\'s push moves one, mine goes out, and leaving resets them', () => {
+    const env = makeController();
+    const doors = [false, false], log = [];
+    env.club.setSharedDoors = list => { log.push(['all', JSON.stringify(list)]); list.forEach((v, i) => { doors[i] = v; }); if (!list.length) doors.fill(false); };
+    env.club.setSharedDoor = (index, shut) => { log.push(['one', index, shut]); doors[index] = shut; };
+    env.mp.connect({ serverUrl: 'wss://relay.example', room: 'r' });
+    const socket = FakeSocket.instances.at(-1);
+    socket.receive({ type: 'welcome', id: 'me', pid: PID_A, avatar: 'f3', hostId: 'p1', locked: false,
+        peers: [{ id: 'p1', pid: PID_B, name: 'Bo', avatar: 'm1' }], doors: [false, true, 'junk', true] });
+    assert.deepEqual(doors, [false, true], 'the welcome carries the room\'s doors, at most the two there are, only true counts');
+    socket.receive({ type: 'door', id: 'p1', door: 0, shut: true });
+    assert.deepEqual(doors, [true, true]);
+    socket.receive({ type: 'door', id: 'stranger', door: 1, shut: false });
+    assert.deepEqual(doors, [true, true], 'a frame from nobody in the room is ignored');
+    for (const bad of [{ door: 2 }, { door: -1 }, { door: 0.5 }, { door: '1' }]) socket.receive({ type: 'door', id: 'p1', shut: true, ...bad });
+    assert.deepEqual(doors, [true, true], 'out-of-range or non-integer doors are ignored');
+    socket.receive({ type: 'door', id: 'p1', door: 0, shut: 'yes' });
+    assert.equal(doors[0], false, 'only true shuts a door');
+    // Pushing one myself is sent to the relay.
+    assert.equal(env.mp.client.sendDoor(1, true), true);
+    assert.deepEqual(plain(socket.sent.at(-1)), { type: 'door', door: 1, shut: true });
+    assert.equal(env.mp.client.sendDoor(2, true), false);
+    assert.equal(env.mp.client.sendDoor(0, 'x'), true);
+    assert.equal(socket.sent.at(-1).shut, false);
+    // Out of the room the doors are ajar again.
+    env.mp.disconnect();
+    assert.deepEqual(doors, [false, false]);
 });
 
 test('a guest applies the host\'s show frames: the first one forces the look, the colour is always adopted', () => {
@@ -777,7 +1194,7 @@ test('a guest\'s mode is re-asserted every frame, so a stray local change cannot
     assert.equal(club.vjManualMode, false);
 });
 
-test('every host music source requires consent and the host clock uses the measured offset', async () => {
+test('every host music source plays automatically for guests and the host clock uses the measured offset', async () => {
     const { mp, club, socket, window } = connectedController(undefined, { hostId: 'p1' });
     const started = [];
     const el = { src: '', paused: true, duration: 3000, currentTime: 0, play() { this.paused = false; return Promise.resolve(); }, pause() { this.paused = true; } };
@@ -789,24 +1206,16 @@ test('every host music source requires consent and the host clock uses the measu
     mp.client.serverOffset = 5000;
     const updatedAt = Date.now() + 5000 - 10000; // stamped 10 s ago, on the relay's clock
     socket.receive({ type: 'music', url: 'https://mcdn.podbean.com/ep.mp3', playing: true, position: 100, updatedAt, podcast: 'colourizon', title: 'Colourizon 168' });
-    assert.equal(started.length, 0, 'even a historical podcast source needs consent');
-    mp.listenAlong = true;
-    mp._applyMusic(mp.pendingMusic);
     await Promise.resolve(); await Promise.resolve();
     assert.deepEqual(plain(started), [['https://mcdn.podbean.com/ep.mp3', true]]);
     assert.ok(Math.abs(el.currentTime - 110) < 1, `the guest joined at ${el.currentTime}s instead of 110s`);
     assert.equal(club.nowPlayingLabel, 'Colourizon 168');
     assert.equal(club.dj, undefined, 'music does not change the local generic DJ');
     assert.equal(mp.pendingMusicInfo(), null);
-    mp.listenAlong = false;
 
     socket.receive({ type: 'music', url: 'https://unknown.example/live.mp3', playing: true, position: 0, updatedAt: Date.now() + 5000 });
-    assert.equal(plain(started).length, 1);
-    assert.equal(mp.pendingMusicInfo().origin, 'unknown.example');
-
-    // A look-alike path on someone else's host is not the club's relay.
-    socket.receive({ type: 'music', url: 'https://evil.example/podcast/colourizon/stream/a.mp3', playing: true, position: 0, updatedAt: Date.now() + 5000 });
-    assert.equal(plain(started).length, 1);
+    await Promise.resolve(); await Promise.resolve();
+    assert.equal(plain(started).length, 2);
 });
 
 test('the track position follows the host: a drift of a second is corrected, a small one is left alone, a live stream is never sought', async () => {
@@ -857,6 +1266,9 @@ test('rooms: six digits open a private room, any other text is a room name, invi
     assert.equal(mp.joinRoom('482913'), true);
     assert.match(FakeSocket.instances.at(-1).url, /room=private-482913/);
     assert.equal(mp.inviteUrl(), 'https://my-pwa-apps.github.io/VRCLUB-2/?room=private-482913');
+    assert.equal(ClubMultiplayer.inviteRoomFromLocation('?room=482913'), 'private-482913');
+    assert.equal(ClubMultiplayer.inviteRoomFromLocation('?room=afterhours'), 'afterhours');
+    assert.equal(ClubMultiplayer.inviteRoomFromLocation(''), null);
 });
 
 test('the host is named in the status, and a guest is told whose room it is', () => {
@@ -961,7 +1373,7 @@ test('disposing the multiplayer controller aborts an outstanding room lookup', a
 test('every room-browser page fits all twelve VR slots including navigation and close', () => {
     const { mp, context, window } = makeController();
     context.VRClubAnimationFinish = class {};
-    vm.runInContext(readFileSync(join(ROOT, 'js/club/10-ui.js'), 'utf8'), context);
+    vm.runInContext(readClubSource(join(ROOT, 'js/club/10-ui.js')), context);
     const ui = Object.create(window.VRClubUI.prototype);
     ui._multiplayer = () => mp;
     const common = { back: { action: 'back' }, close: { action: 'close' } };
@@ -981,7 +1393,7 @@ test('every room-browser page fits all twelve VR slots including navigation and 
 });
 
 test('every control that changes the room\'s music or lights is gated for a guest, on every surface', () => {
-    const ui = readFileSync(join(ROOT, 'js/club/10-ui.js'), 'utf8');
+    const ui = readClubSource(join(ROOT, 'js/club/10-ui.js'));
     const dom = readFileSync(join(ROOT, 'js/ui-init.js'), 'utf8');
     const podcasts = readFileSync(join(ROOT, 'js/podcasts.js'), 'utf8');
     const body = (source, signature) => {
@@ -989,8 +1401,10 @@ test('every control that changes the room\'s music or lights is gated for a gues
         assert.ok(start >= 0, `${signature} not found`);
         return source.slice(start, source.indexOf('\n    }\n', start));
     };
-    for (const [name, what] of [['seekAudioTo(seconds) {', 'music'], ['toggleAudioPlayback() {', 'music'], ['_beginVRSeek(pickResult) {', 'music'],
-        ['async _runVRMusicAction(button) {', 'music']]) {
+    for (const [name, what] of [['seekAudioTo(seconds) {', 'music'], ['setAudioPlayback(playing) {', 'music'],
+        ['toggleAudioPlayback() {', 'music'], ['stopAudioPlayback() {', 'music'], ['async stepAudioSource(delta) {', 'music'],
+        ['async startAudioFolder(fileList, options = {}) {', 'music'], ['_beginVRSeek(pickResult) {', 'music'],
+        ['async _runVRMusicAction(button) {', 'music'], ['toggleShowLookHold() {', 'lights']]) {
         assert.match(body(ui, name), new RegExp(`guardHostControl\\('${what}'\\)`), `${name} is not gated`);
     }
     const activate = body(ui, '_activateVRQuickMenuButton(button) {');
@@ -1060,6 +1474,63 @@ test('the avatar pool is a remembered preference, sent on joining, and a pool ch
     mp.rerollAvatar();
     assert.equal(socket.last('avatar').pool, 'any');
     assert.ok(ClubMultiplayer.inPool('f1', 'women') && !ClubMultiplayer.inPool('f1', 'men') && ClubMultiplayer.inPool('m9', 'men'));
+});
+
+test('exact character requests survive joining and reconnecting, but self appearance changes only on acknowledgement', () => {
+    const { NetworkClient } = load();
+    const client = new NetworkClient({ serverUrl: 'wss://relay.example', avatar: 'f8', avatarPool: 'men' });
+    for (const id of ['f1', 'f8', 'm1', 'm9']) assert.equal(NetworkClient.isAvatar(id), true);
+    for (const id of ['f0', 'f9', 'm0', 'm10', 'F1', 'f1\n', '__proto__', null]) assert.equal(NetworkClient.isAvatar(id), false);
+    const errors = [], seen = [];
+    client.onError = error => errors.push(error);
+    client.onSelfAvatar = avatar => seen.push(avatar);
+    const socket = welcomed(client, { avatar: 'f8', avatarSelection: true });
+    assert.equal(new URL(socket.url).searchParams.get('avatar'), 'f8');
+    assert.equal(client.requestAvatar('men', 'm9'), true);
+    assert.deepEqual(socket.last('avatar'), { type: 'avatar', pool: 'men', avatar: 'm9' });
+    assert.equal(client.avatar, 'f8', 'do not show a local-only body before the relay agrees');
+    socket.receive({ type: 'avatar', id: 'me', avatar: 'm9' });
+    assert.equal(client.avatar, 'm9');
+    assert.deepEqual(seen, ['f8', 'm9']);
+    socket.receive({ type: 'avatar-error', reason: 'rate-limit' });
+    assert.equal(errors.at(-1).code, 'avatar-rate-limit');
+    assert.equal(client.avatar, 'm9');
+    assert.equal(client.requestAvatar('any', '__proto__'), false);
+    assert.equal(errors.at(-1).code, 'avatar-unknown-character');
+    client.disconnect();
+    const again = welcomed(client, { avatar: 'm9', avatarSelection: true });
+    assert.equal(new URL(again.url).searchParams.get('avatar'), 'm9');
+    client.requestAvatar('any');
+    assert.equal(client.preferredAvatar, null);
+    assert.equal(again.last('avatar').avatar, undefined, 'random choices clear the exact preference');
+    client.disconnect();
+});
+
+test('older relays report unsupported exact selection without pretending to change the body', () => {
+    const { NetworkClient } = load();
+    const client = new NetworkClient({ serverUrl: 'wss://relay.example', avatar: 'm9' });
+    const errors = [];
+    client.onError = error => errors.push(error);
+    const socket = welcomed(client, { avatar: 'f3' });
+    assert.equal(errors.at(-1).code, 'avatar-unsupported');
+    assert.equal(client.avatar, 'f3');
+    assert.equal(client.preferredAvatar, 'm9', 'keep the preference for an updated relay');
+    assert.equal(client.requestAvatar('any', 'f1'), false);
+    assert.equal(socket.last('avatar'), undefined);
+    client.disconnect();
+});
+
+test('a character changed or cleared while connecting is reconciled after welcome', () => {
+    const { NetworkClient } = load();
+    for (const next of ['m9', null]) {
+        const client = new NetworkClient({ serverUrl: 'wss://relay.example', avatar: 'f3' });
+        client.connect();
+        const socket = FakeSocket.instances.at(-1);
+        client.preferredAvatar = next;
+        socket.receive({ type: 'welcome', id: 'me', avatar: 'f3', avatarSelection: true, peers: [] });
+        assert.equal(socket.last('avatar').avatar || null, next);
+        client.disconnect();
+    }
 });
 
 test('a default pool adds nothing to the join URL (older relays see the same request as before)', () => {
@@ -1191,7 +1662,7 @@ test('typed chat: sent cleaned, logged for both sides, counted as unread only wh
 test('chat and microphone audiences are independent and restricted chat fails closed on old relays', () => {
     const { mp, socket, club } = connectedController([
         { id: 'p1', pid: PID_B, name: 'Bo' }, { id: 'p2', pid: 'c'.repeat(16), name: 'Cy' }
-    ], { targetedChat: true });
+    ], { targetedChat: true }, 'private-123456');
     const errors = [];
     club.showErrorMessage = message => errors.push(message);
     mp.setAudience('chat', ['p1', 'p1', 'missing']);
@@ -1219,8 +1690,20 @@ test('chat and microphone audiences are independent and restricted chat fails cl
     assert.deepEqual(plain(mp.voiceAudience), ['p2']);
 });
 
+test('public rooms reject selected chat and voice audiences without changing the room-wide defaults', () => {
+    const { mp, club } = connectedController();
+    const errors = [];
+    club.showErrorMessage = message => errors.push(message);
+    assert.equal(mp.canRestrictAudience(), false);
+    assert.equal(mp.setAudience('chat', ['p1']), false);
+    assert.equal(mp.setAudience('voice', []), false);
+    assert.equal(mp.chatAudience, null);
+    assert.equal(mp.voiceAudience, null);
+    assert.match(errors.at(-1), /private rooms/i);
+});
+
 test('departure, reconnect and room changes never broaden a restricted audience', () => {
-    const { mp, socket, club } = connectedController(undefined, { targetedChat: true });
+    const { mp, socket, club } = connectedController(undefined, { targetedChat: true }, 'private-654321');
     club.showErrorMessage = () => {};
     mp.setAudience('chat', ['p1']);
     mp.setAudience('voice', ['p1']);
@@ -1237,8 +1720,9 @@ test('departure, reconnect and room changes never broaden a restricted audience'
     assert.equal(mp.voiceAudience.length, 0);
     mp.disconnect();
     mp.connect({ room: 'another' });
-    assert.equal(mp.chatAudience.length, 0);
-    assert.equal(mp.client.voiceAudience.size, 0);
+    assert.equal(mp.chatAudience, null, 'public rooms reset chat to the room-visible default');
+    assert.equal(mp.voiceAudience, null, 'public rooms reset voice to the room-visible default');
+    assert.equal(mp.client.voiceAudience, null);
 });
 
 test('a failed microphone restriction closes that voice connection and reports the error without touching music', async () => {

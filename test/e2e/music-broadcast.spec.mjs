@@ -2,6 +2,7 @@ import { test, expect } from '@playwright/test';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { readFileSync } from 'node:fs';
+import { UI_LAYERS, AUDIO_CROWD_LAYERS } from '../club-sources.mjs';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..', '..');
 
@@ -17,7 +18,7 @@ async function prepare(page, id, hostId, peerIds = null) {
         window.CLUB_POSITIONS = { paSpeakers: { left: { x: -6, y: 7.1, z: -16 }, right: { x: 6, y: 7.1, z: -16 } } };
     });
     for (const file of ['js\\audioUtils.js', 'js\\networkClient.js', 'js\\multiplayer.js',
-        'js\\club\\10-ui.js', 'js\\club\\11-audio-crowd.js']) {
+        ...[...UI_LAYERS, ...AUDIO_CROWD_LAYERS].map(name => join('js', 'club', name))]) {
         await page.addScriptTag({ path: join(ROOT, file) });
     }
     await page.evaluate(({ id, hostId, peerIds }) => {
@@ -84,10 +85,6 @@ test('a real local file reaches a consenting guest through WebRTC and the club P
 
         }
         await host.click('#play');
-        await expect.poll(() => guest.evaluate(() => !!window.club.multiplayer.pendingMusic?.broadcast)).toBe(true);
-        expect(await guest.evaluate(() => window.club.multiplayer.client.peers.get('host').musicPc == null)).toBe(true);
-        expect(await guest.evaluate(() => window.level())).toBe(0);
-        await guest.click('#listen');
         await expect.poll(() => guest.evaluate(() => window.level()), { timeout: 20000 }).toBeGreaterThan(0.03);
         const routing = await guest.evaluate(() => ({
             source: window.club._audioKind,

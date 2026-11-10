@@ -18,8 +18,182 @@ kept in lockstep with `index.html`, `sw.js` and `serviceworker.js` by
   allow-list, sanitised names and http(s)-only shared music URLs (requires a relay redeploy).
 - First-party code no longer builds DOM from HTML strings; a contract test forbids it.
 
+### Removed
+
+- **The NOCTURNE logo and the set DJ's name on the LED wall.** The marquee pattern was unreadable on the 21x10 grid and is gone, along with its
+  three show looks (which are back on the aurora, ripple and breathing patterns they used before). The booth DJ still follows the set's gender when
+  the name makes that certain.
+
+### Fixed
+
+- **The bartender's arms no longer cross, and her hands sit naturally.** Her hand targets were fixed points in the room, so whenever she turned (surveying the
+  room, polishing, wiping, talking to the regular) her right hand ended up on her left side: crossed arms, with both palms edge-on. Everything is now placed in her own frame
+  (right hand to her right, left to her left), palms rest flat on the counter or face each other around the glass, she turns at a human pace and settles into each job instead of jumping
+  to it, and when serving the left hand rests beside the glass instead of on it. A test fails if her right hand is ever to the left of her left.
+- **Dancers no longer reset or skip a few frames together.** When the kick dropped out or came back, every dancer changed move on the same frame, and starting that many
+  clips at once (each builds an animatable per bone) was a visible hitch. Each dancer now follows the change after their own short reaction time, at most two clips start in one frame,
+  and a tempo error is caught up by a faster or slower dance instead of a jump to the new position (a jump only happens past nearly a full beat).
+- **A saved Resident episode no longer fails with a CORS error once its link has lapsed.** A Podbean storage link copied from a browser (`sNNN.podbean.com/pb/…?pbss=`) is signed
+  and expires within hours; the expired link is refused without CORS headers, so the set never started. Playing such a link now swaps in the Resident feed's stable link for the same
+  episode, and tries the link as saved if the feed does not list it.
+- **A collapsed or minimised window no longer floods the console with incomplete-framebuffer errors.** The render loop now waits while the canvas has no size.
+- **Walking, you no longer see the back of your character's face, and looking down no longer shows the inside of the torso.** The character's eyes sit a few centimetres
+  in front of its neck, but its body was placed straight under the camera, which put the camera inside the chest, and a walking head sway then flipped the "head hidden"
+  check. The character's eyes are now locked to the camera's position every frame (the head is shown or hidden by the distance to its eyes), so you look out of its head.
+- **Your character no longer stays on the couch when you walk away.** Standing up when you left a seat was part of the old body's update, which stops running while your
+  character is your body, so the seat was never released: your body stayed seated on the couch while you walked around (invisible to you, and missing from the mirror).
+  Leaving the seat's spot now stands you up whichever body is drawn.
+- **The crowd's faces and arms are back.** Rebuilding the crowd's dances ran the avatar optimizer a second time, and it halves every character's triangles on each run (about
+  3,200 down to 800 each), which took the faces and thickened arms in some poses. The people are restored to full detail, the optimizer now only simplifies a character that
+  is still above its target size, and a test fails if a crowd person drops under 2,400 triangles.
+- **Sitting on the couch is a real sit.** Your character (and everyone else's view of you) used the bar-stool posture on the couch: a squat 48 cm above the cushion with
+  arms out in front. Low seats (the couch, the toilets) now have their own seated clip with the pelvis on the cushion, thighs level and hands on the thighs, chosen from the
+  seat height (`seatH`, sent to the relay: **redeploy the relay**; an older relay shows the stool posture). Your own head is also drawn whenever the camera is outside it, so a
+  seated sitter is no longer headless, and the mirror's list is refreshed when your character is rebuilt.
+- **Expanded model credits no longer cover the camera controls on a phone.** The plate grew up over the "Go to" button; on narrow screens it is now a full-width
+  sheet above the control row, scrolling inside if the list is long.
+- **The first trigger pull from the idle hand now clicks in VR.** Babylon only gave the "active" controller a pointer, so the other hand's first pull was spent
+  waking it up. Both hands now have a live pointer, and a drag (seek bar, desk fader) belongs to the pointer that started it, so the idle hand cannot steer or end it.
+- **Desktop reflections no longer get 50% stronger after a VR visit.** The club started at 0.4 and returned from VR at 0.6 (two sources of truth); both now read
+  `vrSettings.desktop.environmentIntensity` (0.4, the look players already knew).
+- **The street's lane lines and crosswalks no longer flicker.** The baked road paint lay exactly on the asphalt (both at the same height), so the two depth-fought, worse with
+  distance: the kerb line broke into dashes and crosswalk stripes came and went. The paint now has a hardware depth bias. Measured with the show pinned, 1 mm of
+  camera movement changed 15.9k pixels of the mid-distance road before and about 1k after (-94%); far view 4.4k -> 0.6k (-87%).
+- **About 2,200 invisible animations ran every frame.** Babylon's glTF loader starts the first clip of every character file on its source skeleton, even in
+  a container nothing draws, and it looped there for ever (17 files, 2,654 active animatables where about 470 belong to visible people). Source clips are
+  now stopped when a file loads. Measured in one session on a desktop CPU: `scene.animate()` 11.8 ms -> 1.4-1.6 ms per call. A Quest CPU is slower, so
+  the saving there should be larger; not yet measured on a headset.
+
+### Changed
+
+- **Three more effects on the desk's FX panel: phaser, noise sweep and gater.** All eight knobs now fit on ONE panel (the knobs are smaller, about 4 cm across; the label and setting sit
+  under each dial). The gater chops in eighth notes of the track's tempo and the noise sweep is a rising band of noise. Both are heard through the PA and leave the light show's
+  analyser untouched. Levels were set by ear on desktop only. (A distortion and a bit crusher were tried and removed.)
+- **Reach in and squeeze a knob or the fader (VR).** Bring a hand within a few centimetres of a knob or the crossfader cap and it lights up and the controller ticks; squeeze to take hold and
+  twist your wrist to turn it (one to one; the trigger as well is fine control), or slide your hand along the slot for the fader. Let go of the squeeze to let go. A / X with a hand on a
+  control resets it. The ray still works for anything out of reach. Not yet tried on a headset.
+- **Your hand is on the knob or the fader while you hold it.** In VR the virtual hand used to hover wherever the ray started, in front of the control. While a knob or the crossfader is held
+  the hand now goes onto it (easing on and off), with the palm resting on the cap and the wrist twist still turning the knob. Other guests and the mirror see it too.
+- **When a stream fails, the club's own set plays instead of silence.** If a saved set cannot start, or a live stream drops and cannot be reconnected, the club's own
+  house set takes over with a short notice; the saved set stays in Music. It does not step in for a blocked autoplay, in someone else's room or when nothing is saved.
+- **The XFADE crossfader has a much shorter throw.** About 9 cm instead of 22 (roughly a quarter of its old travel), with a wider end stop (the last 8% snaps to cut or full), so
+  one flick goes from cut to full and back for a quick mute. The button is narrower and CLEAR FX takes the space.
+- **Your own body is the character in the mirror.** Looking down used to show a different person (the club's default dancer body) from the one in the restroom mirror. Now the
+  character you chose offline, or the one the relay gave you in a room, is your body everywhere in the club: the same instance as the reflection, sized so its eyes sit at
+  your eye height, with its head hidden from your own camera and shown only in the mirror. In a headset your controllers move its arms. With no character chosen the default
+  body is unchanged. Known limits: crouching keeps a standing body, and walking is a speed-matched clip rather than the default body's planted-foot steps.
+- **The FX page's knobs and crossfader are real 3D controls.** Five knobs (a fluted metal cap with a coloured top and a white pointer, turning from 7:30 to 4:30 like a
+  mixer pot) and the crossfader's cap now stand on the panel. They are not in the way of a ray, so twisting and sliding work exactly as before.
+  **A / X with the ray on a knob or the crossfader resets it** (a knob to off, the crossfader to full; anywhere else A / X still jumps), and a right-click does the same
+  on desktop. A held fader is now locked to the controller that grabbed it: sweep past the edge of the panel and it still lands on the end stop; let go of the
+  trigger to unlock. The desk now gives light haptic ticks on the controller that holds a control (taking hold, the end stops, the fader's centre, a reset); that is
+  the only vibration in the club.
+- **The crowd dances more like people.** The dancers' bodies now follow the hips with a small delay (the chest, then the head, then the hands), the bounce falls into
+  the beat and lets go of it slowly instead of following a cosine, and the longer moves are phrases: Bounce, Side tap and Pump are eight beats (the weight and head wander,
+  the bar line is pressed harder, the side tap starts on the other foot in the second bar and the pump changes fists between two beats, with a bent elbow), Twist is four.
+  Each dancer also has a personal lag (up to ~30 ms at 120 BPM) and starts a move on their own beat of its phrase, so the floor is not stepping the same way at the same
+  instant. Claps still meet exactly on the beat, feet stay planted and the loops stay seamless (measured on four real dancers). Authored and checked on desktop renders,
+  not on a headset.
+- **The FX page's MUTE MUSIC button is now a small XFADE crossfader.** A short-throw slider with a wide cap: press or drag along it and the PA level follows at once,
+  snapping to cut and to full at the end stops, with an audio taper (half-way is -12 dB) and a ~25 ms smoothing so a quick slide is a clean cut or swell.
+  CLEAR FX still returns everything to full.
+- **Height changes are smooth, and nobody sinks when they crouch.** A measured height, entering VR or a remote guest's new height now grows or shrinks the person at
+  0.3 m/s instead of jumping (your own body, the restroom mirror double and everyone else's view of you). A remote guest who crouches or sits in a headset stays
+  upright on their floor instead of sinking into it: the relay now forwards a standing guest's floor (`floorY`) as well as a seated one's. **Redeploy the relay**:
+  an older relay strips it and guests fall back to the previous behaviour.
+- **The VR comfort page is split, and choosing a character is a real picker.** Comfort now holds only how you move and see (locomotion, safe mode, quality, auto quality,
+  credits) and a new ME page holds who you are (MY CHARACTER, MEASURE HEIGHT, SEATED MODE). MY CHARACTER opens a two-page grid of all 17 people (women, then men),
+  each labelled with the kind and outfit and the current one lit, instead of a button that stepped through them one at a time.
+- **Notices are calm, failures are red.** Every message used to appear as a red error box announced to screen readers as an assertive alert, including "Standing up"
+  and "Your character: woman". Now failures keep the red alert, and everything else is a small, dark, low-on-screen status in a polite live region
+  (`VRClubUI.toastKind` decides from the wording; `showErrorMessage(message, 'info' | 'error')` can say which).
+- **Quest 1, Quest 2 and Quest Pro start on Balanced.** They have roughly half the GPU of a Quest 3, so a visitor with no saved quality choice now gets the
+  Balanced tier there (6 dancers, 96 mirror spots). Quest 3 and 3S, and any headset that names no model, still start on Ultra, and a saved or in-menu choice
+  always wins. The model comes from the browser's user agent (`VRClubCore.isLegacyQuest`).
+- **People you cannot see are not animated on your device.** Only the pose is held; where people are and what they are doing stays on the normal clocks, so
+  they are in the right place and pose the moment you look. The queue and the bouncer outside are held only when clearly behind you (more than 130 degrees
+  off your gaze and over 4 m away) and resume well before they could enter your view, from the frame they stopped on, so nothing is ever seen frozen. A
+  guest standing on the street while you are deep inside the club (the street is not drawn) is neither drawn nor animated for you, and returns with the
+  right clip. The queue's raw idle clip also lost its finger channels (108 -> 40; the hands keep a relaxed pose).
+- **The DJ monitor speakers are back to their full-detail model.** The simplified copy (10.0k down to 4.3k triangles each) looked worse up close at the DJ table, so the original
+  model is restored and the optimizer no longer simplifies geometry (about +11k triangles in the empty club).
+- **Fewer triangles where nobody can see them.** The truss weld rings and hoist chain links are built with 6 instead of 8 sides (a 6 cm ring with a 7 mm
+  tube, seen from the floor as a speck).
+  The empty club draws about 388k active triangles instead of 429k (-10%) with that change alone. Screenshots from the booth and under the rig look the same.
+
 ### Added
 
+- **Opt-in automatic quality.** VR menu comfort page **AUTO QUALITY** and Show & Lights, Club tab: when frames keep missing the headset's (or screen's)
+  budget for about 15 s, the graphics tier steps down one level for that visit only. It never steps up, never saves the lower tier, pauses on entering
+  or leaving VR and in a hidden tab, and waits 45 s between steps. Off by default.
+- **Frame-time instrumentation.** The render loop now records the frame-interval distribution (p50/p95/p99, share of judder and missed frames against the
+  headset's refresh budget) and the CPU time of the simulation and of draw submission (`club.getPerformanceReport()`, `club.resetFrameStats()`, shown
+  in the `Ctrl+Shift+D` overlay), with draw calls, active triangles, bones, lights and heap. GPU time is not measurable from a page and is not reported.
+  A new `perf-scenarios` spec measures an empty club, lighting, a crowd and a crowd with the show at its peak, on desktop and in the Quest emulator.
+- **Seated mode and height matching.** VR menu, comfort page: **SEATED MODE** lets you sit while your avatar stays standing (your view is lifted to
+  standing eye height, easing in over a few seconds and falling away when you stand), and in standing mode your avatar now takes your real height,
+  estimated as you play or set with **MEASURE HEIGHT** (stand tall for three seconds). Other guests see a person your size (a new optional `eh` field
+  in the relay's state frames: deploy the relay, or they keep seeing the standard 1.7 m), and the restroom mirror shows it too. A short estimate (a
+  sitter without Seated mode) is ignored. The splash is unchanged.
+- **Choose your character offline.** VR menu comfort page **MY CHARACTER** / **PREVIOUS CHARACTER** and Show & Lights, Club tab, **Your character** pick
+  one of the 17 people (the same ones the relay hands out), saved on the device (`vrclub.myCharacter`). Offline, that person is your reflection in the
+  restroom mirror, and the first-person body follows its man/woman (`vrclub.avatarStyle`); in a room the mirror still shows the character the room gave you.
+- **The DJ stage can be walked onto from any side.** Two invisible blocks left over from the old floor-standing speaker stacks stood either side
+  of it and forced guests round by set routes; they are gone. In a headset the stage only counted for a walker already near its top, so you walked
+  into it at floor level and stayed inside it until a jump landed on top: it is now stepped onto (a quick climb) from the floor, and off again,
+  on desktop and in VR.
+- **A livelier restroom.** The end of the aisle carries a backlit NOCTURNE poster, the dividers an event flyer and a hygiene sign, and the stalls a
+  safety poster, marker tags and a few stickers (one painted atlas, `js/restroomArt.js`; kept deliberately sparse), with a waste bin, a wet floor
+  sign and a plunger from Poly Haven (CC0). Fixtures lost their brass look: chrome, plastic dispensers, paper rolls beside each toilet.
+- **Stall doors close, and move by hand.** Sitting on a toilet swings its door shut (with a lamp); standing opens it. Doors stand ajar otherwise
+  and can be pushed shut or ajar with a click or a controller ray (a shut door is solid, except around someone in its doorway), which also lets
+  you clear a door off a mirror. Doors are shared: a seated guest shuts that door for everyone (from the seated state frames), and a hand push is
+  relay-held room state (`{type:'door'}`, late joiners get `welcome.doors`) - **the relay must be deployed** for pushes to be seen by others.
+- **The couch is lit again.** It has its own warm accent light and a brighter albedo (it measured a dark ~8 of 255 against the wall), but still no
+  emission, so it reads as rust-brown leather rather than a glow.
+- **The mirror no longer shakes.** It was drawn twice a frame on desktop and every other frame in a headset (one eye's view for both,
+  trailing the head); it now renders once per eye, every frame, at a sharper antialiased size per tier, and the reflected character
+  is smoothed against headset tremor with hysteresis on walk/idle.
+
+- **The resident DJ moves more like a working DJ.** Jog-wheel movement is now a controlled nudge rather
+  than a continuous circle; knob turns use turn, hold and release phases; two-hand tweaks alternate
+  intent; crowd pumps occur as occasional accents; drop poses alternate arms instead of mirroring; and
+  waves are slower and finite. Beat motion is a short compression just after the beat, with restrained
+  gaze and breathing motion between actions.
+- **Smaller avatars on Quest.** The avatar optimizer now packs skin weights, joint indices and vertex
+  colours into 8-bit accessors, welds the vertex-coloured crowd, simplifies eligible meshes and resamples
+  animation keys while preserving rig height. The 24 shipped `club-*` GLBs total 14.35 MiB after optimization.
+- **Height-aware club acoustics.** The balcony hears the flown PA more directly, the deck and stair
+  soffits muffle the top end and add room, and the bar alcove applies a smaller warm shelf. The existing
+  entrance-stair and street acoustics, beat analysis and sub channel remain unchanged.
+- **The LED wall is now a complete movement and teleport barrier.** A continuous collider overlaps the
+  side-wall volumes, preventing desktop or XR guests from entering the space behind the wall.
+- **Lower-cost Quest rendering defaults.** XR now renders at native framebuffer scale instead of 1.2x
+  supersampling, does not retain an unread drawing buffer, and uses tiered pipeline MSAA defaults:
+  2x on Ultra/High and FXAA-only on Balanced. The `vrclub.vrMsaa` override remains available.
+- **Scripted APK packaging.** `npm run quest:keystore`, `quest:prepare`, `quest:apk`, `quest:doctor` and `quest:art`
+  create the signing key, write the wrapper config (new `--target sidequest` needs no Meta App ID, `--mode immersive`
+  starts the club in VR), build the APK with Meta's Bubblewrap and verify it is signed with the certificate named in
+  `assetlinks.json`, check the deployed site, and draw the SideQuest banner and icon. The generated manifest now sets
+  the fields Bubblewrap's Gradle template needs. Runbook: `docs/QUEST.md`; listing draft: `docs/STORE_LISTING.md`.
+- **A default set, so nobody enters a silent club.** The club now plays its own original house set (3 cycles, 15.5 minutes at
+  124 BPM, 160 kbps joint-stereo, looping) whenever a guest has no music of their own. It is generated by `scripts/build-default-set.mjs` from
+  maths alone (no samples, no third-party material), so it has no licence to honour or credit. It never plays over a
+  saved set, is never saved to your list, and stays quiet in someone else's room. The credits and README say so.
+- **SoundCloud share links.** The Share button in the SoundCloud app copies a short `on.soundcloud.com/<id>` link, which the
+  player refused ("use a link to one SoundCloud track"). The relay now expands it (one redirect, from that one host, and
+  the result must be an ordinary track page) and plays it like any track. Needs the Worker redeployed.
+- **Music from your phone in the headset app.** The immersive app has no keyboard or window to type a link into, so the
+  list of music links now lives on your account and is edited on a phone at `/link/?music=1` (up to eight HTTPS links or
+  SoundCloud tracks). The headset loads it when VR starts, after linking, and from Music, Sources, ADD FROM PHONE, SYNC
+  NOW. The menu buttons that used to leave VR now explain themselves instead. Fixed: after the first-run welcome choice,
+  Y/B reopened the welcome page instead of the menu. Needs migration `0008_account_music.sql` and the Worker redeployed.
+- **Headset pairing and an immersive launch.** A Quest has no keyboard, so a headset can now be linked to an account
+  from a phone: it shows an eight-digit code, the owner enters it at `/link` (verifying their email, redeeming an
+  invitation or buying access there if needed) and the headset enters VR by itself. Started with `?immersive=1`, the
+  club opens straight into VR: a registered headset enters at once, a new guest is asked the photosensitivity question
+  in the headset, and an unlinked headset gets a two-minute free preview and then a veiled pairing screen. Everything
+  falls back to the normal 2D flow. Needs the Worker redeployed and migration `0007_device_links.sql` applied.
 - **The crowd dances, on the beat, in many ways.** Everyone on the floor used to do the same single dance. Now each
   dancer moves between nine moves: the original dance, a knee bounce, side taps, clapping, fist pumps, the twist,
   hands in the air and a slow sway. Every move is locked to the music's beat at any tempo, so knees bend and hands

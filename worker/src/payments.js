@@ -1,4 +1,7 @@
 import { accessSession, accessInfo, accountEntitled, handleRecovery, limit } from './accessRecovery.js';
+import { handleDeviceLink } from './deviceLink.js';
+import { handleMusicSync } from './musicSync.js';
+import { devRoomAccess, DEV_ROOM } from './devRoomAccess.js';
 export { generateNumericCode as generateInvitationCode } from './accessRecovery.js';
 
 const SESSION_COOKIE = 'nocturne_vr_session';
@@ -16,6 +19,18 @@ function corsHeaders(origin, allowedOrigin) {
     return origin && origin === allowedOrigin
         ? { 'access-control-allow-origin': origin, 'access-control-allow-credentials': 'true', vary: 'Origin' }
         : {};
+}
+
+/**
+ * The origin this request may act as. APP_ORIGIN is the main site; EXTRA_APP_ORIGINS (comma-separated) lists further
+ * sites that run the same app, such as the SideQuest build's own host. Only an exact, https, path-less match is used:
+ * anything else falls back to APP_ORIGIN and is then refused by the origin check.
+ */
+export function resolveAppOrigin(env, requestOrigin) {
+    const primary = env.APP_ORIGIN || 'https://nocturne-vr.pages.dev';
+    if (!requestOrigin || requestOrigin === primary) return primary;
+    const extra = String(env.EXTRA_APP_ORIGINS || '').split(',').map(value => value.trim()).filter(Boolean);
+    return extra.includes(requestOrigin) && /^https:\/\/[a-z0-9.-]+$/i.test(requestOrigin) ? requestOrigin : primary;
 }
 
 function normalizeEmail(value) {
@@ -254,6 +269,8 @@ async function legacyAccess(request, env) {
 export async function handlePayments(request, env, appOrigin) {
     const url = new URL(request.url);
     if (!url.pathname.startsWith('/payments/')) return null;
+    // Emails and checkout returns must name the site the guest is actually on.
+    env = { ...env, APP_ORIGIN: appOrigin };
     if (env.STRIPE_MODE === 'live') {
         env = {
             ...env,
@@ -270,10 +287,19 @@ export async function handlePayments(request, env, appOrigin) {
     }
     const isWebhook = url.pathname === '/payments/webhook';
     if (!isWebhook && request.headers.get('Origin') !== appOrigin) return json({ error: 'origin_not_allowed' }, 403, headers);
+    if (url.pathname === '/payments/dev-room') {
+        if (request.method !== 'POST') return json({ error: 'method_not_allowed' }, 405, headers);
+        const denied = await devRoomAccess(request, env);
+        return denied ? json(denied, denied.status, headers) : json({ room: DEV_ROOM }, 200, headers);
+    }
     const recovery = await handleRecovery(request, env, headers, {
         json, readBody: readInvitationBody, normalizeEmail, legacyAccess
     });
     if (recovery) return recovery;
+    const deviceLink = await handleDeviceLink(request, env, headers, { json, readBody: readInvitationBody });
+    if (deviceLink) return deviceLink;
+    const music = await handleMusicSync(request, env, headers, { json });
+    if (music) return music;
 
     if (url.pathname === '/payments/entitlement' && request.method === 'GET') {
         return json(await entitlement(request, env), 200, headers);
@@ -340,14 +366,16 @@ export async function handlePayments(request, env, appOrigin) {
         const body = await request.json().catch(() => null);
         const email = normalizeEmail(body?.email);
         if (!email) return json({ error: 'valid_email_required' }, 400, headers);
+        // Buying from the phone page that pairs a headset returns there, not to the club.
+        const returnPath = body?.returnTo === 'link' ? '/link/' : '/';
         try {
             const session = await stripeRequest('checkout/sessions', {
                 mode: 'payment',
                 'line_items[0][price]': env.STRIPE_PRICE_ID,
                 'line_items[0][quantity]': '1',
                 customer_email: email,
-                success_url: `${appOrigin}/?payment=success&session_id={CHECKOUT_SESSION_ID}`,
-                cancel_url: `${appOrigin}/?payment=cancelled`,
+                success_url: `${appOrigin}${returnPath}?payment=success&session_id={CHECKOUT_SESSION_ID}`,
+                cancel_url: `${appOrigin}${returnPath}?payment=cancelled`,
                 'metadata[product]': 'nocturne_vr_access'
             }, env);
             if (session.livemode !== (env.STRIPE_MODE === 'live')) throw new Error('Stripe checkout mode does not match the configured payment mode');

@@ -48,6 +48,7 @@ const CITY_LAYOUT = Object.freeze({
 
 const CityLayout = {
     ...CITY_LAYOUT,
+    vrEntry: Object.freeze({ x: 0, z: (CITY_LAYOUT.roadTo + CITY_LAYOUT.farFront) / 2 }),
 
     /**
      * How far outdoors a position is: 0 inside the club or its vestibule, 1 on the street, easing across the
@@ -55,6 +56,7 @@ const CityLayout = {
      */
     exteriorAmount(x, z) {
         if (z < 0.25 && Math.abs(x) < 13) return 0;
+        if (x < -12 && x >= -16.8 && z >= -6.6 && z <= -0.8) return 0;
         if (z < 7.4 && Math.abs(x) < 4.2) {
             const t = Math.min(1, Math.max(0, (z - 5.0) / 2.4));
             return t * t * (3 - 2 * t);
@@ -65,6 +67,18 @@ const CityLayout = {
     /** Distance from a point on the street to the street door's threshold, in the horizontal plane. */
     doorDistance(x, z) {
         return Math.hypot(x, Math.max(0, z - CITY_LAYOUT.doorZ));
+    },
+
+    /** Conservative sight line through both entrance openings, independent of head direction and eye height. */
+    canSeeStreet(x, z) {
+        const vestibule = window.VenueLayout?.vestibule;
+        if (!vestibule || z >= vestibule.wallZ) return true;
+        const depth = CITY_LAYOUT.doorZ - z;
+        const inside = vestibule.wallZ - z;
+        const entranceHalfWidth = vestibule.clubDoorHalfWidth;
+        // Project the whole street-door opening back onto the club doorway; keep a margin at either jamb.
+        return Math.abs(x) * (CITY_LAYOUT.doorZ - vestibule.wallZ)
+            <= (entranceHalfWidth + 0.25) * depth + (CITY_LAYOUT.doorHalfWidth + 0.25) * inside;
     }
 };
 window.CityLayout = CityLayout;
@@ -164,6 +178,11 @@ const CityDistrict = {
             if (material.name === 'decals') {
                 material.transparencyMode = BABYLON.PBRMaterial.PBRMATERIAL_ALPHATEST;
                 material.alphaCutOff = 0.5;
+                // The baked road paint lies exactly on the asphalt (both at y -0.0109), so the two depth-fought: lane lines and
+                // crosswalks flickered, worse with distance. A hardware depth bias pulls the paint toward the camera by a few
+                // depth units and a slope term, which stays correct at any range where a fixed millimetre of lift would not.
+                material.zOffset = -2;
+                material.zOffsetUnits = -2;
             } else {
                 material.alpha = 1;
                 material.transparencyMode = BABYLON.PBRMaterial.PBRMATERIAL_OPAQUE;
@@ -255,8 +274,8 @@ const CityDistrict = {
         const facade = this.scene.getMeshByName('vestibuleWalls');
         if (facade) lit.push(facade);
         lit.push(...(this._cityGround || []));
-        this._streetDoorLight = this._createScopedAccent('streetDoorLight', new BABYLON.Vector3(2.0, ground + 3.2, CityLayout.doorZ + 1.3),
-            { intensity: 2.4, range: 11, diffuse: [1, 0.78, 0.55], group: 'city' }, lit);
+        this._streetDoorLight = this._createScopedAccent('streetDoorLight', new BABYLON.Vector3(2.0, ground + 2.6, CityLayout.doorZ + 2.5),
+            { intensity: 24, range: 11, diffuse: [1, 0.78, 0.55], group: 'city' }, lit);
         this._streetDoorDressing = meshes;
     },
 
@@ -439,7 +458,8 @@ const CityDistrict = {
         this._exterior = (this._exterior || 0) + (target - (this._exterior || 0)) * k;
 
         if (this._cityWarm) return;
-        const visible = this._cityVisible ? pos.z > CityLayout.hideBelowZ : pos.z > CityLayout.showFromZ;
+        const visible = (this._cityVisible ? pos.z > CityLayout.hideBelowZ : pos.z > CityLayout.showFromZ)
+            && CityLayout.canSeeStreet(pos.x, pos.z);
         if (visible !== this._cityVisible) {
             this._cityVisible = visible;
             root.setEnabled(visible);

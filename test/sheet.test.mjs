@@ -83,8 +83,9 @@ function crossingAt(club, zq) {
     return Number.isFinite(x) && Math.abs(x) <= 14 && y >= 0 && y <= 9 ? { x, y } : null;
 }
 
-function measure(sb, motion, speed, seconds = 90) {
+function measure(sb, motion, speed, seconds = 90, sheetSpeed = 1) {
     const club = makeSheets(sb, { motion, speed });
+    club.laserSheetSpeed = sheetSpeed;
     club._B = sb.BABYLON;
     const speeds = [], heights = [];
     let prev = null, inRoom = 0, frames = 0;
@@ -155,7 +156,9 @@ test('a sheet cannot be sped up past the cap by the laser speed slider or a lega
     const sb = load();
     const slow = measure(sb, 'vertical', 1.4, 60);
     const wild = measure(sb, 'vertical', 2.0, 60);        // legacy phases and the slider can ask for this
+    const independent = measure(sb, 'vertical', 1, 60, 2);
     assert.ok(Math.abs(wild.p95 - slow.p95) < 1e-6, 'a laser speed above the cap still changed the sweep');
+    assert.ok(Math.abs(independent.p95 - slow.p95) < 1e-6, 'the independent sheet control bypassed the speed cap');
     assert.ok(wild.p95 <= 1.0, `even at the cap the crossing runs at ${wild.p95.toFixed(2)} m/s`);
 });
 

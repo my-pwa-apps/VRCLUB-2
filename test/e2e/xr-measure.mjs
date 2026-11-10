@@ -50,8 +50,8 @@ export const snapshotResourceBudget = (page, sampleFrames = 20) => page.evaluate
             return 'club lighting';
         }
         if (/^mirrorReflection/i.test(name)) return 'mirrors/reflections';
-        if (/barBottles|glass|stool|chair|table|furniture|barShade|barBulb/i.test(name)) return 'furniture/bar stock';
-        if (/djConsole|leftCDJ|rightCDJ|mixer|jogWheel|speaker|bass_bin/i.test(name)) return 'DJ/PA equipment';
+        if (/barBottles|glass|stool|chair|table|furniture|barShade|barBulb|restroom|toilet|Bathroom_Sink|Bathroom_Toilet/i.test(name)) return 'furniture/bar stock';
+        if (/djConsole|leftCDJ|rightCDJ|mixer|jogWheel|speaker|bass_bin|djMonitor/i.test(name)) return 'DJ/PA equipment';
         if (/vrQuick|gui|menu|label|remoteEmoji|remoteChat/i.test(name)) return 'UI';
         if (/haze|fog|dust|smoke|particle/i.test(name)) return 'effects/particles';
         if (/city|street|queue|rope/i.test(name)) return 'city/street';

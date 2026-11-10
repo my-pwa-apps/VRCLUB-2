@@ -13,7 +13,7 @@ test('fresh VR navigation follows the head with left walking, right turning and 
     }));
     expect(settings.comfort).toBe(false);
     expect(settings.tiers).toEqual([[280, 64], [180, 52], [96, 32]]);
-    await enterVR(page);
+    await enterVR(page, { floorPosition: [0, 0, -12] });
     await renderFrames(page, 4);
     expect(await page.evaluate(() => !!window.vrClub.movementFeature)).toBe(true);
 

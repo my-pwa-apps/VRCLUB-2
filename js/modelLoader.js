@@ -172,6 +172,93 @@ class ModelLoader {
                 scale: new BABYLON.Vector3(1, 1, 1),
                 placement: { fitAxis: 'y', fitSize: 1.12, centerX: 9.2, centerZ: -12.9, bottomY: 0 },
                 attribution: 'Metal Stool 03 by Flo Tasser, Poly Haven (CC0)'
+            },
+            // "Old Couch" by Oliver Triplett (CC BY 4.0): a worn two-seat sofa against the entrance wall.
+            // Its front is local +z; the yaw turns it toward the DJ (-z). Keep in step with VenueLayout.lounge.
+            lounge_couch: {
+                name: 'Lounge Couch',
+                url: './js/models/lounge/source/old_couch.glb',
+                rotation: new BABYLON.Vector3(0, Math.PI, 0),
+                scale: new BABYLON.Vector3(1, 1, 1),
+                placement: { fitAxis: 'x', fitSize: 2.1, centerX: 7.1, centerZ: -0.72, bottomY: 0 },
+                emissiveFloor: 0,
+                disableEmission: true,
+                metallicFactor: 0,
+                roughnessFactor: 0.92,
+                matte: true,
+                environmentIntensity: 0.3,
+                specularIntensity: 0,
+                // Lit by the lounge's own accent light (VenueDressing._furnishLoungeCouch), not by emission. The club's grade
+                // (ACES, contrast, vignette) crushes a dim scene, so the dark leather needs both that light and a brighter albedo
+                // to read as a rust-brown sofa; measured in the real pipeline, highlights stay well under the bloom threshold.
+                albedoTint: 2.0,
+                // The headset runs medium-precision shaders and this import is scaled 0.0089 (mirrored) with mesh tangents,
+                // which puts its tangent-space normal map on a precision-sensitive path (white-hot edges under bloom).
+                disableNormalMap: true,
+                attribution: 'Old Couch by Oliver Triplett (CC BY 4.0; optimized textures)'
+            },
+            // Nearfield DJ booth monitor speakers: Ivan_WSK "Yamaha HS8 Studio Monitor" (CC BY 4.0). Only the left
+            // monitor is placed here; the right monitor is instantiated on the opposite side of the DJ controller
+            // (VenueDressing._furnishDJMonitors).
+            dj_monitor: {
+                name: 'DJ Booth Monitor Speaker',
+                url: './js/models/monitors/source/monitor_speaker.glb',
+                rotation: new BABYLON.Vector3(0, Math.PI - 0.6, 0),
+                scale: new BABYLON.Vector3(1, 1, 1),
+                placement: { fitAxis: 'y', fitSize: 0.3, centerX: -0.72, centerZ: -18.22, bottomY: 1.42 },
+                emissiveFloor: 0.02,
+                attribution: 'Yamaha HS8 Studio Monitor by Ivan_WSK (CC BY 4.0; optimized textures)'
+            },
+            // Club restroom porcelain toilet: Quaternius "Toilet" (CC0). The first stall's toilet is placed here;
+            // the second stall's toilet is instantiated in VenueDressing._furnishRestroom.
+            restroom_toilet: {
+                name: 'Restroom Toilet',
+                url: './js/models/restroom/source/toilet.glb',
+                rotation: new BABYLON.Vector3(0, Math.PI / 2, 0),
+                scale: new BABYLON.Vector3(1, 1, 1),
+                placement: { fitAxis: 'y', fitSize: 0.78, centerX: -15.72, centerZ: -5.4, bottomY: 0 },
+                emissiveFloor: 0.025,
+                attribution: 'Toilet by Quaternius (CC0)'
+            },
+            // Club restroom pedestal washbasin: Quaternius "Bathroom Sink" (CC0). Two basins stand along the
+            // mirror wall (the second is instantiated in VenueDressing._furnishRestroom).
+            restroom_sink: {
+                name: 'Restroom Washbasin',
+                url: './js/models/restroom/source/bathroom_sink.glb',
+                rotation: new BABYLON.Vector3(0, -Math.PI / 2, 0),
+                scale: new BABYLON.Vector3(1, 1, 1),
+                placement: { fitAxis: 'y', fitSize: 0.88, centerX: -12.78, centerZ: -5.78, bottomY: 0 },
+                emissiveFloor: 0.025,
+                attribution: 'Bathroom Sink by Quaternius (CC0)'
+            },
+            // Realistic restroom props, all Poly Haven (CC0), built by scripts/build-restroom-props.mjs. Their spots are
+            // authoritative in VenueLayout.restroom.props (kept in step by a unit test).
+            restroom_bin: {
+                name: 'Restroom Waste Bin',
+                url: './js/models/restroom/source/metal_trash_can.glb',
+                rotation: new BABYLON.Vector3(0, Math.PI / 2, 0),
+                scale: new BABYLON.Vector3(1, 1, 1),
+                placement: { fitAxis: 'y', fitSize: 0.62, centerX: -13.0, centerZ: -4.8, bottomY: 0 },
+                emissiveFloor: 0.02,
+                attribution: 'Metal Trash Can by GurJas Studios, Poly Haven (CC0)'
+            },
+            restroom_wetsign: {
+                name: 'Wet Floor Sign',
+                url: './js/models/restroom/source/wet_floor_sign.glb',
+                rotation: new BABYLON.Vector3(0, 2.6, 0),
+                scale: new BABYLON.Vector3(1, 1, 1),
+                placement: { fitAxis: 'y', fitSize: 0.62, centerX: -13.95, centerZ: -4.1, bottomY: 0 },
+                emissiveFloor: 0.05,
+                attribution: 'Wet Floor Sign 01 by Fran Calvente, Poly Haven (CC0)'
+            },
+            restroom_plunger: {
+                name: 'Restroom Plunger',
+                url: './js/models/restroom/source/plunger.glb',
+                rotation: new BABYLON.Vector3(0, 0.5, 0),
+                scale: new BABYLON.Vector3(1, 1, 1),
+                placement: { fitAxis: 'y', fitSize: 0.42, centerX: -16.1, centerZ: -4.84, bottomY: 0 },
+                emissiveFloor: 0.02,
+                attribution: 'Plunger by James Ray Cock, Poly Haven (CC0)'
             }
         };
     }
@@ -361,6 +448,23 @@ class ModelLoader {
         });
     }
 
+    /** Shares persistent bytes, not decoded scene objects; the caller owns and disposes the returned container. */
+    async loadAssetContainer(url, scene = this.scene) {
+        const bytes = await this.loadOrDownloadModel(url);
+        if (this.abortController.signal.aborted || scene.isDisposed) throw new Error('Model loading was cancelled.');
+        const blobUrl = URL.createObjectURL(new Blob([bytes], { type: 'model/gltf-binary' }));
+        try {
+            const container = await BABYLON.SceneLoader.LoadAssetContainerAsync('', blobUrl, scene, null, '.glb');
+            if (this.abortController.signal.aborted || scene.isDisposed) {
+                container.dispose();
+                throw new Error('Model loading was cancelled.');
+            }
+            return container;
+        } finally {
+            URL.revokeObjectURL(blobUrl);
+        }
+    }
+
     async loadModel(modelKey) {
         const config = this.modelConfigs[modelKey];
         if (!config) {
@@ -382,26 +486,10 @@ class ModelLoader {
         // PHASE 1 - fetch and parse. A failure here has added nothing to the scene.
         let result;
         try {
-            const arrayBuffer = await this.loadOrDownloadModel(config.url);
-
             if (this.gltfPluginAvailable === false) {
                 throw new Error('glTF loader plugin is unavailable - cannot parse .glb');
             }
-
-            // Create blob URL for Babylon.js
-            const blob = new Blob([arrayBuffer], { type: 'model/gltf-binary' });
-            const blobUrl = URL.createObjectURL(blob);
-            
-            // The blob URL MUST be revoked even when the loader throws (corrupt GLB,
-            // missing loaders plugin) - otherwise every failed load permanently pins
-            // the whole file in memory.
-            try {
-                result = await BABYLON.SceneLoader.LoadAssetContainerAsync(
-                    '', blobUrl, this.scene, null, '.glb'
-                );
-            } finally {
-                URL.revokeObjectURL(blobUrl);
-            }
+            result = await this.loadAssetContainer(config.url);
         } catch (error) {
             this.log.warn(`⚠️ Failed to fetch/parse ${config.name}:`, error);
             return this._modelUnavailable(modelKey, config);
@@ -563,6 +651,52 @@ class ModelLoader {
                         mesh.material.emissiveColor.g = Math.max(mesh.material.emissiveColor.g, visibilityFloor);
                         mesh.material.emissiveColor.b = Math.max(mesh.material.emissiveColor.b, visibilityFloor);
                     }
+
+                    if (config.disableEmission) {
+                        if (mesh.material.emissiveColor) mesh.material.emissiveColor.set(0, 0, 0);
+                        if (mesh.material.ambientColor) mesh.material.ambientColor.set(0, 0, 0);
+                        if (mesh.material.emissiveTexture) mesh.material.emissiveTexture = null;
+                        if ('unlit' in mesh.material) mesh.material.unlit = false;
+                    }
+
+                    if (config.metallicFactor !== undefined && mesh.material.metallic !== undefined) {
+                        mesh.material.metallic = config.metallicFactor;
+                    }
+                    if (config.roughnessFactor !== undefined && mesh.material.roughness !== undefined) {
+                        mesh.material.roughness = config.roughnessFactor;
+                    }
+                    // Upholstery, felt and carpet have no gloss at all. The packed metallic-roughness map would still
+                    // make torn seams and creases shiny, and a normal-mapped crease at a grazing angle then throws
+                    // a thin white highlight that the headset's bloom blows into a glowing outline.
+                    if (config.matte && mesh.material.metallicTexture !== undefined) {
+                        mesh.material.metallicTexture = null;
+                        mesh.material.metallic = 0;
+                        mesh.material.roughness = 1;
+                        mesh.material.useRoughnessFromMetallicTextureGreen = false;
+                        mesh.material.useMetallnessFromMetallicTextureBlue = false;
+                        if ('specularIntensity' in mesh.material) mesh.material.specularIntensity = 0;
+                        if (mesh.material.reflectivityColor) mesh.material.reflectivityColor.set(0, 0, 0);
+                        if ('enableSpecularAntiAliasing' in mesh.material) mesh.material.enableSpecularAntiAliasing = true;
+                    }
+                    if (config.environmentIntensity !== undefined && 'environmentIntensity' in mesh.material) {
+                        mesh.material.environmentIntensity = config.environmentIntensity;
+                    }
+                    if (config.specularIntensity !== undefined) {
+                        if ('directIntensity' in mesh.material && 'specularIntensity' in mesh.material) {
+                            mesh.material.specularIntensity = config.specularIntensity;
+                        }
+                        if (mesh.material.reflectivityColor) {
+                            mesh.material.reflectivityColor.set(
+                                config.specularIntensity,
+                                config.specularIntensity,
+                                config.specularIntensity
+                            );
+                        }
+                    }
+
+                    if (config.disableNormalMap && mesh.material.bumpTexture) {
+                        mesh.material.bumpTexture = null;
+                    }
                     
                     // A model can darken its own albedo (the bass bin's carpet is a mid grey, the PA above it is near black).
                     if (config.albedoTint !== undefined && mesh.material.albedoColor && !mesh.material._vrclubTinted) {
@@ -592,8 +726,6 @@ class ModelLoader {
                     // Set rendering group to ensure DJ gear renders BEFORE beams (renderingGroupId 0 vs 1)
                     mesh.renderingGroupId = 0; // Default group, renders first
                     
-                    // Force material to be ready
-                    mesh.material.forceCompilation(mesh);
                 }
             });
             
@@ -637,8 +769,9 @@ class ModelLoader {
                 ), { intensity: 0.8, range: 8, group: 'speakers' });
                 speakerLight.renderPriority = 1;
                 speakerLight.includedOnlyMeshes = result.meshes.slice();
+                this._addPASpeakerInnerBacking(modelKey, result.meshes, speakerLight);
                 // Priority sorts scene.lights, not existing meshes' cached light lists.
-                result.meshes.forEach(mesh => mesh._resyncLightSources());
+                speakerLight.includedOnlyMeshes.forEach(mesh => mesh._resyncLightSources && mesh._resyncLightSources());
                 this.log.info(`   💡 Added light for ${config.name} (${config.hangFromTruss ? 'truss-flown' : 'floor-standing'})`);
                 
                 // Ensure PA speakers are fully opaque and render properly
@@ -682,6 +815,27 @@ class ModelLoader {
                 }
             }
 
+            // Compile each material variant once, while its model is hidden, and yield between
+            // variants. The old synchronous call compiled once per mesh in the live scene,
+            // causing multi-second start hitches when several primitives shared one material.
+            const compileTargets = new Map();
+            for (const mesh of result.meshes) {
+                if (mesh.material && !compileTargets.has(mesh.material)) compileTargets.set(mesh.material, mesh);
+            }
+            if (rootMesh && typeof rootMesh.setEnabled === 'function') rootMesh.setEnabled(false);
+            for (const [material, mesh] of compileTargets) {
+                if (typeof material.forceCompilationAsync === 'function') {
+                    await material.forceCompilationAsync(mesh);
+                } else if (typeof material.forceCompilation === 'function') {
+                    material.forceCompilation(mesh);
+                }
+                await new Promise(resolve => {
+                    if (typeof requestAnimationFrame === 'function') requestAnimationFrame(() => resolve());
+                    else resolve();
+                });
+            }
+            if (rootMesh && typeof rootMesh.setEnabled === 'function') rootMesh.setEnabled(true);
+
             this.loadedModels[modelKey] = {
                 container: result,
                 rootMesh: rootMesh,
@@ -698,6 +852,47 @@ class ModelLoader {
             
             return result;
             
+        }
+    }
+
+    /**
+     * Internal opaque backing plate inside each flown PA cabinet (`stage_speaker___black.glb`),
+     * ported from VRCLUB-UNITY (`ConfigureSpeakerOcclusionAndLighting`): blocks the bright LED
+     * wall behind the speaker from showing through subtle openings in the horn/grill geometry.
+     */
+    _addPASpeakerInnerBacking(modelKey, meshes, speakerLight) {
+        if (!this.scene || !BABYLON.MeshBuilder || typeof BABYLON.MeshBuilder.CreateBox !== 'function') return;
+        const primary = meshes && meshes.find(m => m && typeof m.getTotalVertices === 'function' && m.getTotalVertices() > 0 && typeof m.getBoundingInfo === 'function');
+        const bb = primary && primary.getBoundingInfo && primary.getBoundingInfo()?.boundingBox;
+        if (!bb || !bb.maximum || !bb.minimum || !bb.center || !bb.extendSize) return;
+        const size = bb.maximum.subtract(bb.minimum);
+        if (!(size.x > 0 && size.y > 0 && size.z > 0)) return;
+        const backing = BABYLON.MeshBuilder.CreateBox(`paCabinetBacking_${modelKey}`, {
+            width: size.x * 0.94,
+            height: size.y * 0.94,
+            depth: size.z * 0.04
+        }, this.scene);
+        backing.parent = primary;
+        backing.position = new BABYLON.Vector3(bb.center.x, bb.center.y, bb.center.z - bb.extendSize.z * 0.6);
+        backing.isPickable = false;
+        backing.renderingGroupId = 0;
+        if (this.materialFactory) {
+            const mat = this.materialFactory.createPBRMaterial('paCabinetBackingShared', {
+                baseColor: [0.012, 0.012, 0.014],
+                metallic: 0.0,
+                roughness: 0.9,
+                environmentIntensity: 0.0
+            }, true);
+            mat.maxSimultaneousLights = this.maxLights;
+            mat.alpha = 1.0;
+            mat.transparencyMode = 0;
+            mat.needAlphaBlending = () => false;
+            mat.needAlphaTesting = () => false;
+            mat.disableDepthWrite = false;
+            backing.material = mat;
+        }
+        if (speakerLight && Array.isArray(speakerLight.includedOnlyMeshes)) {
+            speakerLight.includedOnlyMeshes.push(backing);
         }
     }
 
@@ -803,27 +998,27 @@ class ModelLoader {
                 roughness: 0.35
             }, true) :
             new BABYLON.StandardMaterial('rigMat_' + modelKey, this.scene);
+        const parts = [];
+        const add = mesh => { mesh.material = rigMat; parts.push(mesh); return mesh; };
         
         // === DROP BRACKET (bolted under the truss chord) ===
-        const bracket = BABYLON.MeshBuilder.CreateBox('speakerBracket_' + modelKey, {
+        const bracket = add(BABYLON.MeshBuilder.CreateBox('speakerBracket_' + modelKey, {
             width: 0.4,
             height: 0.08,
             depth: 0.15
-        }, this.scene);
+        }, this.scene));
         bracket.position = new BABYLON.Vector3(x, bracketY, z);
         bracket.rotation.y = yaw;
-        bracket.material = rigMat;
         
         // Truss clamp (U-bolt style) wrapping the chord itself
-        const clamp = BABYLON.MeshBuilder.CreateTorus('speakerClamp_' + modelKey, {
+        const clamp = add(BABYLON.MeshBuilder.CreateTorus('speakerClamp_' + modelKey, {
             diameter: 0.12,
             thickness: 0.015,
             tessellation: 16,
             arc: 0.75
-        }, this.scene);
+        }, this.scene));
         clamp.position = new BABYLON.Vector3(x, anchorY, z);
         clamp.rotation.x = Math.PI / 2;
-        clamp.material = rigMat;
         
         // === CHAIN LINKS (2 parallel chains for stability) ===
         const chainOffsets = [-0.12, 0.12]; // Two chains, offset from centre
@@ -838,11 +1033,11 @@ class ModelLoader {
         chainOffsets.forEach((offset, chainIdx) => {
             for (let i = 0; i < numLinks; i++) {
                 // Alternate link orientation for chain appearance
-                const link = BABYLON.MeshBuilder.CreateTorus('chainLink_' + modelKey + '_' + chainIdx + '_' + i, {
+                const link = add(BABYLON.MeshBuilder.CreateTorus('chainLink_' + modelKey + '_' + chainIdx + '_' + i, {
                     diameter: 0.04,
                     thickness: 0.008,
                     tessellation: 8
-                }, this.scene);
+                }, this.scene));
                 
                 link.position = new BABYLON.Vector3(
                     offsetX(offset),
@@ -857,20 +1052,18 @@ class ModelLoader {
                     link.rotation.x = Math.PI / 2;
                     link.rotation.y = yaw;
                 }
-                
-                link.material = rigMat;
             }
         });
         
         // === SHACKLES (connect chains to the flying frame) ===
         chainOffsets.forEach((offset, shackleIdx) => {
             // D-shackle at bottom of each chain
-            const shackle = BABYLON.MeshBuilder.CreateTorus('shackle_' + modelKey + '_' + shackleIdx, {
+            const shackle = add(BABYLON.MeshBuilder.CreateTorus('shackle_' + modelKey + '_' + shackleIdx, {
                 diameter: 0.06,
                 thickness: 0.01,
                 tessellation: 12,
                 arc: 0.7
-            }, this.scene);
+            }, this.scene));
             shackle.position = new BABYLON.Vector3(
                 offsetX(offset),
                 flyBarY + 0.045, // Straddles the eye bolt below it
@@ -878,13 +1071,12 @@ class ModelLoader {
             );
             shackle.rotation.z = Math.PI; // Open side up
             shackle.rotation.y = yaw;
-            shackle.material = rigMat;
             
             // Shackle pin (bolt)
-            const pin = BABYLON.MeshBuilder.CreateCylinder('shacklePin_' + modelKey + '_' + shackleIdx, {
+            const pin = add(BABYLON.MeshBuilder.CreateCylinder('shacklePin_' + modelKey + '_' + shackleIdx, {
                 diameter: 0.015,
                 height: 0.08
-            }, this.scene);
+            }, this.scene));
             pin.position = new BABYLON.Vector3(
                 offsetX(offset),
                 flyBarY + 0.015,
@@ -892,27 +1084,25 @@ class ModelLoader {
             );
             pin.rotation.z = Math.PI / 2;
             pin.rotation.y = yaw;
-            pin.material = rigMat;
         });
         
         // === FLYING FRAME (top mounting point on speaker) ===
         // Steel bar across top of speaker where chains attach
-        const flyBar = BABYLON.MeshBuilder.CreateBox('flyBar_' + modelKey, {
+        const flyBar = add(BABYLON.MeshBuilder.CreateBox('flyBar_' + modelKey, {
             width: 0.5,
             height: 0.04,
             depth: 0.04
-        }, this.scene);
+        }, this.scene));
         flyBar.position = new BABYLON.Vector3(x, flyBarY, z);
         flyBar.rotation.y = yaw;
-        flyBar.material = rigMat;
         
         // Eye bolts on flying frame (where shackles attach)
         chainOffsets.forEach((offset, eyeIdx) => {
-            const eyeBolt = BABYLON.MeshBuilder.CreateTorus('eyeBolt_' + modelKey + '_' + eyeIdx, {
+            const eyeBolt = add(BABYLON.MeshBuilder.CreateTorus('eyeBolt_' + modelKey + '_' + eyeIdx, {
                 diameter: 0.03,
                 thickness: 0.006,
                 tessellation: 10
-            }, this.scene);
+            }, this.scene));
             eyeBolt.position = new BABYLON.Vector3(
                 offsetX(offset),
                 flyBarY,
@@ -920,8 +1110,16 @@ class ModelLoader {
             );
             eyeBolt.rotation.x = Math.PI / 2;
             eyeBolt.rotation.z = yaw;
-            eyeBolt.material = rigMat;
         });
+
+        const merged = BABYLON.Mesh.MergeMeshes(parts, true, true, undefined, false, false);
+        if (merged) {
+            merged.name = `speakerRig_${modelKey}`;
+            merged.material = rigMat;
+            merged.isPickable = false;
+            merged.freezeWorldMatrix();
+            merged.doNotSyncBoundingInfo = true;
+        }
         
         this.log.info(`   ⛓️ Rigged ${modelKey}: ${numLinks}-link chains spanning ${chainSpan.toFixed(2)}m from truss y=${anchorY} to fly bar y=${flyBarY.toFixed(2)}`);
     }
@@ -1097,8 +1295,10 @@ class ModelLoader {
             // Bass bins hang from the speakers' real undersides, so they load once those have been placed.
             await Promise.allSettled(modelKeys.filter(k => k.startsWith('bass_bin')).map(key => this.loadModel(key)));
 
-            // Set dressing (bar stools) is last: nothing waits on it
-            await Promise.allSettled(modelKeys.filter(k => k.startsWith('bar_')).map(key => this.loadModel(key)));
+            // Set dressing is last: nothing waits on it.
+            await Promise.allSettled(modelKeys.filter(k =>
+                k.startsWith('bar_') || k.startsWith('lounge_') || k.startsWith('dj_monitor') || k.startsWith('restroom_')
+            ).map(key => this.loadModel(key)));
             
             const loadTime = ((performance.now() - startTime) / 1000).toFixed(2);
             this.log.info(`✅ All models loaded in ${loadTime}s`);

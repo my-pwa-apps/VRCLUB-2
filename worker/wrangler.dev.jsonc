@@ -1,0 +1,44 @@
+{
+  "$schema": "../node_modules/wrangler/config-schema.json",
+  "name": "vrclub-network-dev",
+  "main": "src/dev-index.js",
+  "compatibility_date": "2026-10-10",
+  "workers_dev": true,
+  "routes": [
+    { "pattern": "api.mitwee.nl/dev-owner/*", "zone_name": "mitwee.nl" },
+    { "pattern": "api.mitwee.nl/admin/dev-owner/*", "zone_name": "mitwee.nl" }
+  ],
+  "r2_buckets": [{
+    "binding": "AVATAR_ASSETS",
+    "bucket_name": "nocturne-dev-avatars"
+  }],
+  "d1_databases": [{
+    "binding": "DB",
+    "database_name": "nocturne-dev-rooms",
+    "database_id": "c9daa987-721e-47c5-beb8-54b3e1e2b0aa"
+  }],
+  "durable_objects": {
+    "bindings": [
+      { "name": "CLUB_ROOM", "class_name": "ClubRoom" },
+      { "name": "LIVE_AUDIO_EVENT", "class_name": "LiveAudioEvent" }
+    ]
+  },
+  "migrations": [
+    { "tag": "v1", "new_sqlite_classes": ["ClubRoom"] },
+    { "tag": "v2-live-audio-events", "new_sqlite_classes": ["LiveAudioEvent"] }
+  ],
+  "vars": {
+    "ALLOWED_ORIGINS": "https://nocturnedev.mitwee.nl,https://nocturne-dev.pages.dev",
+    "APP_ORIGIN": "https://nocturnedev.mitwee.nl",
+    "ROOM_CAPACITY": "32",
+    "MEDIA_TRANSPORT": "sfu",
+    "DEV_ROOM_ENABLED": "1",
+    "DEV_ROOM_OWNERS": "garfieldapp@outlook.com",
+    "DEV_OWNER_ACCESS": "1",
+    "DEV_OWNER_ORIGIN": "https://api.mitwee.nl",
+    "DEV_ACCESS_TEAM_DOMAIN": "https://bartm.cloudflareaccess.com",
+    "DEV_ACCESS_AUD": "e03618ca04fdea22171878a1d4cbc6a00a3b0e97df0e936298233b65cff7347e",
+    "SFU_APP_ID": "59da19e9bdf99111a7a1a6a3ee0d5dae"
+  },
+  "observability": { "enabled": true }
+}

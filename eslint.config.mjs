@@ -101,6 +101,7 @@ const projectGlobals = {
     AvatarRig: 'readonly',
     DJPerformer: 'readonly',
     CrowdDance: 'readonly',
+    ImmersiveLaunch: 'readonly',
     log: 'readonly',
     module: 'readonly'
 };
@@ -171,7 +172,7 @@ export default [
     },
     {
         // First-party browser scripts (classic, shared global scope).
-        files: ['js/**/*.js'],
+        files: ['js/**/*.js', 'broadcast/**/*.js'],
         languageOptions: {
             ecmaVersion: 2023,
             sourceType: 'script',
@@ -191,8 +192,10 @@ export default [
                 Buffer: 'readonly',
                 fetch: 'readonly',
                 AbortController: 'readonly',
+                AbortSignal: 'readonly',
                 Request: 'readonly',
                 Response: 'readonly',
+                performance: 'readonly',
                 setImmediate: 'readonly',
                 queueMicrotask: 'readonly',
                 URL: 'readonly',
@@ -227,17 +230,20 @@ export default [
                 WebSocket: 'readonly',
                 Request: 'readonly',
                 Response: 'readonly',
+                Headers: 'readonly',
                 URL: 'readonly',
                 fetch: 'readonly',
                 TextDecoder: 'readonly',
                 TextEncoder: 'readonly',
                 URLSearchParams: 'readonly',
                 AbortController: 'readonly',
+                AbortSignal: 'readonly',
                 setTimeout: 'readonly',
                 clearTimeout: 'readonly',
                 btoa: 'readonly',
                 atob: 'readonly',
                 crypto: 'readonly',
+                caches: 'readonly',
                 setInterval: 'readonly',
                 clearInterval: 'readonly',
                 console: 'readonly'

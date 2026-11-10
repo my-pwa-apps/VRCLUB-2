@@ -84,6 +84,7 @@ class VJDirector {
         // === MACROS ===
         this.masterIntensity = 1.0;
         this.targetMasterIntensity = 1.0;
+        this.showMasterIntensity = 1.0;
         this.blackoutUntil = 0;         // ms timestamp; while > now → masterIntensity hard-zero
         this.manualSceneUntil = 0;      // While > now, auto-scene picker is suppressed
 
@@ -184,12 +185,12 @@ class VJDirector {
         //    tracking, BPM and the palette engine below all keep running; only
         //    the LOOK decision is handed over.)
         const showDriving = !!(this.club.showDirector && this.club.showDirector.isDriving());
-        if (now > this.manualSceneUntil && !showDriving && !this.remoteDriven) {
+        if (now > this.manualSceneUntil && !showDriving && !this.remoteDriven && !this.club.vjManualMode) {
             this._updateAutoScene(audioData);
         }
 
-        // 6. Apply master palette (writes to existing color state vars on phrase boundary)
-        this._applyPalette();
+        // 6. Apply master palette (writes to existing color state vars on phrase boundary; held lights keep theirs)
+        this._updatePalette(now);
 
         // 7. Publish to VRClub instance for consumption by render code
         this.club.beatEnvelope = this.beatEnvelope;
@@ -784,6 +785,43 @@ class VJDirector {
         // its hue (see setMasterHue) keeps it for the whole cue.
         if (!this.hueLocked && !this.remoteDriven) this.masterHue = (this.masterHue + 0.381966) % 1.0;
 
+        this._writePalette();
+    }
+
+    /**
+     * The palette's one writer per frame. While a guest holds the lights by hand the colours are theirs: the phrase
+     * rotation above used to overwrite a colour they had just picked within seconds, whatever the hand-back timer said.
+     * Held lights keep their colours (modes 'resume' and 'keep'), or take a new coherent random palette every few
+     * seconds in mode 'shuffle'. A follower in someone else's room never rotates anything itself.
+     */
+    _updatePalette(now) {
+        const club = this.club;
+        if (!club.vjManualMode || this.remoteDriven) {
+            this._shuffleAt = 0;
+            this._applyPalette();
+            return;
+        }
+        // The phrase clock keeps running, so the hand-back does not fire a stale rotation at once.
+        if (this.beatNumber - this.lastPhraseBeat >= 16) this.lastPhraseBeat = this.beatNumber;
+        const hold = club.lightHold;
+        if (!hold || hold.mode !== 'shuffle') { this._shuffleAt = 0; return; }
+        if (!this._shuffleAt) this._shuffleAt = now + hold.shuffle * 1000;
+        if (now >= this._shuffleAt) {
+            this._shuffleAt = now + hold.shuffle * 1000;
+            this.shufflePalette();
+        }
+    }
+
+    /** A new, different master hue (a third to two thirds of the wheel away), written to every colour consumer at once. */
+    shufflePalette() {
+        this.masterHue = (this.masterHue + 0.2 + Math.random() * 0.6) % 1.0;
+        this.lastPhraseBeat = this.beatNumber;
+        this._writePalette();
+        return this.masterHue;
+    }
+
+    /** Write the current master hue to the beams, the wall, the lasers and the mirror ball. */
+    _writePalette() {
         const club = this.club;
         const A = this._hsvToColor(this.masterHue, 1.0, 1.0, this._tmpColorA);
 
@@ -811,8 +849,10 @@ class VJDirector {
             club.currentColorIndex = this._hueToRGBIndex(laserHue);
         }
 
-        // Mirror ball: rotate one slot per phrase for variety
-        if (!this.remoteDriven && club.mirrorBallColors && club.mirrorBallColorIndex !== undefined) {
+        // A colour-locked rig is one coherent colour, including the mirror ball.
+        if (club.colorLockActive && typeof club._setMirrorBallColor === 'function') {
+            club._setMirrorBallColor(A);
+        } else if (!this.remoteDriven && club.mirrorBallColors && club.mirrorBallColorIndex !== undefined) {
             club.mirrorBallColorIndex = (club.mirrorBallColorIndex + 1) % club.mirrorBallColors.length;
             club.mirrorBallSpotlightColor = club.mirrorBallColors[club.mirrorBallColorIndex];
         }
@@ -955,6 +995,7 @@ class VJDirector {
     triggerDrop() {
         const now = performance.now();
         this._enterScene('drop', now);
+        if (this.club.photosensitiveSafeMode) this.club.strobesActive = false;
         // Suppress auto-scene picker for ~6 s so the drop sticks
         this.manualSceneUntil = now + 6000;
     }
@@ -1000,6 +1041,7 @@ class VJDirector {
     /** 0..1 master fader. */
     setMasterIntensity(v) {
         this.targetMasterIntensity = Math.max(0, Math.min(1, v));
+        this.showMasterIntensity = this.targetMasterIntensity;
     }
 
     /** Manual BPM override (e.g. from a numeric input). */
