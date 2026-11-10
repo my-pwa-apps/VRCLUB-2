@@ -18,6 +18,17 @@
  * spatialised audio, but this class itself only deals with the network.
  */
 class NetworkClient {
+    static sanitizeUploadedAvatar(value) {
+        if (value === null || value === undefined) return null;
+        if (!value || typeof value !== 'object' || !/^[0-9a-f]{64}$/.test(value.hash) ||
+            !Number.isInteger(value.bytes) || value.bytes < 28 || value.bytes > 8 * 1024 * 1024) return undefined;
+        try {
+            return { hash: value.hash, bytes: value.bytes, appearance: window.CustomAvatarAppearance.sanitize(value.appearance) };
+        } catch (error) {
+            console.warn('Invalid uploaded avatar metadata:', error);
+            return undefined;
+        }
+    }
     static ICE_SERVERS = [
         { urls: 'stun:stun.l.google.com:19302' },
         { urls: 'stun:stun.cloudflare.com:3478' }
@@ -168,6 +179,7 @@ class NetworkClient {
         this.musicState = null;
         this.musicListening = false;
         this.mediaTransport = 'mesh';
+        this.restroomInteractionsSupported = false;
         this.sfu = null;
         this.capacity = 8;
 
@@ -196,6 +208,7 @@ class NetworkClient {
         /** The room's hand-operated doors: the whole list on joining, then one change at a time (index, shut). */
         this.onDoors = () => {};
         this.onDoor = () => {};
+        this.onRestroom = () => {};
         this.onChat = () => {};
         this.onModerationReport = () => {};
         this.onRemoteStream = () => {};
@@ -257,6 +270,9 @@ class NetworkClient {
     }
 
     disconnect() {
+        this.avatarAssetToken = null;
+        this.uploadedAvatarsSupported = false;
+        this.selfUploadedAvatar = null;
         this._cancelEventRequests();
         this._closedByUser = true;
         this._openRevision = (this._openRevision || 0) + 1;
@@ -367,6 +383,9 @@ class NetworkClient {
     }
 
     _onSocketClosed(evt) {
+        this.avatarAssetToken = null;
+        this.uploadedAvatarsSupported = false;
+        this.selfUploadedAvatar = null;
         this._cancelEventRequests();
         this.ws = null;
         this.appearanceSelectionSupported = false;
@@ -460,6 +479,9 @@ class NetworkClient {
                 this.appearanceSelectionSupported = msg.appearanceSelection === true;
                 this.appearanceAccessoriesSupported = msg.appearanceAccessories === true;
                 this.appearanceFootwearSupported = msg.appearanceFootwear === true;
+                this.uploadedAvatarsSupported = msg.uploadedAvatars === true;
+                this.avatarAssetToken = this.uploadedAvatarsSupported && typeof msg.avatarAssetToken === 'string'
+                    && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/.test(msg.avatarAssetToken) ? msg.avatarAssetToken : null;
                 this.selfAppearance = NetworkClient.sanitizeAppearance(msg.appearance, this.avatar) || null;
                 this.hostId = msg.hostId;
                 this.capacity = Number.isInteger(msg.capacity) && msg.capacity >= 8 && msg.capacity <= 32 ? msg.capacity : 8;
@@ -507,6 +529,8 @@ class NetworkClient {
                 if (msg.music) this.onMusic(msg.music);
                 if (msg.show) this.onShow(msg.show);
                 if (Array.isArray(msg.doors)) this.onDoors(msg.doors.slice(0, NetworkClient.MAX_DOORS).map(shut => shut === true));
+                this.restroomInteractionsSupported = msg.restroomInteractions === true;
+                if (this.restroomInteractionsSupported) this.onRestroom(msg.restroom);
                 this.onHostChange(this.hostId);
                 this.onRoom(this.locked);
                 if (this.sfu) {
@@ -606,6 +630,16 @@ class NetworkClient {
                 if (this.peers.has(msg.id) && NetworkClient.GESTURES.includes(msg.gesture)) this.onGesture(msg.id, msg.gesture);
                 break;
 
+            case 'uploaded-avatar': {
+                const model = NetworkClient.sanitizeUploadedAvatar(msg.model);
+                if (model === undefined) break;
+                if (msg.id === this.selfId) this.selfUploadedAvatar = model;
+                else if (this.peers.has(msg.id)) {
+                    this.peers.get(msg.id).uploadedAvatar = model;
+                    this.onPeerUploadedAvatar?.(msg.id, model);
+                }
+                break;
+            }
             case 'avatar':
                 if (!NetworkClient.isAvatar(msg.avatar)) break;
                 const appearance = NetworkClient.sanitizeAppearance(msg.appearance, msg.avatar);
@@ -639,10 +673,26 @@ class NetworkClient {
                 this.onShow(msg);
                 break;
 
+            case 'restroom':
+                if (msg.id === this.selfId || this.peers.has(msg.id)) this.onRestroom(msg.state);
+                break;
+
+            case 'restroom-error':
+                this.onError(new Error(typeof msg.message === 'string' ? msg.message.slice(0, 120) : 'Restroom action was rejected.'));
+                break;
+
             case 'door':
                 if (this.peers.has(msg.id) && Number.isInteger(msg.door) && msg.door >= 0 && msg.door < NetworkClient.MAX_DOORS) {
                     this.onDoor(msg.door, msg.shut === true);
                 }
+                break;
+
+            case 'restroom':
+                if (msg.id === this.selfId || this.peers.has(msg.id)) this.onRestroom(msg.state);
+                break;
+
+            case 'restroom-error':
+                this.onError(new Error(typeof msg.message === 'string' ? msg.message.slice(0, 120) : 'Restroom action was rejected.'));
                 break;
 
             case 'host':
@@ -672,10 +722,12 @@ class NetworkClient {
         if (pid && this.blockedPids.has(pid)) return;
         this.peers.set(peer.id, { name: peer.name, pid, avatar: typeof peer.avatar === 'string' ? peer.avatar : null,
             appearance: NetworkClient.sanitizeAppearance(peer.appearance, peer.avatar) || null,
+            uploadedAvatar: NetworkClient.sanitizeUploadedAvatar(peer.uploadedAvatar) || null,
             simulated: peer.simulated === true, state: peer.state || null, pc: null });
         this.onPeerJoin(peer.id, peer.name, { pid, avatar: this.peers.get(peer.id).avatar,
             appearance: this.peers.get(peer.id).appearance, simulated: peer.simulated === true });
         this.onPeerAppearance(peer.id, this.peers.get(peer.id).appearance);
+        this.onPeerUploadedAvatar?.(peer.id, this.peers.get(peer.id).uploadedAvatar);
         if (peer.state) this.onPeerState(peer.id, peer.state);
         this._maybeInitiateVoice(peer.id);
         if (this.sfu) this.sfu.sync();
@@ -941,6 +993,20 @@ class NetworkClient {
     sendDoor(door, shut) {
         if (this.status !== 'connected' || !Number.isInteger(door) || door < 0 || door >= NetworkClient.MAX_DOORS) return false;
         this._send({ type: 'door', door, shut: shut === true });
+        return true;
+    }
+
+    sendRestroom(action, fixture, on) {
+        if (!this.connected || !this.restroomInteractionsSupported) {
+            this.onError(new Error('This relay does not support shared restroom controls.'));
+            return false;
+        }
+        if (!['seat', 'lid', 'tap', 'flush'].includes(action) || !Number.isInteger(fixture) || fixture < 0 || fixture > 1 ||
+            (action !== 'flush' && typeof on !== 'boolean')) {
+            this.onError(new Error('Invalid restroom control.'));
+            return false;
+        }
+        this._send({ type: 'restroom', action, fixture, ...(action === 'flush' ? {} : { on }) });
         return true;
     }
 

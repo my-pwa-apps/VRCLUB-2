@@ -9,6 +9,9 @@
     --shadow-lg: 0 8px 24px rgba(0, 0, 0, 0.5);
     --accent: #667eea;
     --accent-hover: #764ba2;
+    --focus-ring: #8bb0ff;
+    --panel-bg: rgba(7, 8, 14, 0.94);
+    --panel-border: rgba(255, 255, 255, 0.16);
     --transition-fast: 0.15s ease;
     --transition-normal: 0.25s ease;
 }
@@ -62,14 +65,28 @@ html, body {
     contain: paint;
 }
 
-#cameraControls {
+#bottomControls {
     position: absolute;
     bottom: calc(20px + env(safe-area-inset-bottom, 0px));
     left: 50%;
     transform: translateX(-50%);
     display: flex;
+    flex-direction: column-reverse;
     align-items: center;
     gap: 8px;
+    width: max-content;
+    max-width: calc(100vw - 24px);
+    max-height: calc(100dvh - 40px - env(safe-area-inset-bottom, 0px));
+    z-index: 101;
+}
+
+#cameraControls {
+    position: relative;
+    display: flex;
+    align-items: center;
+    flex-shrink: 0;
+    gap: 8px;
+    max-width: 100%;
     background: rgba(10, 10, 20, 0.75);
     padding: 6px;
     border-radius: 8px;
@@ -93,7 +110,8 @@ html, body {
 
 .preset-grid {
     display: grid;
-    grid-template-columns: repeat(4, 1fr);
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    min-width: 0;
     gap: 8px;
 }
 
@@ -102,6 +120,7 @@ html, body {
 }
 
 .camera-controls-toggle {
+    flex-shrink: 0;
     min-width: 52px;
     min-height: 48px;
     padding: 4px 8px;
@@ -355,7 +374,7 @@ html, body {
    These were previously two byte-identical rule sets under .vj-* / .audio-* names,
    which is how the two panels silently drifted apart. */
 .panel {
-    background: rgba(0, 0, 0, 0.9);
+    background: var(--panel-bg);
     padding: 15px;
     border-radius: 12px;
     -webkit-backdrop-filter: var(--blur-light);
@@ -366,8 +385,10 @@ html, body {
     font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
     color: white;
     box-shadow: var(--shadow-lg);
-    border: 1px solid rgba(255, 255, 255, 0.1);
+    border: 1px solid var(--panel-border);
     transition: opacity var(--transition-normal);
+    scrollbar-color: rgba(139, 176, 255, 0.75) rgba(255, 255, 255, 0.06);
+    scrollbar-width: thin;
 }
 
 /* A side panel can cover the corner controls on compact viewports. Do not leave a visible button that cannot receive
@@ -376,21 +397,26 @@ body:has(.panel:not(.hidden)) .payment-toggle,
 #mainExperience:has(.panel:not(.hidden)) > #vjToggle,
 #mainExperience:has(.panel:not(.hidden)) > #audioToggle,
 #mainExperience:has(.panel:not(.hidden)) > #networkToggle,
-#mainExperience:has(.panel:not(.hidden)) > #cameraControls {
+#mainExperience:has(.panel:not(.hidden)) > #bottomControls > #cameraControls {
     visibility: hidden;
     pointer-events: none;
 }
 
 .panel-header {
+    position: sticky;
+    top: -15px;
+    z-index: 2;
     display: flex;
     justify-content: space-between;
     align-items: center;
     margin-bottom: 12px;
     padding-bottom: 8px;
     border-bottom: 1px solid rgba(255, 255, 255, 0.2);
+    background: var(--panel-bg);
 }
 
 .panel.minimized .panel-header {
+    position: static;
     margin-bottom: 0;
     padding-bottom: 0;
     border-bottom: none;
@@ -1203,15 +1229,13 @@ body:has(.panel:not(.hidden)) .payment-toggle,
 
 /* ---- The social bar: talk, react, type, one press away while in a room ---- */
 .social-bar {
-    position: absolute;
-    left: 50%;
-    bottom: calc(80px + env(safe-area-inset-bottom, 0px));
-    transform: translateX(-50%);
+    position: relative;
     z-index: 101;
     display: flex;
     flex-direction: column;
     align-items: center;
     gap: 8px;
+    min-height: 0;
     font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
     color: white;
     width: max-content;
@@ -1227,6 +1251,7 @@ body:has(.panel:not(.hidden)) .payment-toggle,
 
 .social-buttons {
     display: flex;
+    flex-shrink: 0;
     gap: 8px;
     padding: 6px;
     background: rgba(10, 10, 20, 0.8);
@@ -1298,6 +1323,8 @@ body:has(.panel:not(.hidden)) .payment-toggle,
 .social-pop {
     width: min(360px, calc(100vw - 24px));
     box-sizing: border-box;
+    min-height: 0;
+    overflow-y: auto;
     padding: 12px;
     background: rgba(0, 0, 0, 0.9);
     border: 1px solid rgba(255, 255, 255, 0.14);
@@ -1546,7 +1573,8 @@ body:has(.panel:not(.hidden)) .payment-toggle,
 .first-run-hint {
     position: fixed;
     left: 50%;
-    bottom: calc(28px + env(safe-area-inset-bottom, 0px));
+    bottom: calc(88px + env(safe-area-inset-bottom, 0px));
+    transform: translateX(-50%);
     z-index: 104;
     display: grid;
     gap: 3px;
@@ -1559,6 +1587,10 @@ body:has(.panel:not(.hidden)) .payment-toggle,
     color: white;
     box-shadow: var(--shadow-lg);
     font: 13px/1.45 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+}
+
+body:has(.panel:not(.hidden), #modelCredits[open], #cameraControls.expanded, #socialBar:not([hidden])) .first-run-hint {
+    display: none;
 }
 
 .first-run-hint strong {
@@ -2444,10 +2476,16 @@ body:has(.panel:not(.hidden)) .payment-toggle,
    ring, which several rules cancelled with `outline: none` - leaving keyboard users
    with no visible focus indicator at all. This restores a high-contrast ring on
    keyboard focus only, so mouse/touch interaction stays visually unchanged. */
-:where(a, button, input, select, textarea, summary, [tabindex]):focus-visible {
-    outline: 3px solid #7aa2ff;
+:is(a, button, input, select, textarea, summary, [tabindex]):focus-visible {
+    outline: 3px solid var(--focus-ring);
     outline-offset: 2px;
     border-radius: 4px;
+}
+
+@media (hover: hover) and (pointer: fine) {
+    :where(button, .audio-file-label, summary):hover {
+        filter: brightness(1.08);
+    }
 }
 
 .sw-update-prompt {
@@ -2574,7 +2612,7 @@ button:active,
     }
 
     .preset-grid {
-        grid-template-columns: repeat(2, 1fr);
+        grid-template-columns: repeat(2, minmax(0, 1fr));
     }
 
     #modelCredits {

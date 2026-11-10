@@ -144,6 +144,15 @@ class AvatarManager {
         this._disposePerson(peer);
     }
 
+    setUploadedAvatar(id, model) {
+        const peer = this.remotes.get(id);
+        if (!peer || JSON.stringify(peer.uploadedAvatar || null) === JSON.stringify(model)) return;
+        peer.uploadedAvatar = model;
+        peer.detailRetryAt = 0;
+        peer.loadErrorShown = false;
+        this._disposePerson(peer);
+    }
+
     _peopleCount() {
         let live = 0;
         for (const other of this.remotes.values()) if (other.person) live++;
@@ -165,13 +174,16 @@ class AvatarManager {
         this._buildingPerson = true;
         peer.detailLoading = true;
         const avatarId = peer.avatarId;
+        const uploadedAvatar = peer.uploadedAvatar || null;
         const generation = this.club._characterStyles?.generation || 0;
         try {
             if (await this._buildPerson(peer)) return true;
             if (this.remotes.get(peer.id) !== peer || peer.avatarId !== avatarId) return false;
+            if ((peer.uploadedAvatar || null) !== uploadedAvatar) return false;
             if ((this.club._characterStyles?.generation || 0) !== generation) return false;
             throw new Error(`Character ${avatarId} is not available.`);
         } catch (error) {
+            if (this.remotes.get(peer.id) !== peer || (peer.uploadedAvatar || null) !== uploadedAvatar) return false;
             console.error(`Remote avatar ${peer.id} failed to load`, error);
             if (this.remotes.get(peer.id) === peer && peer.avatarId === avatarId) {
                 peer.detailRetryAt = this._poseTime + 5;
@@ -199,6 +211,7 @@ class AvatarManager {
     }
 
     async _buildPerson(peer) {
+        if (peer.uploadedAvatar) return this._buildUploadedPerson(peer);
         const club = this.club;
         const Crowd = window.VRClubAudioCrowd;
         const avatarId = peer.avatarId;
@@ -211,7 +224,7 @@ class AvatarManager {
         const appearanceKey = appearance ? window.AvatarAppearance.key(appearance) : '';
         const container = club._loadPlayerSource ? await club._loadPlayerSource(avatarId, club.getCharacterStyle?.() || 'quaternius', appearance) : await club._loadCrowdSource(index);
         // The guest may have left, changed avatar or been given a body by a faster call while the file loaded.
-        if (!container || this.remotes.get(peer.id) !== peer || peer.avatarId !== avatarId || peer.person) return false;
+        if (!container || this.remotes.get(peer.id) !== peer || peer.avatarId !== avatarId || peer.person || peer.uploadedAvatar) return false;
         if ((club._characterStyles?.generation || 0) !== generation) return false;
         if (appearanceKey !== (peer.appearance ? window.AvatarAppearance.key(peer.appearance) : '')) return false;
 
@@ -273,7 +286,67 @@ class AvatarManager {
         const person = peer.person;
         if (!person) return;
         peer.person = null;
-        try { person.entry.dispose(); } catch (_) { /* already gone */ }
+        this.club._mirrorSignature = null;
+        if (person.rig) {
+            person.rig.dispose();
+            person.container.dispose();
+        } else try { person.entry.dispose(); } catch (_) { /* already gone */ }
+    }
+
+    async _buildUploadedPerson(peer) {
+        const model = peer.uploadedAvatar;
+        const bytes = await this.club._uploadedAvatarSharing().download(peer.id, model);
+        if (this.remotes.get(peer.id) !== peer || peer.uploadedAvatar !== model || peer.person) return false;
+        const url = URL.createObjectURL(new Blob([bytes], { type: 'model/gltf-binary' }));
+        let container;
+        try { container = await BABYLON.SceneLoader.LoadAssetContainerAsync('', url, this.scene, null, '.glb'); }
+        finally { URL.revokeObjectURL(url); }
+        if (this.remotes.get(peer.id) !== peer || peer.uploadedAvatar !== model || peer.person) {
+            container.dispose();
+            return false;
+        }
+        let rig;
+        try {
+            this.club._prepareAvatarMaterials?.(container.materials, null);
+            for (const group of container.animationGroups) group.stop();
+            rig = new AvatarRig(this.club, container, { eyeHeight: peer.eyeHeight, allowCustomSkeleton: true });
+            if (!rig.ok) throw new Error('The shared avatar does not have a supported humanoid skeleton.');
+            window.CustomAvatarAppearance.apply(rig, model.appearance);
+            rig.root.setEnabled(false);
+            peer.person = { rig, container, entry: rig.entry, node: rig.root, meshes: rig.meshes, groups: {}, arms: null,
+                current: null, pose: { x: 0, z: 0, groundY: 0, eyeY: peer.eyeHeight, headYaw: 0, headPitch: 0, bodyYaw: 0,
+                    seated: false, seatY: 0, left: null, right: null }, hands: { left: {}, right: {} } };
+            this._updateUploadedPerson(peer, 1 / 60);
+            this._applyHidden(peer);
+            this.club._restoreLightBudgets?.();
+            this.club._refreshContactShadows?.();
+            return true;
+        } catch (error) {
+            rig?.dispose();
+            container.dispose();
+            throw error;
+        }
+    }
+
+    _updateUploadedPerson(peer, dt) {
+        const person = peer.person, rig = person.rig, p = peer.root.position, pose = person.pose;
+        rig.setEyeHeight(peer.eyeHeight);
+        pose.x = p.x; pose.z = p.z; pose.groundY = p.y;
+        pose.eyeY = p.y + peer.eyeHeight;
+        pose.headYaw = pose.bodyYaw = peer.root.rotation.y;
+        pose.headPitch = 0;
+        pose.seated = peer.seated;
+        pose.seatY = p.y + (Number.isFinite(peer.seatH) ? peer.seatH : 0.76);
+        for (const side of AvatarManager.HAND_SIDES) {
+            const source = peer.hands[side];
+            if (!source) { pose[side] = null; continue; }
+            const hand = person.hands[side];
+            hand.x = p.x + source.x; hand.y = p.y + peer.eyeHeight + source.y; hand.z = p.z + source.z;
+            hand.fx = source.fx; hand.fy = source.fy; hand.fz = source.fz;
+            hand.ux = source.ux; hand.uy = source.uy; hand.uz = source.uz;
+            pose[side] = hand;
+        }
+        rig.update(dt, pose);
     }
 
     refreshCharacterStyle() {
@@ -439,6 +512,7 @@ class AvatarManager {
         peer.eyeHeight = value;
         const node = peer.person && peer.person.node;
         if (!node) return;
+        if (peer.person.rig) return;
         // The feet offset is proportional to the scale, so one multiply keeps them on the floor.
         node.scaling.scaleInPlace(ratio);
         node.position.y *= ratio;
@@ -634,6 +708,7 @@ class AvatarManager {
     _applyHidden(peer) {
         // Everything of theirs except the voice: the tag, the body, the emoji and the collision capsule.
         peer.root.setEnabled(!peer.hidden && !peer.culled);
+        if (peer.person?.rig) peer.person.rig.root.setEnabled(!peer.hidden && !peer.culled);
         const group = peer.person?.groups[peer.person.current];
         if (group) {
             const paused = peer.hidden || peer.culled || peer.animPaused;
@@ -755,7 +830,10 @@ class AvatarManager {
                     peer.speed += (Math.min(instant, 8) - peer.speed) * (1 - (1 - 0.2) ** (step * 60));
                 }
                 peer.prevX = root.position.x; peer.prevZ = root.position.z;
-                if (peer.person && !peer.hidden && !peer.culled && !peer.animPaused) this._updateClip(peer);
+                if (peer.person && !peer.hidden && !peer.culled && !peer.animPaused) {
+                    if (peer.person.rig) this._updateUploadedPerson(peer, step);
+                    else this._updateClip(peer);
+                }
             }
             this._updateBubble(peer);
 

@@ -5,8 +5,10 @@ safety controls (`486d2ae`, `20d8c60`). The shared production relay was deployed
 19 October 2026 with 32 guests in every room, not just ADE rooms. Changing these
 files alone does not deploy a service. Capacity is an admission limit, not a
 headset performance claim.
-The development-only free-VR bypass and development-host routing were not imported;
-the real account/access gate and existing host-music behavior are retained.
+QuestDev uses separate development-host routing and a free-VR bypass on its exact
+development hosts. Its Worker refuses payment and administration routes; the
+shared production distributions retain their existing account/access gate and
+host-music behavior.
 
 ## Configuration
 
@@ -210,8 +212,8 @@ for SFU egress; voice, Workers and Durable Objects also consume resources.
 ## Owner-only DEV room 000032
 
 Use the normal **Join room** flow and enter **000032** (`private-000032`).
-This is available on the updated ADE frontend, not the older normal/SideQuest
-frontends. No developer panel, per-visitor configuration or extra credentials
+This is available on the updated ADE, Quest and SideQuest frontends.
+No developer panel, per-visitor configuration or extra credentials
 are needed. The device must already have the verified owner's API session
 (headset pairing supplies it); otherwise verify the owner email through Access.
 Knowing the code, supplying an email header or possessing an old invitation
@@ -235,6 +237,50 @@ No account credential enters JavaScript or a WebSocket URL. Denial is explicit,
 does not schedule connection retries, and a cancelled preflight cannot reconnect.
 Account authorization is checked on entry/reconnection, not continuously on an
 already admitted socket. No schema migration, new secret or SFU application is required.
+
+### QuestDev owner login
+
+Ordinary Online rooms on `nocturnedev.mitwee.nl` are enabled without owner
+authentication. The isolated development room **000032** instead uses a signed
+Cloudflare Access owner identity, not the production payment session described above.
+Enter **000032**, select **Owner sign-in**, complete the existing Access login in
+the same browser/device, wait for **Development owner signed in**, then return to the
+club and press **Join room** again.
+A phone login does not sign in a headset browser. Use the custom development domain;
+preview `pages.dev` hosts can be subject to third-party-cookie blocking.
+
+`worker/wrangler.dev.jsonc` enables `DEV_OWNER_ACCESS="1"` and supplies
+`DEV_OWNER_ORIGIN`, `DEV_ACCESS_TEAM_DOMAIN`, `DEV_ACCESS_AUD` and
+`DEV_ROOM_OWNERS`. These are public identity configuration, not signing secrets.
+Its API-host routes are `api.mitwee.nl/dev-owner/*` and the narrow
+`api.mitwee.nl/admin/dev-owner/*`. The latter is covered by the existing Access
+application for `/admin` but routes only this development sign-in to the isolated
+Worker. Production payment and invitation-administration routes stay untouched.
+The client credentialed
+`GET /dev-owner/check` must pass before `/dev-owner/socket` opens.
+Sign-in verifies Access's `Cf-Access-Jwt-Assertion` RS256 signature, issuer, audience,
+expiry, app type and owner identity before setting `__Secure-NocturneDevOwner`:
+host-only, Secure, HttpOnly, SameSite=None, session lifetime, path `/dev-owner/`.
+Its value is the already signed Access token; it is never placed in a page body,
+JavaScript or URL. Preflight and socket verify that token independently, including
+its expiry and the current owner allow-list. Duplicate cookies are refused.
+The flow does not require changing Access cookie-path restrictions, which could
+otherwise prevent the administration-page cookie reaching the development socket.
+The socket independently rechecks identity on every reconnect, is pinned to
+`private-000032`, and strips credentials before DO forwarding. Requests on other
+hosts, origins, routes or with forged owner/email headers are refused. A missing
+or expired development cookie requires another **Owner sign-in**; no account grant
+or long-lived unsigned browser authorization is created.
+Development databases, SFU and avatars remain separate; no production entitlement,
+invitation or session data is copied or read.
+
+Deploy both the development Worker and frontend after changes:
+
+```powershell
+npx --yes wrangler@4.141.0 deploy --config worker\wrangler.dev.jsonc
+npm run build
+npx --yes wrangler@4.141.0 pages deploy dist --project-name nocturne-dev --branch QuestDev --commit-dirty=true
+```
 
 The first real owner starts the simulation. `worker/src/devAttendees.js` gives
 each guest individual activity choices on a measured navigation graph, not a shared
@@ -414,10 +460,16 @@ attempt encountered an ICE failure; a retry with serialized publication setup
 passed and verified increasing voice/music counters with no client errors. This
 is not a 32-person audio-load test or physical-headset performance evidence.
 
-These were direct deployments from the integrated ADE worktree. Pages production
-branch labels select the deployment target; they do not merge the source into
-`Quest` or `SideQuest`. Future releases, including CI deployments from older
-branches, must retain the SFU-capable client before publishing against this relay.
+These were direct deployments from the integrated ADE worktree. On 20 October
+2026 the shared source updates were also merged into Quest and SideQuest, including
+the optional character styles and owner-only DEV room. Their source trees exclude
+ADE artwork, event dressing and pitch build/deployment commands, and retain their
+existing deployment targets and normal metadata. This source integration does not
+redeploy the Worker or apply migrations. Future releases must retain the SFU-capable
+client before publishing against this relay.
+The optional CC0 character cast brings the ordinary production payload to about
+115 MiB; CI caps it at 120 MiB. Characters still load on demand for the selected
+style and tier, not as an initial download of the entire cast.
 Visitors never configure credentials; updated clients select the transport from
 the relay's welcome. Reload old open tabs before joining.
 
@@ -570,6 +622,41 @@ membership and blocks at flush time, so queued stale or blocked guests cannot le
 in. The timer and delivery bookkeeping are cleared when the room empties. Host, show,
 chat, and music control messages are not distance-filtered; their existing block rules
 remain authoritative.
+
+## Uploaded personal models on the development relay
+
+The uploaded wardrobe keeps a supported single-mesh humanoid's face and offers fitted
+casual/smart clothing, top/trouser colours, glasses and headwear. It updates the local
+body, restroom reflection and device-local personal resident DJ. Select the uploaded
+body before opening **Edit my character**; VR uses **Comfort → Me**.
+
+**Share uploaded model** is separate and off by default. Enabling it sends the original
+GLB and complete fitted-look descriptor to current room members. They may retain a copy.
+It does not publish an avatar URL or change everyone else's resident DJ.
+
+Only `worker/wrangler.dev.jsonc` binds the private `nocturne-dev-avatars` R2 bucket.
+Production relay configuration is unchanged. Models are capped at 8 MiB, with bounded
+embedded PNG/JPEG images and indexed geometry, no external files/extensions, and one
+humanoid skin. An active room admission authorizes upload/download with a private token
+in Authorization, not a URL. Downloads recheck membership and two-way blocks.
+Departure, unsharing and replacement remove objects. A seven-day lifecycle expires
+orphans after eviction or failed cleanup; a session must not depend on a model being
+retained beyond that window. Older relays show an explicit unsupported-sharing message.
+
+When provisioning another isolated development environment:
+
+```powershell
+npx --yes wrangler@4.141.0 r2 bucket create nocturne-dev-avatars --location weur --config worker\wrangler.dev.jsonc
+npx --yes wrangler@4.141.0 r2 bucket lifecycle add nocturne-dev-avatars expire-orphaned-room-avatars --expire-days 7 --force --config worker\wrangler.dev.jsonc
+npx --yes wrangler@4.141.0 deploy --config worker\wrangler.dev.jsonc
+```
+
+Never enable a public bucket URL or copy private models into the deployment bundle.
+Shared uploaded people use the procedural rig, preserving the same original geometry
+and wardrobe descriptor rather than replacing them with club characters. Clothing fit,
+controller roll and additional GPU/download costs remain unmeasured on a headset.
+The local GLB remains selectable only on devices where it was imported; sharing does
+not make it a public or account-authenticated exclusive character.
 
 ## Verification and remaining limits
 

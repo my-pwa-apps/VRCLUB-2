@@ -73,6 +73,17 @@ class VRClubCore {
         
         // PERFORMANCE: Enable hardware scaling mode (renders at lower resolution, scales up)
         this.engine.setHardwareScalingLevel(1.0); // 1.0 = native, increase for lower res
+        const xrMultiviewSearch = typeof window !== 'undefined' && window.location
+            ? window.location.search
+            : '';
+        this.xrMultiviewProbe = VRClubCore.configureXRMultiviewProbe(this.engine, xrMultiviewSearch);
+        if (this.xrMultiviewProbe.requested) {
+            if (this.xrMultiviewProbe.enabled) {
+                log.warn('Experimental XR multiview probe enabled; normal stereo remains the default.');
+            } else {
+                log.warn(`XR multiview probe not enabled: ${this.xrMultiviewProbe.reason}`);
+            }
+        }
 
         // === GRAPHICS QUALITY TIER ===
         // Hyperrealistic effects (SSR, contact-hardening shadows, supersampling, motion
@@ -402,10 +413,10 @@ class VRClubCore {
             // the smoke loop — was allocating 5 fresh Color3 objects per fog
             // machine per frame).
             fogActive: new BABYLON.Color3(1, 0.2, 0),       // Red — burst firing
-            fogReady: new BABYLON.Color3(0, 0.8, 0),        // Green — ready
+            fogReady: new BABYLON.Color3(0, 0.3, 0),        // Green — ready (subtle practical, not a neon orb)
             fogContinuous: new BABYLON.Color3(1, 0.5, 0),   // Orange — continuous
             fogStandby: new BABYLON.Color3(0.3, 0.3, 1),    // Blue — standby
-            fogOff: new BABYLON.Color3(0.3, 0.3, 0.3)       // Gray — off
+            fogOff: new BABYLON.Color3(0.08, 0.08, 0.08)    // Dark gray — off
         };
         
         // PERFORMANCE: Pre-allocated Color3 for LED patterns (eliminates thousands of allocations/frame)
@@ -546,6 +557,9 @@ class VRClubCore {
         this.ledMonochrome = false; // true = wall renders in black & white only
         this.ledMulti = false;      // true = shapes alternate the wall colour, its complement and white
         this.ledWallLevel = 1;      // 0..1, how bright the wall runs; the Show Director resolves it from a look's ledLevel
+        this.spotBrightness = 1;
+        this.laserBrightness = 1;
+        this.ledWallBrightness = 1;
         this.strobesActive = true;
         this.strobePattern = 'all'; // 'all' = synchronized burst, 'chase' = clockwise corners
         // When the Show Director drives, when a burst fires: 'free' = random timer (legacy),
@@ -557,6 +571,9 @@ class VRClubCore {
         this.laserSheetActive = false; // Laser sheet effect
         this.laserSheetOrigin = 'both'; // truss mount: 'both' (default), 'ceilingLeft' or 'ceilingRight'
         this.laserSheetMotion = 'vertical'; // 'vertical' or 'lateral'
+        this.laserSheetSpeed = 1;
+        this.laserSheetBrightness = 1;
+        this.fogImmersion = 0;
         this.colorLockActive = false; // ShowDirector can align every active color system
         
         // Spotlight pattern and speed controls
@@ -594,7 +611,6 @@ class VRClubCore {
         this.spotlightMode = 0;
         this.spotStrobeActive = true; // Simple strobe toggle (true = strobe on)
         
-        // Gobo filter settings (for legacy spotlight system)
         this.goboEnabled = false;
         this.goboPatternIndex = 0;
         this.goboRotationSpeed = 1.0;
@@ -603,6 +619,7 @@ class VRClubCore {
             'circle', 'star', 'triangles', 'squares', 'rings',
             'spiral', 'dots', 'slats', 'cross', 'flower'
         ];
+        this.spotPrismActive = false;
         
         // Independent speed controls per light type (0.1 = 10% speed, 2.0 = 200% speed)
         this.spotlightSpeed = 1.0;  // Spotlight sweep/rotation speed
@@ -733,7 +750,8 @@ class VRClubCore {
             this.renderPipeline.bloomScale = vr.bloomScale;
             this.renderPipeline.samples = VRClubCore.resolveVRMsaaSamples(
                 this.tierSettings.vrMsaaSamples || vr.msaaSamples,
-                this.engine.getCaps().maxMSAASamples);
+                this.engine.getCaps().maxMSAASamples,
+                Boolean(this.xrMultiviewProbe && this.xrMultiviewProbe.enabled));
             this.renderPipeline.sharpenEnabled = true;
             this.renderPipeline.sharpen.edgeAmount = vr.edgeSharpness;
             this.renderPipeline.sharpen.colorAmount = vr.sharpenGain;
@@ -1282,11 +1300,32 @@ class VRClubCore {
         }
     }
 
+    static configureXRMultiviewProbe(engine, search = '') {
+        const requested = new URLSearchParams(search).get('xrMultiview') === 'ovr';
+        if (!requested) return { requested: false, enabled: false, reason: null };
+
+        const caps = engine && typeof engine.getCaps === 'function' ? engine.getCaps() : null;
+        if (!caps || !caps.multiview) {
+            return { requested: true, enabled: false, reason: 'OVR_multiview2 is unavailable' };
+        }
+
+        const originalOculusMultiview = caps.oculusMultiview || null;
+        if (originalOculusMultiview) caps.oculusMultiview = null;
+        return {
+            requested: true,
+            enabled: true,
+            reason: null,
+            extension: 'OVR_multiview2',
+            originalOculusMultiview
+        };
+    }
+
     /**
-     * MSAA samples for the headset pipeline: the stored override (`vrclub.vrMsaa` = 1, 2 or 4),
-     * else the configured default, never above what the GPU supports. Pure so it can be tested.
+     * Headset pipeline samples: stored override or tier default, capped by the GPU.
+     * The opt-in standard multiview probe bypasses multisampling.
      */
-    static resolveVRMsaaSamples(configured, maxSupported) {
+    static resolveVRMsaaSamples(configured, maxSupported, forceSingleSample = false) {
+        if (forceSingleSample) return 1;
         let stored = NaN;
         try { stored = parseInt(localStorage.getItem('vrclub.vrMsaa'), 10); } catch (_) { /* private browsing */ }
         const wanted = [1, 2, 4].includes(stored) ? stored : configured;

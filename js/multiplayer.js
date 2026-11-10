@@ -83,7 +83,7 @@ class ClubMultiplayer {
      * 'b' is a boolean; [min, max] a clamped number.
      */
     static SPOT_RIG_FIXTURES = Object.freeze({
-        spotSequence: [0, 6], spotSequenceRate: [1, 8],
+        spotSequence: [0, 6], spotSequenceRate: [1, 8], spotPrismActive: 'b',
         ...Object.fromEntries(Array.from({ length: 6 }, (_, i) => [
             [`spotHead${i}Enabled`, 'b'], [`spotHead${i}Color`, [-1, 8]], [`spotHead${i}Motion`, [0, 7]]
         ]).flat())
@@ -91,13 +91,19 @@ class ClubMultiplayer {
 
     static MANUAL_FIXTURES = Object.freeze({
         ...ClubMultiplayer.SPOT_RIG_FIXTURES,
+        goboEnabled: 'b', goboPatternIndex: [0, 31], goboRotationSpeed: [-10, 10],
         lightsActive: 'b', lasersActive: 'b', ledWallActive: 'b', ledMonochrome: 'b', strobesActive: 'b',
-        mirrorBallActive: 'b', mirrorBallRaysActive: 'b', laserSheetActive: 'b', smokeActive: 'b', spotStrobeActive: 'b', goboEnabled: 'b',
-        spotlightMode: [0, 7], spotlightPattern: [0, 7], goboPatternIndex: [0, 31], ledPattern: [0, 63], spotColorIndex: [0, 63],
-        goboRotationSpeed: [-10, 10], spotlightSpeed: [0, 10], laserSpeed: [0, 10], mirrorBallSpeed: [0, 10],
+        mirrorBallActive: 'b', mirrorBallRaysActive: 'b', laserSheetActive: 'b', smokeActive: 'b', spotStrobeActive: 'b',
+        spotlightMode: [0, 7], spotlightPattern: [0, 7], ledPattern: [0, 63], spotColorIndex: [0, 63],
+        spotlightSpeed: [0, 10], laserSpeed: [0, 10], mirrorBallSpeed: [0, 10],
+        laserSheetSpeed: [0.25, 2],         laserSheetBrightness: [0, 3],
+        spotBrightness: [0, 2],
+        laserBrightness: [0, 2],
+        ledWallBrightness: [0, 2], fogImmersion: [0, 1],
         ledWallSpeed: [0, 10], strobeSpeed: [0, 10], vjMaster: [0, 1], strobePatternIndex: [0, 31],
         currentColorIndex: [0, 2], colorLockActive: 'b',
         ledMulti: 'b', ledWallLevel: [0, 1], kickDepth: [0, 1], fogIntensity: [0, 2],
+        fogBurstMode: ['auto', 'continuous', 'burst'],
         laserSheetOrigin: ['both', 'ceilingLeft', 'ceilingRight'], laserSheetMotion: ['vertical', 'lateral'],
         strobeSync: ['free', 'beat', 'offbeat', 'bar', 'roll'],
         spotRed: [0, 1], spotGreen: [0, 1], spotBlue: [0, 1],
@@ -721,6 +727,7 @@ class ClubMultiplayer {
         const manager = this.manager;
         client.onStatusChange = (status) => {
             club.isMultiplayer = status === 'connected';
+            club._uploadedAvatarSharing?.().connect(status === 'connected' ? client : null);
             if (status === 'connected' && /^private-/i.test(client.room)) this.savePrivateRoom(client.room, client.serverUrl);
             if (status !== 'connected') {
                 this._stopLiveAudio();
@@ -737,6 +744,7 @@ class ClubMultiplayer {
                 this.locked = false;
                 // The doors belong to the room: out of it they are ajar again.
                 if (typeof club.setSharedDoors === 'function') club.setSharedDoors([]);
+                club.setSharedRestroom?.(null);
             }
             if (status === 'error' || status === 'disconnected') {
                 this._stopPing();
@@ -769,6 +777,7 @@ class ClubMultiplayer {
         };
         client.onPeerAvatar = (id, avatar) => { manager.setAvatar(id, avatar); this._emit(); };
         client.onPeerAppearance = (id, appearance) => { manager.setAppearance(id, appearance); this._emit(); };
+        client.onPeerUploadedAvatar = (id, model) => { manager.setUploadedAvatar?.(id, model); this._emit(); };
         client.onSelfAppearance = appearance => { club._appearanceAcknowledged?.(appearance); this._emit(); };
         client.onSelfAvatar = (avatar) => { this.selfAvatar = avatar; this._emit(); };
         client.onEmoji = (id, emoji) => manager.showEmoji(id, emoji);
@@ -815,6 +824,7 @@ class ClubMultiplayer {
         client.onShow = (frame) => this._applyShow(frame);
         client.onDoors = (doors) => { if (typeof club.setSharedDoors === 'function') club.setSharedDoors(doors); };
         client.onDoor = (door, shut) => { if (typeof club.setSharedDoor === 'function') club.setSharedDoor(door, shut); };
+        client.onRestroom = state => club.setSharedRestroom?.(state);
         client.musicDecorator = (music) => this._decorateMusic(music);
         client.onRemoteStream = (id, stream) => stream ? manager.attachVoice(id, stream) : manager.detachVoice(id);
         client.onError = (err) => {
@@ -1304,13 +1314,36 @@ class ClubMultiplayer {
             ? club.spotRigBeat() : null;
         this._roleApplied = following;
         if (following) {
+            this._savedShowProgram = club.showDirector?.program || 'nocturne';
+            this._savedSheetSettings = {
+                laserSheetSpeed: club.laserSheetSpeed ?? 1, laserSheetBrightness: club.laserSheetBrightness ?? 1,
+                spotBrightness: club.spotBrightness ?? 1, laserBrightness: club.laserBrightness ?? 1,
+                ledWallBrightness: club.ledWallBrightness ?? 1
+            };
             this._savedSpotRig = {};
             for (const key of Object.keys(ClubMultiplayer.SPOT_RIG_FIXTURES)) {
                 if (key in club) this._savedSpotRig[key] = club[key];
             }
+            if (club.vjDirector) {
+                this._savedLightMaster = {
+                    target: club.vjDirector.targetMasterIntensity,
+                    show: club.vjDirector.showMasterIntensity
+                };
+            }
         } else if (was) {
+            if (!(this.connected && this.isHost())) {
+                club.showDirector?.setProgram?.(this._savedShowProgram || 'nocturne');
+                if (this._savedSheetSettings) this._applyFixtures(this._savedSheetSettings, true);
+            }
+            this._savedShowProgram = null;
+            this._savedSheetSettings = null;
             if (!(this.connected && this.isHost()) && this._savedSpotRig) this._applyFixtures(this._savedSpotRig, true);
+            if (!(this.connected && this.isHost()) && this._savedLightMaster && club.vjDirector) {
+                club.vjDirector.targetMasterIntensity = this._savedLightMaster.target;
+                club.vjDirector.showMasterIntensity = this._savedLightMaster.show;
+            }
             this._savedSpotRig = null;
+            this._savedLightMaster = null;
         }
         if (following && typeof club.djEffectsSnapshot === 'function') {
             this._savedDJEffects = club.djEffectsSnapshot();
@@ -1383,16 +1416,30 @@ class ClubMultiplayer {
         if (typeof club.getRoomCharacterStyle === 'function') {
             frame.fx = { ...frame.fx, characterStyle: club.getRoomCharacterStyle() };
         }
+        frame.fx = frame.fx || {};
+        frame.fx.showProgram = director.program || 'nocturne';
+        frame.fx.laserSheetSpeed = club.laserSheetSpeed ?? 1;
+        frame.fx.laserSheetBrightness = club.laserSheetBrightness ?? 1;
+        frame.fx.spotBrightness = club.spotBrightness ?? 1;
+        frame.fx.laserBrightness = club.laserBrightness ?? 1;
+        frame.fx.ledWallBrightness = club.ledWallBrightness ?? 1;
+        if (driving && Number.isFinite(vj.showMasterIntensity)) frame.fx.vjMaster = vj.showMasterIntensity;
+        frame.fx.spotPrismActive = !!club.spotPrismActive;
+        const independent = Array.from({ length: 6 }, (_, i) => club[`spotHead${i}Motion`] === 1).some(Boolean);
+        if (Number.isFinite(club._spotMotionPhase) && (independent || club.spotlightPattern === 0 || club.spotlightPattern === 4)) {
+            frame.fx.spotMotionPhase = club._spotMotionPhase;
+        }
         if (typeof club.spotRigBeat === 'function') {
-            frame.fx = frame.fx || {};
-            let musicalSpots = !!club.spotSequence || (club.spotlightPattern >= 5 && club.spotlightPattern <= 7);
+            let musicalSpots = !!club.spotSequence || (club.spotlightPattern >= 5 && club.spotlightPattern <= 7)
+                || (club.smokeActive && club.fogBurstMode === 'auto');
             for (const key of Object.keys(ClubMultiplayer.SPOT_RIG_FIXTURES)) {
-                frame.fx[key] = club[key];
+                if (key in club) frame.fx[key] = club[key];
                 if (key.endsWith('Motion') && club[key] >= 5) musicalSpots = true;
             }
             if (musicalSpots) {
                 // 672 beats spans every preset/rate combination and stays inside the relay's numeric bounds.
-                frame.fx.spotSequenceBeat = club.spotRigBeat() % 672;
+                frame.fx.spotSequenceBeat = (club.spotSequence && typeof club.spotSequenceBeat === 'function'
+                    ? club.spotSequenceBeat() : club.spotRigBeat()) % 672;
                 frame.fx.spotSequenceAt = new Date(Date.now() + (this.client.serverOffset || 0)).toISOString();
                 frame.fx.spotSequenceBpm = club.vjBPM || 120;
             }
@@ -1429,6 +1476,9 @@ class ClubMultiplayer {
         if (typeof club._applySharedDJEffects === 'function') club._applySharedDJEffects(frame.audioFx || this._savedDJEffects);
         const director = club.showDirector, vj = club.vjDirector;
         if (!director || !vj) return;
+        const program = frame.fx?.showProgram === 'aesthetic' ? 'aesthetic' : 'nocturne';
+        const programChanged = director.program !== program;
+        if (programChanged) director.setProgram?.(program);
         const now = performance.now();
         const show = this._show;
         show.lastFrameAt = now;
@@ -1436,10 +1486,12 @@ class ClubMultiplayer {
 
         if (vj.applyRemoteColour) vj.applyRemoteColour(frame);
         if (!Object.prototype.hasOwnProperty.call(frame.fx || {}, 'spotSequence') && typeof club.resetSpotRig === 'function') club.resetSpotRig();
+        if (!Object.prototype.hasOwnProperty.call(frame.fx || {}, 'spotPrismActive')) club.spotPrismActive = false;
         if (frame.m === 'show') {
             club.vjManualMode = false;
             director.enabled = true;
-            director.applyRemote(frame, show.force);
+            director.applyRemote(frame, show.force || programChanged);
+            if (!Object.prototype.hasOwnProperty.call(frame.fx || {}, 'vjMaster')) vj.showMasterIntensity = 1;
             this._applyFixtures(frame.fx, true);
         } else {
             club.vjManualMode = true;
@@ -1465,8 +1517,11 @@ class ClubMultiplayer {
         if (!fx || typeof fx !== 'object') return;
         const club = this.club;
         const safe = !!club.photosensitiveSafeMode;
+        if (Number.isFinite(fx.spotMotionPhase) && fx.spotMotionPhase >= 0 && fx.spotMotionPhase <= 1e6) {
+            club._spotMotionPhase = fx.spotMotionPhase;
+        }
         for (const key of Object.keys(ClubMultiplayer.MANUAL_FIXTURES)) {
-            if (rigOnly && !Object.prototype.hasOwnProperty.call(ClubMultiplayer.SPOT_RIG_FIXTURES, key)) continue;
+            if (rigOnly && !['vjMaster', 'laserSheetSpeed', 'laserSheetBrightness', 'spotBrightness', 'laserBrightness', 'ledWallBrightness'].includes(key) && !Object.prototype.hasOwnProperty.call(ClubMultiplayer.SPOT_RIG_FIXTURES, key)) continue;
             if (!Object.prototype.hasOwnProperty.call(fx, key)) continue;
             const spec = ClubMultiplayer.MANUAL_FIXTURES[key];
             let value = fx[key];
@@ -1499,7 +1554,10 @@ class ClubMultiplayer {
                     break;
                 }
                 case 'vjMaster':
-                    if (club.vjDirector) club.vjDirector.targetMasterIntensity = value;
+                    if (club.vjDirector) {
+                        club.vjDirector.targetMasterIntensity = value;
+                        club.vjDirector.showMasterIntensity = value;
+                    }
                     break;
                 case 'strobePatternIndex': {
                     // The pattern travels as its index in the shared list; an index this build does not have is ignored.

@@ -1,5 +1,8 @@
 # Immersive Environment Review — 2026-09-15
 
+> Historical assessment. Current priorities and status are maintained in the
+> [backlog triage](../BACKLOG.md#triage---2026-11-04---whole-app-polish).
+
 ## Review Basis and Limits
 
 Evidence used:

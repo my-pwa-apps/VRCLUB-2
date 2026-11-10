@@ -60,9 +60,9 @@
         worker-src 'self' blob:;
     ">
     <meta name="referrer" content="no-referrer">
+    <meta name="robots" content="index, follow, max-image-preview:large, max-snippet:-1, max-video-preview:-1">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
     <meta name="description" content="Explore NOCTURNE, an immersive WebXR virtual nightclub for compatible VR headsets and desktop browsers, with multiplayer, live VJ controls, and your own music.">
-    <meta name="robots" content="index, follow, max-image-preview:large, max-snippet:-1, max-video-preview:-1">
     <meta name="theme-color" content="#030308">
 
     <link rel="canonical" href="https://nocturne.mitwee.nl/">
@@ -145,9 +145,9 @@
 
             <p class="splash-hint splash-controls">
                 Move with <kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd> and the mouse ·
-                load a radio stream or your own audio file ·
-                open the VJ desk ·
-                jump between viewpoints
+                add your music in Music ·
+                control the lights in Show ·
+                choose a viewpoint in Go to
             </p>
 
             <p class="splash-hint splash-credits">
@@ -253,7 +253,7 @@
                 <span>Show &amp; Lights</span>
             </h2>
             <div class="panel-header-actions">
-                <button class="panel-btn-icon" id="vjMinimize" type="button" title="Minimize" aria-label="Minimize VJ panel" aria-expanded="true"><span aria-hidden="true">−</span></button>
+                <button class="panel-btn-icon" id="vjMinimize" type="button" title="Minimize" aria-label="Minimize Show and Lights panel" aria-expanded="true"><span aria-hidden="true">−</span></button>
                 <button class="panel-btn-icon" id="vjClose" type="button" title="Close" aria-label="Close VJ panel"><span aria-hidden="true">×</span></button>
             </div>
         </div>
@@ -309,11 +309,20 @@
                     <option value="">Default (man or woman)</option>
                 </select>
                 <button class="vj-button vj-button-wide" id="editPersonalAvatar" type="button">EDIT MY CHARACTER</button>
-                <p class="vj-help">Choose fitted hair and outfits, change colours and preview your personal character. Saved on this device and shared with room guests. Custom characters use the detailed personal model in either room style.</p>
+                <p class="vj-help">Edit your selected body: club characters have a full wardrobe; compatible uploaded bodies have fitted tops, trousers, colours and accessories while keeping their original face. Apply and save changes the selected body.</p>
+                <input id="customAvatarGlbInput" type="file" accept=".glb,model/gltf-binary" hidden>
+                <button class="vj-button vj-button-wide" id="uploadCustomAvatarBtn" type="button">UPLOAD CUSTOM AVATAR (.GLB)</button>
+                <button class="vj-button vj-button-wide" id="toggleCustomAvatarBtn" type="button" hidden>USE UPLOADED AVATAR</button>
+                <button class="vj-button vj-button-wide" id="clearCustomAvatarBtn" type="button" hidden>REMOVE CUSTOM .GLB AVATAR</button>
+                <p class="vj-help" id="customAvatarStatus">Choose a compatible humanoid .glb for your body and mirror. Sharing is off unless you choose it below.</p>
+                <label class="vj-field-label" id="customAvatarShareLabel" hidden><input id="customAvatarShare" type="checkbox"> Share uploaded avatar with room guests</label>
+                <p class="vj-help" id="customAvatarShareStatus" role="status" hidden></p>
+                <p class="vj-help" id="customAvatarSharePrivacy" hidden>Sharing uploads the model so room guests can download your customized avatar. Guests can retain a copy. Keep sharing off for private models.</p>
                 <label class="vj-field-label" for="djStyle">Resident DJ</label>
                 <select class="audio-input" id="djStyle">
                     <option value="male">Male DJ</option>
                     <option value="female">Female DJ</option>
+                    <option id="personalDJOption" value="personal" hidden>My uploaded avatar (only on this device)</option>
                 </select>
             </div>
 
@@ -337,6 +346,17 @@
                     <button class="vj-button active" type="button" aria-pressed="true" data-control="strobesActive">STROBES</button>
                     <button class="vj-button" type="button" aria-pressed="false" data-control="smokeActive" title="Smoke machines and haze. Off gives clear air: the beams, lasers and the room's fog fade to almost nothing.">SMOKE</button>
                 </div>
+                <button class="vj-button vj-button-wide" type="button" data-control="cycleFogAmount">SMOKE AMOUNT: MEDIUM</button>
+                <button class="vj-button vj-button-wide" type="button" data-control="cycleFogMode">SMOKE OUTPUT: STEADY + BURSTS</button>
+                <p class="vj-help">Choosing amount or output switches smoke on. Maximum fills the room gradually; bursts add jets from both machines.</p>
+                <button class="vj-button vj-button-wide" id="reducedShowSmoke" type="button">DENSE SHOW SMOKE FOR ME: ALLOWED</button>
+                <p class="vj-help">Dense passages use slowly eased room fog, not extra particles. Reduce them on this device without changing the room show.</p>
+                <button class="vj-button vj-button-wide" type="button" data-control="cycleSheetSpeed">SHEET SPEED: 100%</button>
+                <button class="vj-button vj-button-wide" type="button" data-control="cycleSheetBrightness">SHEET BRIGHTNESS: 100%</button>
+                <button class="vj-button vj-button-wide" type="button" data-control="cycleSpotBrightness">SPOT BRIGHTNESS: 100%</button>
+                <button class="vj-button vj-button-wide" type="button" data-control="cycleLaserBrightness">LASER BRIGHTNESS: 100%</button>
+                <button class="vj-button vj-button-wide" type="button" data-control="cycleLedBrightness">WALL BRIGHTNESS: 100%</button>
+                <p class="vj-help">Each brightness changes only that fixture, including during the automatic show. Spots, lasers and wall reach 200%; the sheet reaches 300%. Safe Mode limits boosts to 100%.</p>
                 <button class="vj-button vj-button-wide" type="button" data-control="cycleStrobePattern" title="How the four truss strobes fire: regular sequences or an irregular mode with short stabs and longer pauses. Every flash still obeys the shared safety limit.">STROBE PATTERN: ALL AT ONCE</button>
                 <button class="vj-button vj-button-wide" id="vjResetBtn" type="button" title="Restore every VJ control to its documented default.">↺ RESET TO DEFAULTS</button>
             </div>
@@ -364,21 +384,31 @@
                 </div>
             </div>
             
-            <!-- Gobo Filter Controls -->
+            <!-- Spotlight rig controls -->
             <div class="vj-section" data-vj-tab-panel="lights" hidden>
-                <div class="vj-section-title">Individual spots, rows and columns</div>
-                <p class="vj-help">Choose a group, then change its on/off state, colour or movement. Rows run front to back; columns are left and right. Chase moves SPOT COLOUR between groups; Fill adds groups, then fades out. Individual colours return in Steady. Every step follows the music.</p>
+                <div class="vj-section-title">Choose and control spots</div>
+                <p class="vj-help">Choose which spots to edit. Entrance and DJ identify the ends of the room; left and right are as you face the DJ. On/off, colour and aim apply to your selection. Light order affects all six: moving orders use the main spot colour; selected colours return with All together.</p>
+                <label for="spotRigSelection">Spots to edit</label>
+                <select id="spotRigSelection" class="audio-input"></select>
                 <div class="vj-button-grid">
-                    <button class="vj-button vj-button-wide" type="button" data-control="cycleSpotTarget">EDIT GROUP: ALL SIX</button>
-                    <button class="vj-button" type="button" data-control="toggleSpotGroup">GROUP ON/OFF: ON</button>
-                    <button class="vj-button" type="button" data-control="cycleSpotGroupColor">GROUP COLOUR: FOLLOW SPOT COLOUR</button>
-                    <button class="vj-button vj-button-wide" type="button" data-control="cycleSpotGroupMotion">GROUP MOVEMENT: FOLLOW RIG</button>
-                    <button class="vj-button vj-button-wide" type="button" data-control="cycleSpotSequence">SEQUENCE: STEADY</button>
-                    <button class="vj-button" type="button" data-control="cycleSpotSequenceRate">STEP EVERY: 2 BEATS</button>
-                    <button class="vj-button" type="button" data-control="resetSpotRig">RESET SPOT RIG</button>
+                    <button class="vj-button" type="button" data-control="toggleSpotGroup">SELECTED ON/OFF: ON</button>
+                    <button class="vj-button" type="button" data-control="cycleSpotGroupColor">SELECTED COLOUR: FOLLOW SPOT COLOUR</button>
+                    <button class="vj-button vj-button-wide" type="button" data-control="cycleSpotGroupMotion">SELECTED AIM PATH: USE MAIN AIM PATH</button>
+                    <button class="vj-button vj-button-wide" type="button" data-control="cycleSpotSequence">ORDER: ALL SPOTS: ALL TOGETHER</button>
+                    <button class="vj-button" type="button" data-control="cycleSpotSequenceRate">ORDER STEP EVERY: 2 BEATS</button>
+                    <button class="vj-button" type="button" data-control="resetSpotRig">RESET ALL SPOTS</button>
                 </div>
             </div>
 
+            <div class="vj-section" data-vj-tab-panel="lights" hidden>
+                <div class="vj-section-title">Spotlight filter</div>
+                <p class="vj-help">Split each spotlight into multiple beams, or turn the filter off for a single beam.</p>
+                <div class="vj-button-grid">
+                    <button class="vj-button" type="button" aria-pressed="false" data-control="spotPrismActive">MULTI-BEAM FILTER</button>
+                </div>
+            </div>
+            
+            <!-- Gobo Filter Controls -->
             <div class="vj-section" data-vj-tab-panel="lights" hidden>
                 <div class="vj-section-title">Projected gobo images</div>
                 <p class="vj-help">A gobo replaces each spotlight's soft pool with a rotating image projected where its beam meets the floor or wall. Open means the normal soft pool.</p>
@@ -453,6 +483,8 @@
                 <select class="audio-input" id="vjHoldTiming" aria-describedby="vjHoldSummary"></select>
                 <p class="vj-help" id="vjHoldSummary" role="status"></p>
                 <button class="vj-button vj-button-wide" id="vjAutoShowBtn" type="button" title="Hand the lights back to the automatic show now.">AUTO SHOW NOW</button>
+                <button class="vj-button vj-button-wide" type="button" data-control="cycleShowProgram">SHOW STYLE: NOCTURNE</button>
+                <p class="vj-help">Aesthetic holds one colour across the rig, with long passages, beat-stepped rows and occasional layered peaks. NOCTURNE remains the default.</p>
             </div>
 
             <!-- VJ Director: Live Macros (the buttons every VJ has on a console) -->
@@ -460,7 +492,7 @@
                 <div class="vj-section-title">Live macros</div>
                 <p class="vj-help">One-press moments for the dance floor, like a real lighting desk.</p>
                 <div class="vj-button-grid">
-                    <button class="vj-button" id="vjDropBtn" type="button" title="Slam to DROP scene on the next beat (peak look + strobes + crossed beams). Shortcut: F">DROP</button>
+                    <button class="vj-button" id="vjDropBtn" type="button" title="Trigger the peak look now; Safe Mode remains in control. Shortcut: F">PEAK NOW</button>
                     <button class="vj-button" id="vjBlackoutBtn" type="button" title="Kill all lights for one bar — perfect tension before a drop. Shortcut: B">BLACKOUT</button>
                     <button class="vj-button" id="vjLockBtn" type="button" title="Snap all moving heads straight down at the dance floor center.">LOCK</button>
                     <button class="vj-button" id="vjTapBtn" type="button" title="Tap on each beat to set the BPM. 4+ taps for accuracy.">TAP TEMPO</button>
@@ -514,7 +546,7 @@
                 <span>Music</span>
             </h2>
             <div class="panel-header-actions">
-                <button class="panel-btn-icon" id="audioMinimize" type="button" title="Minimize" aria-label="Minimize audio panel" aria-expanded="true"><span aria-hidden="true">−</span></button>
+                <button class="panel-btn-icon" id="audioMinimize" type="button" title="Minimize" aria-label="Minimize Music panel" aria-expanded="true"><span aria-hidden="true">−</span></button>
                 <button class="panel-btn-icon" id="audioClose" type="button" title="Close" aria-label="Close audio panel"><span aria-hidden="true">×</span></button>
             </div>
         </div>
@@ -604,6 +636,10 @@
                     <p id="liveInputFormat" class="network-help"></p>
                     <button id="liveInputMonitor" class="audio-button" type="button" aria-pressed="false" disabled>Hear test audio: OFF</button>
                     <p class="network-help">Use headphones before switching this on to avoid feedback. It only changes what you hear, not what guests receive.</p>
+                    <button id="liveInputPerformDJ" class="audio-button" type="button" aria-pressed="true">Perform as DJ in booth: ON</button>
+                    <p class="network-help">During input testing and broadcasting, this places your avatar behind the decks and hides the resident DJ on your device. On desktop, going live returns to the booth view of the dance floor.</p>
+                    <button id="liveInputUploadGlb" class="audio-button" type="button">Upload custom .GLB avatar</button>
+                    <p class="network-help">Custom .glb files stay on this device unless you enable Share uploaded avatar in Show &amp; Lights &gt; Club. Room guests then receive your customized body and may keep a copy; their resident DJ choice stays unchanged. Compatible rigs vary; a Tribe avatar export has not been verified.</p>
                     <h3 class="vj-section-title">3. Share your live set</h3>
                     <label for="liveInputTitle">Name of your set</label>
                     <input id="liveInputTitle" class="audio-input" maxlength="80" value="My live DJ set">
@@ -650,6 +686,13 @@
             <div class="audio-section">
                 <label for="savedSets">Saved sets on this device</label>
                 <select class="audio-input" id="savedSets" aria-label="Saved sets"></select>
+                <div id="musicRecovery" hidden>
+                    <p class="network-help" id="musicRecoveryMessage" role="status"></p>
+                    <div class="audio-input-group">
+                        <button class="audio-button" id="retrySavedSets" type="button">Retry reading saved sets</button>
+                        <button class="audio-button" id="resetSavedSets" type="button">Reset unreadable saved sets</button>
+                    </div>
+                </div>
                 <div class="audio-input-group">
                     <button class="audio-button" id="playSavedSetBtn" type="button">Play saved set</button>
                     <button class="audio-button" id="removeSavedSetBtn" type="button">Remove saved set</button>
@@ -757,6 +800,9 @@
                 <input type="text" class="audio-input" id="networkRoom" maxlength="64" autocomplete="off"
                        placeholder="lobby" aria-describedby="networkRoomHelp">
                 <p class="network-help" id="networkRoomHelp">Leave it on <strong>lobby</strong> to meet anyone, or type the 6-digit code a friend gave you.</p>
+                <p class="network-help" id="networkDevOwner" hidden>Room 000032 contains simulated guests and requires your verified owner login.
+                    <a id="networkDevOwnerSignIn" href="https://api.mitwee.nl/admin/dev-owner/sign-in" target="_blank" rel="noopener noreferrer">Owner sign-in (opens a new tab)</a>.
+                    Return here afterwards and press Join room. In a headset, sign in in this headset's browser first.</p>
                 <button class="audio-button network-primary" id="networkConnectBtn" type="button">
                     <span aria-hidden="true">🚪</span>
                     <span id="networkConnectBtnLabel">Join room</span>
@@ -909,6 +955,7 @@
     <!-- Multiplayer Toggle Button -->
     <button id="networkToggle" type="button" title="Online rooms" aria-label="Open Online panel" aria-expanded="false" aria-controls="networkMenu"><svg class="app-icon" aria-hidden="true"><use href="#icon-online"></use></svg><span class="toggle-word" aria-hidden="true">Online</span></button>
 
+    <div id="bottomControls">
     <!-- Camera Controls -->
     <div id="cameraControls">
         <button id="cameraPresetToggle" class="camera-controls-toggle" type="button"
@@ -970,6 +1017,8 @@
         </div>
     </div>
     
+    </div>
+
     <!-- Asset attribution. CC BY 4.0 §3(a)(1) requires creator, title, a link to the
          material and a link to the licence; §3(a)(2) allows any reasonable manner based on
          the medium. A collapsed disclosure keeps all of it one click away without covering
@@ -1165,10 +1214,12 @@
     <!-- The NOCTURNE wordmark as path geometry. Pure data; the club's signage strokes it onto canvas
          and the splash <svg> above carries the same `d` (a unit test fails if the two drift apart). -->
     <script src="js/nocturneLogo.js?v=20261021-5"></script>
+    <script src="js/venueBranding.js?v=20261021-5"></script>
 
     <!-- The restroom's posters, stickers, tags and light box, painted into one atlas at runtime (pure data + Canvas 2D
          painters; uses the wordmark above). -->
     <script src="js/restroomArt.js?v=20261021-5"></script>
+    <script src="js/restroomInteractions.js?v=20261021-5"></script>
 
     <!-- Entrance vestibule and bar, mixed into VRClub.prototype by club_hyperrealistic.js (needs barProps). -->
     <script src="js/venueDressing.js?v=20261021-5"></script>
@@ -1187,6 +1238,8 @@
     <script src="js/wardrobeCatalog.js?v=20261021-5"></script>
     <script src="js/avatarAccessoryAssets.js?v=20261021-5"></script>
     <script src="js/avatarDetails.js?v=20261021-5"></script>
+    <script src="js/customAvatarAppearance.js?v=20261021-5"></script>
+    <script src="js/uploadedAvatarSharing.js?v=20261021-5"></script>
     <script src="js/avatarAppearance.js?v=20261021-5"></script>
     <script src="js/avatarEditor.js?v=20261021-5"></script>
 
@@ -1220,7 +1273,13 @@
     <script src="js/club/07-animation-core.js?v=20261021-5"></script>
     <script src="js/club/08-animation-fixtures.js?v=20261021-5"></script>
     <script src="js/club/09-animation-finish.js?v=20261021-5"></script>
+    <script src="js/club/10-ui-controls.js?v=20261021-5"></script>
+    <script src="js/club/10-ui-menu.js?v=20261021-5"></script>
+    <script src="js/club/10-ui-social.js?v=20261021-5"></script>
     <script src="js/club/10-ui.js?v=20261021-5"></script>
+    <script src="js/club/11-audio.js?v=20261021-5"></script>
+    <script src="js/club/11-avatars.js?v=20261021-5"></script>
+    <script src="js/club/11-crowd.js?v=20261021-5"></script>
     <script src="js/club/11-audio-crowd.js?v=20261021-5"></script>
 
     <!-- VR Club Main Application -->
@@ -1228,9 +1287,9 @@
     <script src="js/paymentGate.js?v=20261021-5"></script>
     <!-- Opt-in (?immersive=1) in-headset launch: safe-mode choice, access and pairing without a 2D page -->
     <script src="js/immersiveLaunch.js?v=20261021-5"></script>
-    <script src="js/liveEventConcept.js?v=20261021-5"></script>
     
     <!-- UI Initialization (splash screen, VJ controls, audio, multiplayer) -->
+    <script src="js/liveEventConcept.js?v=20261021-5"></script>
     <script src="js/ui-init.js?v=20261021-5"></script>
 </body>
 </html>

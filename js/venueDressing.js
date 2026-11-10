@@ -60,6 +60,8 @@ const VENUE_RESTROOM = {
     z0: -6.2,        // stage-side inner face
     z1: -1.2,        // entrance-side inner face
     height: 3.2,
+    tileHeight: 1.5,
+    tileMeters: 1.5,
     door: { z0: -4.1, z1: -2.3, height: 2.8 },
     stallFrontX: -14.45,
     stallPier: 0.16,
@@ -91,6 +93,7 @@ const VENUE_RESTROOM = {
 
 const VENUE_VESTIBULE = {
     halfWidth: 3.85,
+    clubDoorHalfWidth: 2,
     wallZ: 0.25,     // outer face of the front wall
     farZ: 6.0,       // inner face of the street wall
     // The club is a basement. The street, and the vestibule's floor at the street door, stand this far above the
@@ -203,6 +206,18 @@ const VenueDressing = {
             mat.baseColor = new BABYLON.Color3(0.09, 0.055, 0.035);
             mat.metallic = 0.05;
             mat.roughness = 0.45;
+        }
+        return mat;
+    },
+
+    _venueSurfaceMaterial(type, name, color, normalStrength) {
+        const textures = this.concreteTextures && this.concreteTextures[type];
+        const mat = this.materialFactory.createPBRMaterial(name, {
+            baseColor: color, metallic: textures ? 1 : 0, roughness: 1, mutable: true
+        });
+        if (textures && this.textureLoader) {
+            this.textureLoader.applyTexturesToMaterial(mat, textures);
+            if (textures.normal) textures.normal.level = normalStrength;
         }
         return mat;
     },
@@ -833,8 +848,8 @@ const VenueDressing = {
         const midX = (XF - 0.3 + XN) / 2;
         const midZ = (Z0 + Z1) / 2;
 
-        const wallMat = factory.getPreset('wall');
-        const wallScale = (this.textureLoader && this.textureLoader.textureConfigs.walls.scale) || { u: 1, v: 1 };
+        const wallMat = this._venueSurfaceMaterial('restroomPlaster', 'restroomPlasterMat', [0.7, 0.7, 0.68], 0.25);
+        const wallScale = { u: 1, v: 1 };
         const ceilingScale = (this.textureLoader && this.textureLoader.textureConfigs.ceiling.scale) || { u: 1, v: 1 };
         const brick = mesh => this._applyWorldUVs(mesh, 1.5, wallScale);
 
@@ -842,6 +857,38 @@ const VenueDressing = {
         b.box(walls, 0.3, H, lengthZ, XF - 0.15, H / 2, midZ, brick);
         b.box(walls, widthX, H, 0.3, midX, H / 2, Z0 - 0.15, brick);
         b.box(walls, widthX, H, 0.3, midX, H / 2, Z1 + 0.15, brick);
+
+        // The hall wall keeps its original collider and club-facing brick. Only its restroom face is refinished.
+        const hallX = XN - 0.004;
+        const hallQuads = (bottom, top) => {
+            const segments = [[Z0, D.z0], [D.z1, Z1]];
+            const quads = segments.map(([z0, z1]) => ({
+                centre: [hallX, (bottom + top) / 2, (z0 + z1) / 2],
+                right: [0, 0, 1], normal: [-1, 0, 0], w: z1 - z0, h: top - bottom,
+                uv: { u0: z0 / R.tileMeters, u1: z1 / R.tileMeters,
+                    vBottom: bottom / R.tileMeters, vTop: top / R.tileMeters }
+            }));
+            if (top > D.height) quads.push({
+                centre: [hallX, (Math.max(bottom, D.height) + top) / 2, (D.z0 + D.z1) / 2],
+                right: [0, 0, 1], normal: [-1, 0, 0], w: D.z1 - D.z0, h: top - Math.max(bottom, D.height),
+                uv: { u0: D.z0 / R.tileMeters, u1: D.z1 / R.tileMeters,
+                    vBottom: Math.max(bottom, D.height) / R.tileMeters, vTop: top / R.tileMeters }
+            });
+            return quads;
+        };
+        // The art helper's winding is outward; opaque wall finishes must face into the room.
+        b.add(walls, this._artMesh('restroomHallPlaster', hallQuads(R.tileHeight, H), wallMat).flipFaces());
+        const tileMat = this._venueSurfaceMaterial('restroomTiles', 'restroomTileMat', [0.82, 0.82, 0.8], 0.4);
+        const tileQuads = hallQuads(0, R.tileHeight);
+        for (const face of [
+            { centre: [XF + 0.004, R.tileHeight / 2, midZ], right: [0, 0, -1], normal: [1, 0, 0], width: Z1 - Z0, u0: -Z1, u1: -Z0 },
+            { centre: [(XF + XN) / 2, R.tileHeight / 2, Z0 + 0.004], right: [1, 0, 0], normal: [0, 0, 1], width: XN - XF, u0: XF, u1: XN },
+            { centre: [(XF + XN) / 2, R.tileHeight / 2, Z1 - 0.004], right: [-1, 0, 0], normal: [0, 0, -1], width: XN - XF, u0: -XN, u1: -XF }
+        ]) tileQuads.push({
+            centre: face.centre, right: face.right, normal: face.normal, w: face.width, h: R.tileHeight,
+            uv: { u0: face.u0 / R.tileMeters, u1: face.u1 / R.tileMeters, vBottom: 0, vTop: R.tileHeight / R.tileMeters }
+        });
+        b.add(b.group('WallTiles', tileMat), this._artMesh('restroomTileFaces', tileQuads, tileMat).flipFaces());
 
         const ceiling = b.group('Ceiling', factory.getPreset('ceiling'));
         b.box(ceiling, widthX + 0.5, 0.14, lengthZ, (XF - 0.3 + XN + 0.5) / 2, H + 0.07, midZ,
@@ -939,7 +986,52 @@ const VenueDressing = {
         this._restroomFloor = built.Floor || null;
         this._restroomMeshes = scoped;
 
-        this.modelLoadPromise.then(() => { if (!this._disposed) this._furnishRestroom(); });
+        this.modelLoadPromise = Promise.all([this.modelLoadPromise, this._loadRestroomHandles()]).then(() => {
+            if (!this._disposed) this._furnishRestroom();
+        });
+    },
+
+    async _loadRestroomHandles() {
+        if (!this.modelLoader?.loadAssetContainer) return;
+        let source;
+        try {
+            source = await this.modelLoader.loadAssetContainer('./js/models/restroom/source/door_handle_3.glb', this.scene);
+            if (this._disposed) { source.dispose(); return; }
+            this._restroomHandleSource = source;
+            source.animationGroups.forEach(group => group.stop());
+            const material = this.materialFactory.getPreset('stanchionPost');
+            source.meshes.forEach(mesh => { if (mesh.getTotalVertices?.()) mesh.material = material; });
+            const handles = [];
+            this._restroomHandleInstances = [];
+            for (const door of this._restroomDoors) {
+                for (const side of [-1, 1]) {
+                    const pivot = new BABYLON.TransformNode(`restroomHandleMount${door.index}_${side}`, this.scene);
+                    pivot.parent = door.hinge;
+                    pivot.position.set(side * (0.035 / 2 + 0.001), 1, door.leafSign * (door.leaf.getBoundingInfo().boundingBox.extendSize.z * 2 - 0.1));
+                    pivot.rotationQuaternion = BABYLON.Quaternion.RotationYawPitchRoll(side * Math.PI / 2, 0,
+                        door.leafSign === side ? Math.PI : 0);
+                    const entry = source.instantiateModelsToScene(name => `restroomHandle${door.index}_${side}_${name}`, false, { doNotInstantiate: true });
+                    this._restroomHandleInstances.push(entry);
+                    for (const root of entry.rootNodes) {
+                        root.parent = pivot;
+                        for (const mesh of root.getChildMeshes()) {
+                            mesh.isPickable = true;
+                            mesh.metadata = { vrclubDoor: door.index };
+                            handles.push(mesh);
+                        }
+                    }
+                }
+                this.scene.getMeshByName(`restroomStallHandle${door.index}`)?.setEnabled(false);
+            }
+            this._extendAccentLight(this._restroomLight, handles);
+            this._extendAccentLight(this._restroomBackLight, handles);
+            this._restroomMeshes.push(...handles);
+            this._restoreLightBudgets();
+            this._syncRestroomMirrorRenderList();
+        } catch (error) {
+            if (source && source !== this._restroomHandleSource) source.dispose();
+            if (!this._disposed) this.showErrorMessage(`Door handles could not load: ${error.message}`);
+        }
         log.info('✅ Club restroom created');
     },
 
@@ -1045,6 +1137,8 @@ const VenueDressing = {
         const T = 0.035, gap = 0.02, bottom = 0.16, top = 2.11;
         const frontX = R.stallFrontX + 0.025 + T / 2 + 0.004;
         const chrome = this.materialFactory.getPreset('stanchionPost');
+        const doorWood = this._barWoodMaterial();
+        const woodScale = this.textureLoader?.textureConfigs?.barWood?.scale || { u: 1, v: 1 };
         const free = this._emissive('restroomDoorFreeMat', [0.1, 0.9, 0.3]);
         const busy = this._emissive('restroomDoorBusyMat', [1.0, 0.12, 0.1]);
         const makeBox = (name, parent, w, h, d, x, y, z, mat, index) => {
@@ -1063,7 +1157,8 @@ const VenueDressing = {
             const width = to - from - 2 * gap;
             const hinge = new BABYLON.TransformNode(`restroomStallHinge${index}`, this.scene);
             hinge.position.set(frontX, 0, leafSign > 0 ? from + gap : to - gap);
-            const leaf = makeBox(`restroomStallDoor${index}`, hinge, T, top - bottom, width, 0, (top + bottom) / 2, leafSign * width / 2, material, index);
+            const leaf = makeBox(`restroomStallDoor${index}`, hinge, T, top - bottom, width, 0, (top + bottom) / 2, leafSign * width / 2, doorWood, index);
+            this._applyWorldUVs(leaf, 1.5, woodScale);
             makeBox(`restroomStallHandle${index}`, hinge, 0.02, 0.12, 0.035, T / 2 + 0.01, 1.0, leafSign * (width - 0.1), chrome, index);
             const lamp = makeBox(`restroomStallLamp${index}`, hinge, 0.008, 0.05, 0.05, T / 2 + 0.004, 1.12, leafSign * (width - 0.1), free, index);
             const door = { index, seatId: `toilet-${index}`, hinge, leaf, lamp, free, busy, leafSign, frontX, opening: [from, to], t: 1, open: 1, remote: false, occupied: false, clearancePending: false };
@@ -1212,6 +1307,8 @@ const VenueDressing = {
         if (!models) return;
         const R = VENUE_RESTROOM;
         const placed = [];
+        this.restroomInteractions = new window.RestroomInteractions(this);
+        if (this._sharedRestroomState) this.restroomInteractions.apply(this._sharedRestroomState);
 
         const toiletRecord = models.restroom_toilet;
         if (toiletRecord && toiletRecord.rootMesh) {
@@ -1235,7 +1332,8 @@ const VenueDressing = {
                 seatMeshes.forEach(mesh => placed.push(mesh));
                 const seat = this._seat('a toilet', `toilet-${index}`, R.toiletSeatX, z, 0, R.toiletSeatY,
                     Math.PI / 2, R.toiletSeatX + 0.42, z);
-                this._tagSeatMeshes(seatMeshes, [seat]);
+                this._tagSeatMeshes(seatMeshes.filter(mesh => /Bathroom_Toilet$/.test(mesh.name)), [seat]);
+                this.restroomInteractions.attachToilet(seatMeshes, index);
                 this._collisionBlock(`restroomToiletBlock${index}`, 0.56, 0.85, 0.52, R.toiletX, 0.425, z);
             });
         }
@@ -1264,6 +1362,7 @@ const VenueDressing = {
                     placed.push(mesh);
                 });
                 this._collisionBlock(`restroomSinkBlock${index}`, 0.48, 0.9, 0.62, R.sinkX, 0.45, z);
+                this.restroomInteractions.attachSink(sinkMeshes, index);
             });
         }
 
@@ -1277,6 +1376,7 @@ const VenueDressing = {
         }
         if (models.restroom_bin) this._collisionBlock('restroomBinBlock', 0.4, 0.62, 0.4, R.props.bin.x, 0.31, R.props.bin.z);
 
+        placed.push(...this.restroomInteractions.meshes);
         this._extendAccentLight(this._restroomLight, placed);
         this._extendAccentLight(this._restroomBackLight, placed);
         this._restroomFixtures = placed;
@@ -1329,12 +1429,20 @@ const VenueDressing = {
                 if (double && double.skeletons) for (let i = 0; i < double.skeletons.length; i++) double.skeletons[i].prepare(true);
                 // The reflection shows the whole person, head included; the player's own view does not.
                 if (double) this._setSelfHead(double, true);
+                else if (this._localRig && typeof this._localRig.setHeadVisible === 'function') {
+                    this._localRig._mirrorRestoreHead = !this._localRig._headVisible;
+                    if (this._localRig._mirrorRestoreHead) this._localRig.setHeadVisible(true);
+                }
             });
             mirrorTex.onAfterRenderObservable.add(() => {
                 const shown = mirrorTex._revealed;
                 for (let i = 0; i < shown.length; i++) if (!shown[i].isDisposed()) shown[i].isVisible = false;
                 shown.length = 0;
                 if (this._mirrorDouble) this._setSelfHead(this._mirrorDouble, !!this._mirrorDouble.headWanted);
+                else if (this._localRig && this._localRig._mirrorRestoreHead) {
+                    this._localRig._mirrorRestoreHead = false;
+                    this._localRig.setHeadVisible(false);
+                }
             });
             mat.reflectionTexture = mirrorTex;
             this.restroomMirrorTexture = mirrorTex;
@@ -1384,10 +1492,11 @@ const VenueDressing = {
 
     /** Who the mirror shows: the relay's assignment in a room, otherwise the character the player chose (null = their own body). */
     _mirrorAvatarId() {
+        if (typeof this.isCustomAvatarSelected === 'function' && this.isCustomAvatarSelected()) return null;
         const mp = this.multiplayer;
         if (mp && mp.connected) return mp.selfAvatar || null;
         const selected = typeof this.getLocalCharacter === 'function' ? this.getLocalCharacter() : null;
-        return selected || (this.getCharacterStyle && this.getCharacterStyle() === 'diverse'
+        return selected || ((this.performingAsDJ || (this.getCharacterStyle && this.getCharacterStyle() === 'diverse'))
             ? this.getLocalAvatarStyle() === 'male' ? 'm1' : 'f1' : null);
     },
 
@@ -1587,6 +1696,45 @@ const VenueDressing = {
             double.shown = true;
             double.root.setEnabled(true);
         }
+        if (this.performingAsDJ && this._selfDJPose) {
+            const djPose = this._selfDJPose;
+            const eyeH = this._shownBodyEye();
+            double.x = djPose.x;
+            double.z = djPose.z;
+            double.yaw = (djPose.headYaw || 0) * 0.35;
+            const bounceY = (djPose.eyeY || (djPose.groundY + eyeH)) - (djPose.groundY + eyeH);
+            double.root.position.set(djPose.x, djPose.groundY + Math.max(-0.08, Math.min(0.04, bounceY)), djPose.z);
+            double.root.rotation.y = double.yaw;
+            double.placed = true;
+            double.prevX = NaN;
+            double.speed = 0;
+            double.gait = 'idle';
+            this._playMirrorDouble(double, 'Idle', 1);
+            if (!double._djLightAdded && this.scene) {
+                const djLight = this.scene.getLightByName && this.scene.getLightByName('djConsoleLight');
+                if (djLight) {
+                    this._extendAccentLight(djLight, double.meshes);
+                    double._djLightAdded = true;
+                }
+            }
+            for (const side of ['left', 'right']) {
+                const tracked = (this.isInVRMode && this._handPose ? this._handPose(side, pos) : null) || djPose[side];
+                if (!tracked) { double.hands[side] = null; continue; }
+                const hand = double.handBuffers[side];
+                hand.x = tracked.x - double.x;
+                hand.y = tracked.y - (djPose.groundY + eyeH);
+                hand.z = tracked.z - double.z;
+                hand.fx = tracked.fx; hand.fy = tracked.fy; hand.fz = tracked.fz;
+                hand.ux = tracked.ux; hand.uy = tracked.uy; hand.uz = tracked.uz;
+                double.hands[side] = hand;
+            }
+            if (double.head) {
+                const away = Math.hypot(djPose.x - pos.x, (djPose.eyeY || (djPose.groundY + eyeH)) - pos.y, djPose.z - pos.z);
+                double.headWanted = away > 0.34;
+                this._setSelfHead(double, double.headWanted);
+            }
+            return;
+        }
         const seat = this._activeSeat;
         const dir = this._mirrorDir || (this._mirrorDir = new BABYLON.Vector3());
         cam.getDirectionToRef(BABYLON.Axis.Z, dir);
@@ -1705,8 +1853,14 @@ const VenueDressing = {
      * render target drew it a second time every frame, and a headset's every-other-frame rate showed the reflection of
      * one eye to both and lagged it behind the head.
      */
+    setSharedRestroom(state) {
+        this._sharedRestroomState = state;
+        this.restroomInteractions?.apply(state);
+    },
+
     updateRestroomMirror(ctx) {
         this._updateRestroomDoors(ctx && ctx.dt);
+        this.restroomInteractions?.update(ctx && ctx.dt);
         if (!this.scene) return;
         // The character is the player's own body everywhere in the club, not only in front of the mirror: it is built
         // (and follows the player) whenever a character is known, and dropped when there is none.
@@ -1743,6 +1897,110 @@ const VenueDressing = {
             }
         }
         if (tex.refreshRate !== 1) tex.refreshRate = 1;
+    },
+
+    /**
+     * Static architectural & furniture contact-shadow batch (`venueContactShadows`).
+     * Places soft Gaussian ambient-occlusion footprints under the DJ riser, DJ table,
+     * bar counter, bar stools, lounge couch, mezzanine columns/table/stools, and restroom
+     * fixtures in ONE thin-instanced draw call with zero per-frame CPU work.
+     */
+    createVenueContactShadows() {
+        if (!this.scene || typeof BABYLON.MeshBuilder === 'undefined') return;
+        if (this._venueContactShadows) return;
+
+        let texture = this._contactShadows && this._contactShadows.material && this._contactShadows.material.opacityTexture;
+        if (!texture && typeof document !== 'undefined' && BABYLON.DynamicTexture) {
+            const size = 128;
+            const canvas = document.createElement('canvas');
+            canvas.width = size;
+            canvas.height = size;
+            const ctx = canvas.getContext('2d');
+            if (ctx) {
+                const gradient = ctx.createRadialGradient(size / 2, size / 2, 0, size / 2, size / 2, size / 2);
+                for (const [stop, alpha] of [[0, 0.92], [0.25, 0.82], [0.5, 0.52], [0.75, 0.22], [1, 0]]) {
+                    gradient.addColorStop(stop, `rgba(255,255,255,${alpha})`);
+                }
+                ctx.fillStyle = gradient;
+                ctx.fillRect(0, 0, size, size);
+                texture = new BABYLON.DynamicTexture('venueContactShadowGradient', canvas, this.scene, false);
+                texture.hasAlpha = true;
+                texture.update();
+            }
+        }
+
+        const mat = new BABYLON.StandardMaterial('venueContactShadowMat', this.scene);
+        mat.diffuseColor = new BABYLON.Color3(0, 0, 0);
+        mat.specularColor = new BABYLON.Color3(0, 0, 0);
+        mat.emissiveColor = new BABYLON.Color3(0, 0, 0);
+        if (texture) mat.opacityTexture = texture;
+        mat.alpha = 0.82;
+        mat.alphaMode = BABYLON.Engine.ALPHA_COMBINE;
+        mat.disableLighting = true;
+        mat.backFaceCulling = false;
+        mat.disableDepthWrite = true;
+        mat.depthFunction = BABYLON.Constants.LEQUAL;
+        mat.freeze();
+
+        // Footprints: [x, y, z, widthX, depthZ]
+        const footprints = [
+            // DJ booth riser (6 x 4 m at z = -18) and DJ table plinth on top of riser (y = 0.51)
+            [0, 0.014, -18.0, 6.85, 4.75],
+            [0, 0.522, -18.5, 4.55, 1.48],
+            // Bar counter along right wall (x 9.7..10.5, z -13.6..-6.2) & back-bar base
+            [10.1, 0.014, -9.9, 1.55, 8.1],
+            [11.85, 0.014, -9.9, 1.15, 8.3],
+            // Lounge couch against entrance wall (x = 7.1, z = -0.72)
+            [VENUE_LOUNGE.x, 0.015, VENUE_LOUNGE.z, VENUE_LOUNGE.width + 0.65, VENUE_LOUNGE.depth + 0.55],
+            // Mezzanine columns along x = -9.56 and stair foot at z = -6.2
+            [-9.56, 0.015, -18.8, 0.85, 0.85],
+            [-9.56, 0.015, -14.7, 0.85, 0.85],
+            [-9.56, 0.015, -10.6, 0.85, 0.85],
+            [-11.4, 0.015, -6.35, 1.65, 0.95],
+            // Mezzanine deck table and stools (on deck top y = 3.0)
+            [-11.3, 3.012, -16.6, 0.95, 0.95],
+            [-11.3, 3.012, -17.55, 0.72, 0.72],
+            [-11.3, 3.012, -15.65, 0.72, 0.72],
+            // Side-wall concrete pillars (x = ±12.1, z = -5 and -15)
+            [-12.0, 0.014, -5.0, 0.95, 0.95],
+            [-12.0, 0.014, -15.0, 0.95, 0.95],
+            [12.0, 0.014, -5.0, 0.95, 0.95],
+            [12.0, 0.014, -15.0, 0.95, 0.95],
+            // Restroom toilets, sinks, and waste bin
+            [VENUE_RESTROOM.toiletX, 0.014, VENUE_RESTROOM.toiletZ[0], 0.82, 0.78],
+            [VENUE_RESTROOM.toiletX, 0.014, VENUE_RESTROOM.toiletZ[1], 0.82, 0.78],
+            [VENUE_RESTROOM.sinkX, 0.014, VENUE_RESTROOM.sinkZ[0], 0.72, 0.82],
+            [VENUE_RESTROOM.sinkX, 0.014, VENUE_RESTROOM.sinkZ[1], 0.72, 0.82],
+            [VENUE_RESTROOM.props.bin.x, 0.014, VENUE_RESTROOM.props.bin.z, 0.62, 0.62]
+        ];
+        // Five bar stools along x = 9.2
+        for (const z of VENUE_BAR.stoolZ) {
+            footprints.push([VENUE_BAR.stoolX, 0.015, z, 0.78, 0.78]);
+        }
+
+        const mesh = BABYLON.MeshBuilder.CreateGround('venueContactShadows', { width: 1, height: 1 }, this.scene);
+        mesh.material = mat;
+        mesh.isPickable = false;
+        mesh.alwaysSelectAsActiveMesh = true;
+        mesh.renderingGroupId = 0;
+
+        const buffer = new Float32Array(footprints.length * 16);
+        const scale = new BABYLON.Vector3(1, 1, 1);
+        const translation = new BABYLON.Vector3();
+        const matrix = new BABYLON.Matrix();
+        const identity = BABYLON.Quaternion.Identity();
+        for (let i = 0; i < footprints.length; i++) {
+            const [x, y, z, w, d] = footprints[i];
+            scale.set(w, 1, d);
+            translation.set(x, y, z);
+            BABYLON.Matrix.ComposeToRef(scale, identity, translation, matrix);
+            matrix.copyToArray(buffer, i * 16);
+        }
+        mesh.thinInstanceSetBuffer('matrix', buffer, 16, true);
+        mesh.thinInstanceCount = footprints.length;
+        mesh.freezeWorldMatrix();
+        mesh.doNotSyncBoundingInfo = true;
+        this._venueContactShadows = { mesh, material: mat, texture, count: footprints.length };
     }
 };
 

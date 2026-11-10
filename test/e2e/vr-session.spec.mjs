@@ -169,6 +169,24 @@ test('Quest session: headset, controllers, snap turn, teleport and the lighting 
     });
 
     await test.step('pointing at a menu button and pulling the trigger operates it, with either hand and on the first pull', async () => {
+        const pointerState = hand => page.evaluate(side => {
+            const club = window.vrClub;
+            const controller = club._xrControllers.find(c => c.inputSource.handedness === side);
+            const visual = club._xrPointerVisuals.find(v => v.laser.parent === controller.pointer);
+            return { laser: visual.laser.visibility, cursor: visual.cursor.visibility };
+        }, hand);
+        for (const hand of ['left', 'right']) await setController(page, hand, { quaternion: aimQuaternion([0, 1, 0]) });
+        await renderFrames(page, 6);
+        expect(await pointerState('left')).toEqual({ laser: 0, cursor: 0 });
+        expect(await pointerState('right')).toEqual({ laser: 0, cursor: 0 });
+        await press(page, 'right', 'trigger', 0.6);
+        await renderFrames(page, 5);
+        expect((await pointerState('right')).laser).toBe(1);
+        expect((await pointerState('left')).laser).toBe(0);
+        await press(page, 'right', 'trigger', 0);
+        await renderFrames(page, 5);
+        expect((await pointerState('right')).laser).toBe(0);
+
         await press(page, 'left', 'y-button', 1);
         await page.waitForFunction(() => window.vrClub._vrQuickMenuRoot?.isEnabled() === true);
         await press(page, 'left', 'y-button', 0);
@@ -187,6 +205,7 @@ test('Quest session: headset, controllers, snap turn, teleport and the lighting 
             const direction = worldToXr(target.world).map((value, axis) => value - origin[axis]);
             await setController(page, hand, { quaternion: aimQuaternion(direction) });
             await renderFrames(page, 6);
+            expect(await pointerState(hand), `${hand} ray and cursor appear on an interactive button`).toEqual({ laser: 1, cursor: 1 });
             await press(page, hand, 'trigger', 1);
             await renderFrames(page, 4);
             await press(page, hand, 'trigger', 0);

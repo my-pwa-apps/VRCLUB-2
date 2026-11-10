@@ -448,6 +448,23 @@ class ModelLoader {
         });
     }
 
+    /** Shares persistent bytes, not decoded scene objects; the caller owns and disposes the returned container. */
+    async loadAssetContainer(url, scene = this.scene) {
+        const bytes = await this.loadOrDownloadModel(url);
+        if (this.abortController.signal.aborted || scene.isDisposed) throw new Error('Model loading was cancelled.');
+        const blobUrl = URL.createObjectURL(new Blob([bytes], { type: 'model/gltf-binary' }));
+        try {
+            const container = await BABYLON.SceneLoader.LoadAssetContainerAsync('', blobUrl, scene, null, '.glb');
+            if (this.abortController.signal.aborted || scene.isDisposed) {
+                container.dispose();
+                throw new Error('Model loading was cancelled.');
+            }
+            return container;
+        } finally {
+            URL.revokeObjectURL(blobUrl);
+        }
+    }
+
     async loadModel(modelKey) {
         const config = this.modelConfigs[modelKey];
         if (!config) {
@@ -469,26 +486,10 @@ class ModelLoader {
         // PHASE 1 - fetch and parse. A failure here has added nothing to the scene.
         let result;
         try {
-            const arrayBuffer = await this.loadOrDownloadModel(config.url);
-
             if (this.gltfPluginAvailable === false) {
                 throw new Error('glTF loader plugin is unavailable - cannot parse .glb');
             }
-
-            // Create blob URL for Babylon.js
-            const blob = new Blob([arrayBuffer], { type: 'model/gltf-binary' });
-            const blobUrl = URL.createObjectURL(blob);
-            
-            // The blob URL MUST be revoked even when the loader throws (corrupt GLB,
-            // missing loaders plugin) - otherwise every failed load permanently pins
-            // the whole file in memory.
-            try {
-                result = await BABYLON.SceneLoader.LoadAssetContainerAsync(
-                    '', blobUrl, this.scene, null, '.glb'
-                );
-            } finally {
-                URL.revokeObjectURL(blobUrl);
-            }
+            result = await this.loadAssetContainer(config.url);
         } catch (error) {
             this.log.warn(`⚠️ Failed to fetch/parse ${config.name}:`, error);
             return this._modelUnavailable(modelKey, config);
@@ -768,8 +769,9 @@ class ModelLoader {
                 ), { intensity: 0.8, range: 8, group: 'speakers' });
                 speakerLight.renderPriority = 1;
                 speakerLight.includedOnlyMeshes = result.meshes.slice();
+                this._addPASpeakerInnerBacking(modelKey, result.meshes, speakerLight);
                 // Priority sorts scene.lights, not existing meshes' cached light lists.
-                result.meshes.forEach(mesh => mesh._resyncLightSources());
+                speakerLight.includedOnlyMeshes.forEach(mesh => mesh._resyncLightSources && mesh._resyncLightSources());
                 this.log.info(`   💡 Added light for ${config.name} (${config.hangFromTruss ? 'truss-flown' : 'floor-standing'})`);
                 
                 // Ensure PA speakers are fully opaque and render properly
@@ -850,6 +852,47 @@ class ModelLoader {
             
             return result;
             
+        }
+    }
+
+    /**
+     * Internal opaque backing plate inside each flown PA cabinet (`stage_speaker___black.glb`),
+     * ported from VRCLUB-UNITY (`ConfigureSpeakerOcclusionAndLighting`): blocks the bright LED
+     * wall behind the speaker from showing through subtle openings in the horn/grill geometry.
+     */
+    _addPASpeakerInnerBacking(modelKey, meshes, speakerLight) {
+        if (!this.scene || !BABYLON.MeshBuilder || typeof BABYLON.MeshBuilder.CreateBox !== 'function') return;
+        const primary = meshes && meshes.find(m => m && typeof m.getTotalVertices === 'function' && m.getTotalVertices() > 0 && typeof m.getBoundingInfo === 'function');
+        const bb = primary && primary.getBoundingInfo && primary.getBoundingInfo()?.boundingBox;
+        if (!bb || !bb.maximum || !bb.minimum || !bb.center || !bb.extendSize) return;
+        const size = bb.maximum.subtract(bb.minimum);
+        if (!(size.x > 0 && size.y > 0 && size.z > 0)) return;
+        const backing = BABYLON.MeshBuilder.CreateBox(`paCabinetBacking_${modelKey}`, {
+            width: size.x * 0.94,
+            height: size.y * 0.94,
+            depth: size.z * 0.04
+        }, this.scene);
+        backing.parent = primary;
+        backing.position = new BABYLON.Vector3(bb.center.x, bb.center.y, bb.center.z - bb.extendSize.z * 0.6);
+        backing.isPickable = false;
+        backing.renderingGroupId = 0;
+        if (this.materialFactory) {
+            const mat = this.materialFactory.createPBRMaterial('paCabinetBackingShared', {
+                baseColor: [0.012, 0.012, 0.014],
+                metallic: 0.0,
+                roughness: 0.9,
+                environmentIntensity: 0.0
+            }, true);
+            mat.maxSimultaneousLights = this.maxLights;
+            mat.alpha = 1.0;
+            mat.transparencyMode = 0;
+            mat.needAlphaBlending = () => false;
+            mat.needAlphaTesting = () => false;
+            mat.disableDepthWrite = false;
+            backing.material = mat;
+        }
+        if (speakerLight && Array.isArray(speakerLight.includedOnlyMeshes)) {
+            speakerLight.includedOnlyMeshes.push(backing);
         }
     }
 

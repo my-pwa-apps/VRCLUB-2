@@ -57,20 +57,35 @@
     const action = (label, handler, secondary = false) => {
         const button = el('button', label, secondary ? 'secondary' : '');
         button.type = 'button';
-        button.addEventListener('click', async () => {
+        button.addEventListener('click', async event => {
+            event.preventDefault();
             if (busy) return;
             busy = true;
+            step.setAttribute('aria-busy', 'true');
             button.disabled = true;
             say('Working…');
             try { await handler(); }
             catch (error) { say(error.message, true); }
-            finally { busy = false; button.disabled = false; }
+            finally {
+                busy = false;
+                step.setAttribute('aria-busy', 'false');
+                button.disabled = false;
+            }
         });
+        return button;
+    };
+    const submitAction = (label, handler) => {
+        const button = action(label, handler);
+        button.type = 'submit';
         return button;
     };
     const show = (heading, ...nodes) => {
         title.textContent = heading;
-        step.replaceChildren(...nodes);
+        const form = el('form');
+        form.noValidate = true;
+        form.addEventListener('submit', event => event.preventDefault());
+        form.append(...nodes);
+        step.replaceChildren(form);
         title.focus();
     };
     const digits = value => String(value || '').replace(/\D/g, '');
@@ -85,7 +100,7 @@
         show('Link your headset',
             el('p', 'Open NOCTURNE in your headset. It shows an eight-digit code. Enter it here to give that headset access to your account.'),
             wrapper,
-            action('Continue', async () => {
+            submitAction('Continue', async () => {
                 const code = digits(input.value);
                 if (code.length !== 8) throw new Error('Enter all eight digits shown in the headset.');
                 saveCode(code);
@@ -102,7 +117,7 @@
                 ? 'Use the SAME email your headset is linked to: your music list belongs to that account. The headset shows it, partly hidden, under Music, Sources, ADD FROM PHONE, SYNC NOW. We send an eight-digit code to confirm it.'
                 : 'We send an eight-digit code to confirm the account that owns VR access. Use the email you bought with or were invited under.'),
             wrapper,
-            action('Email me a code', async () => {
+            submitAction('Email me a code', async () => {
                 const email = input.value.trim();
                 if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) throw new Error('Enter a valid email address.');
                 const { challenge } = await api('/recovery/start', { email, intent: 'restore' });
@@ -118,7 +133,7 @@
         show('Enter the email code',
             el('p', `We sent an eight-digit code to ${email}. It works once and expires in ten minutes.`),
             wrapper,
-            action('Verify', async () => {
+            submitAction('Verify', async () => {
                 const code = digits(input.value);
                 if (code.length !== 8) throw new Error('Enter all eight digits from the email.');
                 access = await api('/recovery/verify', { challenge, code });
@@ -136,7 +151,7 @@
         show('Get VR access',
             el('p', `${access.email} does not have VR access yet. Redeem an invitation or buy it once; desktop stays free.`),
             wrapper,
-            action('Redeem invitation', async () => {
+            submitAction('Redeem invitation', async () => {
                 const code = digits(input.value);
                 if (code.length !== 8) throw new Error('Enter the eight-digit invitation code.');
                 access = await api('/redeem', { code });
@@ -243,7 +258,7 @@
                 nodes.push(el('p', 'No music saved yet.', 'link-note'));
             }
             if (items.length < MAX) {
-                nodes.push(url.wrapper, name.wrapper, action('Add link', async () => {
+                nodes.push(url.wrapper, name.wrapper, submitAction('Add link', async () => {
                     const text = url.input.value.trim();
                     let parsed;
                     try { parsed = new URL(text); } catch (_) { throw new Error('Paste a full web address that starts with https://.'); }

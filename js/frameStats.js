@@ -30,6 +30,7 @@ const FrameStats = (() => {
             this.count = 0;
             this.next = 0;
             this.total = 0;
+            this.stalls = 0;
             this._last = null;
         }
 

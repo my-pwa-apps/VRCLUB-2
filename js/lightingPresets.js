@@ -30,13 +30,24 @@ class LightingPresets {
         if (!exact(data, ['version', 'slots']) || data.version !== 1 || !Array.isArray(data.slots)
             || data.slots.length !== LightingPresets.COUNT) throw new Error('This is not a supported NOCTURNE lighting preset file');
         const schema = ClubMultiplayer.MANUAL_FIXTURES;
+        const preBrightnessSchema = { ...schema };
+        delete preBrightnessSchema.spotBrightness;
+        delete preBrightnessSchema.laserBrightness;
+        delete preBrightnessSchema.ledWallBrightness;
+        const previousSchema = { ...preBrightnessSchema };
+        delete previousSchema.fogBurstMode;
+        const legacySchema = { ...previousSchema, goboEnabled: 'b', goboPatternIndex: [0, 31], goboRotationSpeed: [-10, 10] };
+        delete legacySchema.spotPrismActive;
         for (const preset of data.slots) {
             if (preset === null) continue;
+            const legacy = exact(preset.fx, Object.keys(legacySchema));
+            const previous = exact(preset.fx, Object.keys(previousSchema));
+            const preBrightness = exact(preset.fx, Object.keys(preBrightnessSchema));
             if (!exact(preset, ['name', 'fx', 'colour']) || typeof preset.name !== 'string'
                 || preset.name.trim() !== preset.name || !preset.name || preset.name.length > 32
                 || /[\p{C}\p{Zl}\p{Zp}]/u.test(preset.name)
-                || !exact(preset.fx, Object.keys(schema))) throw new Error('A preset has an invalid name or incomplete lighting settings');
-            for (const [key, spec] of Object.entries(schema)) {
+                || (!legacy && !previous && !preBrightness && !exact(preset.fx, Object.keys(schema)))) throw new Error('A preset has an invalid name or incomplete lighting settings');
+            for (const [key, spec] of Object.entries(legacy ? legacySchema : previous ? previousSchema : preBrightness ? preBrightnessSchema : schema)) {
                 const value = preset.fx[key];
                 if (spec === 'b' ? typeof value !== 'boolean' : typeof spec[0] === 'string' ? !spec.includes(value)
                     : !Number.isFinite(value) || value < spec[0] || value > spec[1]
@@ -50,6 +61,15 @@ class LightingPresets {
                 || typeof c.hl !== 'boolean' || !['analogous', 'complementary', 'triad'].includes(c.pal)
                 || !['match', 'analogous', 'complement', 'triad', 'follow'].includes(c.lh)
                 || !Number.isInteger(c.mbi) || c.mbi < 0 || c.mbi > 63) throw new Error('Invalid lighting palette');
+            if (legacy) {
+                preset.fx.spotPrismActive = false;
+            }
+            if (legacy || previous) preset.fx.fogBurstMode = 'auto';
+            if (legacy || previous || preBrightness) {
+                preset.fx.spotBrightness = 1;
+                preset.fx.laserBrightness = 1;
+                preset.fx.ledWallBrightness = 1;
+            }
         }
         return data;
     }
@@ -93,7 +113,7 @@ class LightingPresets {
     _checkAvailable(preset) {
         const c = this.club, f = preset.fx;
         const wallPictures = c._ledPatternPlaylist?.length ?? 20;
-        if (f.spotColorIndex >= c.spotColorList.length || f.goboPatternIndex >= c.goboPatterns.length
+        if (f.spotColorIndex >= c.spotColorList.length
             || f.ledPattern >= wallPictures || preset.colour.mbi >= c.mirrorBallColors.length
             || f.strobePatternIndex >= VRClubAnimationFinish.STROBE_PATTERNS.length
             || Array.from({ length: 6 }, (_, i) => f[`spotHead${i}Color`]).some(value => value >= c.spotColorList.length)) {

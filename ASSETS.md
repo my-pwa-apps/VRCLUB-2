@@ -1,15 +1,65 @@
 # Third-party assets
 
+## Selectively ported venue finishes and restroom mechanics
+
+The following Poly Haven textures are **CC0**:
+
+| Deployed folder | Source | Authors | Size |
+|---|---|---|---|
+| `textures/restroomTiles/` | [Long White Tiles](https://polyhaven.com/a/long_white_tiles) | Jenelle van Heerden, Sergej Majboroda | 1024 |
+| `textures/restroomPlaster/` | [Plastered Wall 04](https://polyhaven.com/a/plastered_wall_04) | Rob Tuytel | 512 |
+| `textures/brushedCeiling/` | [Brushed Concrete](https://polyhaven.com/a/brushed_concrete) | Dario Barresi, Dimitrios Savva | 1024 |
+| `textures/stageRust/` | [Rusty Metal 04](https://polyhaven.com/a/rusty_metal_04) | Amal Kumar | 512 |
+
+Each folder includes `diff.jpg`, DirectX `normal.jpg`, packed `orm.jpg` and
+`provenance.json` recording exact source/output hashes. `scripts/build-venue-textures.mjs`
+rebuilds bounded-size, packed maps. New folder names avoid stale texture cache keys.
+Existing bar wood also dresses the stall doors and DJ worktop.
+
+`js/models/restroom/source/door_handle_3.glb`: **Door Handle 3**, plaggy,
+[Sketchfab](https://sketchfab.com/3d-models/cc0-door-handle-3-0f4459df86af469dad41c5d025973d87), [CC0](https://creativecommons.org/publicdomain/zero/1.0/).
+`scripts/build-door-handle.mjs` bakes the transform, centres the rosette and
+removes textures; one draw, 766 triangles, 18,540 bytes. Its adjacent provenance
+file pins the licensed original and output. Four hinge-parented instances dress
+both sides of the two existing stall doors.
+
+`js/models/restroom/source/toilet.glb` retains the previously documented Quaternius
+CC0 source. `scripts/lib/toilet-mechanics.mjs` separates its authored lid and adds
+an original hinged ring seat: three independently movable draws, one shared
+vertex-colour material, no textures, 658 triangles. Run
+`node scripts/prepare-toilet-mechanics.mjs`, or rebuild via
+`scripts/build-restroom-monitor-assets.mjs`. There are no new downloaded sound assets:
+the flush, tap and rinse sounds are original procedural Web Audio.
+
 Every binary shipped in this repository, with its licence and provenance.
+
+## Optional ADE development-review artwork
+
+`branding/ade/ade26-30y-black.png` is the owner-supplied ADE26 30Y logo,
+imported without changes from local `adefixes` (`36def1f`) as a 512 px raster.
+It is **not MIT, CC0 or CC BY**; no general redistribution permission was found.
+The original supplied-source links, source/raster checksums and modifications
+are preserved in `branding/ade/notice.txt`. Obtain written permission and brand
+guidance before public publication or store distribution.
+
+Only `--branding=ade` / `VRCLUB_BRANDING=ade` builds include the logo and notice,
+for independent development review. Default builds exclude them. The logo
+appears on yellow venue signs, the DJ fascia and entrance flags, with an About
+disclosure; the unused ADE campaign image and pitch services are not imported.
 
 ## Quest distribution profile
 
-The `Quest` branch builds a user-music-first candidate. No podcast catalogue is loaded,
-no podcast relay is contacted, and the only recording bundled is the club's own generated
-house set (`audio/nocturne-house.mp3`, below). The male/female DJs
+The `Quest` branch builds a user-music-first candidate, without a built-in podcast
+catalogue. On the exact development hosts `nocturnedev.mitwee.nl` and
+`nocturne-dev.pages.dev`, a fresh library starts with the latest Resident podcast,
+resolved from its public feed on playback; saved or explicitly empty libraries are
+preserved. The generated house set is the same-origin fallback, not a bundled
+podcast recording. The supplied demo remains excluded pending redistribution
+permission. The male/female DJs
 are fictional CC0 characters, selected locally, not named artists or endorsements.
-The three historical Mixamo GLBs remain in the source repository but are not referenced,
-loaded or copied to `dist/`. Their former slot ids now use CC0 crowd models.
+Only the historical Mixamo `house.glb` remains, as a real-rig test fixture; it is
+never loaded or copied to `dist/`. The unused hip-hop and rumba sources were removed.
+Their former slot ids now use CC0 crowd models.
 `js/podcasts.js` and the optional Worker's historical podcast utility are also not part
 of the Quest web build. Do not distribute the source tree as the Quest product.
 
@@ -73,7 +123,7 @@ was not used because its pack-level CC0 metadata
 conflicts with AGPL3 notices in its individual OBJ files. The queue caller's
 phone also remains procedural; no verified authored phone source was found.
 
-### Optional detailed adult cast (ADE)
+### Optional detailed adult cast
 
 The following 34 fictional adults are generated from MakeHuman/MPFB's **CC0
 base assets**, verified CC0 clothing, hair and shoes, plus punkduck's explicitly
@@ -104,7 +154,12 @@ decimation below 10,000 triangles, 1024 px body/512 px hair WebP atlases,
 53-joint skinning, and offline world-space retargeting of the club's existing
 CC0 Quaternius dances, locomotion, gestures, seating and social clips. Hand
 contacts are fitted to anatomy and role props; knee planes follow each person's
-own anatomy. Non-skin metacarpal helpers support the existing tracked-arm driver.
+own anatomy. Shared offline `scripts/arm-frame.mjs` aligns each arm's limb axis
+and elbow hinge plane together, rather than swinging upper/lower arms independently.
+Its shared `armPronation()` transfers 70% of palm roll into the forearm, capped
+at 75 degrees, preserving exact world palm targets rather than concentrating
+all roll in the wrist.
+Non-skin metacarpal helpers support the existing tracked-arm driver.
 Standing idles preserve the source's measured hip-to-neck direction rather than
 amplifying its short upper-spine segment on a differently proportioned body;
 bar, rail, dance and work poses retain their intentional bends. Regenerate both
@@ -275,6 +330,7 @@ override. Existing room identity IDs and capacities are unchanged.
 | `js/models/lounge/source/old_couch.glb` | [Old Couch](https://sketchfab.com/3d-models/old-couch-8da7e0d122f544e2862b4e592988e183) | Oliver Triplett (<https://sketchfab.com/OliverTriplett>) | CC BY 4.0 | Yes, with source and modification notice |
 | `js/models/monitors/source/monitor_speaker.glb` | [Yamaha HS8 Studio Monitor](https://sketchfab.com/3d-models/yamaha-hs8-studio-monitor-d82ed6ea096c40358229fc0c31b0e8e8) | Ivan_WSK (<https://sketchfab.com/ivan-wsk>) | CC BY 4.0 | Yes, with source and modification notice |
 | `js/models/restroom/source/toilet.glb` | [Toilet](https://poly.pizza/m/WAu50yGFVt) | Quaternius (<https://quaternius.com>) | CC0 1.0 | Credited as courtesy |
+| `js/models/restroom/source/door_handle_3.glb` | [Door Handle 3](https://sketchfab.com/3d-models/cc0-door-handle-3-0f4459df86af469dad41c5d025973d87) | plaggy | [CC0 1.0](https://creativecommons.org/publicdomain/zero/1.0/) | Courtesy credit; transforms baked, rosette recentered, maps replaced by shared steel |
 | `js/models/restroom/source/bathroom_sink.glb` | [Bathroom Sink](https://poly.pizza/m/OMCJDgMUui) | Quaternius (<https://quaternius.com>) | CC0 1.0 | Credited as courtesy |
 | `js/models/restroom/source/metal_trash_can.glb` | [Metal Trash Can](https://polyhaven.com/a/metal_trash_can) | GurJas Studios, Poly Haven | CC0 1.0 | Credited as courtesy |
 | `js/models/restroom/source/wet_floor_sign.glb` | [Wet Floor Sign 01](https://polyhaven.com/a/WetFloorSign_01) | Fran Calvente, Poly Haven | CC0 1.0 | Credited as courtesy |
@@ -350,12 +406,13 @@ font download or faux-language marks are used. The ink is clipped to the
 actual garment triangles and retains interpolated torso skin weights,
 merged into that same accessory draw: no texture download or per-frame
 projection. Only head accessories collapse with the first-person head.
-Idris/the bouncer, Ellis and Ren have bald heads; the lightweight bouncer,
-m4 and m7 expose their existing scalp by removing connected crown-hair
-geometry, retaining eyebrows/side hair, skin, rig and animation. Their vm4/vm5
-variants inherit the changed silhouette. Reproduce with
-`node scripts/build-crowd-glbs.mjs --refresh-wardrobe --only bouncer,m4,m7 --optimize`
-then `node scripts/build-crowd-glbs.mjs --variants --only vm4,vm5 --optimize`.
+Detailed Idris/the bouncer, Ellis and Ren have bald heads. The lightweight bouncer
+and m7 expose their existing scalp by removing connected crown-hair geometry,
+retaining eyebrows/side hair, skin, rig and animation; vm4 inherits m7's silhouette.
+Lightweight m4 and its vm5 variant retain their full original hair. The pack-free
+`node scripts/build-crowd-glbs.mjs --restore-hair --optimize` restores m4's crown
+from the matching m3 rig, followed by
+`node scripts/build-crowd-glbs.mjs --variants --only vm5 --optimize`.
 The queue caller's original generic phone is one opaque, vertex-coloured mesh
 fitted to the raised palm and parented to the wrist, with no per-frame updater.
 It is created/disposed with that caller in either character style and uses
@@ -414,10 +471,19 @@ strips per polygon, which turn to noise when downscaled) was sampled into vertex
 (`js/models/monitors/source/monitor_speaker.glb`, 1 draw, 0.2 MB; the right monitor is an instance of the left).
 
 The club restroom (`VenueLayout.restroom`) opens off the front-left corner of the hall through a 1.8 m doorway under a pink neon `WC`
-sign. Its two stalls and wash area use Quaternius's *Toilet* (`js/models/restroom/source/toilet.glb`, 1 draw, 402 triangles) and
+sign. Its two stalls and wash area use Quaternius's *Toilet* (`js/models/restroom/source/toilet.glb`, 3 draws, 658 triangles) and
 *Bathroom Sink* (`js/models/restroom/source/bathroom_sink.glb`, 1 draw, 350 triangles), both CC0 1.0, with vertex-baked porcelain
 and brushed-steel colours, instanced for the second stall and second basin, and lit by the scoped `restroomLight` accent. Both toilets
 are tagged as interactive seats. `node scripts/build-restroom-monitor-assets.mjs` rebuilds the restroom GLBs from their CC0 sources.
+The toilet preserves its authored body/lid and adds an original open seat ring; the
+seat and lid are separate hinged meshes prepared by `scripts/lib/toilet-mechanics.mjs`.
+Wooden stall doors reuse the bar wood maps. Four instances of plaggy's CC0
+*Door Handle 3* share one geometry and the existing steel material (766 triangles
+per handle, 18,540-byte texture-free source). Rebuild with
+`node scripts/build-door-handle.mjs "<downloaded GLB>"`; the source/output hashes
+and modification notice are in `door_handle_3.provenance.json` beside the GLB.
+Flush/tap water and control labels are original procedural geometry and audio,
+not downloaded recordings. Physical-headset fit and cost remain unmeasured.
 
 Three small Poly Haven props (CC0) dress it: a metal waste bin under the hand dryer (1,221 triangles, 1 draw; the asset's rusty twin and
 lids are left out), a wet floor sign in the aisle (228 triangles, 1 draw) and a plunger in the first stall (1,147 triangles, 1 draw),
@@ -502,9 +568,9 @@ these three images before stripping the embedded copies.
 | `js/models/avatars/club-dj-female.glb` | Fictional female DJ, derived from `club-guest-female.glb`: CC0 headphones added, `Idle_Loop` retained. Blond hair and grey top through runtime tints | CC0 1.0 |
 | `js/models/avatars/club-guest-female.glb` | Quaternius Universal Base Characters + Modular Character Outfits - Fantasy (Ranger outfit without its hood and pauldron) + Universal Animation Library (`Dance_Loop`, `Idle_Talking_Loop`, `Idle_Loop`) + Universal Animation Library 2 (`Yes`, `Idle_FoldArms_Loop`, `Idle_TalkingPhone_Loop`). At runtime it is the bartender (black outfit through a tint); it is also the source the DJ and crowd builds derive from | CC0 1.0 |
 | `js/models/avatars/club-guest-male.glb` | As `club-guest-female.glb`, male. Not loaded at runtime any more (the guests are the `club-crowd-*` people); kept as the source `scripts/build-dj-glbs.mjs` and `scripts/build-crowd-glbs.mjs` derive from | CC0 1.0 |
-| `js/models/avatars/Hip Hop Dancing.glb` | Adobe Mixamo character and hip-hop animation | Mixamo terms of use |
-| `js/models/avatars/house.glb` | Adobe Mixamo character and house-dance animation | Mixamo terms of use |
-| `js/models/avatars/rumba_dancing_female_character.glb` | Adobe Mixamo character and rumba animation | Mixamo terms of use |
+| `js/models/avatars/house.glb` | Adobe Mixamo character and house-dance animation; retained only as a real-rig regression fixture in `test/rig.test.mjs`, excluded from production builds | Mixamo terms of use |
+| `js/models/avatars/Hip Hop Dancing.glb` (removed) | Formerly an Adobe Mixamo character and hip-hop animation; unused and removed from the repository | Mixamo terms of use |
+| `js/models/avatars/rumba_dancing_female_character.glb` (removed) | Formerly an Adobe Mixamo character and rumba animation; unused and removed from the repository | Mixamo terms of use |
 
 ### The DJs' headphones
 
@@ -523,6 +589,30 @@ Seventeen people, plus the bouncer at the street door, built by `scripts/build-c
 packs (the "Individual Characters" glTF downloads), recoloured into a varied cast and carrying the club's own dance
 and idle clips retargeted onto their rig. The eleven floor dancers also carry eight dance moves (`Groove_*`) that the
 script authors procedurally onto the rig itself (no third-party animation; see `js/crowdDance.js`). The scripts and tests treat them as `club-crowd-<id>.glb`:
+
+Dance authoring and detailed retargeting share `scripts/arm-frame.mjs`: both the
+limb axis and elbow hinge plane are aligned. The shipped `Groove_Bounce` exposed
+a ~54-degree hinge mismatch in the previous independent swing-only rotations.
+`test/rig.test.mjs` now enforces >0.98 hinge alignment on both arms across
+lightweight/detailed grooves and `Dance_Loop`. `--refresh-static` reauthors
+`Dance_Loop` too from the local guest sources. Rebuild lightweight people and
+variants, then run `node scripts\characters\build.mjs --refresh-dance` and
+`node scripts\characters\build.mjs --wardrobe --refresh-dance` after arm-frame
+changes. These selective builds refresh only dance clips in the existing
+detailed/wardrobe GLBs, preserving artwork, hair, accessories and nondance clips.
+Selective refresh prunes only unused accessors/buffers; anatomical helper nodes,
+all normals, UVs and wardrobe masks remain intact. A pruning regression was
+found and fixed using the full suite.
+`armPronation()` distributes 70% of palm roll into the forearm (75-degree cap);
+the real-rig tests retain upper-arm hinge alignment >0.98 and bound forearm
+rotation below 76 degrees and wrist roll below 61 degrees. This removes the
+previous detailed ArmsWide wrist roll of up to 134 degrees without moving its
+world-space palm target.
+Default groove hands inherit forearm roll while explicit palm targets remain
+honored. Pump alternates overlapping, eased 1.5-beat raises and returns rather
+than quarter-second swaps: one hand stays up on every beat without the previous
+44–59-degree arm snaps. The real-rig test also caps rotation per 50 ms at <0.65 rad.
+No runtime IK or per-frame allocations are introduced; headset appearance remains unverified.
 
 | File | Base character | Look | Clips |
 |------|----------------|------|-------|
@@ -609,11 +699,14 @@ The checked-in GLBs were combined with `scripts/build-avatar-glb.mjs` and then r
 and skinned parts that share a skin and a material merged into one mesh (about six draw calls
 per character instead of a dozen). The skin, joints, weights and clips are unchanged.
 
-The three Mixamo-derived GLBs are retained in the historical source only; Quest does not ship them.
-They are not covered by this repository's MIT licence. Adobe permits Mixamo characters
-and animations in projects under its published terms, but redistribution of editable or
-extractable raw character files may be restricted. Confirm that shipping these GLBs is
-compatible with the intended distribution before a public release.
+The unused `Hip Hop Dancing.glb` and `rumba_dancing_female_character.glb` source files were
+removed: no runtime, build or test authoring path uses them. They were never production
+assets. `house.glb` remains only as the real-rig regression fixture in `test/rig.test.mjs`;
+it is excluded from production builds. Mixamo assets are not covered by this repository's
+MIT licence. Adobe permits Mixamo characters and animations in projects under its published
+terms, but redistribution of editable or extractable raw character files may be restricted.
+Confirm that shipping the test fixture is compatible with the intended distribution before a
+public release.
 
 ## Environment / surface textures
 
@@ -621,9 +714,22 @@ compatible with the intended distribution before a public release.
 |------|--------|---------|
 | `textures/factoryFloor/` | Poly Haven — [Concrete Floor Damaged 01](https://polyhaven.com/a/concrete_floor_damaged_01) by Rob Tuytel (1K JPG: diff, nor_dx, and an `orm.jpg` packed from rough and ao by `scripts/pack-orm.mjs`) | CC0 1.0 (public domain) |
 | `textures/walls/`, `textures/ceiling/` | Poly Haven | CC0 1.0 (public domain) |
+| `textures/brushedCeiling/` | [Brushed Concrete](https://polyhaven.com/a/brushed_concrete), photography by Dimitrios Savva, processing by Dario Barresi; 1K diffuse, DirectX normal and packed ARM. Replaces the active ceiling set. | CC0 1.0 |
+| `textures/restroomTiles/` | [Long White Tiles](https://polyhaven.com/a/long_white_tiles), photography by Sergej Majboroda, processing by Jenelle van Heerden; 1K diffuse, DirectX normal and packed ARM. Restroom interior walls below 1.5 m. | CC0 1.0 |
+| `textures/restroomPlaster/` | [Plastered Wall 04](https://polyhaven.com/a/plastered_wall_04) by Rob Tuytel; 512 px diffuse, DirectX normal and packed ARM. Matte restroom walls above the tiles. | CC0 1.0 |
+| `textures/stageRust/` | [Rusty Metal 04](https://polyhaven.com/a/rusty_metal_04) by Amal Kumar; 512 px diffuse, DirectX normal and packed ARM. DJ platform sides; the anti-slip top is unchanged. | CC0 1.0 |
 | `textures/environment/empty_warehouse_01_256.env` | Poly Haven — [Empty Warehouse 01](https://polyhaven.com/a/empty_warehouse_01) HDRI by Sergej Majboroda, prefiltered (see below) | CC0 1.0 (public domain) |
 
 The reflection environment is a derivative: the 1k `.hdr` (MD5 `ab2931b0191b050b97b1e08ab67b0fb0`, from <https://dl.polyhaven.org/file/ph-assets/HDRIs/hdr/1k/empty_warehouse_01_1k.hdr>) loaded as a Babylon `HDRCubeTexture` at 256 px and written with `BABYLON.EnvironmentTextureTools.CreateEnvTextureAsync` as WebP (152 KB). Replace it by the same route; the file name carries the resolution because the service worker and browsers cache by URL.
+
+The four venue sets above were imported on 1 November 2026 under
+[Poly Haven's CC0 licence](https://polyhaven.com/license). Rebuild with
+`node scripts/build-venue-textures.mjs`; it checks the reviewed upstream revision.
+Each set's `provenance.json` records authors, exact source URLs/revision and
+source/output SHA-256 hashes. Modifications: resized where listed, JPEG re-encoding
+with full-resolution chroma, restrained runtime normal strength and neutral albedo
+tints. ARM is used unchanged as ORM (R occlusion, G roughness, B metallic).
+The DJ worktop reuses the existing Dark Wood set, with no additional texture images.
 
 ### Graffiti
 
@@ -650,12 +756,14 @@ embedded in each GLB, not by file name).
 
 | Path | What it is | Licence |
 |------|------------|---------|
+| `audio/demo.mp3` | User-supplied recording, approximately 3:59, stereo 48 kHz MP3; kept locally and excluded from production builds. | Licence/provenance not supplied; confirm redistribution rights before public release. |
 | `audio/nocturne-house.mp3` | The club's own original house set: 3 cycles, 15.5 minutes at 124 BPM, 160 kbps joint-stereo. | MIT, original work of this project |
 
 Every sound in it is synthesised from maths by `scripts/build-default-set.mjs` (kick, claps, hats, bass, pads and a lead,
 arranged in 16-bar phrases with builds, a breakdown and drops so the light show and crowd have a real structure to follow).
-It uses no samples, no recordings and no third-party material, so there is nothing to license or credit. It plays only
-when a guest has no music of their own and is not in someone else's room. Regenerate it with
+It uses no samples, no recordings and no third-party material, so there is nothing to license or credit. This generated
+house set is the release default. It loops only when a guest has no selected music
+and is not following a host or live event, and also serves as the existing stream-error fallback. Regenerate the house set with
 `node scripts/build-default-set.mjs` (needs ffmpeg with libmp3lame; the output is deterministic). The file must stay under
 Cloudflare Pages' 25 MiB per-file limit (the script refuses to finish above it).
 

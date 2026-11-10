@@ -10,6 +10,7 @@ test('the entrance vestibule and the bar are built, lit by their own accents and
         const club = window.vrClub;
         await club.modelLoadPromise;
         const scene = club.scene;
+        await scene.whenReadyAsync();
         const byName = name => scene.getMeshByName(name);
         const slots = mesh => mesh.lightSources.slice(0, club.maxLights).map(light => light.name);
         const stool = scene.meshes.find(mesh => /^barStool1_.*metal_stool/.test(mesh.name));
@@ -139,7 +140,7 @@ test('the entrance vestibule and the bar are built, lit by their own accents and
     expect(state.monitors[1].min[1]).toBeCloseTo(1.42, 2);
     expect(state.monitors[0].slots[0]).toBe('djConsoleLight');
     expect(state.monitors[1].slots[0]).toBe('djConsoleLight');
-    expect(state.restroomFixtureCount).toBe(7);
+    expect(state.restroomFixtureCount).toBe(33);
     expect(state.toiletSeats).toEqual(['toilet-0', 'toilet-1']);
     expect(state.intoRestroomX).toBeLessThan(-13.2);
     expect(state.intoRestroomX).toBeGreaterThan(-16.5);

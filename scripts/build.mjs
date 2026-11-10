@@ -3,6 +3,7 @@ import { createHash } from 'node:crypto';
 import { cp, mkdir, readFile, readdir, rm, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { resolveBranding, validateBranding, brandHtml } from './branding.mjs';
 import { prepareADESite } from './ade-site.mjs';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
@@ -10,10 +11,12 @@ const dist = path.join(root, 'dist');
 const emitSourceMap = process.env.VRCLUB_SOURCEMAP === '1';
 const adeSite = process.argv.includes('--ade-site') || process.env.VRCLUB_ADE_SITE === '1';
 const includeADEPitch = adeSite || process.argv.includes('--ade-pitch') || process.env.VRCLUB_ADE_PITCH === '1';
+const branding = resolveBranding(process.argv.slice(2), process.env);
+await validateBranding(branding, root);
 
 const digest = content => createHash('sha256').update(content).digest('hex').slice(0, 12);
 
-const indexHtml = await readFile(path.join(root, 'index.html'), 'utf8');
+const indexHtml = brandHtml(await readFile(path.join(root, 'index.html'), 'utf8'), branding);
 
 // SINGLE SOURCE OF TRUTH.
 //
@@ -118,6 +121,7 @@ const distPrecache = [
     './icons/icon-192.png',
     './icons/icon-180.png',
     './icons/icon-512.png',
+    ...branding.assets.map(relative => `./${relative}`),
     `./assets/${jsName}`,
     `./assets/${cssName}`
 ];
@@ -164,13 +168,17 @@ await Promise.all([
         cp(path.join(root, 'concept-assets', 'ade', 'ade26-30y-black.png'),
             path.join(dist, 'concept-assets', 'ade', 'ade26-30y-black.png'))
     ] : []),
+    ...branding.assets.map(relative => cp(path.join(root, relative), path.join(dist, relative), { recursive: true })),
     cp(path.join(root, 'js/vendor'), path.join(dist, 'js/vendor'), { recursive: true }),
     cp(path.join(root, 'textures'), path.join(dist, 'textures'), { recursive: true }),
     cp(path.join(root, 'icons'), path.join(dist, 'icons'), { recursive: true }),
     cp(path.join(root, 'screenshots'), path.join(dist, 'screenshots'), { recursive: true }),
     // The phone page that pairs a headset: plain files, no bundle (it shares nothing with the club).
     cp(path.join(root, 'link'), path.join(dist, 'link'), { recursive: true }),
-    cp(path.join(root, 'audio'), path.join(dist, 'audio'), { recursive: true }),
+    cp(path.join(root, 'audio'), path.join(dist, 'audio'), {
+        recursive: true,
+        filter: source => path.basename(source) !== 'demo.mp3'
+    }),
     cp(path.join(root, 'manifest.json'), path.join(dist, 'manifest.json')),
     ...(adeSite ? [
         writeFile(path.join(dist, 'robots.txt'), adeOutput.robots)
@@ -215,16 +223,20 @@ const collectDistFiles = async directory => {
     }
 };
 await collectDistFiles(dist);
-if (!includeADEPitch && distFiles.some(file => file.startsWith('concept-assets/'))) {
-    throw new Error('build: ADE review artwork must not enter the default distribution');
-}
 if (!emitSourceMap && distFiles.some(file => file.endsWith('.map'))) {
     throw new Error('build: production dist must not contain source maps');
 }
 for (const sourceOnly of ['js/podcasts.js', 'worker/src/podcast.js']) {
     if (distFiles.includes(sourceOnly)) throw new Error(`build: source-only file was copied to dist: ${sourceOnly}`);
 }
+if (branding.id === 'nocturne' && distFiles.some(file => file.startsWith('branding/'))) {
+    throw new Error('build: opt-in branding artwork entered the default distribution');
+}
+if (!includeADEPitch && distFiles.some(file => file.startsWith('concept-assets/'))) {
+    throw new Error('build: ADE review artwork must not enter the default distribution');
+}
 
 console.log(`Built dist/ with assets/${jsName} and assets/${cssName}`);
+console.log(`Venue branding: ${branding.id}`);
 console.log(`Service worker version: ${swVersion}`);
 console.log(`Deployed ${modelReferences.size} referenced model path(s)`);

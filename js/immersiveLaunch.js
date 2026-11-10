@@ -183,6 +183,12 @@ class ImmersiveLaunch {
         const library = this.club.musicLibrary;
         const say = message => this.club.showErrorMessage(message);
         if (this._disposed || !library || !this.payment || !this.payment.fetchMusic) return;
+        if (library.readError) {
+            this.musicStatus = 'SAVED SETS NEED RECOVERY';
+            say('Saved sets on this device cannot be read. Open Music Sources to retry or reset them.');
+            this._refreshMusicPage();
+            return;
+        }
         this.musicStatus = 'CHECKING YOUR PHONE LIST';
         this._refreshMusicPage();
         try {
@@ -197,7 +203,14 @@ class ImmersiveLaunch {
                         : `Nothing saved yet${account ? ` for ${account}` : ''}. On your phone use the SAME email, add links, then press SYNC NOW.`);
                 }
             } else {
-                const outcome = library.replaceAll(result.items);
+                let outcome;
+                try { outcome = library.replaceAll(result.items); }
+                catch (error) {
+                    this.musicStatus = 'SAVED SETS COULD NOT BE UPDATED';
+                    say(error.message);
+                    this._refreshMusicPage();
+                    return;
+                }
                 this.musicStatus = `${outcome.count} LINK${outcome.count === 1 ? '' : 'S'} LOADED${whose}`;
                 if (outcome.skipped) say(`${outcome.skipped} link${outcome.skipped === 1 ? '' : 's'} could not be used. Check the list on your phone.`);
                 else if (outcome.changed || manual) say(outcome.count ? `Loaded ${outcome.count} music link${outcome.count === 1 ? '' : 's'} from your phone.` : 'Your phone list is empty.');
