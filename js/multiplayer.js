@@ -91,7 +91,6 @@ class ClubMultiplayer {
 
     static MANUAL_FIXTURES = Object.freeze({
         ...ClubMultiplayer.SPOT_RIG_FIXTURES,
-        goboEnabled: 'b', goboPatternIndex: [0, 31], goboRotationSpeed: [-10, 10],
         lightsActive: 'b', lasersActive: 'b', ledWallActive: 'b', ledMonochrome: 'b', strobesActive: 'b',
         mirrorBallActive: 'b', mirrorBallRaysActive: 'b', laserSheetActive: 'b', smokeActive: 'b', spotStrobeActive: 'b',
         spotlightMode: [0, 7], spotlightPattern: [0, 7], ledPattern: [0, 63], spotColorIndex: [0, 63],
@@ -1538,13 +1537,6 @@ class ClubMultiplayer {
             // Safe Mode is the guest's own medical setting: a host's console never turns strobes back on.
             if (safe && (key === 'strobesActive' || key === 'spotStrobeActive')) value = false;
             switch (key) {
-                case 'goboEnabled':
-                    if (club.goboEnabled !== value && typeof club.setGoboEnabled === 'function') club.setGoboEnabled(value);
-                    break;
-                case 'goboPatternIndex':
-                    if (club.goboPatternIndex !== value && Array.isArray(club.goboPatterns) && value < club.goboPatterns.length
-                        && typeof club.setGoboPattern === 'function') club.setGoboPattern(value);
-                    break;
                 case 'spotColorIndex': {
                     const count = club.spotColorList ? club.spotColorList.length : 0;
                     if (count && value < count && value !== club.spotColorIndex && typeof club.cycleSpotColor === 'function') {
