@@ -878,16 +878,17 @@ class VRClubFixtures extends VRClubEnvironment {
             }
         }
         
-        // Strobe lights on truss corners
+        // Strobe lights on the side trusses
         this.createStrobeLights();
     }
     
     createStrobeLights() {
+        const sideX = CLUB_POSITIONS.sideTrussX;
         const strobePositions = [
-            { x: -10, z: -8 },
-            { x: 10, z: -8 },
-            { x: -10, z: -16 },
-            { x: 10, z: -16 }
+            { x: -sideX, z: -9.2 },
+            { x: sideX, z: -9.2 },
+            { x: -sideX, z: -14.8 },
+            { x: sideX, z: -14.8 }
         ];
         
         this.strobes = [];
@@ -907,11 +908,17 @@ class VRClubFixtures extends VRClubEnvironment {
         
         // Reuse clamp material for strobe mounts
         const strobeMountMat = this.materialFactory.createPBRMaterial("strobeMountMat", {
-            mutable: true, // colour written at runtime
-            baseColor: [0.1, 0.1, 0.1],
-            metallic: 0.9,
-            roughness: 0.4
+            baseColor: [0.14, 0.14, 0.15], metallic: 0.8, roughness: 0.5
         }, true); // shared
+        const casingMat = this.materialFactory.createPBRMaterial('strobeCasingMat', {
+            baseColor: [0.05, 0.05, 0.055], metallic: 0.3, roughness: 0.3
+        }, true);
+        const reflectorMat = this.materialFactory.createPBRMaterial('strobeReflectorMat', {
+            baseColor: [0.48, 0.5, 0.53], metallic: 0.85, roughness: 0.7
+        }, true);
+        const tubeMat = this.materialFactory.createPBRMaterial('strobeTubeMat', {
+            baseColor: [0.55, 0.57, 0.6], metallic: 0, roughness: 0.8
+        }, true);
         const strobeMountParts = [];
         
         strobePositions.forEach((pos, i) => {
@@ -927,7 +934,7 @@ class VRClubFixtures extends VRClubEnvironment {
             
             // Clamp at top (grips truss)
             const clamp = BABYLON.MeshBuilder.CreateTorus("strobeClamp" + i, {
-                diameter: 0.12,
+                diameter: 0.1, // Babylon's diameter is the tube centreline; outer diameter is 0.12 m.
                 thickness: 0.02,
                 tessellation: 12,
                 arc: 0.85
@@ -936,25 +943,51 @@ class VRClubFixtures extends VRClubEnvironment {
             clamp.rotation.x = Math.PI / 2;
             strobeMountParts.push(clamp);
             
-            const strobe = BABYLON.MeshBuilder.CreateBox("strobe" + i, {
-                width: 0.8,
-                height: 0.3,
-                depth: 0.18
+            const strobe = i ? this.strobes[0].mesh.createInstance('strobe' + i) : BABYLON.MeshBuilder.CreateBox("strobe" + i, {
+                width: 1.05,
+                height: 0.36,
+                depth: 0.22
             }, this.scene);
             strobe.position = new BABYLON.Vector3(pos.x, 7.6, pos.z);
+            strobe.rotationQuaternion = BABYLON.Quaternion.RotationYawPitchRoll(
+                Math.atan2(-pos.x, -12 - pos.z),
+                Math.atan2(7.6 - 1.7, Math.hypot(pos.x, -12 - pos.z)), 0);
+            strobe.isPickable = false;
+            if (!i) strobe.material = casingMat;
+
+            const reflector = i ? this.strobes[0].reflector.createInstance('strobeReflector' + i)
+                : BABYLON.MeshBuilder.CreatePlane('strobeReflector' + i, { width: 0.94, height: 0.28 }, this.scene);
+            reflector.parent = strobe;
+            reflector.position.set(0, 0, 0.112);
+            reflector.rotation.y = Math.PI;
+            reflector.isPickable = false;
+            if (!i) reflector.material = reflectorMat;
+
+            const tube = i ? this.strobes[0].tube.createInstance('strobeTube' + i)
+                : BABYLON.MeshBuilder.CreatePlane('strobeTube' + i, { width: 0.87, height: 0.055 }, this.scene);
+            tube.parent = strobe;
+            tube.position.set(0, 0, 0.116);
+            tube.rotation.y = Math.PI;
+            tube.isPickable = false;
+            if (!i) tube.material = tubeMat;
+
             const strobeMat = this.materialFactory.createStandardMaterial("strobeMat" + i, {
                 mutable: true, // colour written at runtime
                 emissiveColor: [0, 0, 0], // Off by default
                 disableLighting: true
             });
-            
-            strobe.material = strobeMat;
+            // A dark additive emitter leaves the reflector and resting tube visible.
+            strobeMat.transparencyMode = BABYLON.Material.MATERIAL_ALPHABLEND;
+            strobeMat.alphaMode = BABYLON.Engine.ALPHA_ADD;
+            strobeMat.disableDepthWrite = true;
 
             const emitter = BABYLON.MeshBuilder.CreatePlane("strobeEmitter" + i, {
-                width: 0.68,
-                height: 0.20
+                width: 0.87,
+                height: 0.21
             }, this.scene);
-            emitter.position = new BABYLON.Vector3(pos.x, 7.6, pos.z + 0.095);
+            emitter.parent = strobe;
+            emitter.position.set(0, 0, 0.12);
+            emitter.rotation.y = Math.PI;
             emitter.material = strobeMat;
             emitter.isPickable = false;
             emitter.renderingGroupId = 2;
@@ -964,15 +997,16 @@ class VRClubFixtures extends VRClubEnvironment {
                 width: 1.8,
                 height: 0.9
             }, this.scene);
-            glare.position = new BABYLON.Vector3(pos.x, 7.6, pos.z + 0.105);
+            glare.parent = strobe;
+            glare.position.set(0, 0, 0.13);
+            glare.rotation.y = Math.PI;
             glare.isPickable = false;
             glare.renderingGroupId = 2;
-            const glareMat = new BABYLON.StandardMaterial(`strobeGlareMat${i}`, this.scene);
-            glareMat.emissiveColor = new BABYLON.Color3(0, 0, 0);
-            glareMat.opacityTexture = glareTexture;
+            const glareMat = this.materialFactory.createStandardMaterial(`strobeGlareMat${i}`, {
+                mutable: true, emissiveColor: [0, 0, 0], opacityTexture: glareTexture, disableLighting: true
+            });
             glareMat.alpha = 0;
             glareMat.alphaMode = BABYLON.Engine.ALPHA_ADD;
-            glareMat.disableLighting = true;
             glareMat.disableDepthWrite = true;
             glareMat.backFaceCulling = false;
             glare.material = glareMat;
@@ -986,6 +1020,8 @@ class VRClubFixtures extends VRClubEnvironment {
             
             this.strobes.push({ 
                 mesh: strobe, 
+                reflector,
+                tube,
                 emitter,
                 glare,
                 glareMaterial: glareMat,

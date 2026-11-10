@@ -24,7 +24,31 @@ const strobeState = page => page.evaluate(() => {
     };
 });
 
-test('Safe Mode is off by default even under reduced motion, and layered cues carry a bar-locked strobe', async ({ page }) => {
+const fixtureState = page => page.evaluate(() => {
+    const club = window.vrClub;
+    return {
+        fixtures: club.strobes.map(strobe => {
+            const direction = new BABYLON.Vector3(0, 1.7, -12).subtract(strobe.mesh.position).normalize();
+            strobe.mesh.computeWorldMatrix(true);
+            return {
+                position: strobe.mesh.position.asArray(),
+                aim: BABYLON.Vector3.Dot(strobe.mesh.getDirection(BABYLON.Axis.Z).normalize(), direction),
+                casing: strobe.mesh.material.name,
+                separateEmitter: strobe.mesh.material !== strobe.material,
+                tubeVisible: strobe.tube.isVisible && strobe.tube.isEnabled(),
+                reflectorVisible: strobe.reflector.isVisible && strobe.reflector.isEnabled(),
+                casingEmission: strobe.mesh.material.emissiveColor.asArray(),
+                light: strobe.light
+            };
+        }),
+        flashLightEnabled: club.strobeFlashLight.isEnabled(),
+        goboMeshes: club.scene.meshes.filter(mesh => /gobo/i.test(mesh.name)).length,
+        goboControls: document.querySelectorAll('[data-control*="gobo"], [id*="Gobo"]').length,
+        goboState: typeof club.goboEnabled
+    };
+});
+
+test('Unity fixtures retain web strobe defaults, bar-locked cues and Safe Mode in desktop and VR', async ({ page }, testInfo) => {
     test.setTimeout(900_000);
     await page.emulateMedia({ reducedMotion: 'reduce' });
     await page.goto('/');
@@ -52,11 +76,30 @@ test('Safe Mode is off by default even under reduced motion, and layered cues ca
     // The opening stays clean.
     await pin('firstLight');
     expect(await strobeState(page)).toMatchObject({ active: false });
+    const desktopFixtures = await fixtureState(page);
+    expect(desktopFixtures).toMatchObject({ flashLightEnabled: false, goboMeshes: 0, goboControls: 0, goboState: 'undefined' });
+    expect(desktopFixtures.fixtures.map(fixture => fixture.position)).toEqual([
+        [-7.6, 7.6, -9.2], [7.6, 7.6, -9.2], [-7.6, 7.6, -14.8], [7.6, 7.6, -14.8]
+    ]);
+    for (const fixture of desktopFixtures.fixtures) {
+        expect(fixture).toMatchObject({
+            separateEmitter: true, tubeVisible: true, reflectorVisible: true, casingEmission: [0, 0, 0], light: null
+        });
+        expect(fixture.aim).toBeGreaterThan(0.999999);
+    }
+    await page.evaluate(() => {
+        const club = window.vrClub;
+        club.camera.position.set(3, 1.7, -4);
+        club.camera.setTarget(new BABYLON.Vector3(7.6, 7.6, -9.2));
+    });
+    await renderFrames(page, 4);
+    await page.screenshot({ path: testInfo.outputPath('unity-strobe-off.png') });
 
     await enterVR(page);
     await pin('sideways');
     await renderFrames(page, 10);
     expect(await strobeState(page)).toMatchObject({ safe: false, active: true, sync: 'bar', gridLocked: true, inVR: true });
+    expect(await fixtureState(page)).toEqual(desktopFixtures);
 
     // Opting in silences every strobe, in VR too, and is remembered.
     await page.evaluate(() => window.vrClub.setPhotosensitiveSafeMode(true));
