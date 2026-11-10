@@ -55,10 +55,10 @@ test('an unverified owner pairs a headset: code, email, email code, confirm', as
     await expect(page.getByRole('heading', { name: 'Verify your email' })).toBeVisible();
     expect(new URL(page.url()).search).toBe('');
     await page.getByRole('textbox', { name: 'Your email' }).fill('owner@example.com');
-    await page.getByRole('button', { name: 'Email me a code' }).click();
+    await page.getByLabel('Your email').press('Enter');
     await expect(page.getByRole('heading', { name: 'Enter the email code' })).toBeVisible();
     await page.getByLabel('Email code').fill('0000 0000');
-    await page.getByRole('button', { name: 'Verify' }).click();
+    await page.getByLabel('Email code').press('Enter');
     await expect(page.getByRole('status')).toContainText('invalid');
     await page.getByLabel('Email code').fill('1234 5678');
     await page.getByRole('button', { name: 'Verify' }).click();
@@ -66,6 +66,9 @@ test('an unverified owner pairs a headset: code, email, email code, confirm', as
     await expect(page.locator('#step')).toContainText('1234 5678');
     await expect(page.locator('#step')).toContainText('owner@example.com');
     await page.getByLabel('Name for this headset').fill('Living room Quest');
+    await page.getByLabel('Name for this headset').press('Enter');
+    expect(state.approved).toBeNull();
+    await expect(page.locator('#step')).toHaveAttribute('aria-busy', 'false');
     await page.getByRole('button', { name: 'Link this headset' }).click();
     await expect(page.getByRole('heading', { name: 'Headset linked' })).toBeVisible();
     expect(state.approved).toEqual({ code: '12345678', name: 'Living room Quest' });
@@ -77,14 +80,14 @@ test('a verified owner without access redeems an invitation before linking', asy
     const state = await fakeApi(page, { verified: true, entitled: false });
     await page.goto('/link/');
     await page.getByLabel('Code shown in your headset').fill('1234 567');
-    await page.getByRole('button', { name: 'Continue' }).click();
+    await page.getByLabel('Code shown in your headset').press('Enter');
     await expect(page.getByRole('status')).toContainText('all eight digits');
     await page.getByLabel('Code shown in your headset').fill('1234 5678');
     await page.getByRole('button', { name: 'Continue' }).click();
     await expect(page.getByRole('heading', { name: 'Get VR access' })).toBeVisible();
     await expect(page.getByRole('button', { name: /Buy VR access/ })).toBeVisible();
     await page.getByLabel('Invitation code').fill('0000 0000');
-    await page.getByRole('button', { name: 'Redeem invitation' }).click();
+    await page.getByLabel('Invitation code').press('Enter');
     await expect(page.getByRole('status')).toContainText('invalid');
     await page.getByLabel('Invitation code').fill('8765 4321');
     await page.getByRole('button', { name: 'Redeem invitation' }).click();
@@ -126,7 +129,7 @@ test('the owner manages the headset\u2019s music list from the phone: add, rejec
 
     await page.getByLabel('Music link').fill('https://audio.example/two.mp3');
     await page.getByLabel('Name (optional)').fill('Friday set');
-    await page.getByRole('button', { name: 'Add link' }).click();
+    await page.getByLabel('Name (optional)').press('Enter');
     await expect(page.locator('.music-list li')).toHaveCount(2);
     await expect(page.getByRole('status')).toContainText('Sync now');
     expect(state.music).toEqual([{ url: 'https://audio.example/one.mp3', name: 'One' }, { url: 'https://audio.example/two.mp3', name: 'Friday set' }]);

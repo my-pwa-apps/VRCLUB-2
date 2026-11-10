@@ -85,22 +85,25 @@ class ClubMultiplayer {
     static SPOT_RIG_FIXTURES = Object.freeze({
         spotSequence: [0, 6], spotSequenceRate: [1, 8], spotPrismActive: 'b',
         ...Object.fromEntries(Array.from({ length: 6 }, (_, i) => [
-            [`spotHead${i}Enabled`, 'b'], [`spotHead${i}Color`, [-1, 8]], [`spotHead${i}Motion`, [0, 4]]
+            [`spotHead${i}Enabled`, 'b'], [`spotHead${i}Color`, [-1, 8]], [`spotHead${i}Motion`, [0, 7]]
         ]).flat())
     });
 
     static MANUAL_FIXTURES = Object.freeze({
         ...ClubMultiplayer.SPOT_RIG_FIXTURES,
+        goboEnabled: 'b', goboPatternIndex: [0, 31], goboRotationSpeed: [-10, 10],
         lightsActive: 'b', lasersActive: 'b', ledWallActive: 'b', ledMonochrome: 'b', strobesActive: 'b',
-        mirrorBallActive: 'b', mirrorBallRaysActive: 'b', laserSheetActive: 'b', smokeActive: 'b', spotStrobeActive: 'b', goboEnabled: 'b',
-        spotlightMode: [0, 7], spotlightPattern: [0, 7], goboPatternIndex: [0, 31], ledPattern: [0, 63], spotColorIndex: [0, 63],
-        goboRotationSpeed: [-10, 10], spotlightSpeed: [0, 10], laserSpeed: [0, 10], mirrorBallSpeed: [0, 10],
+        mirrorBallActive: 'b', mirrorBallRaysActive: 'b', laserSheetActive: 'b', smokeActive: 'b', spotStrobeActive: 'b',
+        spotlightMode: [0, 7], spotlightPattern: [0, 7], ledPattern: [0, 63], spotColorIndex: [0, 63],
+        spotlightSpeed: [0, 10], laserSpeed: [0, 10], mirrorBallSpeed: [0, 10],
+        laserSheetSpeed: [0.25, 2],         laserSheetBrightness: [0, 3],
+        spotBrightness: [0, 2],
+        laserBrightness: [0, 2],
+        ledWallBrightness: [0, 2], fogImmersion: [0, 1],
         ledWallSpeed: [0, 10], strobeSpeed: [0, 10], vjMaster: [0, 1], strobePatternIndex: [0, 31],
         currentColorIndex: [0, 2], colorLockActive: 'b',
-        spotBrightness: [0, 2], laserBrightness: [0, 2], ledWallBrightness: [0, 2],
-        laserSheetBrightness: [0, 3], laserSheetSpeed: [0.25, 2], fogImmersion: [0, 1],
-        fogIntensity: [0, 2], fogBurstMode: ['auto', 'continuous', 'burst'],
-        ledMulti: 'b', ledWallLevel: [0, 1], kickDepth: [0, 1],
+        ledMulti: 'b', ledWallLevel: [0, 1], kickDepth: [0, 1], fogIntensity: [0, 2],
+        fogBurstMode: ['auto', 'continuous', 'burst'],
         laserSheetOrigin: ['both', 'ceilingLeft', 'ceilingRight'], laserSheetMotion: ['vertical', 'lateral'],
         strobeSync: ['free', 'beat', 'offbeat', 'bar', 'roll'],
         spotRed: [0, 1], spotGreen: [0, 1], spotBlue: [0, 1],
@@ -158,6 +161,11 @@ class ClubMultiplayer {
         }
     }
 
+    static inviteEventFromLocation(search = typeof window !== 'undefined' && window.location ? window.location.search : '') {
+        const id = new URLSearchParams(search).get('event');
+        return window.LiveAudioClient?.isEventId(id) ? id.toLowerCase() : null;
+    }
+
     /** @param {object} club the VRClub @param {{storage?: Storage, rng?: () => number}} [options] */
     constructor(club, { storage = (typeof localStorage !== 'undefined' ? localStorage : null), rng = null } = {}) {
         this.club = club;
@@ -166,6 +174,12 @@ class ClubMultiplayer {
         this.client = null;
         this.manager = null;
         this.listeners = new Set();
+        this.liveEvent = null;
+        this.liveEventBusy = false;
+        this._publisherToken = null;
+        this._liveAudio = null;
+        this._eventAudio = null;
+        this._liveAudioState = null;
         this.lastError = '';
         this.notice = '';
         this.moderationReports = [];
@@ -295,8 +309,132 @@ class ClubMultiplayer {
         const url = new URL(window.location.href);
         url.search = '';
         url.hash = '';
-        url.searchParams.set('room', this.currentRoom);
+        if (this.hasLiveEvent) url.searchParams.set('event', this.liveEvent.id);
+        else url.searchParams.set('room', this.currentRoom);
         return url.href;
+    }
+    get hasLiveEvent() { return !!(this.connected && this.liveEvent && !this.liveEvent.ended); }
+
+    liveEventStatus() {
+        if (!this.liveEvent) return 'No live event';
+        if (this.liveEvent.ended) return 'Live event ended';
+        const audio = this._liveAudioState;
+        const state = audio?.connection === 'reconnecting' ? 'Audio interrupted: reconnecting'
+            : this._eventAudio ? 'Listening live' : this.liveEvent.live ? 'Connecting to live audio' : 'Waiting for the DJ';
+        return `${this.liveEvent.title} - ${state} - room ${this.liveEvent.roomIndex || 1} of at most 8`;
+    }
+
+    async manageLiveEvent(action = 'create', title = 'Live DJ set') {
+        if (!this.client) throw new Error('Join a room first.');
+        if (this.liveEventBusy) throw new Error('Another live event request is still pending.');
+        this.liveEventBusy = true;
+        this._emit();
+        try {
+            const result = await this.client.eventCommand(action, title);
+            if (result.publisherToken) this._publisherToken = result.publisherToken;
+            return result;
+        } finally {
+            this.liveEventBusy = false;
+            this._emit();
+        }
+    }
+
+    publisherInviteUrl() {
+        if (!this.hasLiveEvent || !this.liveEvent.canManage || !this._publisherToken) {
+            throw new Error('Create or rotate a private DJ invitation first.');
+        }
+        const url = new URL('broadcast/', window.location.href);
+        url.searchParams.set('event', this.liveEvent.id);
+        url.searchParams.set('server', this.client.serverUrl);
+        url.hash = this._publisherToken;
+        return url.href;
+    }
+
+    _stopLiveAudio() {
+        const audio = this._liveAudio;
+        this._liveAudio = null;
+        audio?.close();
+        if (this._eventAudio) this.club.stopNetworkMusic(this._eventAudio);
+        this._eventAudio = null;
+        this._liveAudioState = null;
+    }
+
+    _setLiveEvent(event) {
+        if (event && (!window.LiveAudioClient?.isEventId(event.id) ||
+            typeof event.title !== 'string' || typeof event.listenerToken !== 'string' && !event.ended)) {
+            this.club.showErrorMessage('The relay returned an invalid live event invitation.');
+            return;
+        }
+        const previous = this.liveEvent;
+        this.liveEvent = event;
+        if (!event || event.ended) {
+            this._stopLiveAudio();
+            this._publisherToken = null;
+        } else {
+            this._stopMusicBroadcast();
+            this._stopRemoteMusic();
+            this.client.setMusicListening(false);
+            if (this.client.musicStream) this.client.setLocalMusic(null, { playing: false });
+            this.club.audioElement?.pause();
+            if (this.club._streamRecovery) {
+                clearTimeout(this.club._streamRecovery.timer);
+                this.club._streamRecovery.timer = null;
+                this.club._streamRecovery.hasPlayed = false;
+            }
+            this.club._stopSoundCloudPlayer?.();
+            if (this.club.liveInput?.retainsInputFor(event)) {
+                this._stopLiveAudio();
+                this._emit();
+                return;
+            }
+            this.club.liveInput?.stop('The live event DJ supplies the music. Your input has been stopped.');
+            if (previous?.id !== event.id || previous?.listenerToken !== event.listenerToken || !this._liveAudio) {
+                if (previous?.id !== event.id) this._publisherToken = null;
+                this.retryLiveEventAudio();
+            }
+        }
+        this._emit();
+    }
+
+    retryLiveEventAudio() {
+        if (this.club.liveInput?.retainsInputFor(this.liveEvent)) return;
+        this._stopLiveAudio();
+        if (!this.hasLiveEvent) return;
+        const event = this.liveEvent;
+        try {
+            this.club._ensureAudioContext?.();
+            const client = new window.LiveAudioClient({
+                serverUrl: this.client.serverUrl, eventId: event.id, token: event.listenerToken,
+                onStream: stream => {
+                    if (this._liveAudio !== client) return;
+                    if (this._eventAudio) this.club.stopNetworkMusic(this._eventAudio);
+                    this._eventAudio = null;
+                    if (stream) {
+                        try {
+                            this._eventAudio = this.club.startNetworkMusic(stream, { playing: true, title: event.title });
+                            window.announceNowPlaying?.(event.title);
+                        } catch (error) {
+                            client.close();
+                            this.club.showErrorMessage(`Live audio could not play: ${error.message}`);
+                        }
+                    }
+                    this._emit();
+                },
+                onState: state => { this._liveAudioState = state; this._emit(); },
+                onError: error => {
+                    if (this._liveAudio === client) {
+                        this.club.showErrorMessage(`Live audio interrupted: ${error.message}`);
+                        this._emit();
+                    }
+                }
+            });
+            this._liveAudio = client;
+            void client.connect().catch(error => {
+                if (this._liveAudio === client) this.club.showErrorMessage(`Could not join live audio: ${error.message}`);
+            });
+        } catch (error) {
+            this.club.showErrorMessage(`Could not connect live audio: ${error.message}`);
+        }
     }
     get currentRoom() { return this.client ? this.client.room : this.room; }
     isPrivateRoom(room = this.currentRoom) { return /^private-/i.test(room || ''); }
@@ -359,8 +497,14 @@ class ClubMultiplayer {
      * Join a room. `options` default to the saved settings, so the VR menu (which has no keyboard) can call it bare.
      * @returns {boolean} false when it refused to start (already connecting, or no relay URL)
      */
-    connect({ serverUrl, room, name } = {}) {
+    connect({ serverUrl, room, name, eventId = null } = {}) {
         if (this._disposed || this.connected || this.connecting) return false;
+        if (eventId && !window.LiveAudioClient?.isEventId(eventId)) {
+            this.lastError = 'This live event invitation is invalid.';
+            this._emit();
+            return false;
+        }
+        if (eventId) eventId = eventId.toLowerCase();
         serverUrl = (serverUrl || this.serverUrl || '').trim();
         room = (room || this.room || 'lobby').trim() || 'lobby';
         name = (name || this.name).trim() || 'Guest';
@@ -393,7 +537,7 @@ class ClubMultiplayer {
         }
 
         const club = this.club;
-        const client = new NetworkClient({ serverUrl, room, name, uid: this.uid, avatarPool: this.avatarPool,
+        const client = new NetworkClient({ serverUrl, room, eventId, name, uid: this.uid, avatarPool: this.avatarPool,
             avatar: typeof club.getLocalCharacter === 'function' ? club.getLocalCharacter() : null,
             appearance: club.getPersonalAppearance?.() || null,
             blocked: this.blockedList().map(item => item.pid) });
@@ -425,6 +569,9 @@ class ClubMultiplayer {
 
     disconnect() {
         this._stopPing();
+        this._stopLiveAudio();
+        this.liveEvent = null;
+        this._publisherToken = null;
         if (!this.client) return;
         // disconnect() reports every peer through onPeerLeave, which removes their avatars.
         this.client.disconnect();
@@ -580,8 +727,12 @@ class ClubMultiplayer {
         const manager = this.manager;
         client.onStatusChange = (status) => {
             club.isMultiplayer = status === 'connected';
+            club._uploadedAvatarSharing?.().connect(status === 'connected' ? client : null);
             if (status === 'connected' && /^private-/i.test(client.room)) this.savePrivateRoom(client.room, client.serverUrl);
             if (status !== 'connected') {
+                this._stopLiveAudio();
+                this.liveEvent = null;
+                this._publisherToken = null;
                 this.chatAudience = this.chatAudience === null ? null : [];
                 this.voiceAudience = this.voiceAudience === null ? null : [];
                 client.setVoiceAudience(this.voiceAudience);
@@ -626,6 +777,7 @@ class ClubMultiplayer {
         };
         client.onPeerAvatar = (id, avatar) => { manager.setAvatar(id, avatar); this._emit(); };
         client.onPeerAppearance = (id, appearance) => { manager.setAppearance(id, appearance); this._emit(); };
+        client.onPeerUploadedAvatar = (id, model) => { manager.setUploadedAvatar?.(id, model); this._emit(); };
         client.onSelfAppearance = appearance => { club._appearanceAcknowledged?.(appearance); this._emit(); };
         client.onSelfAvatar = (avatar) => { this.selfAvatar = avatar; this._emit(); };
         client.onEmoji = (id, emoji) => manager.showEmoji(id, emoji);
@@ -653,9 +805,11 @@ class ClubMultiplayer {
             this._emit();
         };
         client.onRoom = (locked) => { this.locked = !!locked; this._emit(); };
+        client.onLiveEvent = event => this._setLiveEvent(event);
         client.onMusic = (music) => this._applyMusic(music);
         client.onMusicBroadcast = state => this._applyMusicBroadcast(state);
         client.onRemoteMusic = (id, stream) => {
+            if (this.hasLiveEvent) return;
             if (!stream) { this._stopRemoteMusic(); return; }
             if (id !== client.hostId || !this.following) return;
             try {
@@ -993,6 +1147,7 @@ class ClubMultiplayer {
      * Follow the host's track automatically whenever in a room.
      */
     _applyMusic(music) {
+        if (this.hasLiveEvent) return;
         const client = this.client, club = this.club;
         if (!music || !client || client.isHost()) return;
         if (!music.url || !NetworkClient.isShareableMusicUrl(music.url)) return;
@@ -1044,6 +1199,7 @@ class ClubMultiplayer {
     }
 
     acceptListenAlong() {
+        if (this.hasLiveEvent) { this.retryLiveEventAudio(); return; }
         this.listenAlong = true;
         this.pendingMusic = null;
         if (this._broadcastState?.available) {
@@ -1058,6 +1214,7 @@ class ClubMultiplayer {
     }
 
     _applyMusicBroadcast(state) {
+        if (this.hasLiveEvent) return;
         if (!this.following) return;
         this._broadcastState = state.available ? state : null;
         this.pendingMusic = null;
@@ -1103,6 +1260,7 @@ class ClubMultiplayer {
     shareLocalMusic() {
         const club = this.club, client = this.client;
         if (!client || !client.connected || !client.isHost()) return;
+        if (this.hasLiveEvent) return;
         const local = club._audioKind === 'file' && club.audioElement && club.audioSource;
         if (!local) {
             if (this._localMusicDestination || client.musicState?.available) {
@@ -1147,12 +1305,46 @@ class ClubMultiplayer {
         if (!following && (!this.connected || !this.isHost()) && typeof club.setRoomCharacterStyle === 'function') {
             club.setRoomCharacterStyle(null);
         }
-        if (following && this.client && !this.client.musicListening) {
+        if (following && this.client && !this.client.musicListening && !this.hasLiveEvent) {
             this.client.setMusicListening(true);
         }
         if (following === this._roleApplied) return;
         const was = this._roleApplied;
+        const promotedSpotBeat = was && !following && this.connected && this.isHost() && typeof club.spotRigBeat === 'function'
+            ? club.spotRigBeat() : null;
         this._roleApplied = following;
+        if (following) {
+            this._savedShowProgram = club.showDirector?.program || 'nocturne';
+            this._savedSheetSettings = {
+                laserSheetSpeed: club.laserSheetSpeed ?? 1, laserSheetBrightness: club.laserSheetBrightness ?? 1,
+                spotBrightness: club.spotBrightness ?? 1, laserBrightness: club.laserBrightness ?? 1,
+                ledWallBrightness: club.ledWallBrightness ?? 1
+            };
+            this._savedSpotRig = {};
+            for (const key of Object.keys(ClubMultiplayer.SPOT_RIG_FIXTURES)) {
+                if (key in club) this._savedSpotRig[key] = club[key];
+            }
+            if (club.vjDirector) {
+                this._savedLightMaster = {
+                    target: club.vjDirector.targetMasterIntensity,
+                    show: club.vjDirector.showMasterIntensity
+                };
+            }
+        } else if (was) {
+            if (!(this.connected && this.isHost())) {
+                club.showDirector?.setProgram?.(this._savedShowProgram || 'nocturne');
+                if (this._savedSheetSettings) this._applyFixtures(this._savedSheetSettings, true);
+            }
+            this._savedShowProgram = null;
+            this._savedSheetSettings = null;
+            if (!(this.connected && this.isHost()) && this._savedSpotRig) this._applyFixtures(this._savedSpotRig, true);
+            if (!(this.connected && this.isHost()) && this._savedLightMaster && club.vjDirector) {
+                club.vjDirector.targetMasterIntensity = this._savedLightMaster.target;
+                club.vjDirector.showMasterIntensity = this._savedLightMaster.show;
+            }
+            this._savedSpotRig = null;
+            this._savedLightMaster = null;
+        }
         if (following && typeof club.djEffectsSnapshot === 'function') {
             this._savedDJEffects = club.djEffectsSnapshot();
         } else if (!following) {
@@ -1168,6 +1360,7 @@ class ClubMultiplayer {
         this._show.mode = null;
         if (club.showDirector) club.showDirector.setFollower(following);
         if (club.vjDirector) club.vjDirector.remoteDriven = following;
+        if (promotedSpotBeat !== null) club._spotBeatOffset = (club._spotBeatOffset || 0) + promotedSpotBeat - club.spotRigBeat();
         club.roomFollower = following;
         if (typeof document !== 'undefined' && document.documentElement) document.documentElement.classList.toggle('room-guest', following);
         // Leaving a host's show: the rig carries on, and a console left in manual does not expire the instant it is handed back.
@@ -1191,15 +1384,13 @@ class ClubMultiplayer {
             const value = key === 'vjMaster' ? (club.vjDirector && club.vjDirector.targetMasterIntensity)
                 : key === 'strobePatternIndex'
                     ? (typeof VRClubAnimationFinish !== 'undefined' ? VRClubAnimationFinish.STROBE_PATTERNS.indexOf(club.strobePattern) : -1)
+                    : /^(spot|mirror)(Red|Green|Blue)$/.test(key)
+                        ? (key.startsWith('spot') ? club.currentSpotColor : club.mirrorBallSpotlightColor)?.[
+                            key.endsWith('Red') ? 'r' : key.endsWith('Green') ? 'g' : 'b']
                     : club[key];
             if (key === 'strobePatternIndex' && !(value >= 0)) continue;
-            if (spec === 'b' ? typeof value === 'boolean' : typeof spec[0] === 'string' ? spec.includes(value)
-                : (typeof value === 'number' && Number.isFinite(value))) out[key] = value;
-        }
-        for (const [prefix, colour] of [['spot', club.currentSpotColor], ['mirror', club.mirrorBallSpotlightColor]]) {
-            if (colour) {
-                out[prefix + 'Red'] = colour.r; out[prefix + 'Green'] = colour.g; out[prefix + 'Blue'] = colour.b;
-            }
+            if (spec === 'b' ? typeof value === 'boolean' : typeof spec[0] === 'string'
+                ? spec.includes(value) : (typeof value === 'number' && Number.isFinite(value))) out[key] = value;
         }
         return out;
     }
@@ -1225,16 +1416,33 @@ class ClubMultiplayer {
         if (typeof club.getRoomCharacterStyle === 'function') {
             frame.fx = { ...frame.fx, characterStyle: club.getRoomCharacterStyle() };
         }
-        const fixtures = this._captureFixtures();
-        frame.fx ||= {};
-        for (const key of [...Object.keys(ClubMultiplayer.SPOT_RIG_FIXTURES),
-            'spotBrightness', 'laserBrightness', 'ledWallBrightness', 'laserSheetBrightness', 'laserSheetSpeed']) {
-            if (key in fixtures) frame.fx[key] = fixtures[key];
+        frame.fx = frame.fx || {};
+        frame.fx.showProgram = director.program || 'nocturne';
+        frame.fx.laserSheetSpeed = club.laserSheetSpeed ?? 1;
+        frame.fx.laserSheetBrightness = club.laserSheetBrightness ?? 1;
+        frame.fx.spotBrightness = club.spotBrightness ?? 1;
+        frame.fx.laserBrightness = club.laserBrightness ?? 1;
+        frame.fx.ledWallBrightness = club.ledWallBrightness ?? 1;
+        if (driving && Number.isFinite(vj.showMasterIntensity)) frame.fx.vjMaster = vj.showMasterIntensity;
+        frame.fx.spotPrismActive = !!club.spotPrismActive;
+        const independent = Array.from({ length: 6 }, (_, i) => club[`spotHead${i}Motion`] === 1).some(Boolean);
+        if (Number.isFinite(club._spotMotionPhase) && (independent || club.spotlightPattern === 0 || club.spotlightPattern === 4)) {
+            frame.fx.spotMotionPhase = club._spotMotionPhase;
         }
-        if (club.spotSequence && typeof club.spotSequenceBeat === 'function') {
-            frame.fx.spotSequenceBeat = club.spotSequenceBeat() % 672;
-            frame.fx.spotSequenceAt = new Date(Date.now() + (this.client.serverOffset || 0)).toISOString();
-            frame.fx.spotSequenceBpm = club.vjBPM || 120;
+        if (typeof club.spotRigBeat === 'function') {
+            let musicalSpots = !!club.spotSequence || (club.spotlightPattern >= 5 && club.spotlightPattern <= 7)
+                || (club.smokeActive && club.fogBurstMode === 'auto');
+            for (const key of Object.keys(ClubMultiplayer.SPOT_RIG_FIXTURES)) {
+                if (key in club) frame.fx[key] = club[key];
+                if (key.endsWith('Motion') && club[key] >= 5) musicalSpots = true;
+            }
+            if (musicalSpots) {
+                // 672 beats spans every preset/rate combination and stays inside the relay's numeric bounds.
+                frame.fx.spotSequenceBeat = (club.spotSequence && typeof club.spotSequenceBeat === 'function'
+                    ? club.spotSequenceBeat() : club.spotRigBeat()) % 672;
+                frame.fx.spotSequenceAt = new Date(Date.now() + (this.client.serverOffset || 0)).toISOString();
+                frame.fx.spotSequenceBpm = club.vjBPM || 120;
+            }
         }
         return frame;
     }
@@ -1268,16 +1476,22 @@ class ClubMultiplayer {
         if (typeof club._applySharedDJEffects === 'function') club._applySharedDJEffects(frame.audioFx || this._savedDJEffects);
         const director = club.showDirector, vj = club.vjDirector;
         if (!director || !vj) return;
+        const program = frame.fx?.showProgram === 'aesthetic' ? 'aesthetic' : 'nocturne';
+        const programChanged = director.program !== program;
+        if (programChanged) director.setProgram?.(program);
         const now = performance.now();
         const show = this._show;
         show.lastFrameAt = now;
         if (show.stale) this._setStale(false);
 
         if (vj.applyRemoteColour) vj.applyRemoteColour(frame);
+        if (!Object.prototype.hasOwnProperty.call(frame.fx || {}, 'spotSequence') && typeof club.resetSpotRig === 'function') club.resetSpotRig();
+        if (!Object.prototype.hasOwnProperty.call(frame.fx || {}, 'spotPrismActive')) club.spotPrismActive = false;
         if (frame.m === 'show') {
             club.vjManualMode = false;
             director.enabled = true;
-            director.applyRemote(frame, show.force);
+            director.applyRemote(frame, show.force || programChanged);
+            if (!Object.prototype.hasOwnProperty.call(frame.fx || {}, 'vjMaster')) vj.showMasterIntensity = 1;
             this._applyFixtures(frame.fx, true);
         } else {
             club.vjManualMode = true;
@@ -1303,9 +1517,11 @@ class ClubMultiplayer {
         if (!fx || typeof fx !== 'object') return;
         const club = this.club;
         const safe = !!club.photosensitiveSafeMode;
+        if (Number.isFinite(fx.spotMotionPhase) && fx.spotMotionPhase >= 0 && fx.spotMotionPhase <= 1e6) {
+            club._spotMotionPhase = fx.spotMotionPhase;
+        }
         for (const key of Object.keys(ClubMultiplayer.MANUAL_FIXTURES)) {
-            if (rigOnly && !Object.hasOwn(ClubMultiplayer.SPOT_RIG_FIXTURES, key) &&
-                !['spotBrightness', 'laserBrightness', 'ledWallBrightness', 'laserSheetBrightness', 'laserSheetSpeed'].includes(key)) continue;
+            if (rigOnly && !['vjMaster', 'laserSheetSpeed', 'laserSheetBrightness', 'spotBrightness', 'laserBrightness', 'ledWallBrightness'].includes(key) && !Object.prototype.hasOwnProperty.call(ClubMultiplayer.SPOT_RIG_FIXTURES, key)) continue;
             if (!Object.prototype.hasOwnProperty.call(fx, key)) continue;
             const spec = ClubMultiplayer.MANUAL_FIXTURES[key];
             let value = fx[key];
@@ -1316,7 +1532,7 @@ class ClubMultiplayer {
             } else {
                 if (typeof value !== 'number' || !Number.isFinite(value)) continue;
                 value = Math.min(spec[1], Math.max(spec[0], value));
-                if (/Index$|Mode$|Pattern$|^spotHead|^spotSequence/.test(key)) value = Math.round(value);
+                if (/Index$|Mode$|Pattern$|^spotHead|^spotSequence$|^spotSequenceRate$/.test(key)) value = Math.round(value);
                 if (key === 'spotSequenceRate' && ![1, 2, 4, 8].includes(value)) continue;
             }
             // Safe Mode is the guest's own medical setting: a host's console never turns strobes back on.
@@ -1338,7 +1554,10 @@ class ClubMultiplayer {
                     break;
                 }
                 case 'vjMaster':
-                    if (club.vjDirector) club.vjDirector.targetMasterIntensity = value;
+                    if (club.vjDirector) {
+                        club.vjDirector.targetMasterIntensity = value;
+                        club.vjDirector.showMasterIntensity = value;
+                    }
                     break;
                 case 'strobePatternIndex': {
                     // The pattern travels as its index in the shared list; an index this build does not have is ignored.
@@ -1346,6 +1565,9 @@ class ClubMultiplayer {
                     if (list && value < list.length) club.strobePattern = list[value];
                     break;
                 }
+                case 'spotRed': case 'spotGreen': case 'spotBlue':
+                case 'mirrorRed': case 'mirrorGreen': case 'mirrorBlue':
+                    break;
                 default:
                     if (key in club) club[key] = value;
             }
@@ -1359,19 +1581,19 @@ class ClubMultiplayer {
             club._spotRemoteBeat = fx.spotSequenceBeat + age * club._spotRemoteBpm / 60;
             club._spotRemoteAt = performance.now() / 1000;
         }
-        if (!rigOnly && club.colorLockActive && typeof club.matchAllLightColors === 'function') {
-            club.matchAllLightColors(false);
-        }
         if (!rigOnly) {
             const colour = prefix => {
                 const rgb = ['Red', 'Green', 'Blue'].map(channel => fx[prefix + channel]);
-                return rgb.every(value => Number.isFinite(value) && value >= 0 && value <= 1) ? new BABYLON.Color3(...rgb) : null;
+                return rgb.every(value => Number.isFinite(value) && value >= 0 && value <= 1)
+                    ? new BABYLON.Color3(...rgb) : null;
             };
             const spot = colour('spot'), mirror = colour('mirror');
+            if (!spot && club.colorLockActive && typeof club.matchAllLightColors === 'function') club.matchAllLightColors(false);
             if (spot) {
                 club.currentSpotColor = spot;
                 club.colorTransitionProgress = 1;
                 club.vjDirector?.refreshLedColor?.();
+                if (club.vjDirector) club.vjDirector.lastPhraseBeat = club.vjDirector.beatNumber;
             }
             if (mirror) club._setMirrorBallColor?.(mirror);
             if ('laserSheetOrigin' in fx || 'laserSheetMotion' in fx) club.configureLaserSheetVariant?.();

@@ -673,7 +673,7 @@ class VRClubRendering extends VRClubLifecycle {
         
         // Front wall: a 4 m doorway (x -2..2, 3.4 m high) leads to the entrance vestibule (see
         // VenueDressing.createEntranceArea). The first piece keeps the name `frontWall`.
-        const doorHalf = 2.0, doorHeight = 3.4;
+        const doorHalf = window.VenueLayout?.vestibule.clubDoorHalfWidth ?? 2, doorHeight = 3.4;
         const frontPieces = [
             { name: 'frontWall', width: 12.5 - doorHalf, height: 10, x: -(12.5 + doorHalf) / 2, y: 5 },
             { name: 'frontWallRight', width: 12.5 - doorHalf, height: 10, x: (12.5 + doorHalf) / 2, y: 5 },

@@ -3,8 +3,14 @@
 This is contributor documentation, not a rollout status report. These features
 are shared by Quest and SideQuest; their deployment targets, canonical metadata,
 paid VR gates, packaging and asset ceilings remain distribution-owned.
-Do not import live-event, performer/uploaded-avatar, development bypass or
-branding dependencies to maintain these features.
+The shared QuestDev integration also includes live events, local performers,
+uploaded avatars, the split UI/audio layers, Aesthetic smoke and visibility
+regressions. Development free-VR access, development relay selection and seeded
+music are excluded from these distributions. ADE artwork remains opt-in.
+Production retains its projected-gobo controls alongside the multi-beam filter;
+their methods now live in the eager UI controls layer, with shared fixture and
+preset state preserved. The VR controls are on the smoke settings page to keep
+the Effects page within twelve slots.
 
 ## Saved music and container caching
 

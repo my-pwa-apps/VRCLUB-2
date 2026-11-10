@@ -18,6 +18,17 @@
  * spatialised audio, but this class itself only deals with the network.
  */
 class NetworkClient {
+    static sanitizeUploadedAvatar(value) {
+        if (value === null || value === undefined) return null;
+        if (!value || typeof value !== 'object' || !/^[0-9a-f]{64}$/.test(value.hash) ||
+            !Number.isInteger(value.bytes) || value.bytes < 28 || value.bytes > 8 * 1024 * 1024) return undefined;
+        try {
+            return { hash: value.hash, bytes: value.bytes, appearance: window.CustomAvatarAppearance.sanitize(value.appearance) };
+        } catch (error) {
+            console.warn('Invalid uploaded avatar metadata:', error);
+            return undefined;
+        }
+    }
     static ICE_SERVERS = [
         { urls: 'stun:stun.l.google.com:19302' },
         { urls: 'stun:stun.cloudflare.com:3478' }
@@ -59,15 +70,39 @@ class NetworkClient {
     static sanitizeAppearance(value, avatar = value?.base) {
         if (value === null) return null;
         const keys = ['v', 'base', 'hair', 'outfit', 'skin', 'hairColor', 'top', 'bottom'];
+        const accessories = {
+            glasses: ['none', 'round', 'square', 'heart', 'star', 'sunglasses'],
+            facialHair: ['none', 'stubble', 'beard'],
+            hat: ['none', 'cap', 'beanie', 'fedora', 'bucket']
+        };
+        const footwear = { shoes: ['original', 'loafers', 'pumps', 'heels'], legwear: ['bare', 'sheer-black', 'sheer-nude'] };
+        if (value?.v >= 2) keys.push(...Object.keys(accessories));
+        if (value?.v === 3) keys.push(...Object.keys(footwear));
         if (!value || typeof value !== 'object' || Array.isArray(value) ||
             Object.keys(value).length !== keys.length || keys.some(key => !Object.hasOwn(value, key)) ||
-            value.v !== 1 || !NetworkClient.isAvatar(value.base) || value.base !== avatar ||
-            !['original', 'short', 'long'].includes(value.hair) ||
+            ![1, 2, 3].includes(value.v) || !NetworkClient.isAvatar(value.base) || value.base !== avatar ||
+            !(value.v >= 2 ? ['original', 'short', 'long', 'bald'] : ['original', 'short', 'long']).includes(value.hair) ||
             !['original', 'casual', 'smart'].includes(value.outfit)) return undefined;
-        const result = { v: 1, base: value.base, hair: value.hair, outfit: value.outfit };
+        const result = { v: value.v, base: value.base, hair: value.hair, outfit: value.outfit };
         for (const key of ['skin', 'hairColor', 'top', 'bottom']) {
             if (typeof value[key] !== 'string' || value[key].length !== 7 || !/^#[0-9a-f]{6}$/i.test(value[key])) return undefined;
             result[key] = value[key].toLowerCase();
+        }
+        if (value.v >= 2) for (const [key, options] of Object.entries(accessories)) {
+            if (value.v === 2 && key === 'facialHair' && ['moustache', 'handlebar'].includes(value[key])) {
+                result[key] = 'none';
+                continue;
+            }
+            if (value.v === 2 && key === 'hat' && value[key] === 'party') {
+                result[key] = 'bucket';
+                continue;
+            }
+            if (!options.includes(value[key])) return undefined;
+            result[key] = value[key];
+        }
+        if (value.v === 3) for (const [key, options] of Object.entries(footwear)) {
+            if (!options.includes(value[key])) return undefined;
+            result[key] = value[key];
         }
         return result;
     }
@@ -93,8 +128,13 @@ class NetworkClient {
      * @param {object|null} [options.appearance] complete v1 wardrobe, paired with its exact base on join/reconnect
      * @param {string[]} [options.blocked] public ids to keep invisible, from the user's saved block list
      */
-    constructor({ serverUrl, room = 'lobby', name = 'Guest', uid = null, blocked = [], avatarPool = 'any', avatar = null, appearance = null } = {}) {
+    constructor({ serverUrl, room = 'lobby', eventId = null, name = 'Guest', uid = null, blocked = [], avatarPool = 'any', avatar = null, appearance = null } = {}) {
         this.serverUrl = serverUrl;
+        this.eventId = eventId;
+        this.liveEventsSupported = false;
+        this.liveEvent = null;
+        this._eventRequests = new Map();
+        this._eventRequestId = 0;
         this.room = String(room || 'lobby').slice(0, 64);
         this.name = String(name || 'Guest').slice(0, 32);
         /** Which people this guest may be handed: 'any', 'women' or 'men'. */
@@ -106,6 +146,8 @@ class NetworkClient {
         if (this._preferredAppearance) this.preferredAvatar = this._preferredAppearance.base;
         this.avatarSelectionSupported = false;
         this.appearanceSelectionSupported = false;
+        this.appearanceAccessoriesSupported = false;
+        this.appearanceFootwearSupported = false;
         this.uid = typeof uid === 'string' && /^[A-Za-z0-9_-]{16,64}$/.test(uid) ? uid : null;
         /** @type {Set<string>} */
         this.blockedPids = new Set((blocked || []).filter(pid => NetworkClient.PID.test(pid)).slice(0, NetworkClient.MAX_BLOCKED));
@@ -173,6 +215,7 @@ class NetworkClient {
         this.onMusicBroadcast = () => {};
         this.onRemoteMusic = () => {};
         this.onError = () => {};
+        this.onLiveEvent = () => {};
     }
 
     get connected() { return this.status === 'connected'; }
@@ -193,6 +236,30 @@ class NetworkClient {
         return true;
     }
 
+    eventCommand(action, title) {
+        if (!this.connected || !this.liveEventsSupported) return Promise.reject(new Error('This relay does not support live audio events. Update the relay first.'));
+        if (!['create', 'info', 'rotate', 'end'].includes(action)) return Promise.reject(new Error('Unknown live event action.'));
+        const request = ++this._eventRequestId;
+        return new Promise((resolve, reject) => {
+            const timer = setTimeout(() => {
+                this._eventRequests.delete(request);
+                reject(new Error('The live event request timed out. Check its status before trying again.'));
+            }, 15000);
+            this._eventRequests.set(request, { resolve, reject, timer });
+            this._send({ type: 'event', request, action, ...(typeof title === 'string' ? { title: title.slice(0, 120) } : {}) });
+        });
+    }
+
+    _cancelEventRequests() {
+        for (const pending of this._eventRequests.values()) {
+            clearTimeout(pending.timer);
+            pending.reject(new Error('The room disconnected before confirming the live event request.'));
+        }
+        this._eventRequests.clear();
+        this.liveEvent = null;
+        this.liveEventsSupported = false;
+    }
+
     connect() {
         if (this.ws || this._opening || this._reconnectTimer !== null) return;
         this._closedByUser = false;
@@ -203,6 +270,10 @@ class NetworkClient {
     }
 
     disconnect() {
+        this.avatarAssetToken = null;
+        this.uploadedAvatarsSupported = false;
+        this.selfUploadedAvatar = null;
+        this._cancelEventRequests();
         this._closedByUser = true;
         this._openRevision = (this._openRevision || 0) + 1;
         this._opening = false;
@@ -218,6 +289,8 @@ class NetworkClient {
         this.avatar = null;
         this.selfAppearance = null;
         this.appearanceSelectionSupported = false;
+        this.appearanceAccessoriesSupported = false;
+        this.appearanceFootwearSupported = false;
         this.locked = false;
         this.hostId = null;
         if (this.ws) {
@@ -258,14 +331,22 @@ class NetworkClient {
             return;
         }
         url.searchParams.set('room', this.room);
+        if (this.eventId) {
+            url.searchParams.set('event', this.eventId);
+            url.searchParams.delete('room');
+        } else {
+            url.searchParams.delete('event');
+        }
         url.searchParams.set('name', this.name);
         if (this.uid) url.searchParams.set('uid', this.uid);
         if (this.avatarPool !== 'any') url.searchParams.set('avatars', this.avatarPool);
         this._joiningAvatar = this.preferredAvatar;
         if (this.preferredAvatar) url.searchParams.set('avatar', this.preferredAvatar);
         else url.searchParams.delete('avatar');
-        this._joiningAppearance = JSON.stringify(this.preferredAppearance);
-        if (this._appearancePreferenceSet && (!this.preferredAppearance || this.preferredAppearance.base === this.preferredAvatar)) {
+        // Negotiate newer wardrobes after welcome so old relays can advertise their capabilities first.
+        this._joiningAppearance = JSON.stringify(this.preferredAppearance?.v >= 2 ? null : this.preferredAppearance);
+        if (!(this.preferredAppearance?.v >= 2) && this._appearancePreferenceSet &&
+            (!this.preferredAppearance || this.preferredAppearance.base === this.preferredAvatar)) {
             url.searchParams.set('appearance', this._joiningAppearance);
         } else {
             url.searchParams.delete('appearance');
@@ -302,7 +383,14 @@ class NetworkClient {
     }
 
     _onSocketClosed(evt) {
+        this.avatarAssetToken = null;
+        this.uploadedAvatarsSupported = false;
+        this.selfUploadedAvatar = null;
+        this._cancelEventRequests();
         this.ws = null;
+        this.appearanceSelectionSupported = false;
+        this.appearanceAccessoriesSupported = false;
+        this.appearanceFootwearSupported = false;
         if (this.sfu) this.sfu.dispose();
         this.sfu = null;
         this.resetMusic();
@@ -382,10 +470,18 @@ class NetworkClient {
                 this._hasConnected = true;
                 this._reconnectAttempts = 0;
                 this.selfId = msg.id;
+                if (typeof msg.room === 'string') this.room = msg.room.slice(0, 64);
+                this.liveEventsSupported = msg.liveEvents === true;
+                this.liveEvent = msg.liveEvent || null;
                 this.selfPid = NetworkClient.PID.test(msg.pid) ? msg.pid : null;
                 this.avatar = typeof msg.avatar === 'string' ? msg.avatar : null;
                 this.avatarSelectionSupported = msg.avatarSelection === true;
                 this.appearanceSelectionSupported = msg.appearanceSelection === true;
+                this.appearanceAccessoriesSupported = msg.appearanceAccessories === true;
+                this.appearanceFootwearSupported = msg.appearanceFootwear === true;
+                this.uploadedAvatarsSupported = msg.uploadedAvatars === true;
+                this.avatarAssetToken = this.uploadedAvatarsSupported && typeof msg.avatarAssetToken === 'string'
+                    && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/.test(msg.avatarAssetToken) ? msg.avatarAssetToken : null;
                 this.selfAppearance = NetworkClient.sanitizeAppearance(msg.appearance, this.avatar) || null;
                 this.hostId = msg.hostId;
                 this.capacity = Number.isInteger(msg.capacity) && msg.capacity >= 8 && msg.capacity <= 32 ? msg.capacity : 8;
@@ -414,7 +510,9 @@ class NetworkClient {
                 if (this.blockedPids.size) this._send({ type: 'blocklist', pids: [...this.blockedPids] });
                 if (this.avatar) this.onSelfAvatar(this.avatar, this.selfAppearance);
                 this.onSelfAppearance(this.selfAppearance);
-                if (this._appearancePreferenceSet && !this.appearanceSelectionSupported) {
+                if (this._appearancePreferenceSet && (!this.appearanceSelectionSupported ||
+                    (this.preferredAppearance?.v >= 2 && !this.appearanceAccessoriesSupported) ||
+                    (this.preferredAppearance?.v === 3 && !this.appearanceFootwearSupported))) {
                     this._reportAppearanceError('unsupported');
                 } else if (this.appearanceSelectionSupported &&
                     (JSON.stringify(this.preferredAppearance) !== this._joiningAppearance ||
@@ -427,6 +525,7 @@ class NetworkClient {
                     this.requestAvatar(this.avatarPool, this.preferredAvatar);
                 }
                 for (const peer of msg.peers || []) this._addPeer(peer);
+                if (this.liveEvent) this.onLiveEvent(this.liveEvent);
                 if (msg.music) this.onMusic(msg.music);
                 if (msg.show) this.onShow(msg.show);
                 if (Array.isArray(msg.doors)) this.onDoors(msg.doors.slice(0, NetworkClient.MAX_DOORS).map(shut => shut === true));
@@ -439,6 +538,27 @@ class NetworkClient {
                     if (this.micEnabled) void this.sfu.publish('voice', this.micStream);
                 }
                 break;
+
+            case 'event-state':
+                this.liveEvent = msg.event || null;
+                this.onLiveEvent(this.liveEvent);
+                break;
+
+            case 'event-result': {
+                const pending = this._eventRequests.get(msg.request);
+                if (!pending) break;
+                this._eventRequests.delete(msg.request);
+                clearTimeout(pending.timer);
+                if (msg.error) pending.reject(new Error(msg.error));
+                else {
+                    if (msg.event) {
+                        this.liveEvent = msg.event;
+                        this.onLiveEvent(this.liveEvent);
+                    }
+                    pending.resolve(msg);
+                }
+                break;
+            }
 
             case 'pong': {
                 const now = performance.now(), rtt = now - msg.time;
@@ -510,6 +630,16 @@ class NetworkClient {
                 if (this.peers.has(msg.id) && NetworkClient.GESTURES.includes(msg.gesture)) this.onGesture(msg.id, msg.gesture);
                 break;
 
+            case 'uploaded-avatar': {
+                const model = NetworkClient.sanitizeUploadedAvatar(msg.model);
+                if (model === undefined) break;
+                if (msg.id === this.selfId) this.selfUploadedAvatar = model;
+                else if (this.peers.has(msg.id)) {
+                    this.peers.get(msg.id).uploadedAvatar = model;
+                    this.onPeerUploadedAvatar?.(msg.id, model);
+                }
+                break;
+            }
             case 'avatar':
                 if (!NetworkClient.isAvatar(msg.avatar)) break;
                 const appearance = NetworkClient.sanitizeAppearance(msg.appearance, msg.avatar);
@@ -557,6 +687,14 @@ class NetworkClient {
                 }
                 break;
 
+            case 'restroom':
+                if (msg.id === this.selfId || this.peers.has(msg.id)) this.onRestroom(msg.state);
+                break;
+
+            case 'restroom-error':
+                this.onError(new Error(typeof msg.message === 'string' ? msg.message.slice(0, 120) : 'Restroom action was rejected.'));
+                break;
+
             case 'host':
                 this.resetMusic();
                 this.hostId = msg.id;
@@ -584,10 +722,12 @@ class NetworkClient {
         if (pid && this.blockedPids.has(pid)) return;
         this.peers.set(peer.id, { name: peer.name, pid, avatar: typeof peer.avatar === 'string' ? peer.avatar : null,
             appearance: NetworkClient.sanitizeAppearance(peer.appearance, peer.avatar) || null,
+            uploadedAvatar: NetworkClient.sanitizeUploadedAvatar(peer.uploadedAvatar) || null,
             simulated: peer.simulated === true, state: peer.state || null, pc: null });
         this.onPeerJoin(peer.id, peer.name, { pid, avatar: this.peers.get(peer.id).avatar,
             appearance: this.peers.get(peer.id).appearance, simulated: peer.simulated === true });
         this.onPeerAppearance(peer.id, this.peers.get(peer.id).appearance);
+        this.onPeerUploadedAvatar?.(peer.id, this.peers.get(peer.id).uploadedAvatar);
         if (peer.state) this.onPeerState(peer.id, peer.state);
         this._maybeInitiateVoice(peer.id);
         if (this.sfu) this.sfu.sync();
@@ -654,7 +794,8 @@ class NetworkClient {
         this.setPreferredAppearance(appearance);
         this.preferredAvatar = avatar;
         if (!this.connected) return true;
-        if (!this.appearanceSelectionSupported) {
+        if (!this.appearanceSelectionSupported || (appearance?.v >= 2 && !this.appearanceAccessoriesSupported) ||
+            (appearance?.v === 3 && !this.appearanceFootwearSupported)) {
             this._reportAppearanceError('unsupported');
             return false;
         }

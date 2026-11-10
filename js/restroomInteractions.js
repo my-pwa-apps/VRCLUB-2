@@ -156,7 +156,7 @@ class RestroomInteractions {
             this.club.showErrorMessage('The toilet seat controls could not be prepared.');
             return;
         }
-        // Measured in the Quaternius source before glTF and placement transforms.
+        // Coordinates are measured in the Quaternius source, before its glTF and placement transforms.
         const point = this._position(body, 0, 0.0055, 0.0188756).clone();
         ['flush', 'seat', 'lid'].forEach((action, i) => {
             const place = point.clone(); place.z += (i - 1) * 0.14;
@@ -278,7 +278,7 @@ class RestroomInteractions {
                 const seatTarget = !occupied && this.state.seats[index] ? 1.65 : 0;
                 const lidTarget = occupied || this.state.lids[index] ? 1.8 : 0;
                 toilet.lidAngle += (lidTarget - toilet.lidAngle) * ease;
-                // Open the lid first and lower the seat first.
+                // Open the lid first and lower the seat first, so they never pass through one another.
                 const seatGoal = seatTarget > 0 && toilet.lidAngle < 1.6 ? 0 : seatTarget;
                 toilet.seatAngle += (seatGoal - toilet.seatAngle) * ease;
                 if (lidTarget === 0 && toilet.seatAngle > 0.05) toilet.lidAngle = Math.max(toilet.lidAngle, 1.8);
@@ -342,4 +342,5 @@ class RestroomInteractions {
         this.meshes.length = 0; this.toilets.length = 0; this.sinks.length = 0;
     }
 }
+
 window.RestroomInteractions = RestroomInteractions;

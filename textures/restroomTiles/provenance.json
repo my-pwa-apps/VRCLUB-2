@@ -1,11 +1,32 @@
 {
-  "id": "long_white_tiles", "source": "https://polyhaven.com/a/long_white_tiles",
-  "license": "CC0-1.0", "licenseUrl": "https://polyhaven.com/license",
-  "authors": {"Jenelle van Heerden": "processing", "Sergej Majboroda": "photography"},
-  "filesHash": "c26e8672a94d97e12b4eb15f3eab2ce954430313", "size": 1024,
+  "id": "long_white_tiles",
+  "source": "https://polyhaven.com/a/long_white_tiles",
+  "license": "CC0-1.0",
+  "licenseUrl": "https://polyhaven.com/license",
+  "authors": {
+    "Jenelle van Heerden": "processing",
+    "Sergej Majboroda": "photography"
+  },
+  "filesHash": "c26e8672a94d97e12b4eb15f3eab2ce954430313",
+  "size": 1024,
   "maps": {
-    "diff.jpg": {"url": "https://dl.polyhaven.org/file/ph-assets/Textures/jpg/1k/long_white_tiles/long_white_tiles_diff_1k.jpg", "sourceSha256": "0aa70e14117e9b1fbf726868675f6afa8fd62a2691f7ba3964f47796df06cd9c", "outputSha256": "8edab1b9170bf1d6348be1183d1a80083020194bce9ddeb023a4979703a0629a", "bytes": 190725},
-    "normal.jpg": {"url": "https://dl.polyhaven.org/file/ph-assets/Textures/jpg/1k/long_white_tiles/long_white_tiles_nor_dx_1k.jpg", "sourceSha256": "2cbdfff29425e9ae168a051ce03d878cc7d0f9991cef833d52d972ace905288f", "outputSha256": "59897d7a092fdc421a05e173439fab210514a6d68d74474d6dbb773a8d669a82", "bytes": 274821},
-    "orm.jpg": {"url": "https://dl.polyhaven.org/file/ph-assets/Textures/jpg/1k/long_white_tiles/long_white_tiles_arm_1k.jpg", "sourceSha256": "6bbaa09ff62436dd839a211d946ea2b09a07f1b5430408a415fd37bec594f829", "outputSha256": "6a9aa46a78fbc0f44c975671d3b3cb4ac0f9ba73e3b4dee2d5bde296889685af", "bytes": 241234}
+    "diff.jpg": {
+      "url": "https://dl.polyhaven.org/file/ph-assets/Textures/jpg/1k/long_white_tiles/long_white_tiles_diff_1k.jpg",
+      "sourceSha256": "0aa70e14117e9b1fbf726868675f6afa8fd62a2691f7ba3964f47796df06cd9c",
+      "outputSha256": "8edab1b9170bf1d6348be1183d1a80083020194bce9ddeb023a4979703a0629a",
+      "bytes": 190725
+    },
+    "normal.jpg": {
+      "url": "https://dl.polyhaven.org/file/ph-assets/Textures/jpg/1k/long_white_tiles/long_white_tiles_nor_dx_1k.jpg",
+      "sourceSha256": "2cbdfff29425e9ae168a051ce03d878cc7d0f9991cef833d52d972ace905288f",
+      "outputSha256": "59897d7a092fdc421a05e173439fab210514a6d68d74474d6dbb773a8d669a82",
+      "bytes": 274821
+    },
+    "orm.jpg": {
+      "url": "https://dl.polyhaven.org/file/ph-assets/Textures/jpg/1k/long_white_tiles/long_white_tiles_arm_1k.jpg",
+      "sourceSha256": "6bbaa09ff62436dd839a211d946ea2b09a07f1b5430408a415fd37bec594f829",
+      "outputSha256": "6a9aa46a78fbc0f44c975671d3b3cb4ac0f9ba73e3b4dee2d5bde296889685af",
+      "bytes": 241234
+    }
   }
 }

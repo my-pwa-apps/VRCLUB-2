@@ -61,6 +61,7 @@ export function prepareToiletMechanics(document) {
     }
     node.addChild(document.createNode('toiletLid').setTranslation(pivot)
         .setMesh(document.createMesh('toiletLidMesh').addPrimitive(lidPrimitive)));
+
     const pos = [], normals = [], colors = [], triangles = [];
     const segments = 32, centreY = -0.00024;
     for (let i = 0; i < segments; i++) {

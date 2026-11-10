@@ -123,10 +123,18 @@ test('DEV code joins a real relay simulation with 31 moving peers, persistent da
             const club = window.vrClub, door = club._restroomDoors.find(door => door.seatId === id);
             return club._pressStallDoor({ pickedMesh: door.leaf });
         }, toiletId)).toBe(true);
-        await expect.poll(() => toiletGuest.yielding).toBe(true);
-        for (let i = 0; i < 240; i++) room._flushPoses(room._simulation.now + 50);
-        await expect.poll(() => page.evaluate(id =>
-            window.vrClub._restroomDoors.find(door => door.seatId === id).remote, toiletId)).toBe(false);
+        expect(await page.evaluate(id => {
+            const club = window.vrClub;
+            const seat = club.scene.meshes.flatMap(mesh => mesh.metadata?.vrclubSeats || []).find(seat => seat.id === id);
+            if (!seat) throw new Error(`Missing real toilet ${id}`);
+            return club.sitAtSeat(seat);
+        }, toiletId)).toBe(false);
+        expect(toiletGuest.yielding).toBeFalsy();
+        expect(toiletGuest.state.seat).toBe(toiletId);
+        await expect.poll(() => page.evaluate(id => {
+            const door = window.vrClub._restroomDoors.find(door => door.seatId === id);
+            return door.remote && door.open === 0 && door.leaf.checkCollisions && door.lamp.material === door.busy;
+        }, toiletId)).toBe(true);
         room._poseTimer = setInterval(() => room._flushPoses(), 50);
         room._poseTimer.unref();
 

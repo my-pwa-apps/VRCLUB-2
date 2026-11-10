@@ -39,7 +39,7 @@ test('the VR menu reaches the character picker from Comfort and Me, and a pick o
         return out;
     });
     expect(result.comfort).toContain('ME');
-    expect(result.me).toEqual(expect.arrayContaining(['MEASURE HEIGHT', 'SEATED MODE']));
+    expect(result.me).toEqual(expect.arrayContaining(['MEASURE EYE HEIGHT', 'SEATED MODE']));
     expect(result.page0.length, 'DEFAULT, eight women, the page toggle, BACK and CLOSE').toBe(12);
     expect(result.afterWoman.saved).toBe('f3');
     expect(result.page1.length, 'nine men, the page toggle, BACK and CLOSE').toBe(12);

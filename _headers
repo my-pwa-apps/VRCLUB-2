@@ -38,6 +38,10 @@
 # The phone page that pairs a headset: plain, unhashed files.
 /link/*
   Cache-Control: no-cache
+/broadcast/*
+  Cache-Control: no-cache
+  X-Robots-Tag: noindex, nofollow
+  Permissions-Policy: camera=(), microphone=(self)
 # The club's own default set: a stable name that is regenerated in place, so it revalidates (a 304 costs nothing).
 /audio/*
   Cache-Control: no-cache

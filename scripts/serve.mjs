@@ -45,8 +45,8 @@ const MIME = {
  * Paths that must never be served, regardless of ROOT.
  *
  * Without `--dist` this server's ROOT is the repository itself, so a forgotten
- * flag would otherwise expose `.git/config` (remote URLs, sometimes credentials),
- * `.env`, `node_modules/` and the whole source tree.
+ * flag would otherwise expose local credentials and Worker development state.
+ * Hidden paths are private except for the public Digital Asset Links directory.
  */
 const DENY = /(^|[\\/])(?:\.(?!well-known(?:[\\/]|$))[^\\/]+|node_modules|scripts|test|worker|quest-package|invitations\.(json|sql)|package(-lock)?\.json|backup_aframe)([\\/]|$)|\.(keystore|jks|apk|aab)$/i;
 
@@ -142,6 +142,7 @@ const server = createServer(async (req, res) => {
             'ETag': `W/"${info.size.toString(16)}-${Math.floor(info.mtimeMs).toString(16)}"`,
             'Last-Modified': info.mtime.toUTCString(),
             'X-Content-Type-Options': 'nosniff',
+            'X-Robots-Tag': 'noindex, nofollow, noarchive, nosnippet, noimageindex',
             'Referrer-Policy': 'no-referrer',
             // frame-ancestors is header-only per spec - browsers ignore it in the <meta>
             // CSP in index.html. X-Frame-Options is the legacy equivalent.

@@ -25,8 +25,20 @@ test('desktop wardrobe previews, saves and cancels without leaking its scene', a
 
     await dialog.getByLabel('Base character').selectOption('m1');
     await page.waitForFunction(() => window.vrClub.avatarEditor.previewBase === 'm1');
-    await dialog.locator('select[name="hair"]').selectOption('short');
+    await dialog.locator('select[name="hair"]').selectOption('bald');
+    await dialog.locator('select[name="outfit"]').selectOption('casual');
+    expect(await page.evaluate(() => window.vrClub.avatarEditor.preview.root.getChildMeshes()
+        .some(mesh => mesh.isEnabled() && mesh.metadata?.vrclubPrint))).toBe(true);
     await dialog.locator('select[name="outfit"]').selectOption('smart');
+    expect(await page.evaluate(() => window.vrClub.avatarEditor.preview.root.getChildMeshes()
+        .some(mesh => mesh.isEnabled() && mesh.metadata?.vrclubPrint))).toBe(false);
+    await dialog.getByRole('combobox', { name: 'Glasses', exact: true }).selectOption('star');
+    await dialog.getByRole('combobox', { name: 'Facial hair', exact: true }).selectOption('beard');
+    await dialog.getByRole('combobox', { name: 'Headwear', exact: true }).selectOption('fedora');
+    await expect(dialog.getByRole('combobox', { name: 'Shoes', exact: true })).toHaveValue('original');
+    await expect(dialog.getByRole('combobox', { name: 'Legwear', exact: true })).toHaveValue('bare');
+    await dialog.getByRole('combobox', { name: 'Shoes', exact: true }).selectOption({ label: 'Pumps' });
+    await dialog.getByRole('combobox', { name: 'Legwear', exact: true }).selectOption({ label: 'Sheer nude tights' });
     await dialog.getByLabel('Top color').evaluate(input => {
         input.value = '#4d7ec2';
         input.dispatchEvent(new Event('input', { bubbles: true }));
@@ -37,7 +49,8 @@ test('desktop wardrobe previews, saves and cancels without leaking its scene', a
     await expect(dialog).toBeHidden();
     await expect(trigger).toBeFocused();
     const saved = await page.evaluate(() => JSON.parse(localStorage.getItem('vrclub.personalAppearance')));
-    expect(saved).toMatchObject({ v: 1, base: 'm1', hair: 'short', outfit: 'smart', top: '#4d7ec2' });
+    expect(saved).toMatchObject({ v: 3, base: 'm1', hair: 'bald', outfit: 'smart', top: '#4d7ec2',
+        glasses: 'star', facialHair: 'beard', hat: 'fedora', shoes: 'pumps', legwear: 'sheer-nude' });
     expect(await page.evaluate(() => {
         const editor = window.vrClub.avatarEditor;
         return !editor.scene && !editor.engine && !editor.preview;
@@ -46,6 +59,12 @@ test('desktop wardrobe previews, saves and cancels without leaking its scene', a
     await trigger.click();
     const reopened = page.getByRole('dialog', { name: 'Personal wardrobe' });
     await expect(reopened.getByLabel('Base character')).toHaveValue('m1');
+    await expect(reopened.getByRole('combobox', { name: 'Glasses', exact: true })).toHaveValue('star');
+    await expect(reopened.getByRole('combobox', { name: 'Facial hair', exact: true })).toHaveValue('beard');
+    await expect(reopened.getByRole('combobox', { name: 'Headwear', exact: true })).toHaveValue('fedora');
+    await expect(reopened.getByRole('combobox', { name: 'Shoes', exact: true })).toHaveValue('pumps');
+    await expect(reopened.getByRole('combobox', { name: 'Legwear', exact: true })).toHaveValue('sheer-nude');
+    await reopened.getByRole('combobox', { name: 'Shoes', exact: true }).selectOption({ label: 'Heeled ankle boots' });
     await reopened.getByLabel('Top color').evaluate(input => {
         input.value = '#c5465b';
         input.dispatchEvent(new Event('input', { bubbles: true }));
@@ -91,6 +110,48 @@ test('in-headset wardrobe offers paged choices and disposes its preview on cance
         lightIsScoped: true,
         swatchesFit: true
     });
+    const accessories = await page.evaluate(() => {
+        const club = window.vrClub, editor = club.avatarEditor;
+        const pages = ['appearanceEditor', 'appearanceAccessories', 'appearanceGlasses', 'appearanceFacialHair',
+            'appearanceHat', 'appearanceHair', 'appearanceOutfit', 'appearanceFootwear', 'appearanceShoes', 'appearanceLegwear'];
+        const lengths = pages.map(page => editor.getVRDefinitions(page).length);
+        const facialHairOptions = editor.getVRDefinitions('appearanceFacialHair')
+            .filter(item => item.action === 'appearanceSet').map(item => item.value);
+        const headwearOptions = editor.getVRDefinitions('appearanceHat')
+            .filter(item => item.action === 'appearanceSet').map(item => item.value);
+        for (const [page, value] of [['appearanceOutfit', 'casual'], ['appearanceHair', 'bald'], ['appearanceGlasses', 'heart'],
+            ['appearanceFacialHair', 'beard'], ['appearanceHat', 'bucket']]) {
+            club._showVRQuickMenuPage(page);
+            club._activateVRQuickMenuButton(editor.getVRDefinitions(page).find(item => item.value === value));
+        }
+        return { lengths, facialHairOptions, headwearOptions, draft: editor.vrDraft,
+            print: editor.vrPreview.root.getChildMeshes().find(mesh => mesh.metadata?.vrclubPrint)?.metadata.vrclubPrint,
+            visible: editor.vrPreview.root.getChildMeshes()
+            .filter(mesh => mesh.isEnabled() && mesh.getTotalVertices()).length };
+    });
+    expect(accessories.lengths.every(length => length <= 12)).toBe(true);
+    expect(accessories.facialHairOptions).toEqual(['none', 'stubble', 'beard']);
+    expect(accessories.headwearOptions).toEqual(['none', 'cap', 'beanie', 'fedora', 'bucket']);
+    expect(accessories.visible).toBeLessThanOrEqual(6);
+    expect(accessories.draft).toMatchObject({ outfit: 'casual', hair: 'bald', glasses: 'heart', facialHair: 'beard', hat: 'bucket' });
+    expect(['sound', 'light', 'orbit', 'signal']).toContain(accessories.print);
+    const footwear = await page.evaluate(() => {
+        const club = window.vrClub, editor = club.avatarEditor;
+        club._showVRQuickMenuPage('appearanceAccessories');
+        club._activateVRQuickMenuButton(editor.getVRDefinitions('appearanceAccessories')
+            .find(button => button.target === 'appearanceFootwear'));
+        const heading = club._vrQuickMenuPage;
+        for (const [target, value] of [['appearanceShoes', 'heels'], ['appearanceLegwear', 'sheer-black']]) {
+            club._activateVRQuickMenuButton(editor.getVRDefinitions('appearanceFootwear').find(button => button.target === target));
+            club._activateVRQuickMenuButton(editor.getVRDefinitions(target).find(button => button.value === value));
+            club._activateVRQuickMenuButton(editor.getVRDefinitions(target).find(button => button.action === 'back'));
+            if (club._vrQuickMenuPage !== 'appearanceFootwear') throw new Error('Footwear choice must return to shoes and tights');
+        }
+        club._activateVRQuickMenuButton(editor.getVRDefinitions('appearanceFootwear').find(button => button.action === 'back'));
+        return { heading, back: club._vrQuickMenuPage, draft: editor.vrDraft };
+    });
+    expect(footwear).toMatchObject({ heading: 'appearanceFootwear', back: 'appearanceAccessories',
+        draft: { v: 3, shoes: 'heels', legwear: 'sheer-black' } });
 
     await page.evaluate(() => {
         const club = window.vrClub;
@@ -132,8 +193,17 @@ test('in-headset wardrobe offers paged choices and disposes its preview on cance
         club._activateVRQuickMenuButton(base);
     });
     await page.waitForFunction(() => window.vrClub.avatarEditor.vrPreviewBase === 'm1');
+    await page.evaluate(() => {
+        const club = window.vrClub, editor = club.avatarEditor;
+        for (const [page, value] of [['appearanceShoes', 'loafers'], ['appearanceLegwear', 'sheer-black']]) {
+            club._showVRQuickMenuPage(page);
+            club._activateVRQuickMenuButton(editor.getVRDefinitions(page).find(button => button.value === value));
+        }
+    });
     await page.evaluate(() => window.vrClub._activateVRQuickMenuButton({ action: 'appearanceSave' }));
     await page.waitForFunction(() => JSON.parse(localStorage.getItem('vrclub.personalAppearance') || 'null')?.base === 'm1');
+    expect(await page.evaluate(() => JSON.parse(localStorage.getItem('vrclub.personalAppearance'))))
+        .toMatchObject({ v: 3, shoes: 'loafers', legwear: 'sheer-black' });
     expect(await page.evaluate(() => window.vrClub.avatarEditor.vrPreview === null &&
         window.vrClub.avatarEditor.vrAnchor === null)).toBe(true);
     await page.evaluate(() => {

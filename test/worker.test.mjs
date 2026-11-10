@@ -4,6 +4,7 @@
 
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { readClubSource } from './club-sources.mjs';
 import { DevAttendees } from '../worker/src/devAttendees.js';
 
 const relay = await import('../worker/src/relay.js');
@@ -870,8 +871,7 @@ test('every guest is handed a different random avatar from the pool, and may ask
 });
 
 test('the relay\'s avatar pool is exactly the crowd people the client can draw', async () => {
-    const { readFileSync } = await import('node:fs');
-    const source = readFileSync(new URL('../js/club/11-audio-crowd.js', import.meta.url), 'utf8');
+    const source = readClubSource(new URL('../js/club/11-audio-crowd.js', import.meta.url));
     const ids = [...source.matchAll(/\{ id: '([fm]\d)', url: '\.\/js\/models\/avatars\/club-crowd-\1\.glb' \}/g)].map(match => match[1]);
     assert.deepEqual([...relay.AVATARS], ids);
 });
@@ -1236,6 +1236,33 @@ test('stall doors are shared room state: any guest may push one, late joiners se
     assert.ok(relay.RATE_LIMITS.door && relay.RATE_LIMITS.door.rate <= 2, 'doors are rate limited like every other frame');
     for (const guest of [late, b, a]) room._onClose(guest.ws, guest.session);
     assert.deepEqual(room.doors, [false, false], 'an empty room starts over');
+});
+
+test('restroom fixtures are acknowledged, block-aware, retained for late joins, occupancy guarded and reset on empty', () => {
+    const room = new ClubRoom({});
+    const a = join(room), b = join(room);
+    assert.equal(a.ws.last('welcome').restroomInteractions, true);
+    b.ws.message({ type: 'restroom', action: 'tap', fixture: 0, on: true });
+    assert.ok(b.ws.last('restroom').state.taps[0] > Date.now(), 'sender receives authoritative acknowledgement');
+    assert.deepEqual(a.ws.last('restroom').state, b.ws.last('restroom').state);
+    const late = join(room);
+    assert.deepEqual(late.ws.last('welcome').restroom, room.restroom);
+    a.session.lastState = { x: -15.62, z: -5.4, seated: true };
+    b.ws.message({ type: 'restroom', action: 'lid', fixture: 0, on: false });
+    assert.match(b.ws.last('restroom-error').message, /occupied/);
+    assert.equal(room.restroom.lids[0], true);
+    a.session.blocked.add(b.session.pid);
+    const count = a.ws.sent.length;
+    b.ws.message({ type: 'restroom', action: 'flush', fixture: 1 });
+    assert.equal(a.ws.sent.length, count);
+    b.ws.message({ type: 'restroom', action: 'flush', fixture: 1 });
+    assert.match(b.ws.last('restroom-error').message, /wait/);
+    b.ws.message({ type: 'restroom', action: 'tap', fixture: '1', on: true });
+    assert.match(b.ws.last('restroom-error').message, /Invalid/);
+    b.ws.message({ type: 'restroom', action: 'tap', fixture: 1, on: 'yes' });
+    assert.equal(room.restroom.taps[1], 0);
+    for (const guest of [late, b, a]) room._onClose(guest.ws, guest.session);
+    assert.deepEqual(room.restroom, { seats: [false, false], lids: [true, true], taps: [0, 0], flushes: [0, 0] });
 });
 
 test('the lights and the music are forgotten once the room is empty, and survive a host handover', () => {

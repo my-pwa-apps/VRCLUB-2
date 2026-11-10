@@ -67,6 +67,18 @@ const CityLayout = {
     /** Distance from a point on the street to the street door's threshold, in the horizontal plane. */
     doorDistance(x, z) {
         return Math.hypot(x, Math.max(0, z - CITY_LAYOUT.doorZ));
+    },
+
+    /** Conservative sight line through both entrance openings, independent of head direction and eye height. */
+    canSeeStreet(x, z) {
+        const vestibule = window.VenueLayout?.vestibule;
+        if (!vestibule || z >= vestibule.wallZ) return true;
+        const depth = CITY_LAYOUT.doorZ - z;
+        const inside = vestibule.wallZ - z;
+        const entranceHalfWidth = vestibule.clubDoorHalfWidth;
+        // Project the whole street-door opening back onto the club doorway; keep a margin at either jamb.
+        return Math.abs(x) * (CITY_LAYOUT.doorZ - vestibule.wallZ)
+            <= (entranceHalfWidth + 0.25) * depth + (CITY_LAYOUT.doorHalfWidth + 0.25) * inside;
     }
 };
 window.CityLayout = CityLayout;
@@ -446,7 +458,8 @@ const CityDistrict = {
         this._exterior = (this._exterior || 0) + (target - (this._exterior || 0)) * k;
 
         if (this._cityWarm) return;
-        const visible = this._cityVisible ? pos.z > CityLayout.hideBelowZ : pos.z > CityLayout.showFromZ;
+        const visible = (this._cityVisible ? pos.z > CityLayout.hideBelowZ : pos.z > CityLayout.showFromZ)
+            && CityLayout.canSeeStreet(pos.x, pos.z);
         if (visible !== this._cityVisible) {
             this._cityVisible = visible;
             root.setEnabled(visible);

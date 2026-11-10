@@ -5,8 +5,10 @@ safety controls (`486d2ae`, `20d8c60`). The shared production relay was deployed
 19 October 2026 with 32 guests in every room, not just ADE rooms. Changing these
 files alone does not deploy a service. Capacity is an admission limit, not a
 headset performance claim.
-The development-only free-VR bypass and development-host routing were not imported;
-the real account/access gate and existing host-music behavior are retained.
+QuestDev uses separate development-host routing and a free-VR bypass on its exact
+development hosts. Its Worker refuses payment and administration routes; the
+shared production distributions retain their existing account/access gate and
+host-music behavior.
 
 ## Configuration
 
@@ -25,6 +27,187 @@ fall back to mesh on API, negotiation, or connectivity errors. A welcome frame a
 remain eight-person mesh rooms. Old browsers can still use mesh rooms; SFU rooms require
 the updated media client, and the backend rejects old clients before socket admission
 and rejects mesh signaling in those rooms.
+
+## Live audio events and automatic overflow
+
+Audio-only live events were deployed to the shared Worker and all three supported
+frontends on **22 October 2026**. Future changes still require deploying the updated
+Worker and every participating frontend; editing this worktree does not deploy them. The
+`LIVE_AUDIO_EVENT` binding points at SQLite-backed `LiveAudioEvent`;
+Wrangler migration `v2-live-audio-events` creates that class on Worker deployment.
+It reuses existing SFU credentials and D1's `access_rate_limits` table
+(migration 0005); there is no new D1 migration. Ordinary rooms are unchanged.
+
+### 22 October 2026 rollout
+
+Source: `20a9815`. Shared Worker version:
+`b57d27e5-682b-4c81-ac36-81db32e7b93d`, including the
+`v2-live-audio-events` Durable Object migration. The existing production rate-limit
+table and SFU secret bindings were verified before deployment; no D1 migration
+was needed.
+
+| Site | Production host | Deployment |
+|------|-----------------|------------|
+| ADE | <https://nocturne-ade.mitwee.nl> | <https://14af4d2e.nocturne-ade.pages.dev> |
+| SideQuest | <https://sidequest-nocturne.mitwee.nl> | <https://ad86734c.nocturne-sidequest.pages.dev> |
+| Quest | <https://nocturne.mitwee.nl> | <https://145b514d.nocturne-vr.pages.dev> |
+
+At that rollout, all custom domains served `assets/app-f3e3210b9c00.js` and the expected hashed
+broadcaster JavaScript/CSS. Verification checked their bytes, broadcaster
+no-cache/noindex and camera/microphone policy, ADE non-indexing and ordinary-site
+canonical metadata. Quest's Pages-injected analytics tag was excluded only from
+the broadcaster HTML comparison; that page's self-only script CSP blocks it.
+
+A private, temporary production smoke test verified capacity 32/SFU capability,
+event creation, audience admission and both publisher/listener media authorization.
+The test ended its event and closed every connection. It did not publish audio,
+exercise provider media forwarding, or measure headset/venue performance.
+These were direct deployments from this worktree, not merges into the Quest or
+SideQuest source branches.
+
+#### ADE-only guided setup and VJ desk update
+
+Later on 22 October, the current worktree was deployed to ADE only:
+<https://3039e125.nocturne-ade.pages.dev>, live at
+<https://nocturne-ade.mitwee.nl>. It includes guided private mixer testing,
+explicit Go live, the simplified VJ desk and twelve local lighting preset slots.
+The custom domain was verified against the built bytes for
+`assets/app-df88dab50f8e.js`, `assets/styles-5a943b7e2519.css`,
+`assets/broadcast-ea7137db29e0.js`, the broadcaster CSS and the service worker.
+The new UI and ADE noindex response headers were also checked.
+Quest, SideQuest and the shared Worker were not redeployed for this update.
+
+#### All-site lighting and guided-setup update
+
+Later on 22 October, the current worktree was deployed to all three frontends:
+
+| Site | Production host | Deployment |
+|------|-----------------|------------|
+| ADE | <https://nocturne-ade.mitwee.nl> | <https://1a91aa9f.nocturne-ade.pages.dev> |
+| Quest | <https://nocturne.mitwee.nl> | <https://20e4b936.nocturne-vr.pages.dev> |
+| SideQuest | <https://sidequest-nocturne.mitwee.nl> | <https://eac94284.nocturne-sidequest.pages.dev> |
+
+All three custom domains were verified against the built bytes for
+`assets/app-9b997ac32705.js`, `assets/styles-5a943b7e2519.css`,
+the broadcaster assets and each build's service worker. This release includes
+the guided live-input setup, simplified VJ desk, twelve local lighting presets,
+mirror-ball colour-cache fix and stationary/beat-synced column-fill show looks.
+ADE retains its non-indexing headers; Quest and SideQuest retain ordinary-site
+canonical metadata. The shared Worker was unchanged. These direct deployments
+do not merge the worktree into the Quest or SideQuest source branches.
+
+### DJ and audience workflow
+
+#### Guided setup on the mixer computer
+
+**Music / Live input** is deployed on ADE, Quest and SideQuest in the
+all-site update above.
+
+1. Connect the mixer/interface and open **Music / Live input** without joining a room.
+2. Choose **Find my audio inputs**, allow the browser's microphone permission,
+   and select the mixer rather than the laptop microphone.
+3. Press **Test my input** and play a track. Left/right meters, signal/clipping
+   guidance, the crowd and the lights use the actual input. No room connection
+   or publication is created by a test.
+4. Monitoring starts **OFF**. Use headphones before enabling **Hear test audio**;
+   this local switch and personal volume do not mute or change the published feed.
+5. Press **Go live** explicitly. If needed, review the existing Online safety
+   guide, return to Music, and press it again. An offline host gets a fresh
+   private session automatically; an existing session must permit event creation
+   or management. A currently broadcasting different DJ is never silently replaced.
+6. Use **Copy guest link**. Admitted guests automatically receive the event audio.
+7. **Stop broadcast** returns to private testing, without ending the event.
+   **Stop input** releases the recording device. Room loss stops publication and
+   leaves only the local test; input loss/page exit/disposal releases capture.
+   Testing another source stops the input, and playback controls cannot resume an
+   old track over it.
+
+The input is not persisted and no permission is requested until a setup button
+is pressed. In VR the mixer must still be connected to the device capturing it:
+use the existing Music setup exit to the DOM panel, or the separate-computer flow below.
+The standalone `broadcast/` page without an invitation also permits a local-only
+meter check; an incomplete or invalid invitation never silently becomes a broadcast.
+
+#### A DJ performing from a separate computer
+
+1. Join a room as its host. In **Online / Live DJ event**, enter a title and
+   choose **Create live event**. VR has the same actions under
+   **ONLINE / LIVE DJ EVENT**, using a default title.
+2. **Copy private DJ link** and send it only to the performer. Keep the original:
+   its publisher secret is issued on create/replacement, not recoverable later.
+3. The DJ opens the lightweight `broadcast/` page on the mixer/interface computer.
+   Choose **Allow audio and find inputs**, select the recording input, then
+   **Start broadcasting**. Browser permission is called microphone permission;
+   no camera is requested.
+4. Route the stereo master/interface loopback to an OS recording input.
+   ASIO-only output is not directly available to a browser; use interface loopback
+   or an intentionally configured virtual audio cable. Check both meters,
+   clipping and reported channels/sample rate. Monitor on hardware, not the
+   delayed club return. Keep the tab open and prevent computer sleep.
+5. Send **Copy audience link**, never the private DJ link, to attendees.
+   `?event=<UUID>` automatically chooses available room capacity.
+6. **Stop broadcasting** releases capture without ending the event.
+   The owner can **Replace DJ invitation** to disconnect the old publisher,
+   or **End live event**. Destructive controls require a second press within
+   four seconds.
+
+Music capture requests stereo/48 kHz, echo cancellation/noise suppression/AGC off.
+Voice settings are unchanged. Opus SDP requests stereo and a 192 kbit/s target;
+music senders also set a maximum bitrate. Those are requests, not guarantees of
+stereo hardware or sustained network bitrate. The page reports actual input
+settings and mono/unreported channels/voice-processing warnings. It has no local
+speaker monitor and uploads no recording. Only broadcast music with the required
+artist, venue and music permissions. No Twitch extraction, video or likeness is added.
+
+### Admission and authority
+
+One event-owned SFU publication goes directly to each admitted listener, without
+room-host retransmission. The coordinator reserves actual capacity rather than
+using directory counts, creating at most **eight private/unlisted social rooms**
+at the configured room size (up to 32): **256 is a software cap, not a load-tested
+audience guarantee**. Existing attendees never move. Different rooms cannot see
+or voice-chat with each other. Real received audio enters the existing PA,
+analyser, kick/rhythm taps, crowd, procedural DJ and lighting. Network delays
+can differ; exact cross-headset beat alignment is not promised.
+
+Any admitted host can create. The creator's pid retains rotation/end authority
+after social host changes. Publisher invitations/events expire after **12 hours**;
+rotation does not extend expiry. Only domain-separated capability hashes persist.
+The DJ secret travels in a fragment, is removed from the address bar immediately
+and authenticates in the first media WebSocket frame, never a query string.
+Provider credentials/session locators remain server-side.
+
+Listener tickets are private to admitted social members, allowing one active
+listener connection each. Departure, applicable two-way blocks and moderation
+revoke access. Root locks/bans are checked before overflow admission; event-room
+kicks/bans cannot be bypassed through another event room. Blocking the event
+creator, or being blocked by them, also removes the event subscription.
+These are not ticket checks, age verification or an independent moderation service.
+
+Creation requires D1-backed issuance limits: **60 globally, 5/IP and 3/pid per hour**.
+Missing D1 or a failed limit operation must refuse creation, not bypass the caps.
+A persisted **60-second per-room cooldown** applies even to failed attempts,
+alongside one active event/root, a 0.2/s burst-two socket bucket and one pending
+management request/socket.
+Reservations last **15 seconds**, membership/media liveness **45 seconds** and
+initial media authentication **10 seconds**. Even empty events expire at 12 hours.
+Transient media failures retry at most three times with backoff; authorization
+revocation is terminal. Interruptions are explicit and never substitute the house
+set; **Listen again** retries an admitted listener. Stop, input loss, page exit,
+revocation and final failure clean up tracks, audio contexts, sockets and timers.
+End/expiry sends ended status before detaching rooms/restoring ordinary host music.
+Old event invitations stay invalid; former overflow rooms stay private/unlisted.
+
+### Validation limits
+
+Coordinator tests exercise admission/overflow, leases and moderation against the
+real backend classes. Browser tests use real Opus/stereo audio with a local,
+test-only media bridge. These are not a production-provider rehearsal or a
+256-person, venue-uplink, sustained-bitrate, physical-Quest latency/frame-time
+measurement. Rehearse the actual interface, provider, network and headsets
+privately before announcing a set.
+See [Cloudflare's current pricing](https://developers.cloudflare.com/realtime/sfu/platform/pricing/)
+for SFU egress; voice, Workers and Durable Objects also consume resources.
 
 ## Owner-only DEV room 000032
 
@@ -55,6 +238,50 @@ does not schedule connection retries, and a cancelled preflight cannot reconnect
 Account authorization is checked on entry/reconnection, not continuously on an
 already admitted socket. No schema migration, new secret or SFU application is required.
 
+### QuestDev owner login
+
+Ordinary Online rooms on `nocturnedev.mitwee.nl` are enabled without owner
+authentication. The isolated development room **000032** instead uses a signed
+Cloudflare Access owner identity, not the production payment session described above.
+Enter **000032**, select **Owner sign-in**, complete the existing Access login in
+the same browser/device, wait for **Development owner signed in**, then return to the
+club and press **Join room** again.
+A phone login does not sign in a headset browser. Use the custom development domain;
+preview `pages.dev` hosts can be subject to third-party-cookie blocking.
+
+`worker/wrangler.dev.jsonc` enables `DEV_OWNER_ACCESS="1"` and supplies
+`DEV_OWNER_ORIGIN`, `DEV_ACCESS_TEAM_DOMAIN`, `DEV_ACCESS_AUD` and
+`DEV_ROOM_OWNERS`. These are public identity configuration, not signing secrets.
+Its API-host routes are `api.mitwee.nl/dev-owner/*` and the narrow
+`api.mitwee.nl/admin/dev-owner/*`. The latter is covered by the existing Access
+application for `/admin` but routes only this development sign-in to the isolated
+Worker. Production payment and invitation-administration routes stay untouched.
+The client credentialed
+`GET /dev-owner/check` must pass before `/dev-owner/socket` opens.
+Sign-in verifies Access's `Cf-Access-Jwt-Assertion` RS256 signature, issuer, audience,
+expiry, app type and owner identity before setting `__Secure-NocturneDevOwner`:
+host-only, Secure, HttpOnly, SameSite=None, session lifetime, path `/dev-owner/`.
+Its value is the already signed Access token; it is never placed in a page body,
+JavaScript or URL. Preflight and socket verify that token independently, including
+its expiry and the current owner allow-list. Duplicate cookies are refused.
+The flow does not require changing Access cookie-path restrictions, which could
+otherwise prevent the administration-page cookie reaching the development socket.
+The socket independently rechecks identity on every reconnect, is pinned to
+`private-000032`, and strips credentials before DO forwarding. Requests on other
+hosts, origins, routes or with forged owner/email headers are refused. A missing
+or expired development cookie requires another **Owner sign-in**; no account grant
+or long-lived unsigned browser authorization is created.
+Development databases, SFU and avatars remain separate; no production entitlement,
+invitation or session data is copied or read.
+
+Deploy both the development Worker and frontend after changes:
+
+```powershell
+npx --yes wrangler@4.141.0 deploy --config worker\wrangler.dev.jsonc
+npm run build
+npx --yes wrangler@4.141.0 pages deploy dist --project-name nocturne-dev --branch QuestDev --commit-dirty=true
+```
+
 The first real owner starts the simulation. `worker/src/devAttendees.js` gives
 each guest individual activity choices on a measured navigation graph, not a shared
 tour: dance, watch from a wall or balcony, chat indoors/outside, get fresh air, sit
@@ -66,10 +293,12 @@ queue on a corridor. Entire swept paths are reserved before departure. Human
 obstructions can cause safe backtracking, never teleports. An occupied destination
 is skipped or an approach is cancelled if a real player occupies it.
 
-Real players have furniture priority. Selecting an NPC's seat requests `dev-seat`;
-the NPC stands and leaves before the client seats the player. Selecting an occupied
-simulated toilet door also asks its occupant to leave. The toilet door opens before
-walking, and seat reuse is held for 30 seconds. The client waits for both server
+Real players have chair and stool priority. Selecting an NPC's seat requests `dev-seat`;
+the NPC stands and leaves before the client seats the player. Occupied toilets are
+the exception: their red door remains locked from outside, and neither pressing
+the door nor selecting the toilet asks its occupant to leave. When an occupant
+departs, the toilet door opens before walking, and seat reuse is held for 30 seconds.
+The client waits for both server
 occupancy and the rendered body to clear; a 15-second timeout reports that the guest
 cannot yet move, rather than placing two bodies on one seat. Pending waits are
 cancelled on stand, another selection, disconnect or disposal. Real occupied
@@ -393,6 +622,41 @@ membership and blocks at flush time, so queued stale or blocked guests cannot le
 in. The timer and delivery bookkeeping are cleared when the room empties. Host, show,
 chat, and music control messages are not distance-filtered; their existing block rules
 remain authoritative.
+
+## Uploaded personal models on the development relay
+
+The uploaded wardrobe keeps a supported single-mesh humanoid's face and offers fitted
+casual/smart clothing, top/trouser colours, glasses and headwear. It updates the local
+body, restroom reflection and device-local personal resident DJ. Select the uploaded
+body before opening **Edit my character**; VR uses **Comfort → Me**.
+
+**Share uploaded model** is separate and off by default. Enabling it sends the original
+GLB and complete fitted-look descriptor to current room members. They may retain a copy.
+It does not publish an avatar URL or change everyone else's resident DJ.
+
+Only `worker/wrangler.dev.jsonc` binds the private `nocturne-dev-avatars` R2 bucket.
+Production relay configuration is unchanged. Models are capped at 8 MiB, with bounded
+embedded PNG/JPEG images and indexed geometry, no external files/extensions, and one
+humanoid skin. An active room admission authorizes upload/download with a private token
+in Authorization, not a URL. Downloads recheck membership and two-way blocks.
+Departure, unsharing and replacement remove objects. A seven-day lifecycle expires
+orphans after eviction or failed cleanup; a session must not depend on a model being
+retained beyond that window. Older relays show an explicit unsupported-sharing message.
+
+When provisioning another isolated development environment:
+
+```powershell
+npx --yes wrangler@4.141.0 r2 bucket create nocturne-dev-avatars --location weur --config worker\wrangler.dev.jsonc
+npx --yes wrangler@4.141.0 r2 bucket lifecycle add nocturne-dev-avatars expire-orphaned-room-avatars --expire-days 7 --force --config worker\wrangler.dev.jsonc
+npx --yes wrangler@4.141.0 deploy --config worker\wrangler.dev.jsonc
+```
+
+Never enable a public bucket URL or copy private models into the deployment bundle.
+Shared uploaded people use the procedural rig, preserving the same original geometry
+and wardrobe descriptor rather than replacing them with club characters. Clothing fit,
+controller roll and additional GPU/download costs remain unmeasured on a headset.
+The local GLB remains selectable only on devices where it was imported; sharing does
+not make it a public or account-authenticated exclusive character.
 
 ## Verification and remaining limits
 

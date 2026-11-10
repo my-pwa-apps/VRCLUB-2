@@ -92,10 +92,10 @@ test('failed appearances report and retry without blocking other guests or retry
     assert.equal(manager._buildingPerson, false);
 });
 
-test('shared scaling rollout retains the real access gate, without a development bypass', () => {
+test('production keeps verified VR access and its production SFU relay configuration', () => {
     const source = readFileSync(new URL('../js/paymentGate.js', import.meta.url), 'utf8');
     assert.ok(source.includes('https://api.mitwee.nl'));
-    assert.ok(!source.includes('Development site: VR access is free'));
+    assert.doesNotMatch(source, /nocturnedev\.mitwee\.nl|nocturne-dev\.pages\.dev|canEnterVR:\s*\(\)\s*=>\s*true/);
     const config = readFileSync(new URL('../worker/wrangler.toml', import.meta.url), 'utf8');
     assert.match(config, /ROOM_CAPACITY = "32"/);
     assert.match(config, /MEDIA_TRANSPORT = "sfu"/);

@@ -199,9 +199,9 @@ window.CharacterStyles = {
             containers[index] = container;
         }
         const djId = this._djWanted || this._djId || this._initialDJId();
-        const djLook = this._characterDJLook(djId, style);
+        const djLook = djId === 'personal' ? { height: 1.7 / 0.93, personal: true } : this._characterDJLook(djId, style);
         const dj = actors.find(npc => npc.name === 'djPerformer');
-        const djContainer = dj && await this._loadCharacterContainer(djLook, style);
+        const djContainer = dj && (djId === 'personal' ? this._customAvatarContainer : await this._loadCharacterContainer(djLook, style));
         if (dj && !djContainer) throw new Error('Could not load the selected DJ.');
         const me = this._mirrorAvatarId() || (this.getLocalAvatarStyle() === 'male' ? 'm1' : 'f1');
         const playerIds = new Set([me]);
@@ -286,12 +286,7 @@ window.CharacterStyles = {
             light.includedOnlyMeshes = light.includedOnlyMeshes.filter(mesh => !oldMeshes.has(mesh));
             this._extendAccentLight(light, next.meshes);
         }
-        if (npc.smoke) {
-            for (const key of ['wisp', 'exhale']) if (npc.smoke[key]) npc.smoke[key].dispose();
-            for (const key of ['cigarette', 'ember', 'mouth', 'breath']) if (npc.smoke[key]) npc.smoke[key].dispose();
-            npc.smoke = null;
-            npc.smokeProp = null;
-        }
+        this._disposeCharacterSmoke(npc);
         const current = npc.animations[0];
         const clip = current && current.name.slice(npc.name.length + 1);
         const phase = current && current.animatables[0] ? current.animatables[0].masterFrame : null;
@@ -316,6 +311,15 @@ window.CharacterStyles = {
         npc.root.setEnabled(enabled);
         if (npc.collider) npc.collider.setEnabled(enabled);
         window.VRClubAudioCrowd._setAnimating(npc, enabled);
+    },
+
+    _disposeCharacterSmoke(npc) {
+        const smoke = npc && npc.smoke;
+        if (!smoke) return;
+        for (const key of ['wisp', 'exhale']) if (smoke[key]) smoke[key].dispose(false);
+        for (const key of ['cigarette', 'ember', 'mouth', 'breath']) if (smoke[key]) smoke[key].dispose();
+        npc.smoke = null;
+        npc.smokeProp = null;
     },
 
     _rebindCharacterProps() {

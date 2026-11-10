@@ -1,0 +1,41 @@
+ADE26 30Y BRANDPACK - supplied independent-concept review artwork
+
+Source supplied by the repository owner on 18 October 2026:
+https://drive.google.com/drive/folders/1_kLgnuYqK_YJOsKUDLJXJxj7qXJWUDlZ
+
+Original source files:
+- Logo/ADE26 30Y BLACK.svg
+  https://drive.google.com/file/d/1-ww_9-chBGlWPOx3h4H0thB1jEVsQjjv/view
+- Key Visuals/ADE_2026_KeyVisual_Black_V2_Landscape.png
+  https://drive.google.com/file/d/1ASeLx6EBhoe2MKDkzJ067kFcd9YyrKLS/view
+
+Rights in ADE names, logos and artwork belong to their respective owners.
+These materials are NOT covered by this repository's MIT or Creative Commons
+licences. No general redistribution licence or brand usage guidance was found
+in the inspected folders. Availability through a shared Drive link is not
+treated as public-use permission or endorsement.
+
+Included at the owner's request for the independent ADE pitch concept.
+Obtain written permission and the applicable brand guidance before publishing,
+selling, distributing a store build or claiming an official collaboration.
+No licensed font, motion ident or artist footage is included.
+
+Changes: lossless SVG rasterisation to a 512 px PNG; campaign image resized
+proportionally from 2560x1440 to 1024x576 and encoded as WebP, without cropping,
+recolouring or changing its composition. The logo is placed unaltered on
+yellow signs, entrance flags and DJ-table fascia, with a separate independent-concept
+disclosure. The black campaign image is retained as a source reference but is no
+longer displayed or included in the built site.
+Imported from local adefixes, commit 36def1f, in D:\Git Repos\VRCLUB-ADE.
+The original source recipe recorded these SHA-256 checksums:
+- SVG: ef6ba75e27c3a15bd6b7148c3b5c67e204801d1bf1c116e9e9d7049e57a793f5
+- Campaign PNG: df7a42f4df58190a0f33d817163ce5a1ba4af29d27b4bcb011f562d305b72769
+Only the already-rasterised 512 px logo is imported into this branch:
+- Logo PNG: 787f9f7cb59eeef414d0c3a1622a42cc158b97cc070b97c776be6ed5b59ef696
+scripts/branding.mjs checks that logo before an ADE build.
+
+Default builds exclude branding/ entirely. Only --branding=ade or
+VRCLUB_BRANDING=ade includes this artwork and notice for development review.
+No separate pitch site, campaign image, service integration or deployment
+configuration is imported. Non-indexing does not make a public website private,
+clear third-party rights or imply an approved ADE collaboration.

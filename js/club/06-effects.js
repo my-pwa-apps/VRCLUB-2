@@ -122,8 +122,8 @@ class VRClubEffects extends VRClubFixtures {
             const gCtx = gradCanvas.getContext('2d');
             
             const beamGrad = gCtx.createLinearGradient(0, 0, 0, gradH);
-            beamGrad.addColorStop(0.0, 'rgba(255,255,255,0)');
-            beamGrad.addColorStop(0.18, 'rgba(255,255,255,0.08)');
+            beamGrad.addColorStop(0.0, 'rgba(255,255,255,0.35)');
+            beamGrad.addColorStop(0.18, 'rgba(255,255,255,0.25)');
             beamGrad.addColorStop(0.55, 'rgba(255,255,255,0.42)');
             beamGrad.addColorStop(1.0, 'rgba(255,255,255,1)');
             
@@ -181,7 +181,7 @@ class VRClubEffects extends VRClubFixtures {
             // Higher tessellation creates smoother cone edges for hyperrealistic look
             const beam = BABYLON.MeshBuilder.CreateCylinder("spotBeam" + i, {
                 diameterTop: 2.0,      // Wide end at surface - 2.0m diameter
-                diameterBottom: 0.12,  // Narrower lens opening for tighter source point
+                diameterBottom: 0.25,  // Fits the 0.34 m lens even at maximum tilt stretch
                 height: 1,             // Will be scaled to actual beam length
                 tessellation: 12,      // Higher tessellation for smoother cone (was 8)
                 cap: BABYLON.Mesh.NO_CAP
@@ -314,9 +314,6 @@ class VRClubEffects extends VRClubFixtures {
             // Use default rendering group (0) so pool renders with floor
             lightPool.renderingGroupId = 0;
             
-            // Store reference for gobo texture (null - not using procedural texture anymore)
-            const goboTexture = null;
-            
             // HYPERREALISTIC SOFT OUTER GLOW - Very soft ambient light spread
             // Creates the "light spill" effect around the main pool
             const lightPoolGlow = BABYLON.MeshBuilder.CreateDisc("lightPoolGlow" + i, {
@@ -343,6 +340,8 @@ class VRClubEffects extends VRClubFixtures {
             // Core layer removed for performance - using main pool + glow ring only
             const lightPoolCore = null;
             const poolCoreMat = null;
+
+            // Crossed ribbons form one fan in the same local space as the ordinary cone.
             const prism = new BABYLON.Mesh("spotPrism" + i, this.scene);
             const positions = [], uvs = [], indices = [], colors = [], rayCenters = [];
             for (let ray = 0; ray < 13; ray++) {
@@ -352,7 +351,8 @@ class VRClubEffects extends VRClubFixtures {
                 const x = ring * Math.cos(angle), z = ring * Math.sin(angle);
                 rayCenters.push([x, z]);
                 for (let plane = 0; plane < 2; plane++) {
-                    const wx = plane === 0 ? 0.045 : 0, wz = plane === 1 ? 0.045 : 0;
+                    const wx = plane === 0 ? 0.045 : 0;
+                    const wz = plane === 1 ? 0.045 : 0;
                     const base = positions.length / 3;
                     positions.push(x * 0.14 - wx * 0.33, -0.5, z * 0.14 - wz * 0.33,
                         x * 0.14 + wx * 0.33, -0.5, z * 0.14 + wz * 0.33,
@@ -362,13 +362,14 @@ class VRClubEffects extends VRClubFixtures {
                     indices.push(base, base + 1, base + 2, base, base + 2, base + 3);
                 }
             }
-            // Feather the thirteen overlapping shafts without another draw.
+            // Feather each shaft into its neighbours without another mesh or material.
             for (const [x, z] of rayCenters) {
                 for (let plane = 0; plane < 2; plane++) {
                     const base = positions.length / 3;
                     for (let column = 0; column < 5; column++) {
                         const across = (column - 2) / 2;
-                        const dx = plane === 0 ? across * 0.45 : 0, dz = plane === 1 ? across * 0.45 : 0;
+                        const dx = plane === 0 ? across * 0.45 : 0;
+                        const dz = plane === 1 ? across * 0.45 : 0;
                         const alpha = 0.6 * (1 - Math.abs(across));
                         positions.push(x * 0.14 + dx * 0.035, -0.5, z * 0.14 + dz * 0.035,
                             x + dx, 0.5, z + dz);
@@ -382,18 +383,23 @@ class VRClubEffects extends VRClubFixtures {
                 }
             }
             const prismData = new BABYLON.VertexData();
-            Object.assign(prismData, { positions, uvs, indices, colors, normals: [] });
+            prismData.positions = positions;
+            prismData.uvs = uvs;
+            prismData.indices = indices;
+            prismData.colors = colors;
+            prismData.normals = [];
             BABYLON.VertexData.ComputeNormals(positions, indices, prismData.normals);
             prismData.applyToMesh(prism);
             prism.hasVertexAlpha = true;
-            const prismMat = this.materialFactory.createStandardMaterial("spotPrismMat" + i, {
-                diffuseColor: [0, 0, 0], specularColor: [0, 0, 0],
-                emissiveColor: this.currentSpotColor, disableLighting: true, mutable: true
-            });
+            const prismMat = new BABYLON.StandardMaterial("spotPrismMat" + i, this.scene);
+            prismMat.diffuseColor = BABYLON.Color3.Black();
+            prismMat.specularColor = BABYLON.Color3.Black();
+            prismMat.emissiveColor = this.currentSpotColor.clone();
             prismMat.opacityTexture = this._beamGradientTexture;
             prismMat.alpha = 0;
             prismMat.alphaMode = BABYLON.Engine.ALPHA_ADD;
             prismMat.backFaceCulling = false;
+            prismMat.disableLighting = true;
             prismMat.disableDepthWrite = true;
             prismMat.clipPlane4 = beamMat.clipPlane4;
             prism.material = prismMat;
@@ -401,29 +407,6 @@ class VRClubEffects extends VRClubFixtures {
             prism.isPickable = false;
             prism.isVisible = false;
             prism.renderingGroupId = beam.renderingGroupId;
-            
-            // === GOBO PROJECTION DISC ===
-            // Creates pattern shapes on floor when gobo is enabled
-            const goboProjection = BABYLON.MeshBuilder.CreateDisc("goboProjection" + i, {
-                radius: 1.0,
-                tessellation: 64
-            }, this.scene);
-            goboProjection.rotation.x = Math.PI / 2;
-            goboProjection.position = new BABYLON.Vector3(pos.x, 0.02, pos.z - 5);
-            goboProjection.isPickable = false;
-            
-            const goboMat = new BABYLON.StandardMaterial("goboMat" + i, this.scene);
-            goboMat.diffuseColor = new BABYLON.Color3(0, 0, 0);
-            goboMat.specularColor = new BABYLON.Color3(0, 0, 0);
-            goboMat.emissiveColor = this.currentSpotColor.clone();
-            goboMat.alpha = 0.9;
-            goboMat.alphaMode = BABYLON.Engine.ALPHA_ADD;
-            goboMat.disableLighting = true;
-            goboMat.backFaceCulling = false;
-            goboMat.disableDepthWrite = true;
-            goboProjection.material = goboMat;
-            goboProjection.renderingGroupId = 1;
-            goboProjection.setEnabled(false); // Hidden by default
             
             // === HYPERREALISTIC POOL LIGHT ===
             // DISABLED: Pool lights (PointLights) caused shader uniform buffer overflow
@@ -435,7 +418,26 @@ class VRClubEffects extends VRClubFixtures {
             
             // PERFORMANCE: Shadows and pool lights disabled for better FPS
             
+            const goboProjection = BABYLON.MeshBuilder.CreateDisc("goboProjection" + i, {
+                radius: 1.0, tessellation: 64
+            }, this.scene);
+            goboProjection.rotation.x = Math.PI / 2;
+            goboProjection.position.set(pos.x, 0.02, pos.z - 5);
+            goboProjection.isPickable = false;
+            const goboMat = this.materialFactory.createStandardMaterial("goboMat" + i, {
+                diffuseColor: [0, 0, 0], specularColor: [0, 0, 0],
+                emissiveColor: this.currentSpotColor, disableLighting: true, mutable: true
+            });
+            goboMat.alpha = 0.9;
+            goboMat.alphaMode = BABYLON.Engine.ALPHA_ADD;
+            goboMat.backFaceCulling = false;
+            goboMat.disableDepthWrite = true;
+            goboProjection.material = goboMat;
+            goboProjection.renderingGroupId = 1;
+            goboProjection.setEnabled(false);
             this.spotlights.push({
+                goboProjection, goboMat, goboTexture: null,
+                goboLocalRotation: i * (Math.PI / 3),
                 light: spot,
                 beam: beam,
                 beamMat: beamMat,
@@ -450,10 +452,6 @@ class VRClubEffects extends VRClubFixtures {
                 prismMat: prismMat,
                 lightPoolGlow: lightPoolGlow,
                 poolGlowMat: poolGlowMat,
-                goboTexture: goboTexture, // Store for animation updates
-                goboProjection: goboProjection,
-                goboMat: goboMat,
-                goboLocalRotation: i * (Math.PI / 3), // Offset each spotlight's gobo rotation
                 fixture: fixtureData ? fixtureData.fixture : null,
                 head: head,
                 yoke: yoke,
@@ -584,16 +582,10 @@ class VRClubEffects extends VRClubFixtures {
         sheetMat.emissiveFresnelParameters.bias = 0;
         sheetMat.emissiveFresnelParameters.power = 1;
         
-        // Haze density drifting through the plane. The noise texture writes alpha 1, so its brightness
-        // must be read as the opacity or the smoke never shows.
+        // Haze density drifting through the plane. Uses VRCLUB-UNITY's high-contrast tileable 4-octave
+        // fractal value noise with 3x6 tiling so smoke clouds visibly billow and drift across the sheet.
         const noiseSize = this.tierSettings.laserSheetNoiseSize;
-        const noiseTexture = new BABYLON.NoiseProceduralTexture("laserSheetNoise", noiseSize, this.scene);
-        noiseTexture.octaves = 4;
-        noiseTexture.persistence = 0.5;
-        noiseTexture.animationSpeedFactor = 0.5;
-        noiseTexture.brightness = 0.62;
-        noiseTexture.getAlphaFromRGB = true;
-        
+        const noiseTexture = this._createLaserSheetNoiseTexture("laserSheetNoise", noiseSize, 3, 6, 0);
         sheetMat.opacityTexture = noiseTexture;
         
         sheet.material = sheetMat;
@@ -609,16 +601,11 @@ class VRClubEffects extends VRClubFixtures {
         hazeSheet.scaling.set(0.985, 1, 0.985);
 
         const hazeMat = sheetMat.clone("laserSheetHazeMat");
-        const hazeNoise = new BABYLON.NoiseProceduralTexture(
-            "laserSheetHazeNoise", Math.max(64, noiseSize >> 1), this.scene);
-        hazeNoise.octaves = 6;
-        hazeNoise.persistence = 0.48;
-        hazeNoise.animationSpeedFactor = 0.16;
-        hazeNoise.brightness = 0.56;
-        hazeNoise.getAlphaFromRGB = true;
+        const hazeNoise = this._createLaserSheetNoiseTexture(
+            "laserSheetHazeNoise", Math.max(64, noiseSize >> 1), 2, 4, 17);
         hazeMat.opacityTexture = hazeNoise;
         hazeMat.emissiveTexture = null;
-        hazeMat.alpha = 0.05;
+        hazeMat.alpha = 0.065;
         hazeSheet.material = hazeMat;
         this.laserSheetHaze = hazeSheet;
 
@@ -659,6 +646,69 @@ class VRClubEffects extends VRClubFixtures {
         this.configureLaserSheetVariant();
         
         log.info('✨ Laser sheet effect created with hyperrealistic source');
+    }
+
+    /**
+     * Periodically tileable 4-octave fractal value noise ported from VRCLUB-UNITY (`LightingRigBuilder.Common.cs: NoiseTexture`).
+     * Unlike `BABYLON.NoiseProceduralTexture` (which is non-periodic on [0..1] and low-contrast at brightness 0.62),
+     * this tiles seamlessly under UV scrolling and has crisp dark voids + bright smoke wisps (`uScale` x `vScale`).
+     */
+    _createLaserSheetNoiseTexture(name, size, uScale, vScale, seed = 0) {
+        const n = Math.max(64, size | 0);
+        if (typeof document === 'undefined' || !BABYLON.DynamicTexture) {
+            const fallback = new BABYLON.NoiseProceduralTexture(name, n, this.scene);
+            fallback.getAlphaFromRGB = true;
+            fallback.uScale = uScale;
+            fallback.vScale = vScale;
+            return fallback;
+        }
+        const tex = new BABYLON.DynamicTexture(name, { width: n, height: n }, this.scene, false);
+        const ctx = tex.getContext();
+        const img = ctx.createImageData(n, n);
+        const data = img.data;
+        const hash = (x, y) => {
+            let h = (Math.imul(x + seed, 374761393) + Math.imul(y + seed * 31, 668265263)) >>> 0;
+            h = Math.imul(h ^ (h >>> 13), 1274126177) >>> 0;
+            return ((h ^ (h >>> 16)) & 0xffff) / 65535;
+        };
+        const valueNoise = (x, y, period) => {
+            const x0 = Math.floor(x), y0 = Math.floor(y);
+            let fx = x - x0, fy = y - y0;
+            fx = fx * fx * (3 - 2 * fx);
+            fy = fy * fy * (3 - 2 * fy);
+            const xa = ((x0 % period) + period) % period, xb = (xa + 1) % period;
+            const ya = ((y0 % period) + period) % period, yb = (ya + 1) % period;
+            const a = hash(xa, ya) + (hash(xb, ya) - hash(xa, ya)) * fx;
+            const b = hash(xa, yb) + (hash(xb, yb) - hash(xa, yb)) * fx;
+            return a + (b - a) * fy;
+        };
+        for (let y = 0; y < n; y++) {
+            for (let x = 0; x < n; x++) {
+                let v = 0, amp = 0.5, norm = 0;
+                for (let o = 0; o < 4; o++) {
+                    const cells = 4 << o;
+                    v += amp * valueNoise((x * cells) / n, (y * cells) / n, cells);
+                    norm += amp;
+                    amp *= 0.5;
+                }
+                // High-contrast smoke curve from VRCLUB-UNITY so dark air gaps and bright smoke wisps read clearly
+                const c = Math.max(0, Math.min(1, (v / norm) * 1.48 - 0.18));
+                const byte = Math.round(c * 255);
+                const idx = (y * n + x) * 4;
+                data[idx] = byte;
+                data[idx + 1] = byte;
+                data[idx + 2] = byte;
+                data[idx + 3] = 255;
+            }
+        }
+        ctx.putImageData(img, 0, 0);
+        tex.update(false);
+        tex.wrapU = BABYLON.Texture ? BABYLON.Texture.WRAP_ADDRESSMODE : 1;
+        tex.wrapV = BABYLON.Texture ? BABYLON.Texture.WRAP_ADDRESSMODE : 1;
+        tex.uScale = uScale;
+        tex.vScale = vScale;
+        tex.getAlphaFromRGB = true;
+        return tex;
     }
 
     /**
@@ -791,35 +841,68 @@ class VRClubEffects extends VRClubFixtures {
         this.mirrorBallHousings = [];
         
         // UPGRADE: Create shared gradient texture for all mirror ball beams (was 4 separate 512px textures)
+        // Longitudinal + radial pinspot profile: U across the beam (tight Gaussian core + soft penumbra edge),
+        // V along the shaft from lens aperture (hot collimated exit) to the mirror ball (inverse-square spread).
         if (!this._mirrorBeamGradientTexture) {
-            const mbGradTex = new BABYLON.DynamicTexture("sharedMirrorBeamGradient", { width: 256, height: 256 }, this.scene);
+            const mbGradTex = new BABYLON.DynamicTexture("sharedMirrorBeamGradient", { width: 256, height: 256 }, this.scene, false);
             const mbCtx = mbGradTex.getContext();
-            const mbGrad = mbCtx.createRadialGradient(128, 128, 25, 128, 128, 128);
-            mbGrad.addColorStop(0, 'rgba(255, 255, 255, 0.8)');
-            mbGrad.addColorStop(0.3, 'rgba(255, 255, 255, 0.6)');
-            mbGrad.addColorStop(0.6, 'rgba(255, 255, 255, 0.3)');
-            mbGrad.addColorStop(0.85, 'rgba(255, 255, 255, 0.1)');
-            mbGrad.addColorStop(1, 'rgba(255, 255, 255, 0)');
-            mbCtx.fillStyle = mbGrad;
-            mbCtx.fillRect(0, 0, 256, 256);
+            const img = mbCtx.createImageData(256, 256);
+            const data = img.data;
+            for (let y = 0; y < 256; y++) {
+                // V=0 at bottom (-Y, lens aperture), V=1 at top (+Y, mirror ball) in cylinder UV space
+                const v = y / 255;
+                const entryFade = Math.min(1, v / 0.04); // crisp exit from lens face without hard clipping
+                const inverseSq = 1 / (1 + 1.15 * v * v);
+                const ballSoftFade = v > 0.88 ? Math.max(0, 1 - (v - 0.88) / 0.12) : 1;
+                const axial = entryFade * (0.38 + 0.62 * inverseSq) * (0.55 + 0.45 * ballSoftFade);
+                for (let x = 0; x < 256; x++) {
+                    const u = (x / 255) * 2 - 1;
+                    const r = Math.abs(u);
+                    // Collimated pinspot core + soft field penumbra
+                    const core = Math.exp(-(r * r) / 0.14);
+                    const halo = 0.35 * Math.exp(-(r * r) / 0.52) * Math.max(0, 1 - r);
+                    const a = Math.min(1, Math.max(0, (core * 0.78 + halo) * axial));
+                    const idx = (y * 256 + x) * 4;
+                    data[idx] = 255;
+                    data[idx + 1] = 255;
+                    data[idx + 2] = 255;
+                    data[idx + 3] = Math.round(a * 255);
+                }
+            }
+            mbCtx.putImageData(img, 0, 0);
             mbGradTex.update();
             mbGradTex.hasAlpha = true;
+            mbGradTex.wrapU = BABYLON.Texture.CLAMP_ADDRESSMODE;
+            mbGradTex.wrapV = BABYLON.Texture.CLAMP_ADDRESSMODE;
             this._mirrorBeamGradientTexture = mbGradTex;
         }
         
         // UPGRADE: Share housing materials across all 4 mirror ball fixtures
-        const sharedMirrorHousingMat = new BABYLON.PBRMetallicRoughnessMaterial("sharedMirrorHousingMat", this.scene);
-        sharedMirrorHousingMat.baseColor = new BABYLON.Color3(0.1, 0.1, 0.12);
-        sharedMirrorHousingMat.metallic = 0.85;
-        sharedMirrorHousingMat.roughness = 0.3;
-        sharedMirrorHousingMat.emissiveColor = new BABYLON.Color3(0, 0, 0);
-        sharedMirrorHousingMat.maxSimultaneousLights = this.maxLights;
+        const sharedMirrorHousingMat = this.materialFactory.createPBRMaterial("sharedMirrorHousingMat", {
+            mutable: true,
+            baseColor: [0.08, 0.08, 0.10],
+            metallic: 0.88,
+            roughness: 0.28,
+            emissiveColor: [0, 0, 0],
+            detail: 'castMetal',
+            detailScale: 5
+        });
         
-        const sharedMirrorBezelMat = new BABYLON.PBRMetallicRoughnessMaterial("sharedMirrorBezelMat", this.scene);
-        sharedMirrorBezelMat.baseColor = new BABYLON.Color3(0.15, 0.15, 0.15);
-        sharedMirrorBezelMat.metallic = 0.95;
-        sharedMirrorBezelMat.roughness = 0.15;
-        sharedMirrorBezelMat.maxSimultaneousLights = this.maxLights;
+        const sharedMirrorBezelMat = this.materialFactory.createPBRMaterial("pinspotBezelMatShared", {
+            baseColor: [0.15, 0.15, 0.16],
+            metallic: 0.95,
+            roughness: 0.16,
+            detail: 'brushedMetal',
+            detailScale: 4
+        }, true);
+
+        const sharedMirrorClampMat = this.materialFactory.createPBRMaterial("pinspotClampMatShared", {
+            baseColor: [0.1, 0.1, 0.1],
+            metallic: 0.9,
+            roughness: 0.4,
+            detail: 'castMetal',
+            detailScale: 4
+        }, true);
         
         const spotlightConfigs = [
             { pos: new BABYLON.Vector3(4, 7.5, -8), name: "Front-Right" },
@@ -827,99 +910,195 @@ class VRClubEffects extends VRClubFixtures {
             { pos: new BABYLON.Vector3(4, 7.5, -16), name: "Back-Right" },
             { pos: new BABYLON.Vector3(-4, 7.5, -16), name: "Back-Left" }
         ];
+
+        const baseMat = this.materialFactory.getPreset('lightFixture');
+        const riggingClampParts = [];
+        const riggingMountParts = [];
+        const bezelParts = [];
         
         spotlightConfigs.forEach((config, index) => {
-            const direction = ballPosition.subtract(config.pos).normalize();
+            const toBall = ballPosition.subtract(config.pos);
+            const direction = toBall.clone().normalize();
             
             this.mirrorBallSpotlights.push(null);
             
-            // === HYPERREALISTIC MOVING HEAD FIXTURE (Professional Stage Light) ===
-            const housingDirection = ballPosition.subtract(config.pos).normalize();
-            const targetQuat = BABYLON.Quaternion.FromLookDirectionLH(housingDirection, BABYLON.Vector3.Up());
-            
-            // Base/Yoke mount (connects to truss) - Professional design
-            const base = BABYLON.MeshBuilder.CreateBox(`mirrorFixtureBase${index}`, {
-                width: 0.5,
-                height: 0.2,
-                depth: 0.4
+            // === HYPERREALISTIC PINSPOT / MOVING-HEAD FIXTURE ON TRUSS ===
+            // Cylinder/Torus primitives have their barrel/ring axis along local +Y.
+            // Align local +Y with `direction` (from fixture to mirror ball) so the barrel,
+            // recessed cowling, chrome bezel and optical lens aim straight at the ball.
+            const up = BABYLON.Vector3.Up();
+            const rotAxis = BABYLON.Vector3.Cross(up, direction).normalize();
+            const rotAngle = Math.acos(Math.min(1, Math.max(-1, BABYLON.Vector3.Dot(up, direction))));
+            const barrelQuat = BABYLON.Quaternion.RotationAxis(rotAxis, rotAngle);
+            // Disc primitives lie in local XY with normal along ±Z; align local +Z with `direction`.
+            const zAxis = new BABYLON.Vector3(0, 0, 1);
+            const discAxis = BABYLON.Vector3.Cross(zAxis, direction).normalize();
+            const discAngle = Math.acos(Math.min(1, Math.max(-1, BABYLON.Vector3.Dot(zAxis, direction))));
+            const discQuat = BABYLON.Quaternion.RotationAxis(discAxis, discAngle);
+            const panYaw = Math.atan2(direction.x, direction.z);
+
+            // Truss C-clamp on the lower chord at y = 8.0 and safety cable loop
+            const clamp = BABYLON.MeshBuilder.CreateTorus(`mirrorClamp${index}`, {
+                diameter: 0.12,
+                thickness: 0.02,
+                tessellation: 14,
+                arc: 0.85
             }, this.scene);
-            base.position = config.pos.clone();
-            base.rotationQuaternion = targetQuat;
+            clamp.position.set(config.pos.x, 8.0, config.pos.z);
+            clamp.rotation.x = Math.PI / 2;
+            clamp.rotation.z = Math.PI;
+            riggingClampParts.push(clamp);
+
+            const clampBolt = BABYLON.MeshBuilder.CreateCylinder(`mirrorClampBolt${index}`, {
+                diameter: 0.028,
+                height: 0.075,
+                tessellation: 8
+            }, this.scene);
+            clampBolt.position.set(config.pos.x + (config.pos.x >= 0 ? 0.055 : -0.055), 8.0, config.pos.z);
+            clampBolt.rotation.z = Math.PI / 2;
+            riggingClampParts.push(clampBolt);
+
+            const safetyCable = BABYLON.MeshBuilder.CreateTorus(`mirrorSafetyCable${index}`, {
+                diameter: 0.15,
+                thickness: 0.005,
+                tessellation: 14
+            }, this.scene);
+            safetyCable.position.set(config.pos.x, 7.95, config.pos.z);
+            safetyCable.rotation.x = Math.PI / 2;
+            riggingClampParts.push(safetyCable);
+
+            // Vertical drop pipe from truss (y = 8.0) down to the horizontal fixture base (y = 7.72)
+            const dropPipe = BABYLON.MeshBuilder.CreateCylinder(`mirrorDropPipe${index}`, {
+                diameter: 0.04,
+                height: 0.28,
+                tessellation: 12
+            }, this.scene);
+            dropPipe.position.set(config.pos.x, 7.86, config.pos.z);
+            riggingMountParts.push(dropPipe);
             
-            const baseMat = this.materialFactory.getPreset('lightFixture');
-            base.material = baseMat;
-            base.isPickable = false;
+            // Base mount (hangs level under the truss drop pipe, panned toward the mirror ball)
+            const base = BABYLON.MeshBuilder.CreateBox(`mirrorFixtureBase${index}`, {
+                width: 0.36,
+                height: 0.09,
+                depth: 0.36
+            }, this.scene);
+            base.position.set(config.pos.x, 7.70, config.pos.z);
+            base.rotation.y = panYaw;
+            riggingMountParts.push(base);
+
+            // U-bracket yoke arms connecting the level base to the tilted barrel pivot at config.pos (y = 7.5)
+            const yokeCross = BABYLON.MeshBuilder.CreateBox(`mirrorYokeCross${index}`, {
+                width: 0.42,
+                height: 0.045,
+                depth: 0.12
+            }, this.scene);
+            yokeCross.position.set(config.pos.x, 7.64, config.pos.z);
+            yokeCross.rotation.y = panYaw;
+            riggingMountParts.push(yokeCross);
+
+            const cosYaw = Math.cos(panYaw), sinYaw = Math.sin(panYaw);
+            for (const side of [-0.185, 0.185]) {
+                const arm = BABYLON.MeshBuilder.CreateBox(`mirrorYokeArm${index}_${side < 0 ? 'L' : 'R'}`, {
+                    width: 0.042,
+                    height: 0.20,
+                    depth: 0.11
+                }, this.scene);
+                arm.position.set(config.pos.x + side * cosYaw, 7.55, config.pos.z - side * sinYaw);
+                arm.rotation.y = panYaw;
+                riggingMountParts.push(arm);
+            }
             
-            // Main fixture body (cylindrical housing) - Professional moving head
+            // Main fixture body (tapered cylindrical pinspot barrel aimed along `direction`)
+            const barrelOffset = 0.05;
+            const barrelLength = 0.56;
+            const frontApertureDist = barrelOffset + barrelLength * 0.5; // 0.33m forward of pivot
             const housing = BABYLON.MeshBuilder.CreateCylinder(`mirrorSpotHousing${index}`, {
-                diameter: 0.5,
-                height: 0.7,
+                diameterTop: 0.34,     // Front aperture end (+Y along direction)
+                diameterBottom: 0.40,  // Rear heatsink end (-Y)
+                height: barrelLength,
                 tessellation: 24
             }, this.scene);
-            housing.position = config.pos.add(housingDirection.scale(0.1)); // Slight offset forward
-            housing.rotationQuaternion = targetQuat;
-            
-            // UPGRADE: Use shared housing material instead of per-fixture instances
+            housing.position = config.pos.add(direction.scale(barrelOffset));
+            housing.rotationQuaternion = barrelQuat;
             housing.material = sharedMirrorHousingMat;
             housing.isPickable = false;
+
+            // Rear cooling heatsink cap
+            const rearCap = BABYLON.MeshBuilder.CreateCylinder(`mirrorRearCap${index}`, {
+                diameterTop: 0.38,
+                diameterBottom: 0.30,
+                height: 0.08,
+                tessellation: 20
+            }, this.scene);
+            rearCap.position = config.pos.add(direction.scale(barrelOffset - barrelLength * 0.5 - 0.04));
+            rearCap.rotationQuaternion = barrelQuat;
+            riggingMountParts.push(rearCap);
             
-            // Front bezel/rim (chrome ring around lens)
+            // Front bezel/cowling rim (chrome ring around the front lens aperture, axis along `direction`)
             const bezel = BABYLON.MeshBuilder.CreateTorus(`mirrorBezel${index}`, {
-                diameter: 0.45,
-                thickness: 0.05,
-                tessellation: 32
+                diameter: 0.33,
+                thickness: 0.032,
+                tessellation: 28
             }, this.scene);
-            bezel.position = config.pos.add(housingDirection.scale(0.4));
-            bezel.rotationQuaternion = targetQuat;
+            bezel.position = config.pos.add(direction.scale(frontApertureDist));
+            bezel.rotationQuaternion = barrelQuat;
+            bezelParts.push(bezel);
             
-            // UPGRADE: Use shared bezel material
-            bezel.material = sharedMirrorBezelMat;
-            bezel.isPickable = false;
-            
-            // Lens (glass front element) - Cylindrical lens shape
+            // Recessed glass condenser lens (cylindrical element flush inside the front bezel)
+            const lensDist = frontApertureDist - 0.015;
             const lens = BABYLON.MeshBuilder.CreateCylinder(`mirrorSpotLens${index}`, {
-                diameter: 0.4,
-                height: 0.1,
-                tessellation: 32
+                diameter: 0.30,
+                height: 0.024,
+                tessellation: 28
             }, this.scene);
-            lens.position = config.pos.add(housingDirection.scale(0.38)); // Inside bezel
-            lens.rotationQuaternion = targetQuat;
+            lens.position = config.pos.add(direction.scale(lensDist));
+            lens.rotationQuaternion = barrelQuat;
             
             const lensMat = new BABYLON.StandardMaterial(`mirrorLensMat${index}`, this.scene);
-            lensMat.emissiveColor = new BABYLON.Color3(0, 0, 0); // Will glow with color when active
+            lensMat.diffuseColor = new BABYLON.Color3(0, 0, 0);
+            lensMat.specularColor = new BABYLON.Color3(0, 0, 0);
+            lensMat.emissiveColor = new BABYLON.Color3(0, 0, 0);
             lensMat.disableLighting = true;
             lensMat.backFaceCulling = false;
             lens.material = lensMat;
             lens.renderingGroupId = 2;
             lens.isPickable = false;
             
-            // Bright light source (visible bulb/LED)
+            // Deep recessed LED/discharge emitter die inside the reflector barrel (smaller than barrel so it never pokes through)
             const lightSource = BABYLON.MeshBuilder.CreateSphere(`mirrorLightSource${index}`, {
-                diameter: 0.35,
-                segments: 16
+                diameter: 0.16,
+                segments: 12
             }, this.scene);
-            lightSource.position = config.pos.add(housingDirection.scale(0.38));
+            lightSource.position = config.pos.add(direction.scale(lensDist - 0.04));
             
             const sourceMat = new BABYLON.StandardMaterial(`mirrorSourceMat${index}`, this.scene);
-            sourceMat.emissiveColor = new BABYLON.Color3(0, 0, 0); // Will glow bright when active
+            sourceMat.diffuseColor = new BABYLON.Color3(0, 0, 0);
+            sourceMat.specularColor = new BABYLON.Color3(0, 0, 0);
+            sourceMat.emissiveColor = new BABYLON.Color3(0, 0, 0);
             sourceMat.disableLighting = true;
             sourceMat.backFaceCulling = false;
             lightSource.material = sourceMat;
             lightSource.renderingGroupId = 2;
             lightSource.isPickable = false;
             
-            // Lens flare (glass reflection effect)
+            // Soft optical aperture bloom disc just outside the front lens face
+            const emissionPos = config.pos.add(direction.scale(frontApertureDist + 0.012));
             const flare = BABYLON.MeshBuilder.CreateDisc(`mirrorFlare${index}`, {
-                radius: 0.25,
-                tessellation: 32
+                radius: 0.20,
+                tessellation: 28
             }, this.scene);
-            flare.position = config.pos.add(housingDirection.scale(0.42)); // Slightly in front
-            flare.rotationQuaternion = targetQuat;
+            flare.position = emissionPos.clone();
+            flare.rotationQuaternion = discQuat;
             
             const flareMat = new BABYLON.StandardMaterial(`mirrorFlareMat${index}`, this.scene);
-            flareMat.emissiveColor = new BABYLON.Color3(0, 0, 0); // Will glow when active
+            flareMat.diffuseColor = new BABYLON.Color3(0, 0, 0);
+            flareMat.specularColor = new BABYLON.Color3(0, 0, 0);
+            flareMat.emissiveColor = new BABYLON.Color3(0, 0, 0);
+            flareMat.opacityTexture = this._mirrorSpotFalloffTexture || this._mirrorBeamGradientTexture;
             flareMat.alpha = 0.4;
+            flareMat.alphaMode = BABYLON.Engine.ALPHA_ADD;
             flareMat.disableLighting = true;
+            flareMat.disableDepthWrite = true;
             flareMat.backFaceCulling = false;
             flare.material = flareMat;
             flare.renderingGroupId = 2;
@@ -934,8 +1113,6 @@ class VRClubEffects extends VRClubFixtures {
             this.mirrorBallHousings.push({ 
                 mesh: housing, 
                 material: sharedMirrorHousingMat,
-                base: base,
-                bezel: bezel,
                 lens: lens,
                 lensMaterial: lensMat,
                 lightSource: lightSource,
@@ -944,26 +1121,27 @@ class VRClubEffects extends VRClubFixtures {
                 flareMaterial: flareMat
             });
             
-            // Visible volumetric beam from all positions (dramatic effect with HIGH-QUALITY rendering)
-            const beamLength = BABYLON.Vector3.Distance(config.pos, ballPosition);
+            // === COLLIMATED INCIDENT PINSPOT BEAM ===
+            // Extends from the front lens aperture (`emissionPos`) to the mirror-ball wrap plane just past
+            // the illuminated hemisphere so the tight cone cleanly envelopes the 1.2m faceted sphere.
+            // Because `barrelQuat` maps local +Y onto `direction` (fixture -> ball):
+            //   - local -Y (`diameterBottom`) sits at the fixture's 0.30m lens aperture
+            //   - local +Y (`diameterTop`) reaches the 1.2m mirror ball
+            const targetPoint = ballPosition.subtract(direction.scale(0.18));
+            const beamLength = BABYLON.Vector3.Distance(emissionPos, targetPoint);
             const beam = BABYLON.MeshBuilder.CreateCylinder(`mirrorSpotBeam${index}`, {
-                diameterTop: 1.1,
-                diameterBottom: 0.18,
+                diameterTop: 1.18,     // Envelopes the 1.20m mirror ball at the target end (+Y)
+                diameterBottom: 0.26,  // Matches the 0.30m front lens aperture at the fixture end (-Y)
                 height: beamLength,
-                tessellation: 16,
+                tessellation: 24,
                 cap: BABYLON.Mesh.NO_CAP
             }, this.scene);
             
-            // Position and rotate beam
-            const beamMidpoint = BABYLON.Vector3.Center(config.pos, ballPosition);
-            beam.position = beamMidpoint;
+            // Position at midpoint between lens face and mirror-ball target plane, oriented along `direction`
+            beam.position = BABYLON.Vector3.Center(emissionPos, targetPoint);
+            beam.rotationQuaternion = barrelQuat.clone();
             
-            const beamRotationAxis = BABYLON.Vector3.Cross(BABYLON.Vector3.Up(), direction);
-            const beamRotationAngle = Math.acos(BABYLON.Vector3.Dot(BABYLON.Vector3.Up(), direction));
-            beam.rotationQuaternion = BABYLON.Quaternion.RotationAxis(beamRotationAxis, beamRotationAngle);
-            
-            // === ULTRA-REALISTIC VOLUMETRIC BEAM (same quality as truss spotlights) ===
-            // UPGRADE: Use shared gradient texture (was 4 separate 512px DynamicTextures)
+            // === ULTRA-REALISTIC VOLUMETRIC BEAM ===
             const beamTexture = this._mirrorBeamGradientTexture;
             
             // Use PBR material with gradient texture for professional quality
@@ -973,25 +1151,25 @@ class VRClubEffects extends VRClubFixtures {
             beamMat.albedoColor = new BABYLON.Color3(0, 0, 0);
             beamMat.metallic = 0;
             beamMat.roughness = 1;
+            beamMat.maxSimultaneousLights = this.maxLights;
             
             // Apply gradient texture to emissive channel
             beamMat.emissiveTexture = beamTexture;
             beamMat.emissiveColor = this.mirrorBallSpotlightColor.scale(0.6);
-            // All four fixtures emit visible incident shafts. Only the first owns a
-            // GPU SpotLight; dimming the other beam meshes made three fixtures look off.
             beamMat.emissiveIntensity = 1.35;
             
             // Use gradient as alpha mask for realistic edge softness
             beamMat.opacityTexture = beamTexture;
             beamMat.alpha = 0.07;
             beamMat.transparencyMode = BABYLON.PBRMaterial.PBRMATERIAL_ALPHABLEND;
+            beamMat.disableDepthWrite = true;
             
-            // Fresnel effect - more visible from the side
+            // Soft grazing fade so cylinder silhouettes never show a hard polygon edge
             beamMat.opacityFresnel = new BABYLON.FresnelParameters();
-            beamMat.opacityFresnel.leftColor = new BABYLON.Color3(0.15, 0.15, 0.15);
-            beamMat.opacityFresnel.rightColor = new BABYLON.Color3(0, 0, 0);
-            beamMat.opacityFresnel.bias = 0.2;
-            beamMat.opacityFresnel.power = 2;
+            beamMat.opacityFresnel.leftColor = new BABYLON.Color3(0.04, 0.04, 0.04);
+            beamMat.opacityFresnel.rightColor = new BABYLON.Color3(0.95, 0.95, 0.95);
+            beamMat.opacityFresnel.bias = 0.08;
+            beamMat.opacityFresnel.power = 1.8;
             
             // Important settings for realism
             beamMat.backFaceCulling = false;
@@ -1003,22 +1181,45 @@ class VRClubEffects extends VRClubFixtures {
             beam.visibility = 1.0;
             beam.renderingGroupId = 1;
             beam.setEnabled(false);
+            beam.freezeWorldMatrix();
+            beam.doNotSyncBoundingInfo = true;
             
             this.mirrorBallBeams.push({
                 mesh: beam,
                 material: beamMat,
                 texture: beamTexture,
+                origin: emissionPos.clone(),
+                direction: direction.clone(),
+                length: beamLength,
                 isIncidentLight: config.isRealLight
             });
             
-            // UPGRADE: Freeze static fixture hardware (housing, base, bezel don't animate)
-            base.freezeWorldMatrix();
-            base.doNotSyncBoundingInfo = true;
+            // UPGRADE: Freeze static fixture hardware (housing, base, bezel, lens, source, flare don't move)
             housing.freezeWorldMatrix();
             housing.doNotSyncBoundingInfo = true;
-            bezel.freezeWorldMatrix();
-            bezel.doNotSyncBoundingInfo = true;
+            lens.freezeWorldMatrix();
+            lens.doNotSyncBoundingInfo = true;
+            lightSource.freezeWorldMatrix();
+            lightSource.doNotSyncBoundingInfo = true;
+            flare.freezeWorldMatrix();
+            flare.doNotSyncBoundingInfo = true;
         });
+
+        for (const [name, parts, mat] of [
+            ['mirrorSpotTrussClamps', riggingClampParts, sharedMirrorClampMat],
+            ['mirrorSpotRiggingMounts', riggingMountParts, baseMat],
+            ['mirrorSpotBezelMerged', bezelParts, sharedMirrorBezelMat]
+        ]) {
+            if (!parts.length) continue;
+            const merged = BABYLON.Mesh.MergeMeshes(parts, true, true, undefined, false, false);
+            if (merged) {
+                merged.name = name;
+                merged.material = mat;
+                merged.isPickable = false;
+                merged.freezeWorldMatrix();
+                merged.doNotSyncBoundingInfo = true;
+            }
+        }
         
         const maxSpots = this.qualityTiers.ultra.mirrorSpots;
         const maxRays = this.qualityTiers.ultra.mirrorRays;
@@ -1133,30 +1334,68 @@ class VRClubEffects extends VRClubFixtures {
         const stair = venue.stair;
         const rise = venue.streetLevel / stair.steps;
         const tread = (stair.zTop - stair.zBottom) / (stair.steps - 1);
+        const ceilY = (venue.streetLevel || 2.8) + (venue.height || 3.7) - 0.02;
         out.t = Infinity;
 
         if (dy < -1e-6) {
+            // Bottom landing including the 0.5 m doorway threshold (from z = -0.30 to stair.zBottom)
             this._considerEntranceHit((0.02 - oy) / dy, minT, ox, oy, oz, dx, dy, dz,
                 -venue.halfWidth, venue.halfWidth, -Infinity, Infinity,
-                venue.wallZ, stair.zBottom, 0, 1, 0, out);
+                -0.30, stair.zBottom + 0.012, 0, 1, 0, out);
             for (let i = 1; i < stair.steps; i++) {
                 const y = i * rise + 0.012;
                 const z0 = stair.zBottom + (i - 1) * tread;
                 this._considerEntranceHit((y - oy) / dy, minT, ox, oy, oz, dx, dy, dz,
                     -stair.halfWidth, stair.halfWidth, -Infinity, Infinity,
-                    z0, z0 + tread, 0, 1, 0, out);
+                    z0 - 0.012, z0 + tread + 0.012, 0, 1, 0, out);
             }
+            // Top landing and galleries at street level
             this._considerEntranceHit((venue.streetLevel + 0.03 - oy) / dy, minT,
                 ox, oy, oz, dx, dy, dz, -venue.halfWidth, venue.halfWidth,
-                -Infinity, Infinity, stair.zTop, venue.farZ + 0.3, 0, 1, 0, out);
+                -Infinity, Infinity, stair.zBottom - 0.012, venue.farZ + 0.3, 0, 1, 0, out);
+        } else if (dy > 1e-6) {
+            // Doorway lintel soffit and vestibule ceiling
+            this._considerEntranceHit((3.24 - oy) / dy, minT, ox, oy, oz, dx, dy, dz,
+                -venue.halfWidth, venue.halfWidth, -Infinity, Infinity,
+                -0.30, venue.wallZ, 0, -1, 0, out);
+            this._considerEntranceHit((ceilY - oy) / dy, minT, ox, oy, oz, dx, dy, dz,
+                -venue.halfWidth, venue.halfWidth, -Infinity, Infinity,
+                venue.wallZ, venue.farZ + 0.3, 0, -1, 0, out);
         }
         if (dz > 1e-6) {
             for (let i = 1; i <= stair.steps; i++) {
                 const z = stair.zBottom + (i - 1) * tread - 0.012;
                 this._considerEntranceHit((z - oz) / dz, minT, ox, oy, oz, dx, dy, dz,
-                    -stair.halfWidth, stair.halfWidth, (i - 1) * rise, i * rise,
+                    -stair.halfWidth, stair.halfWidth, Math.max(0, (i - 1) * rise - 0.012), i * rise + 0.03,
                     -Infinity, Infinity, 0, 0, -1, out);
             }
+            // Gallery front walls either side of the stairwell at z = stair.zBottom
+            this._considerEntranceHit((stair.zBottom - 0.012 - oz) / dz, minT, ox, oy, oz, dx, dy, dz,
+                -venue.halfWidth, -stair.halfWidth, 0, venue.streetLevel + 0.03,
+                -Infinity, Infinity, 0, 0, -1, out);
+            this._considerEntranceHit((stair.zBottom - 0.012 - oz) / dz, minT, ox, oy, oz, dx, dy, dz,
+                stair.halfWidth, venue.halfWidth, 0, venue.streetLevel + 0.03,
+                -Infinity, Infinity, 0, 0, -1, out);
+            // Vestibule street wall / back plane
+            this._considerEntranceHit((venue.farZ - 0.02 - oz) / dz, minT, ox, oy, oz, dx, dy, dz,
+                -venue.halfWidth, venue.halfWidth, 0, ceilY,
+                -Infinity, Infinity, 0, 0, -1, out);
+        }
+        // Doorway jambs and stairwell / gallery inner side walls at x = ±stair.halfWidth, plus outer vestibule walls
+        if (dx > 1e-6) {
+            this._considerEntranceHit((stair.halfWidth - 0.012 - ox) / dx, minT, ox, oy, oz, dx, dy, dz,
+                -Infinity, Infinity, 0, venue.streetLevel + 0.46,
+                -0.30, venue.farZ + 0.3, -1, 0, 0, out);
+            this._considerEntranceHit((venue.halfWidth - 0.02 - ox) / dx, minT, ox, oy, oz, dx, dy, dz,
+                -Infinity, Infinity, 0, ceilY,
+                venue.wallZ, venue.farZ + 0.3, -1, 0, 0, out);
+        } else if (dx < -1e-6) {
+            this._considerEntranceHit((-stair.halfWidth + 0.012 - ox) / dx, minT, ox, oy, oz, dx, dy, dz,
+                -Infinity, Infinity, 0, venue.streetLevel + 0.46,
+                -0.30, venue.farZ + 0.3, 1, 0, 0, out);
+            this._considerEntranceHit((-venue.halfWidth + 0.02 - ox) / dx, minT, ox, oy, oz, dx, dy, dz,
+                -Infinity, Infinity, 0, ceilY,
+                venue.wallZ, venue.farZ + 0.3, 1, 0, 0, out);
         }
 
         return Number.isFinite(out.t);
@@ -1272,6 +1511,11 @@ class VRClubEffects extends VRClubFixtures {
         batch.rays.thinInstanceCount = rayCount;
         batch.spots.thinInstanceBufferUpdated('matrix');
         batch.rays.thinInstanceBufferUpdated('matrix');
+        this._updateMirrorReflectionColors();
+    }
+
+    _updateMirrorReflectionColors() {
+        const batch = this.mirrorReflectionBatch;
         const master = this.masterIntensity == null ? 1 : Math.min(1, Math.max(0, this.masterIntensity));
         this.mirrorBallSpotlightColor.scaleToRef(1.2 * master * (1 + (this.kickPulse || 0) * 0.35), batch.spotMat.emissiveColor);
         this.mirrorBallSpotlightColor.scaleToRef(master, batch.rayMat.emissiveColor);

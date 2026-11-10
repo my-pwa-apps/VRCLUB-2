@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
+import { readClubSource } from './club-sources.mjs';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import vm from 'node:vm';
@@ -145,7 +146,7 @@ test('An old-style source completing late cannot populate the new crowd source a
     const { club, context, window } = fixture();
     context.VRClubUI = class {};
     context.BABYLON = { Color3: class {} };
-    vm.runInContext(readFileSync(join(root, 'js', 'club', '11-audio-crowd.js'), 'utf8'), context);
+    vm.runInContext(readClubSource(join(root, 'js', 'club', '11-audio-crowd.js')), context);
     let finish;
     club._loadAvatarSource = () => new Promise(resolve => { finish = resolve; });
     club._loadCrowdSource = window.VRClubAudioCrowd.prototype._loadCrowdSource;
@@ -186,7 +187,10 @@ test('The fictional DJ recipes retain reference-inspired hair and plain dark clo
     const male = recipes.find(recipe => recipe.id === catalog.npcs['dj-male']);
     const female = recipes.find(recipe => recipe.id === catalog.npcs['dj-female']);
     assert.equal(male.id, 'jin'); assert.equal(female.id, 'zara');
-    assert.equal(male.hair, 'short03'); assert.equal(female.hair, 'long01');
+    assert.equal(male.hair, 'long01'); assert.equal(female.hair, 'long01');
+    assert.equal(male.hairShape, 'loose-nape-waves');
+    assert.ok(male.age >= 0.8, 'the male DJ retains his mature build and face');
+    assert.equal(male.skin, 'old_caucasian_male');
     assert.ok(male.hairTint.every(value => value < 0.1));
     assert.ok(female.hairTint[0] > female.hairTint[1] && female.hairTint[1] > female.hairTint[2]);
     for (const recipe of [male, female]) {
@@ -197,7 +201,7 @@ test('The fictional DJ recipes retain reference-inspired hair and plain dark clo
     }
 });
 
-test('All 34 distinct CC0 adults have bounded geometry, measured eyes and complete role/player clips', async () => {
+test('All 34 distinct licensed adults have bounded geometry, measured eyes and complete role/player clips', async () => {
     const { window } = fixture(), catalog = window.CharacterCatalog;
     const recipes = JSON.parse(readFileSync(join(root, 'design', 'characters', 'recipes.json')));
     const io = new NodeIO();
@@ -209,7 +213,7 @@ test('All 34 distinct CC0 adults have bounded geometry, measured eyes and comple
     const playerIds = new Set(Object.values(catalog.players));
     for (const [id, person] of Object.entries(catalog.people)) {
         const recipe = recipes.find(p => p.id === id);
-        assert.equal(recipe.license, 'CC0-1.0');
+        assert.equal(recipe.license, id === 'asha' ? 'CC0-1.0 AND CC-BY-4.0' : 'CC0-1.0');
         assert.ok(recipe.age >= 0.5);
         assert.ok(person.eye[1] > person.height * 0.85 && person.eye[1] < person.height);
         const bytes = readFileSync(join(root, person.url));
