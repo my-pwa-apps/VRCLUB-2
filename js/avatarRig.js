@@ -396,6 +396,7 @@ class AvatarRig {
 
         this._measure(options.eyeHeight || 1.7);
         this._measureHeadphones();
+        if (options.djPointing) this._initDJPointing(hierarchy, strip);
         if (!allowCustom) AvatarRig.enableFrustumCulling(root, this.meshes);
         this.ok = true;
     }
@@ -1063,6 +1064,38 @@ class AvatarRig {
 
         // Hand the finished pose back to the real nodes (the skeleton reads these at render).
         for (let i = 0; i < this.order.length; i++) this.order[i].rotationQuaternion.copyFrom(this.Lq[i]);
+        if (this._djPointFingers) this._applyDJPointing(pose.right && pose.right.point || 0);
+    }
+
+    _initDJPointing(hierarchy, strip) {
+        const side = this.sideL < 0 ? 'r' : 'l';
+        const index = this.bone[`index_01_${side}`], pinky = this.bone[`pinky_01_${side}`];
+        index.computeWorldMatrix(true);
+        pinky.computeWorldMatrix(true);
+        const axis = pinky.getAbsolutePosition().subtract(index.getAbsolutePosition()).normalize();
+        const byName = new Map(hierarchy.map(node => [node.name, node]));
+        const fingers = [];
+        for (const digit of ['middle', 'ring', 'pinky']) {
+            for (let joint = 1; joint <= 3; joint++) {
+                const node = byName.get(`${strip}${digit}_0${joint}_${side}`);
+                if (!node) return;
+                if (!node.rotationQuaternion) node.rotationQuaternion = BABYLON.Quaternion.FromEulerAngles(node.rotation.x, node.rotation.y, node.rotation.z);
+                node.computeWorldMatrix(true);
+                const inverse = node.getWorldMatrix().clone().invert();
+                const localAxis = BABYLON.Vector3.TransformNormal(axis, inverse).normalize();
+                fingers.push({ node, axis: localAxis, rest: node.rotationQuaternion.clone() });
+            }
+        }
+        this._djPointFingers = fingers;
+        this._djPointDelta = new BABYLON.Quaternion();
+    }
+
+    _applyDJPointing(amount) {
+        const angle = Math.max(0, Math.min(1, amount)) * 1.05;
+        for (const finger of this._djPointFingers) {
+            BABYLON.Quaternion.RotationAxisToRef(finger.axis, angle, this._djPointDelta);
+            finger.rest.multiplyToRef(this._djPointDelta, finger.node.rotationQuaternion);
+        }
     }
 
     /** Orient a hand to a controller: fingers along its forward, thumb side along its up. */

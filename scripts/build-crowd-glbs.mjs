@@ -406,7 +406,7 @@ const TAU = 2 * Math.PI;
 const CLAP_TOUCH = 0.017;
 // The grooves `--refresh-static` re-authors on the shipped dancers (no asset packs needed). Names only: see GROOVES.
 const REFRESHED_GROOVES = ['Groove_Bounce', 'Groove_SideTap', 'Groove_Clap', 'Groove_ClapUp', 'Groove_Pump', 'Groove_Twist', 'Groove_HandsUp',
-    'Groove_Sway', 'Groove_ArmsWide', 'Groove_ArmsUp', 'Groove_Still'];
+    'Groove_Sway', 'Groove_ArmsWide', 'Groove_ArmsUp', 'Groove_Still', 'Groove_Roll', 'Groove_Skank'];
 /** 1 on the beat, 0 half way to the next: the shape of a bounce that lands on the beat. */
 const onBeat = beat => 0.5 + 0.5 * Math.cos(TAU * beat);
 /**
@@ -427,6 +427,40 @@ const stepped = (keys, beat) => {
 };
 
 const GROOVES = [
+    {
+        name: 'Groove_Roll', beats: 8,
+        pose: b => {
+            const p = dip(b), w = Math.sin(TAU * b / 4), c = Math.cos(TAU * b / 4);
+            const follow = Math.sin(TAU * (b - 0.2) / 4);
+            return {
+                hip: [0.035 * w, -(0.035 + 0.04 * p), 0.02 * c],
+                hipRot: [0.06 + 0.04 * p, 0.12 * w, 0.07 * w],
+                spine: [0.06 * c, -0.15 * follow, -0.1 * follow],
+                head: [0.08 * dip(b - 0.13), 0.1 * follow, 0.08 * follow],
+                hands: {
+                    R: { at: [0.07 + 0.05 * w, -0.25 + 0.06 * c, 0.2 + 0.05 * follow] },
+                    L: { at: [-0.07 + 0.05 * w, -0.25 - 0.06 * c, 0.2 - 0.05 * follow] }
+                }
+            };
+        }
+    },
+    {
+        name: 'Groove_Skank', beats: 8,
+        pose: b => {
+            const p = dip(b), w = Math.sin(Math.PI * b), a = Math.sin(Math.PI * (b - 0.15));
+            const phrase = Math.sin(TAU * b / 8);
+            return {
+                hip: [0.035 * w, -(0.04 + 0.045 * p), 0.015 * w],
+                hipRot: [0.12 + 0.04 * p, 0.13 * w, 0.06 * w],
+                spine: [0.04, -0.14 * a, -0.05 * a],
+                head: [0.08 * dip(b - 0.13), 0.08 * phrase, 0.04 * a],
+                hands: {
+                    R: { at: [0.08, -0.25 + 0.08 * a, 0.18 + 0.1 * a] },
+                    L: { at: [-0.08, -0.25 - 0.08 * a, 0.18 - 0.1 * a] }
+                }
+            };
+        }
+    },
     {
         // Knees bend down on every beat, weight rocks side to side every two beats, arms swing low with bent elbows, head
         // nods. Eight beats long: the hips drop first and the chest, head and hands follow a beat's fraction later

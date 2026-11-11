@@ -193,7 +193,7 @@ test('All fourteen detailed dancers retain rigid limbs, planted claps and anatom
             const sample = () => Object.fromEntries(['UpperLeg.L', 'LowerLeg.L', 'Foot.L', 'UpperLeg.R', 'LowerLeg.R', 'Foot.R',
                 'Wrist.L', 'Wrist.R', 'Middle2.L', 'Middle2.R'].map(name => [name, at(name)]));
             const dances = entry.animationGroups.filter(group => group.name === 'Dance_Loop' || group.name.startsWith('Groove_'));
-            assert.equal(dances.length, 11);
+            assert.equal(dances.length, 13);
             for (const group of dances) {
                 for (const channel of group.targetedAnimations) channel.animation.enableBlending = false;
                 group.start(false); group.pause(); group.goToFrame(group.from);

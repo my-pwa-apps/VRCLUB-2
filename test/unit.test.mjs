@@ -150,6 +150,21 @@ test('DEV activities follow actual surfaces, clear fixed people and use the real
     assert.deepEqual([...seen].sort(), ['balcony', 'dance', 'seat', 'street']);
 });
 
+test('DEV indoor conversations keep partners close and turn toward the side of their face', async () => {
+    const { DevAttendees, DEV_DESTINATIONS } = await import('../worker/src/devAttendees.js');
+    const places = DEV_DESTINATIONS.filter(place => place.group === 'inside-mid');
+    for (let i = 0; i < places.length; i++) for (let j = i + 1; j < places.length; j++) {
+        const gap = Math.hypot(places[i].x - places[j].x, places[i].z - places[j].z);
+        assert.ok(gap >= 0.8 && gap <= 0.91);
+    }
+    const simulation = new DevAttendees(123, 0), first = simulation.add(0), second = simulation.add(1);
+    first.destination = places[0]; first.position = { ...places[0] };
+    second.destination = places[1]; second.position = { ...places[1] };
+    simulation._socialize();
+    assert.equal(first.state.talking, true);
+    assert.ok(Math.abs(first.state.rotY - Math.atan2(second.position.x - first.position.x, second.position.z - first.position.z) - 0.2) < 1e-9);
+});
+
 test('DEV activity decisions are frame-rate independent and never walk into a real guest', async () => {
     const { DevAttendees } = await import('../worker/src/devAttendees.js');
     const a = new DevAttendees(456, 0), b = new DevAttendees(456, 0);
@@ -4294,6 +4309,25 @@ function minglerHarness(guestTarget = 8) {
     return { Crowd, club, slots, npcs, mingler, minglerIndex, playing };
 }
 
+test('mingling guests lean in by turns and return upright after talking', () => {
+    const { club, mingler, npcs } = minglerHarness();
+    const route = club._minglerRoute();
+    const index = route.nodes.findIndex(node => node.guest === 0);
+    const node = route.nodes[index], partner = npcs[0];
+    mingler.mingle.node = index;
+    mingler.root.position.x = node.x;
+    mingler.root.position.z = node.z;
+    club._minglerArrive(mingler, route, node);
+    for (let i = 0; i < 30; i++) club._updateMingler(0.1);
+    assert.ok(mingler.root.rotation.x > 0.06);
+    assert.ok(partner.root.rotation.x > 0.02);
+    assert.ok(mingler.root.rotation.x > partner.root.rotation.x);
+    club._minglerDepart(mingler, route);
+    for (let i = 0; i < 30; i++) club._updateMingler(0.1);
+    assert.equal(mingler.root.rotation.x, 0);
+    assert.equal(partner.root.rotation.x, 0);
+});
+
 test('exactly one side guest walks the room, and his round never crosses anybody standing in it', () => {
     const BABYLON = makeBabylonStub();
     const { window } = loadClassic('js/club/11-audio-crowd.js', { BABYLON, VRClubUI: class {}, log: { info() {}, warn() {}, error() {} } });
@@ -4630,7 +4664,7 @@ test('the crowd character files: one skin, one draw, vertex-coloured, only the c
         const natives = ['Idle', 'Run', 'Walk', 'Wave'];   // the packs' own clips, kept for the guests who walk the room
         // The dancers on the floor also carry the procedural grooves the choreographer switches between (js/crowdDance.js).
         const grooves = ['Groove_Bounce', 'Groove_SideTap', 'Groove_Clap', 'Groove_ClapUp', 'Groove_Pump', 'Groove_Twist', 'Groove_HandsUp', 'Groove_Sway',
-            'Groove_ArmsWide', 'Groove_ArmsUp', 'Groove_Still'];
+            'Groove_ArmsWide', 'Groove_ArmsUp', 'Groove_Still', 'Groove_Roll', 'Groove_Skank'];
         const expected = (guests.has(id)
             ? ['Dance_Loop', 'Idle_FoldArms_Loop', 'Idle_Loop', 'Idle_TalkingPhone_Loop', 'Idle_Talking_Loop', 'Yes']
             : ['Dance_Loop', 'Yes', ...grooves]).concat(natives, id === 'bouncer' ? [] : ['Seated_Loop', 'Seated_Low_Loop']).sort();
@@ -4846,6 +4880,32 @@ test('underground sequence tells all six scenes on bar lines and never flickers'
     club.vjDirector.beatNumber = 840; frame += 40;
     club.patternUndergroundSequence(colour, 2010, audio);            // wall pattern was away
     assert.equal(club._ug.b0, b0, 'a wall interruption restarted the film instead of preserving its progress');
+});
+
+test('DATAFALL animates every LED column instead of leaving permanent black gaps', () => {
+    const BABYLON = makeBabylonStub();
+    const { LEDPatterns } = loadClassic('js/ledPatterns.js', { BABYLON }).window;
+    const cols = 21, rows = 10, bpm = 128;
+    const peaks = new Float32Array(cols);
+    const club = Object.assign({
+        ledCols: cols, ledRows: rows, bpm, vjDirector: { beatNumber: 0 }, barPhase: 0,
+        ledPanels: Array.from({ length: cols * rows }, (_, i) => ({ col: i % cols, row: Math.floor(i / cols) }))
+    }, LEDPatterns, {
+        updateLEDPanel(panel, color, level) { peaks[panel.col] = Math.max(peaks[panel.col], level); }
+    });
+    const colour = new BABYLON.Color3(0.2, 0.5, 1);
+    const audio = { hasAudio: true, bass: 0.7 };
+    club.patternUndergroundSequence(colour, 0, audio);
+    for (let frame = 0; frame < 6 * 4 * 60 / bpm * 60; frame++) {
+        const time = 24 * 4 * 60 / bpm + frame / 60;
+        const beat = time * bpm / 60;
+        club.vjDirector.beatNumber = Math.floor(beat);
+        club.barPhase = (beat % 4) / 4;
+        club.patternUndergroundSequence(colour, time, audio);
+    }
+    for (let col = 0; col < cols; col++) {
+        assert.ok(peaks[col] > 0.5, `column ${col} stayed dark throughout DATAFALL`);
+    }
 });
 
 test('the breathing wall paints the show colour, so a harmony can reach it', () => {
@@ -13677,6 +13737,9 @@ function perform(dj, seconds, { energy = 0.5, hasAudio = true, visitors = null, 
             leftY: pose.left.y,
             rightX: pose.right.x,
             rightY: pose.right.y,
+            rightZ: pose.right.z,
+            rightPoint: pose.right.point,
+            headYaw: pose.headYaw,
             goalLeftTwist: dj._goalL.uy,
             goalRightTwist: dj._goalR.uy,
             pose
@@ -13696,7 +13759,7 @@ test('the DJ changes what they are doing only on bar lines, and does more than o
         }
     }
     for (const a of ['mix', 'cue', 'tweak', 'crowd']) assert.ok(seen.has(a), `never did ${a} in two minutes`);
-    assert.ok(!seen.has('wave'), 'nobody came by, so nobody was waved at');
+    assert.ok(!seen.has('point'), 'nobody came by, so nobody was acknowledged');
     // Same pose object every frame: nothing allocated per frame.
     assert.ok(frames.every(f => f.pose === frames[0].pose));
     assert.ok(frames.every(f => Number.isFinite(f.pitch) && Number.isFinite(f.pose.left.y) && Number.isFinite(f.pose.right.z)));
@@ -13713,7 +13776,7 @@ test('the DJ puts their hands up on the drop, and works the controller while mix
         assert.ok(Math.abs(hand.x - desk.cx) < desk.halfWidth, `hand at x ${hand.x}, off the controller`);
     }
     let dropAt = null;
-    const frames = perform(dj, 6, { t0: 3, each: (music, t) => { if (dropAt === null && t > 4) { music.drop = true; dropAt = t; } } });
+    const frames = perform(dj, 12, { t0: 3, each: (music, t) => { if (dropAt === null && t > 4) { music.drop = true; dropAt = t; } } });
     const at = frames.findIndex(f => f.t >= dropAt);
     assert.equal(frames[at].activity, 'handsUp', 'a drop puts the hands up at once');
     const up = frames[Math.min(frames.length - 1, at + 50)];
@@ -13738,7 +13801,7 @@ test('the DJ never beat-pumps a crowd arm and uses only one finite lift on a rea
         'sustained loud music never starts a hands-up loop');
     const celebrate = loadDJPerformer().dj;
     celebrate._begin('handsUp', 99);
-    const frames = perform(celebrate, 4, { energy: 1 });
+    const frames = perform(celebrate, 10, { energy: 1 });
     for (const key of ['leftY', 'rightY']) {
         let peaks = 0, rising = true;
         for (let i = 1; i < frames.length; i++) {
@@ -13756,26 +13819,75 @@ test('the DJ never beat-pumps a crowd arm and uses only one finite lift on a rea
     assert.ok(repeated._lastCelebrationAt < 0.1, 'nearby drop edges do not repeat the lift');
 });
 
-test('the DJ waves at someone who walks up to the booth, once, and looks their way', () => {
+test('the DJ holds a four-bar peak gesture without a bar line cutting it short', () => {
+    for (const bpm of [120, 160]) for (const fps of [30, 90]) for (const offset of [0, 2, 3.8]) {
+        const { dj } = loadDJPerformer();
+        const rate = bpm / 60, dt = 1 / fps;
+        const music = { hasAudio: true, bpm, energy: 0.9, beatPhase: 0, bar: 0, drop: false };
+        let startedAt = null, overheadSeconds = 0, returned = false;
+        for (let frame = 0; frame < (8 + offset + 21) / rate * fps; frame++) {
+            const time = frame * dt, beat = time * rate;
+            music.beatPhase = beat % 1;
+            music.bar = Math.floor(beat / 4);
+            music.drop = startedAt === null && beat >= 8 + offset;
+            if (music.drop) startedAt = time;
+            const pose = dj.update(dt, music);
+            if (startedAt === null) continue;
+            const elapsedBeats = (time - startedAt) * rate;
+            const label = `${bpm} BPM, ${fps} Hz, drop ${offset} beats into the bar`;
+            if (elapsedBeats < 15.9) assert.equal(dj.activity, 'handsUp', `${label}: peak cut short`);
+            if (elapsedBeats >= 2 && elapsedBeats <= 13.5) {
+                assert.ok(pose.left.y > pose.eyeY && pose.right.y > pose.eyeY, `${label}: hands lowered during the hold`);
+            }
+            if (pose.left.y > pose.eyeY && pose.right.y > pose.eyeY) overheadSeconds += dt;
+            if (elapsedBeats >= 20) returned ||= dj.activity !== 'handsUp';
+        }
+        assert.ok(overheadSeconds >= 11.5 / rate, 'the overhead hold must occupy most of the four-bar gesture');
+        assert.ok(returned, 'the DJ must return to work after the gesture');
+    }
+});
+
+test('the DJ peak gesture follows a tempo change without jumping to its end', () => {
+    const { dj, desk } = loadDJPerformer();
+    dj._begin('handsUp', 99);
+    const dt = 1 / 60;
+    let beat = 0;
+    while (beat < 18) {
+        const bpm = beat < 8 ? 120 : 180;
+        const pose = dj.update(dt, { hasAudio: true, bpm, energy: 0.9, beatPhase: beat % 1, bar: Math.floor(beat / 4) });
+        beat += dt * bpm / 60;
+        if (beat >= 12 && beat <= 13.5) {
+            assert.ok(pose.left.y > pose.eyeY && pose.right.y > pose.eyeY, 'a faster tempo ended the hold early');
+        }
+    }
+    for (const hand of [dj.pose.left, dj.pose.right]) {
+        assert.ok(Math.abs(hand.y - desk.top - 0.035) < 0.002, 'the hands must return after sixteen beats');
+    }
+});
+
+test('the DJ briefly points at someone who walks up to the booth, once, and looks their way', () => {
     const { dj, DJPerformer } = loadDJPerformer();
     const guest = { x: 2.5, z: -6, id: 'guest' };            // far back on the floor
     const visitors = [guest];
-    let waves = 0, last = dj.activity;
-    const count = (frames) => { for (const f of frames) { if (f.activity === 'wave' && last !== 'wave') waves++; last = f.activity; } };
+    let points = 0, last = dj.activity;
+    const count = (frames) => { for (const f of frames) { if (f.activity === 'point' && last !== 'point') points++; last = f.activity; } };
     count(perform(dj, 4, { visitors }));
-    assert.equal(waves, 0, 'nobody near the booth yet');
+    assert.equal(points, 0, 'nobody near the booth yet');
     guest.z = -15;                                            // walks up to the front of the booth
     const frames = perform(dj, 3, { visitors, t0: 4 });
     count(frames);
-    assert.equal(waves, 1, 'waves as they arrive');
-    assert.ok(dj.headYaw > 0.2, `looks toward the guest (head yaw ${dj.headYaw})`);
-    assert.ok(frames[60].rightY > frames[60].eyeY, 'with a raised hand');
+    assert.equal(points, 1, 'points as they arrive');
+    assert.ok(frames[60].headYaw > 0.2, 'looks toward the guest');
+    assert.ok(frames[60].rightPoint > 0.95, 'extends the pointing hand');
+    const gesture = frames.filter(frame => frame.activity === 'point');
+    assert.ok(gesture.length / 60 >= 1.7 && gesture.length / 60 <= 1.85, 'the point lasts briefly');
+    assert.ok(frames.at(-1).rightPoint < 0.01, 'the fingers relax after the point');
     guest.z = -6; count(perform(dj, 5, { visitors, t0: 7 }));
     guest.z = -15; count(perform(dj, 5, { visitors, t0: 12 }));
-    assert.equal(waves, 1, `not again within ${DJPerformer.WAVE_COOLDOWN} s`);
-    guest.z = -6; count(perform(dj, DJPerformer.WAVE_COOLDOWN, { visitors, t0: 17 }));
-    guest.z = -15; count(perform(dj, 3, { visitors, t0: 17 + DJPerformer.WAVE_COOLDOWN }));
-    assert.equal(waves, 2, 'but again after the cool-down');
+    assert.equal(points, 1, `not again within ${DJPerformer.POINT_COOLDOWN} s`);
+    guest.z = -6; count(perform(dj, DJPerformer.POINT_COOLDOWN, { visitors, t0: 17 }));
+    guest.z = -15; count(perform(dj, 3, { visitors, t0: 17 + DJPerformer.POINT_COOLDOWN }));
+    assert.equal(points, 2, 'but again after the cool-down');
 });
 
 test('the DJ chooses the nearest new visitor regardless of array order and keeps attention locked', () => {
@@ -13786,17 +13898,46 @@ test('the DJ chooses the nearest new visitor regardless of array order and keeps
         const visitors = reverse ? [near, far] : [far, near];
         perform(dj, 1, { visitors: visitors.map(v => ({ ...v, z: -8 })) });
         perform(dj, 0.1, { visitors, t0: 1 });
-        assert.equal(dj.activity, 'wave');
+        assert.equal(dj.activity, 'point');
         assert.equal(dj._visitor.id, 'near', 'array order won over visitor salience');
         const lockedYaw = dj._goalYaw;
         far.x = -0.2; far.z = -17.5;
         near.x = 2.2;
         perform(dj, 0.5, { visitors, t0: 1.1 });
-        assert.equal(dj._visitor.id, 'near', 'a later arrival stole attention during the wave');
+        assert.equal(dj._visitor.id, 'near', 'a later arrival stole attention during the point');
         assert.ok(dj._goalYaw > lockedYaw, 'the DJ did not keep tracking the chosen visitor');
         return dj._visitor.id;
     };
     assert.equal(run(false), run(true));
+});
+
+test('the DJ point duration is independent of tempo and frame rate, and a drop interrupts it', () => {
+    for (const fps of [30, 60, 90]) {
+        for (const bpm of [80, 175]) {
+            const { dj, DJPerformer } = loadDJPerformer();
+            const visitor = { x: 1, z: -16, id: 'guest' };
+            const music = { hasAudio: true, beatPhase: 0, bar: 0, energy: 0.6, drop: false, bpm };
+            let frames = 0;
+            do {
+                const beat = frames / fps * bpm / 60;
+                music.beatPhase = beat % 1;
+                music.bar = Math.floor(beat / 4);
+                dj.update(1 / fps, music, [visitor]);
+                frames++;
+            } while (dj.activity === 'point' && frames < fps * 3);
+            assert.ok(Math.abs((frames - 1) / fps - DJPerformer.POINT_DURATION) <= 1 / fps + 1e-6,
+                `${fps} Hz, ${bpm} BPM: unexpected point duration`);
+        }
+    }
+    const { dj } = loadDJPerformer();
+    const visitor = { x: 1, z: -16, id: 'guest' };
+    const music = { hasAudio: true, beatPhase: 0, bar: 0, energy: 0.8, drop: false, bpm: 124 };
+    dj.update(1 / 60, music, [visitor]);
+    assert.equal(dj.activity, 'point');
+    music.drop = true;
+    dj.update(1 / 60, music, [visitor]);
+    assert.equal(dj.activity, 'handsUp');
+    assert.equal(dj._visitor.id, null);
 });
 
 test('the DJ nods and bounces on the beat, deeper when the music is louder', () => {
@@ -13818,10 +13959,68 @@ test('the DJ nods and bounces on the beat, deeper when the music is louder', () 
     assert.ok(Math.max(...onBeat.map(f => f.eyeY)) < Math.min(...offBeat.map(f => f.eyeY)), 'down on the beat, up between');
 });
 
+test('the DJ keeps nodding evenly through missed beats and follows a real phase change smoothly', () => {
+    for (const fps of [30, 60, 90]) {
+        const { dj } = loadDJPerformer();
+        const reference = loadDJPerformer().dj;
+        dj._begin('mix', 99);
+        reference._begin('mix', 99);
+        let worstBounceError = 0;
+        for (let frame = 0; frame < fps * 12; frame++) {
+            const beat = frame / fps * 124 / 60;
+            const whole = Math.floor(beat), phase = beat % 1;
+            // A missed kick leaves the director's phase clamped at 1 until the flywheel catches up.
+            const observed = whole % 4 === 2 && phase < 0.5 ? 0 : phase;
+            const music = { hasAudio: true, bpm: 124, energy: 0.8, bar: Math.floor(beat / 4), beatPhase: observed };
+            const pose = dj.update(1 / fps, music);
+            music.beatPhase = phase;
+            const ideal = reference.update(1 / fps, music);
+            worstBounceError = Math.max(worstBounceError, Math.abs(pose.eyeY - ideal.eyeY));
+        }
+        assert.ok(worstBounceError < 0.006, `${fps} Hz: missed beats distorted the bounce by ${worstBounceError} m`);
+
+        let previousY = dj.pose.eyeY, worstStep = 0, finalError = 0;
+        for (let frame = 0; frame < fps * 4; frame++) {
+            const phase = ((12 + frame / fps) * 124 / 60 + 0.22) % 1;
+            const music = { hasAudio: true, bpm: 124, energy: 0.8, bar: 8, beatPhase: phase };
+            const pose = dj.update(1 / fps, music);
+            worstStep = Math.max(worstStep, Math.abs(pose.eyeY - previousY));
+            previousY = pose.eyeY;
+            const accent = Math.max(0, Math.cos(2 * Math.PI * (phase - 0.08))) ** 2;
+            finalError = Math.abs(pose.eyeY - (dj.home.groundY + dj.eye - (0.007 + 0.024 * 0.8) * accent));
+        }
+        assert.ok(worstStep < 0.013, `${fps} Hz: phase correction snapped the body by ${worstStep} m`);
+        assert.ok(finalError < 0.001, `${fps} Hz: the DJ did not settle onto the new beat`);
+    }
+});
+
+test('a sparse audio frame does not switch the DJ to the silent clock or consume activity bars', () => {
+    let now = 1000;
+    const { VRClubAudioCrowd } = loadClassic('js/club/11-audio-crowd.js', {
+        VRClubUI: class {}, performance: { now: () => now }
+    }).window;
+    const club = {
+        _djRig: { ok: true, root: { isEnabled: () => true }, update() {} },
+        _djPerformer: { update() {} },
+        vjDirector: { bpm: 124, beatNumber: 32 }, barPhase: 0.1,
+        _unanalysedDanceMusic: () => null, _playerCamera: () => null
+    };
+    const update = hasAudio => VRClubAudioCrowd.prototype._updateDJ.call(club, 1 / 60, { hasAudio, energy: 0.8 });
+    update(true);
+    assert.equal(club._djMusic.hasAudio, true);
+    const bar = club._djMusic.bar;
+    now += 100;
+    update(false);
+    assert.equal(club._djMusic.hasAudio, true, 'one quiet frame switched the DJ off the music grid');
+    assert.equal(club._djMusic.bar, bar);
+    now += 1500;
+    update(false);
+    assert.equal(club._djMusic.hasAudio, false, 'genuine silence must still reach the DJ');
+});
+
 test('the DJ uses deliberate, asymmetric role gestures instead of mirrored continuous loops', () => {
     const { dj, DJPerformer } = loadDJPerformer();
     assert.equal(DJPerformer.ACTIVITIES.cue.bars, 2, 'cueing holds the headphone for too long');
-    assert.equal(DJPerformer.ACTIVITIES.handsUp.bars, 1, 'a drop reaction should be an accent, not a section');
     assert.equal(DJPerformer._turnGesture(0.3), 1);
     assert.equal(DJPerformer._turnGesture(0.6), 1, 'a knob turn needs a readable hold');
     assert.ok(DJPerformer._turnGesture(0.05) < DJPerformer._turnGesture(0.15));
@@ -13842,19 +14041,6 @@ test('the DJ uses deliberate, asymmetric role gestures instead of mirrored conti
     assert.ok(Math.max(...celebrating.map(frame => Math.abs(frame.leftY - frame.rightY))) > 0.035,
         'hands-up remains perfectly mirrored');
 
-    dj._visitor.x = 2;
-    dj._visitor.z = -15;
-    dj._visitor.id = 'guest';
-    dj._begin('wave', 99);
-    const waving = perform(dj, 2.4, { t0: 6 });
-    let crossings = 0;
-    let previous = Math.sign(waving[0].rightX - (dj.home.x + 0.3));
-    for (const frame of waving.slice(1)) {
-        const sign = Math.sign(frame.rightX - (dj.home.x + 0.3));
-        if (sign && previous && sign !== previous) crossings++;
-        if (sign) previous = sign;
-    }
-    assert.ok(crossings >= 3 && crossings <= 6, `the wave changed direction ${crossings} times`);
 });
 
 // ---------------------------------------------------------------------------
@@ -14176,7 +14362,7 @@ function loadCrowdDance(seed = 11) {
 }
 const ALL_MOVES = ['Dance_Loop', 'Groove_Bounce', 'Groove_SideTap', 'Groove_Clap', 'Groove_Pump', 'Groove_Twist', 'Groove_HandsUp', 'Groove_Sway'];
 // What a freshly built dancer file carries: the older moves plus the overhead clap and the two free no-beat moves.
-const FULL_MOVES = [...ALL_MOVES, 'Groove_ClapUp', 'Groove_ArmsWide', 'Groove_ArmsUp'];
+const FULL_MOVES = [...ALL_MOVES, 'Groove_ClapUp', 'Groove_ArmsWide', 'Groove_ArmsUp', 'Groove_Roll', 'Groove_Skank'];
 
 /**
  * Play a dancer like the club does: the clip advances at the speed the choreographer asks for (a loop is beats x 0.5 s at

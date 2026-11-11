@@ -188,6 +188,8 @@ rather than cut; nothing may flicker above 3 Hz per panel or step the whole fiel
 38-bar solo. Its beat origin survives another pattern taking the wall; the scene frame
 counter detects that interruption only to clear stale phosphor trails. Only its first frame
 or a reset beat clock starts a new film, never a slow frame or headset hitch.
+DATAFALL runs staggered drops on every column; gaps come from the drop cycles,
+never a fixed mask that permanently disables columns.
 New patterns are appended to the playlist: looks refer to them by index.
 
 `patternWarehouse` (index 19) is the wall as a club screen: eight beat-cut shape programs
@@ -279,14 +281,23 @@ set-piece starting or the movement entering `ignition`) and the visitors (this g
 - Activities: `mix` (a deliberate jog-wheel nudge plus a turn-hold-release mixer gesture), `cue` (a headphone cup held
   to the ear, PALM on the cup: the thumb side points back, so the back of the hand faces outward; a unit test fails if
   it reverts), `tweak` (alternating hands on knobs rather than mirrored wrist loops),
-  `crowd` (looking out with both hands resting on the console), `handsUp` (one staggered raise, hold and return on a
-  drop, palms facing the crowd, never repeated beat pumping; at most once per `CELEBRATION_COOLDOWN` = 24 s,
-  never from sustained loudness alone) and `wave` (a slower finite gesture, palm toward the visitor, at a visitor who walks into  the zone in front of the booth, once per `WAVE_COOLDOWN` = 45 s each). Activities change ONLY on bar lines, except the
-  drop and the wave, which cut in. Simultaneous arrivals are ranked by distance with a small centre-line salience
-  tie-break, not array order; a wave locks attention to that visitor and tracks them until the gesture ends. With no
+  `crowd` (looking out with both hands resting on the console), `handsUp` (one four-bar staggered raise, long hold and return on a
+  drop, about eight seconds at 120 BPM, palms facing the crowd, never repeated beat pumping; at most once per `CELEBRATION_COOLDOWN` = 24 s,
+  never from sustained loudness alone) and `point` (a brief 1.8 s point and look at a visitor who walks into the zone
+  in front of the booth, once per `POINT_COOLDOWN` = 45 s each). Resident DJ rigs curl the other fingers while extending
+  the index; unsupported custom skeletons retain the hand gesture without finger posing.
+  The hands-up gesture always finishes its full sixteen integrated beats before returning on the next bar line, so a late-bar
+  peak cannot cut it short and tempo changes cannot jump its pose.
+  Activities change ONLY on bar lines, except the
+  drop and the point, which cut in; a point ends on elapsed time and a drop can interrupt it. Simultaneous arrivals are
+  ranked by distance with a small centre-line salience tie-break, not array order; a point locks attention to that visitor
+  and tracks them until the gesture ends. With no
   music it keeps its own 118 BPM and never throws its hands up.
 - A short nod and knee compression land just after each beat and deepen with energy instead of following a continuous
-  cosine. Subtle gaze and breathing offsets keep held poses alive. Everything is eased; the pose object and its hands
+  cosine. Their tempo-integrated phase follows detector corrections at at most 0.12 beats/s
+  instead of freezing or snapping with a missed kick. Audible state holds for two beats
+  (at least one second), like the crowd, before returning to the silent clock.
+  Subtle gaze and breathing offsets keep held poses alive. Everything is eased; the pose object and its hands
   are reused (no per-frame allocation).
 - **Placement is measured, not guessed.** The desk is `console_final`'s world bounds (`_djDesk()`, with a fallback);
   the DJ's eyes stand 0.18 m behind its near edge on the 0.5 m riser, eyes at 93% of the look's height. Both DJs' arms
@@ -296,9 +307,9 @@ set-piece starting or the movement entering `ignition`) and the visitors (this g
   Headset cost is unmeasured (~0.05-0.3 ms a frame on desktop SwiftShader).
 
 ### `js/crowdDance.js` — the crowd dances on the beat
-The Quaternius dancer files (not the three Mixamo files, not the guests) carry twelve authored moves: the retargeted
-`Dance_Loop` and eleven procedural grooves (`Groove_Bounce`, `_SideTap`, `_Clap`, `_ClapUp`, `_Pump`, `_Twist`, `_HandsUp`,
-`_Sway`, `_ArmsWide`, `_ArmsUp`, `_Still`) authored by `synthesize()` in `scripts/build-crowd-glbs.mjs` straight onto the modular rig: hips, spine and
+The Quaternius dancer files (not the three Mixamo files, not the guests) carry fourteen authored moves: the retargeted
+`Dance_Loop` and thirteen procedural grooves (`Groove_Bounce`, `_SideTap`, `_Clap`, `_ClapUp`, `_Pump`, `_Twist`, `_HandsUp`,
+`_Sway`, `_ArmsWide`, `_ArmsUp`, `_Still`, `_Roll`, `_Skank`) authored by `synthesize()` in `scripts/build-crowd-glbs.mjs` straight onto the modular rig: hips, spine and
 head angles plus wrist and ankle targets solved with two-bone IK, at `GROOVE_BPM` 120 and `GROOVE_FPS` 20, every loop a
 whole number of beats with a beat on its first key. A groove drives EXACTLY the bones `Dance_Loop` drives (Body, spine,
 neck, head, shoulders, arms, wrists, legs, the free feet), so switching between them never leaves a joint in the last
@@ -366,7 +377,7 @@ sources on the shipped dancers without the asset packs
   CC0 modular people; no Mixamo GLB is loaded or copied into the Quest build.
 - The club side (`11-audio-crowd.js`): `_crowdMusic()` computes `m.rhythm = !m.beatPresent && hasAudio && vj.rhythmPresent`
   (see the rhythm band in `js/vjDirector.js`) alongside the existing `m.beatPresent`, so `'rhythm'` only ever applies
-  when the kick is genuinely absent. `_spawnAvatar(..., { repertoire })` keeps the eight live groups (others disposed),
+  when the kick is genuinely absent. `_spawnAvatar(..., { repertoire })` keeps the thirteen live groups (others disposed),
   `npc.dance` holds `groups`, `current`, choreographer `state` and the scalar attention state; `npc.animations` is
   always `[current]` (so `_setAnimating` pauses and
   restarts the right one when a tier or district hides it), and `_updateCrowdDance()` (from `updateDancers`, before `updateDancingNPCs`,
@@ -1328,6 +1339,10 @@ cloth appearance and GPU/CPU cost on a physical Quest are unmeasured.
     route uses the centre of both doors to stay clear of the bouncer and queue. A unit test re-measures it. Corners
     are navigation only and are passed without a dwell; only social and named activity nodes stop. Moving any crowd,
     guest, bar, entrance or mezzanine slot means re-running that test.
+    Standing conversation stops keep 0.8-0.9 m between roots, turn slightly toward the partner's ear and alternate a
+    small, eased whole-body lean while talking. The balcony rail pose and bar service retain their measured contacts;
+    the lean returns to zero on departure. The shared clock supplies the same conversation phase in a room.
+    Real-GLB tests bound foot displacement; headset appearance is unmeasured.
   - **Height comes from the venue.** `_minglerSurfaceLevel()` reads `VenueLayout.vestibule.walkLevel()` and then
     `MezzanineLayout.walkLevel()`, so the same authoritative surfaces used by the player carry him up the entrance
     stair to street level and up the mezzanine stair to the deck. His collider and contact-shadow translations include
@@ -2511,6 +2526,8 @@ Occupied destinations are skipped; a newly occupied target causes safe backtrack
 Its 31 distinct international first names are fictional, never account identities.
 Resting groups of two or three face partners, gesture and exchange short scripted
 fictional chat balloons through existing block-aware chat; no voice or AI service.
+Indoor groups stand about 0.9 m apart and turn slightly toward one another's ear;
+outdoor groups retain their wider spacing.
 On alternate host-owned automatic IGNITION/release peak entries, one resting floor
 dancer may say "Het lijkt wel gabber!", at most once per minute room-wide and never
 repeated through a held peak. Only retained, validated host show state drives it;

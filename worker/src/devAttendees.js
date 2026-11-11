@@ -45,7 +45,7 @@ chain('left', 'front-mid', 'front-left');
 chain('right', 'front-right', 'lounge-front');
 for (const [group, x, anchor] of [['inside-left', -8, 'front-left'], ['inside-mid', -4, 'front-mid'],
     ['inside-right', 4.8, 'front-right']]) {
-    for (const [i, dx, dz] of [[0, -0.65, 0], [1, 0.65, 0], [2, 0, -1.1]]) {
+    for (const [i, dx, dz] of [[0, -0.45, 0], [1, 0.45, 0], [2, 0, -0.78]]) {
         destination(`${group}-${i}`, anchor, x + dx, -1.7 + dz, 'talk', { group });
     }
 }
@@ -353,7 +353,8 @@ export class DevAttendees {
             if (partners.length && bot.destination.activity !== 'toilet') {
                 const x = partners.reduce((sum, other) => sum + other.position.x, 0) / partners.length;
                 const z = partners.reduce((sum, other) => sum + other.position.z, 0) / partners.length;
-                if (!bot.state.seated) bot.state = { ...bot.state, rotY: Math.atan2(x - bot.position.x, z - bot.position.z),
+                const earAngle = bot.destination.activity === 'talk' && bot.destination.group.startsWith('inside-') ? 0.2 : 0;
+                if (!bot.state.seated) bot.state = { ...bot.state, rotY: Math.atan2(x - bot.position.x, z - bot.position.z) + earAngle,
                     talking: true };
             }
             if (this.clock >= bot.gestureAt && (partners.length || bot.state.dancing)) {

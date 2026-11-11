@@ -1208,13 +1208,12 @@ class LEDPatternMethods {
                 fresh[idx] = v; fw[idx] = 1;
             }
         } else if (scene === 4) {
-            // DATAFALL. Per-column drops with a long tail and a hot head; roughly a
-            // third of the columns are dormant so it reads as a terminal, not rain.
+            // DATAFALL. Every column carries drops with a long tail and a hot head;
+            // staggered cycles leave moving gaps instead of permanently dark strips.
             const fall = 1 + bass * 0.5;
             for (let p = 0; p < panels.length; p++) {
                 const panel = panels[p];
                 const c = panel.col;
-                if (this._ugHash(c * 3.1) < 0.33) continue;
                 const speed = (2.0 + this._ugHash(c + 7.7) * 3.2) * (bpm / 130) * fall;
                 const tail = 4 + this._ugHash(c + 41.3) * 4;
                 const period = rows + tail + 2;

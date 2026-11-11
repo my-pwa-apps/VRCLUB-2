@@ -35,6 +35,22 @@ test('a room-time mingler is identical for late joiners, render hitches and all 
     assert.notEqual(create(5678).period, reference.period, 'different rooms have independent deterministic dwell times');
 });
 
+test('indoor conversations keep a close, offset facing without changing bar service', () => {
+    const { club, route, create, window } = load(), clock = create(123);
+    const slots = club._guestSlots();
+    for (const node of route.nodes.filter(node => node.guest != null && !node.activity)) {
+        const partner = slots[node.guest];
+        const gap = Math.hypot(node.x - partner.x, node.z - partner.z);
+        assert.ok(gap >= 0.8 && gap <= 0.9, `conversation gap: ${gap}`);
+        const segment = clock.segments.find(item => item.node === route.nodes.indexOf(node) && item.activity === 'talk');
+        assert.ok(Math.abs(segment.yaw - Math.atan2(partner.x - node.x, partner.z - node.z) - 0.2) < 1e-9);
+    }
+    const bar = route.nodes.find(node => node.drink);
+    const order = clock.segments.find(item => item.node === route.nodes.indexOf(bar) && item.activity === 'order');
+    const bartender = window.VenueLayout.bar.bartender;
+    assert.ok(Math.abs(order.yaw - Math.atan2(bartender.x - bar.x, bartender.z - bar.z)) < 1e-9);
+});
+
 test('the shared round keeps two physical bar sips, rail before talk and canonical dwell even without partners', () => {
     const { create, route } = load(), clock = create(55);
     const barNode = route.nodes.findIndex(node => node.bartender);
