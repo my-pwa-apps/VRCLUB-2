@@ -11,7 +11,7 @@
     let invitationCode = '', invitationStep = null, accessPath = null;
     const SETUP_LEASE_HOLD_MS = 10 * 60 * 1000;
     let busy = false, inXR = false, leaseExpires = 0, leaseGeneration = 0, setupHoldUntil = 0;
-    let renewTimer, expiryTimer, setupHoldTimer, exiting = false;
+    let renewTimer, expiryTimer, setupHoldTimer, exiting = false, phonePairing = null;
     let exitXR = () => window.vrClub?.vrHelper?.baseExperience?.exitXRAsync();
     let notify = message => window.vrClub?.showErrorMessage?.(message);
 
@@ -52,6 +52,25 @@
             if (error.status === 401) return { items: null, signedIn: false };
             throw error;
         }
+    }
+    async function fetchLightingPresets() {
+        try {
+            return await api('/lighting');
+        } catch (error) {
+            if (error.status === 401) return { presets: null, signedIn: false };
+            throw error;
+        }
+    }
+    async function saveLightingPresets(presets, expectedUpdatedAt) {
+        return post('/lighting/save', { presets, expectedUpdatedAt });
+    }
+    async function syncPhoneMusic(library) {
+        if (!library || library.readError) throw new Error('Saved music on this device cannot be read. Recover it first.');
+        const result = await fetchMusic();
+        if (result.signedIn === false) throw new Error('Link this device to your verified account first.');
+        if (result.items === null) return { ...result, unchanged: true };
+        if (library.readError) throw new Error('Saved music on this device cannot be read. Recover it first.');
+        return { ...result, ...library.replaceAll(result.items) };
     }
     function setStatus(message, error = false) {
         if (!status) return;
@@ -640,8 +659,8 @@
         return { state: 'ready' };
     }
     /** Asks the service for a pairing code to enter on a phone (see worker/src/deviceLink.js). */
-    async function linkStart() {
-        const result = await post('/link/start', {});
+    async function linkStart(options = {}) {
+        const result = await post('/link/start', {}, options);
         return {
             linkId: result.linkId, secret: result.secret, code: result.code,
             expiresInMs: (result.expiresInSeconds || 600) * 1000, intervalMs: (result.intervalSeconds || 3) * 1000
@@ -651,9 +670,9 @@
      * One poll of a pairing code. Resolves 'pending', 'expired' (ask for a new code), or 'approved' once this device has
      * been registered and given its own session, in which case the access state is updated like any other check.
      */
-    async function linkPoll(link) {
+    async function linkPoll(link, options = {}) {
         try {
-            const result = await post('/link/poll', { linkId: link.linkId, secret: link.secret });
+            const result = await post('/link/poll', { linkId: link.linkId, secret: link.secret }, options);
             if (result.status !== 'approved') return result.status === 'pending' ? 'pending' : 'expired';
             update({ ...result, recoveryRequired: false });
             return 'approved';
@@ -661,6 +680,73 @@
             if (error.status === 410 || error.status === 404) return 'expired';
             throw error;
         }
+    }
+    /** A cancellable, bounded pairing flow for the regular VR menu; never enters XR. */
+    function startPhonePairing({ onCode = () => {}, onStatus = () => {} } = {}) {
+        phonePairing?.cancel();
+        const controller = new AbortController();
+        let timer = null, expiryTimer = null, wake = null, expired = false;
+        const cancelled = () => controller.signal.aborted;
+        const cancel = () => {
+            if (cancelled()) return;
+            controller.abort();
+            if (timer !== null) clearTimeout(timer);
+            if (expiryTimer !== null) clearTimeout(expiryTimer);
+            if (wake) wake();
+        };
+        const handle = { cancel, done: null };
+        phonePairing = handle;
+        handle.done = (async () => {
+            try {
+                const link = await linkStart({ signal: controller.signal });
+                if (cancelled()) return 'cancelled';
+                if (!/^[0-9]{8}$/.test(link.code) || !/^[a-f0-9-]{36}$/.test(link.linkId)
+                    || !/^[a-f0-9]{64}$/.test(link.secret) || !Number.isFinite(link.expiresInMs)
+                    || link.expiresInMs <= 0 || !Number.isFinite(link.intervalMs)) {
+                    throw new Error('The pairing service returned an invalid code. Try again.');
+                }
+                const deadline = performance.now() + Math.min(link.expiresInMs, 600000);
+                const interval = Math.min(30000, Math.max(3000, link.intervalMs));
+                expiryTimer = setTimeout(() => {
+                    expired = true;
+                    controller.abort();
+                    if (wake) wake();
+                }, Math.min(link.expiresInMs, 600000));
+                onCode({ code: link.code, expiresInMs: Math.min(link.expiresInMs, 600000) });
+                while (!cancelled() && performance.now() < deadline) {
+                    await new Promise(resolve => {
+                        wake = resolve;
+                        timer = setTimeout(resolve, Math.min(interval, Math.max(0, deadline - performance.now())));
+                    });
+                    wake = null;
+                    timer = null;
+                    if (cancelled()) {
+                        if (expired) { onStatus('expired'); return 'expired'; }
+                        return 'cancelled';
+                    }
+                    if (performance.now() >= deadline) break;
+                    const status = await linkPoll(link, { signal: controller.signal });
+                    if (cancelled()) {
+                        if (expired) { onStatus('expired'); return 'expired'; }
+                        return 'cancelled';
+                    }
+                    onStatus(status);
+                    if (status !== 'pending') return status;
+                }
+                if (cancelled() && !expired) return 'cancelled';
+                onStatus('expired');
+                return 'expired';
+            } catch (error) {
+                if (expired) { onStatus('expired'); return 'expired'; }
+                if (cancelled()) return 'cancelled';
+                throw error;
+            } finally {
+                if (timer !== null) clearTimeout(timer);
+                if (expiryTimer !== null) clearTimeout(expiryTimer);
+                if (phonePairing === handle) phonePairing = null;
+            }
+        })();
+        return handle;
     }
     function holdLeaseForSetup(durationMs = SETUP_LEASE_HOLD_MS) {
         if (!ready() || leaseExpires <= performance.now()) return false;
@@ -715,6 +801,7 @@
         return true;
     }
     function dispose() {
+        phonePairing?.cancel();
         window.removeEventListener('pagehide', onPageHide);
         inXR = false;
         void releaseLease(true);
@@ -728,9 +815,10 @@
         void releaseLease(true);
     };
     window.VRPayment = Object.freeze({
-        apiOrigin, hasEntitlement: () => access.entitled,
+        apiOrigin, phoneCompanionAvailable: true, hasEntitlement: () => access.entitled,
         canEnterVR: () => !!ready() && leaseExpires > performance.now(),
-        refreshEntitlement, showGate, onXRStateChange, holdLeaseForSetup, autoPrepare, linkStart, linkPoll, fetchMusic, prepareDevRoom,
+        refreshEntitlement, showGate, onXRStateChange, holdLeaseForSetup, autoPrepare, linkStart, linkPoll, startPhonePairing, fetchMusic,
+        fetchLightingPresets, saveLightingPresets, syncPhoneMusic, prepareDevRoom,
         setPreview, upgradeToMember,
         setXRHandlers(exit, showReason) { exitXR = exit; notify = showReason; },
         releaseLease, dispose

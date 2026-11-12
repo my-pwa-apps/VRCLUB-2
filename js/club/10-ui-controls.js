@@ -204,6 +204,11 @@ class VRClubControls extends VRClubAnimationFinish {
             this.showErrorMessage('The live event DJ controls the music. Leave the event to play your own set.');
             return false;
         }
+        if (what === 'lights' && this.multiplayer?.connected) {
+            if (this.multiplayer.canControlLights()) return true;
+            this.showErrorMessage('The room VJ controls the lights. The host can revoke the lights-only pass in People.');
+            return false;
+        }
         if (!this.isFollowingHost()) return true;
         const now = performance.now();
         if (!this._hostGuardAt || now - this._hostGuardAt > 1500) {

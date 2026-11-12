@@ -52,7 +52,8 @@ class MinglerClock {
                 const clip = ['pickup', 'drink', 'return'].includes(activity) ? 'Drink_Loop'
                     : activity === 'talk' || to.drink ? 'Idle_Talking_Loop' : to.clip || 'Idle_Loop';
                 append({ node, dir, phase: 'dwell', activity, clip, duration: seconds, x: to.x, z: to.z, level,
-                    yaw: activity === 'balcony' || activity === 'watch' || activity === 'smoke' ? to.yaw : facing,
+                    yaw: activity === 'balcony' || activity === 'watch' || activity === 'smoke' ? to.yaw
+                        : facing + (activity === 'talk' && !to.drink ? 0.2 : 0),
                     sips });
             };
             if (to.drink) {

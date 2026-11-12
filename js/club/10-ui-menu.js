@@ -60,11 +60,16 @@ class VRClubMenu extends window.VRClubControls {
 
     /** Can this button do nothing right now? (It still answers a press, with a message saying why.) */
     _isVRButtonDisabled(button) {
+        if (['phonePair', 'phoneTransfer'].includes(button.action)) return window.VRPayment?.phoneCompanionAvailable === false || !!this._phoneTransferBusy;
         if (this.liveInput?.active && VR_MUSIC_ACTIONS.has(button.action)) {
             return !['stop', 'musicSetup'].includes(button.action);
         }
         if (this.multiplayer?.hasLiveEvent && VR_MUSIC_ACTIONS.has(button.action)) return true;
         if (this.isFollowingHost() && this._isHostOwnedVRButton(button)) return true;
+        if (button.action === 'vrMsaa4x') return !this.isVRMsaa4xEnabled() && !this.canUseVRMsaa4x();
+        if (button.action === 'renderExperiment') {
+            return !this.isRenderExperimentEnabled(button.experiment) && !this.canUseRenderExperiment(button.experiment);
+        }
         // The time belongs to RETURN TO AUTO and SHUFFLE COLOURS; KEEP IT has none.
         if (button.action === 'holdTiming') return this.lightHold.mode === 'keep';
         if (button.action === 'holdLook') return !!this.showLookHoldUnavailableReason();
@@ -86,6 +91,8 @@ class VRClubMenu extends window.VRClubControls {
         if (needsRoom.includes(button.op) && !mp.connected) return true;
         if (button.op === 'lock' && !mp.isHost()) return true;
         if (button.op === 'peerHost' && (!mp.connected || !mp.isHost() || !mp.client.hostTransferSupported || !mp.client.peers.has(button.peer))) return true;
+        if (button.op === 'peerModerator' && (!mp.connected || !mp.isHost() || !mp.client.moderatorRoleSupported || !mp.client.peers.has(button.peer))) return true;
+        if (['peerKick', 'peerBan'].includes(button.op) && (!mp.canModerate() || button.peer === mp.client.hostId || !mp.client.peers.has(button.peer))) return true;
         if (button.op === 'unblockAll' && !mp.blockedList().length) return true;
         return false;
     }
@@ -95,6 +102,8 @@ class VRClubMenu extends window.VRClubControls {
         if (button.action === 'spotGroup') return (this._spotEditTarget || 0) === button.group;
         if (button.action === 'pickCharacter') return !this.isCustomAvatarSelected?.() && this.getLocalCharacter() === button.character;
         if (button.action === 'customAvatar') return !!this.isCustomAvatarSelected?.();
+        if (button.action === 'vrMsaa4x') return this.isVRMsaa4xEnabled();
+        if (button.action === 'renderExperiment') return this.isRenderExperimentEnabled(button.experiment);
         if (button.action === 'people') {
             return VRClubCore.peopleCategories(button.people).every(name => this.isPeopleVisible(name));
         }
@@ -118,12 +127,18 @@ class VRClubMenu extends window.VRClubControls {
     _isHostOwnedVRButton(button) {
         if (['cycleSpotTarget', 'toggleReducedShowSmoke'].includes(button.control)) return false;
         if (button.action === 'characterStyle') return true;
+        if (this.multiplayer?.canControlLights?.() && !VR_MUSIC_ACTIONS.has(button.action)) return false;
         if (VR_MUSIC_ACTIONS.has(button.action) ||
-            ['autoShow', 'holdLook', 'reset', 'cycle', 'nextSection', 'showDrop', 'showPeak', 'showSection'].includes(button.action)) return true;
+            ['autoShow', 'holdLook', 'reset', 'cycle', 'nextSection', 'showDrop', 'showPeak', 'showSection', 'showMood', 'showBlackout'].includes(button.action)) return true;
         return !!button.control && !button.action && !['vrComfortMode', 'vrSeatedMode', 'autoQuality', 'photosensitiveSafeMode'].includes(button.control);
     }
 
     _vrQuickMenuButtonValue(button, active) {
+        if (button.action === 'creditText') return button.detail;
+        if (button.action === 'voiceClarity') return this.getVoiceClarityMode?.() === 'nearby' ? 'NEARBY: GENTLE LOCAL DUCKING' : 'STANDARD: STRONGER DUCKING';
+        if (button.action === 'postcardCapture') return this._postcardCapturing ? 'CAPTURING...' : 'LOCAL STILL; NO NAMES OR CHAT';
+        if (button.action === 'postcardSave') return this._postcardUrl ? 'SAVE TO THIS DEVICE' : 'TAKE A PHOTO FIRST';
+        if (button.action === 'showMood') return this.showDirector?.program === button.value && !this.vjManualMode ? 'PLAYING' : 'RESUME AUTOMATIC SHOW';
         if (['cycleShowProgram', 'cycleSheetSpeed', 'toggleReducedShowSmoke'].includes(button.control) ||
             Object.hasOwn(VRClubUI.FIXTURE_BRIGHTNESS_CONTROLS, button.control)) {
             return this.isFollowingHost() && this._isHostOwnedVRButton(button) ? 'HOST ONLY' : this.aestheticControlValue(button.control);
@@ -134,12 +149,12 @@ class VRClubMenu extends window.VRClubControls {
         }
         if (this.multiplayer?.hasLiveEvent && VR_MUSIC_ACTIONS.has(button.action)) return 'LIVE EVENT DJ';
         if (Object.prototype.hasOwnProperty.call(VRClubUI.SPOT_RIG_CONTROLS, button.control)) {
-            return this.isFollowingHost() && button.control !== 'cycleSpotTarget' ? 'HOST ONLY' : this.spotRigControlValue(button.control);
+            return this.isFollowingHost() && !this.multiplayer?.canControlLights?.() && button.control !== 'cycleSpotTarget' ? 'HOST ONLY' : this.spotRigControlValue(button.control);
         }
-        if (button.action === 'lightweightCharacters') return this.characterStyleStatus().lightweight ? 'ON: QUATERNIUS FOR ME' : 'OFF: FOLLOW ROOM STYLE';
+        if (button.action === 'lightweightCharacters') return this.characterStyleStatus().lightweight ? 'ON: STANDARD FOR ME' : 'OFF: FOLLOW ROOM STYLE';
         if (button.action === 'characterStyle') {
             const state = this.characterStyleStatus();
-            return this.isFollowingHost() ? 'HOST CHOOSES' : state.loading ? 'LOADING...' : state.selected === 'diverse' ? 'DIVERSE: MORE CPU/GPU' : 'QUATERNIUS: LIGHTWEIGHT';
+            return this.isFollowingHost() ? 'HOST CHOOSES' : state.loading ? 'LOADING...' : state.selected === 'diverse' ? 'DETAILED: MORE CPU/GPU' : 'STANDARD: LIGHTWEIGHT';
         }
         if (button.op || button.action === 'person') return this._vrNetValue(button, active);
         if (button.action === 'people') {
@@ -168,7 +183,12 @@ class VRClubMenu extends window.VRClubControls {
             return `${shuffle ? 'SHUFFLE' : 'IN ORDER'} \u2022 ${playlist.files.length} TRACKS`;
         }
         // These two leave the immersive session for an on-screen page (a headset has no keyboard): say so before the press.
-        if (button.action === 'musicSetup' || button.action === 'credits') return 'LEAVES VR';
+        if (button.action === 'musicSetup') return 'LEAVES VR';
+        if (['phoneOpen', 'phonePair', 'phoneTransfer'].includes(button.action) && window.VRPayment?.phoneCompanionAvailable === false) return 'UNAVAILABLE ON QUESTDEV';
+        if (button.action === 'phonePair') return this._phonePairCode || 'EIGHT-DIGIT VERIFIED PAIRING';
+        if (button.action === 'phoneTransfer') return this._phoneTransferBusy ? 'WORKING...' :
+            this._phoneConfirm?.operation === button.operation && performance.now() < this._phoneConfirm.until
+                ? 'PRESS AGAIN TO REPLACE' : button.operation === 'music' ? 'KEEP CURRENT PLAYBACK' : 'CHECK FIRST; CONFIRM REPLACEMENT';
         if (button.action === 'measureHeight') {
             return this._heightMeasure ? 'MEASURING...'
                 : this.playerEyeHeight ? `EYES ${this.playerEyeHeight.toFixed(2)} M` : 'STAND TALL, TAP';
@@ -184,6 +204,17 @@ class VRClubMenu extends window.VRClubControls {
         if (button.control === 'autoQuality') return this.autoQuality ? 'ON \u2022 STEPS DOWN IF SLOW' : 'OFF';
         if (button.control === 'vrSeatedMode') return this.vrSeatedMode ? 'ON \u2022 AVATAR STANDS' : 'OFF';
         if (button.action === 'quality') return this.graphicsTier.toUpperCase();
+        if (button.action === 'vrMsaa4x') {
+            if (!this.canUseVRMsaa4x()) return active ? 'UNAVAILABLE \u2022 TAP TO CLEAR' : 'NOT AVAILABLE';
+            return active ? 'ON \u2022 MAY REDUCE FPS' : 'OFF \u2022 MAY REDUCE FPS';
+        }
+        if (button.action === 'renderExperiment') {
+            if (!this.canUseRenderExperiment(button.experiment)) return active ? 'UNAVAILABLE \u2022 TAP TO CLEAR' : 'NOT AVAILABLE';
+            if (button.experiment !== 'anisotropy' && active !== this._renderExperiments[button.experiment]) {
+                return `${active ? 'ON' : 'OFF'} \u2022 RELOAD TO APPLY`;
+            }
+            return active ? 'ON \u2022 MAY REDUCE FPS' : 'OFF \u2022 MAY REDUCE FPS';
+        }
         if (button.action === 'cycle' && button.control === 'cycleLedPattern') {
             return `PATTERN ${(this.ledPattern || 0) + 1}`;
         }
@@ -268,7 +299,7 @@ class VRClubMenu extends window.VRClubControls {
         };
         if (VRClubUI.VR_NET_PAGES.includes(page)) return this._vrNetPageDefinitions(page, common);
         const mp = this._multiplayer();
-        const holdMode = (this.lightHold && this.lightHold.mode) || 'resume';
+        if (page === 'credits') return this._vrCreditsDefinitions(common);
         // In a room, talking and reacting come first: one press to the mic, the emoji or a quick message.
         const social = mp && mp.connected ? [
             { label: 'TALK', action: 'net', op: 'mic' },
@@ -279,14 +310,15 @@ class VRClubMenu extends window.VRClubControls {
             home: [
                 ...social,
                 { label: 'MUSIC', action: 'page', target: 'music' },
-                { label: 'LIGHTS', action: 'page', target: 'lights' },
-                { label: 'EFFECTS', action: 'page', target: 'effects' },
                 { label: 'SHOW', action: 'page', target: 'show' },
                 // Who is in the club gets its own page: it used to sit at the bottom of COMFORT, where nobody found it.
                 { label: 'CROWD', action: 'page', target: 'crowd' },
                 { label: 'ONLINE', action: 'page', target: 'online' },
                 { label: 'TRAVEL', action: 'page', target: 'travel' },
                 { label: 'COMFORT', action: 'page', target: 'comfort' },
+                { label: 'WARDROBE', action: 'page', target: 'me' },
+                ...(!social.length || !this._immersive?.needsAccess()
+                    ? [{ label: 'CAMERA', action: 'page', target: 'camera' }] : []),
                 // A headset in its free preview (or waiting to be paired) can always get back to its pairing code.
                 ...(this._immersive && this._immersive.needsAccess() ? [{ label: 'ACCESS', action: 'page', target: 'access' }] : []),
                 common.close
@@ -295,6 +327,12 @@ class VRClubMenu extends window.VRClubControls {
             welcome: [
                 { label: 'SAFE MODE', action: 'welcomeSafe' },
                 { label: 'FULL LIGHTS', action: 'welcomeFull' }
+            ],
+            camera: [
+                { label: 'TAKE PHOTO', action: 'postcardCapture' },
+                { label: 'SAVE PHOTO', action: 'postcardSave' },
+                { label: 'COPY ROOM INVITE', action: 'postcardInvite' },
+                common.back, common.close
             ],
             access: [
                 { label: 'NEW CODE', action: 'accessNewCode' },
@@ -361,25 +399,38 @@ class VRClubMenu extends window.VRClubControls {
                 { label: 'SHEET BRIGHTNESS', control: 'cycleSheetBrightness', action: 'cycle' },
                 common.back, common.close
             ],
-            // Comfort is how you move and what you see; who you are (character, height, seating) lives on ME. The home page
-            // has no free slot in a room (twelve is the most a page holds), so ME is reached from here.
             comfort: [
                 { label: 'LOCOMOTION', control: 'vrComfortMode' },
                 { label: 'SAFE MODE', control: 'photosensitiveSafeMode' },
+                { label: 'SEATED MODE', control: 'vrSeatedMode' },
+                { label: 'MEASURE EYE HEIGHT', action: 'measureHeight' },
                 { label: 'QUALITY', action: 'quality' },
                 { label: 'AUTO QUALITY', control: 'autoQuality' },
-                { label: 'ME', action: 'page', target: 'me' },
-                { label: 'CREDITS / LICENCES', action: 'credits' },
+                { label: 'CONVERSATION AUDIO', action: 'voiceClarity' },
+                { label: 'ADVANCED GRAPHICS', action: 'page', target: 'graphics' },
+                { label: 'CREDITS / LICENCES', action: 'page', target: 'credits' },
+                { label: 'CAMERA', action: 'page', target: 'camera' },
+                common.back,
+                common.close
+            ],
+            graphics: [
+                { label: '4X EDGE SMOOTHING', action: 'vrMsaa4x' },
+                { label: 'HIGH PRECISION SHADERS', action: 'renderExperiment', experiment: 'precision' },
+                { label: 'SMOOTH SHINY SURFACES', action: 'renderExperiment', experiment: 'specular' },
+                { label: 'MAX TEXTURE FILTERING', action: 'renderExperiment', experiment: 'anisotropy' },
                 common.back,
                 common.close
             ],
             me: [
-                { label: 'MY CHARACTER', action: 'page', target: 'character' },
-                { label: 'EDIT MY CHARACTER', action: 'page', target: 'appearanceEditor' },
+                { label: 'CHOOSE BODY', action: 'page', target: 'body' },
+                { label: 'EDIT OUTFIT', action: 'page', target: 'appearanceEditor' },
+                common.back,
+                common.close
+            ],
+            body: [
+                { label: 'CLUB CHARACTERS', action: 'page', target: 'character' },
                 ...(this.hasCustomAvatarGlb?.() ? [{ label: 'UPLOADED AVATAR', action: 'customAvatar' }] : []),
                 ...(this.hasCustomAvatarGlb?.() ? [{ label: 'SHARE UPLOADED MODEL', action: 'page', target: 'uploadedSharing' }] : []),
-                { label: 'MEASURE EYE HEIGHT', action: 'measureHeight' },
-                { label: 'SEATED MODE', control: 'vrSeatedMode' },
                 common.back,
                 common.close
             ],
@@ -396,8 +447,8 @@ class VRClubMenu extends window.VRClubControls {
                 { label: 'DJ', action: 'people', people: 'dj' },
                 { label: 'CHOOSE DJ', action: 'page', target: 'dj' },
                 { label: 'EVERYONE', action: 'people', people: 'all' },
-                { label: 'CHARACTER STYLE', action: 'characterStyle' },
-                { label: 'LIGHTWEIGHT FOR ME', action: 'lightweightCharacters' },
+                { label: 'CROWD DETAIL', action: 'characterStyle' },
+                { label: 'STANDARD FOR ME', action: 'lightweightCharacters' },
                 ...(this.characterStyleStatus && this.characterStyleStatus().error
                     ? [{ label: 'RETRY CHARACTERS', action: 'retryCharacters' }] : []),
                 common.back,
@@ -413,17 +464,11 @@ class VRClubMenu extends window.VRClubControls {
                 common.close
             ],
             show: [
-                { label: 'AUTO SHOW', action: 'autoShow' },
-                { label: 'SHOW STYLE', control: 'cycleShowProgram', action: 'cycle' },
-                { label: 'COUNTDOWN / DROP', action: 'showDrop' },
-                { label: 'PEAK NOW', action: 'showPeak' },
-                { label: 'NEXT SECTION', action: 'nextSection' },
-                { label: 'HOLD THIS LOOK', action: 'holdLook' },
-                { label: 'CHOOSE SECTION', action: 'page', target: 'showSections' },
-                // What happens after a change of yours: keep it, return to auto after a time, or shuffle the colours.
-                { label: 'AFTER MY CHANGE', action: 'holdMode' },
-                { label: holdMode === 'shuffle' ? 'COLOUR EVERY' : (holdMode === 'resume' ? 'AUTO AFTER' : 'TIMING'), action: 'holdTiming' },
-                { label: 'RESET SHOW', action: 'reset' },
+                { label: 'AUTO NOCTURNE', action: 'showMood', value: 'nocturne' },
+                { label: 'AUTO AESTHETIC', action: 'showMood', value: 'aesthetic' },
+                { label: 'DROP NOW', action: 'showPeak' },
+                { label: 'BLACKOUT', action: 'showBlackout' },
+                { label: 'GO TO VJ BOOTH', control: 'djBooth', action: 'travel' },
                 common.back,
                 common.close
             ],
@@ -454,21 +499,30 @@ class VRClubMenu extends window.VRClubControls {
                 { label: 'PLAY SOURCE', action: 'savedSet' },
                 { label: 'NEXT SOURCE', action: 'sourceStep', delta: 1 },
                 { label: 'FOLDER PLAY MODE', action: 'folderMode' },
-                // An immersive-only app has no keyboard, file picker or 2D page to type a link into: the phone adds them.
-                this._immersive && this._immersive.mode !== 'manual'
-                    ? { label: 'ADD FROM PHONE', action: 'page', target: 'musicPhone' }
-                    : { label: 'ADD URL / FILE / FOLDER', action: 'musicSetup' },
+                { label: 'ADD FROM PHONE', action: 'phoneOpen', kind: 'music' },
+                ...(!this._immersive || this._immersive.mode === 'manual'
+                    ? [{ label: 'LOCAL FILE / FOLDER', action: 'musicSetup' }] : []),
                 ...(this.musicLibrary?.readError ? [{ label: 'RETRY SAVED SETS', action: 'retrySavedSets' }] : []),
                 ...(this.musicLibrary?.readError === 'unreadable' ? [{ label: 'RESET SAVED SETS', action: 'resetSavedSets' }] : []),
                 common.back,
                 common.close
             ],
             musicPhone: [
-                { label: 'SYNC NOW', action: 'musicSync' },
+                { label: 'OPEN PHONE COMPANION', action: 'phoneOpen', kind: 'music' },
                 ...(this.musicLibrary?.readError ? [{ label: 'RETRY SAVED SETS', action: 'retrySavedSets' }] : []),
                 ...(this.musicLibrary?.readError === 'unreadable' ? [{ label: 'RESET SAVED SETS', action: 'resetSavedSets' }] : []),
                 common.back,
                 common.close
+            ],
+            phoneCompanion: [
+                { label: 'LINK THIS DEVICE', action: 'phonePair' },
+                { label: 'SYNC SAVED MUSIC', action: 'phoneTransfer', operation: 'music' },
+                { label: 'DOWNLOAD PRESETS', action: 'phoneTransfer', operation: 'import' },
+                { label: 'UPLOAD PRESETS', action: 'phoneTransfer', operation: 'export' },
+                window.VRPayment?.phoneCompanionAvailable === false
+                    ? { label: 'QUESTDEV IS ISOLATED', detail: 'NO PRODUCTION ACCOUNT ACCESS', action: 'creditText' }
+                    : { label: 'ON YOUR PHONE', detail: 'OPEN THIS SITE /link/?music=1', action: 'creditText' },
+                common.back, common.close
             ],
             dj: [
                 { label: 'MALE DJ', action: 'dj', dj: 'male' },
@@ -528,6 +582,7 @@ class VRClubMenu extends window.VRClubControls {
             button.danger = false;
             button.character = undefined;
             button.detail = '';
+            button.experiment = null;
             button.field = null;
             button.value = null;
             button.swatch = null;
@@ -551,7 +606,8 @@ class VRClubMenu extends window.VRClubControls {
             context.textBaseline = 'middle';
             const titles = { home: 'VR CLUB', onlineSafety: 'BEFORE YOU GO ONLINE', room: 'JOIN ROOM', look: 'RANDOM LOOK', gestures: 'REACT', chat: 'CHAT', crowd: 'WHO IS HERE',
                 sheetSettings: 'FIXTURE BRIGHTNESS / SHEET',
-                me: 'ME', character: 'YOUR CHARACTER', uploadedSharing: 'SHARE YOUR UPLOADED MODEL',
+                me: 'WARDROBE', body: 'CHOOSE YOUR BODY', credits: 'CREDITS AND LICENCES', graphics: 'ADVANCED GRAPHICS',
+                camera: 'LOCAL POSTCARD', character: 'YOUR CHARACTER', uploadedSharing: 'SHARE YOUR UPLOADED MODEL',
                 appearanceEditor: 'PERSONAL WARDROBE', appearanceBase: 'BASE CHARACTER', appearanceHair: 'HAIR STYLE',
                 appearanceOutfit: 'OUTFIT STYLE', appearanceSkin: 'SKIN COLOR', appearanceHairColor: 'HAIR COLOR',
                 appearanceTop: 'TOP COLOR', appearanceBottom: 'BOTTOM COLOR',
@@ -560,7 +616,11 @@ class VRClubMenu extends window.VRClubControls {
                 appearanceFootwear: 'SHOES AND TIGHTS', appearanceShoes: 'SHOES', appearanceLegwear: 'LEGWEAR',
                 voiceAudience: 'MICROPHONE AUDIENCE', chatAudience: 'CHAT RECIPIENTS', welcome: 'WELCOME', access: 'LINK YOUR ACCOUNT', musicPhone: 'MUSIC FROM YOUR PHONE' };
             // Immersive launch pages draw their own words: the pairing code is the title, so it is read at arm's length.
-            const immersiveText = (page === 'welcome' || page === 'access' || page === 'musicPhone') && this._immersive ? this._immersive.pageText(page) : null;
+            const immersiveText = page === 'phoneCompanion'
+                ? window.VRPayment?.phoneCompanionAvailable === false
+                    ? { title: 'PHONE SYNC UNAVAILABLE', subtitle: 'QUESTDEV HAS NO VERIFIED ACCOUNT SERVICE' }
+                    : { title: this._phonePairCode || 'PHONE COMPANION', subtitle: 'OPEN THIS SITE /link/?music=1 ON YOUR PHONE' }
+                : (page === 'welcome' || page === 'access' || page === 'musicPhone') && this._immersive ? this._immersive.pageText(page) : null;
             context.fillText(immersiveText ? immersiveText.title : (titles[page] || page.toUpperCase()), 54, 72);
             context.fillStyle = '#b4bccb';
             // In someone else's room the music and lighting pages say whose they are, not only "HOST ONLY" per button.
@@ -575,10 +635,14 @@ class VRClubMenu extends window.VRClubControls {
                 effects: 'LED WALL, STROBES, SMOKE AND BEAMS',
                 smokeSettings: 'CHOOSE THE AMOUNT AND HOW SMOKE IS RELEASED',
                 sheetSettings: 'EACH BRIGHTNESS CHANGES ONLY THAT FIXTURE',
-                show: 'THE AUTOMATIC SHOW THAT FOLLOWS THE MUSIC',
+                show: 'QUICK MOODS; DETAILED CONTROLS AT THE VJ BOOTH',
                 showSections: 'JUMP TO A MOVEMENT AND KEEP IT BY YOUR HOLD RULE',
                 comfort: 'HOW YOU MOVE, WHAT YOU SEE AND FEEL',
-                me: 'YOUR CHARACTER, YOUR HEIGHT AND SITTING',
+                me: 'ONE WARDROBE FOR CLUB AND UPLOADED BODIES',
+                body: 'CHOOSE A CLUB CHARACTER OR YOUR OWN MODEL',
+                graphics: 'EXPERIMENTS MAY COST FRAME RATE OR REQUIRE RELOAD',
+                credits: 'PAGED ATTRIBUTION AND SOURCE LINKS; STAY IN VR',
+                camera: 'SAVED LOCALLY; NOTHING IS AUTOMATICALLY SHARED',
                 character: 'YOUR BODY, MIRROR AND ONLINE APPEARANCE',
                 appearanceEditor: this.isCustomAvatarSelected?.() ? 'FIT CLOTHING TO YOUR UPLOADED BODY; APPLY TO SAVE' : 'CUSTOMIZE YOUR CLUB CHARACTER',
                 uploadedSharing: 'ROOM GUESTS RECEIVE YOUR MODEL AND MAY KEEP A COPY',
@@ -846,12 +910,36 @@ class VRClubMenu extends window.VRClubControls {
     }
 
     _syncVRWardrobe(page) {
+        this.syncPhoneCompanion?.(page, !!this._vrQuickMenuRoot?.isEnabled());
         if (!this.avatarEditor) return;
         this.avatarEditor.syncVR(page, this._vrQuickMenuRoot, !!this._vrQuickMenuRoot?.isEnabled());
     }
 
     _activateVRQuickMenuButton(button) {
         if (!button) return;
+        if (button.action === 'phoneOpen') { this.openPhoneCompanion(button.kind); return; }
+        if (button.action === 'phonePair') { this.startPhoneCompanionPairing(); return; }
+        if (button.action === 'phoneTransfer') { void this.transferPhoneCompanion(button.operation); return; }
+        if (button.action === 'creditText') return;
+        if (button.action === 'creditPage') {
+            this._vrCreditsPage = Math.max(0, (this._vrCreditsPage || 0) + button.delta);
+            this._showVRQuickMenuPage('credits');
+            return;
+        }
+        if (button.action === 'voiceClarity') {
+            this.toggleVoiceClarity();
+            this._refreshVRQuickMenu();
+            return;
+        }
+        if (button.action === 'postcardCapture') { void this.capturePostcard(); return; }
+        if (button.action === 'postcardSave') { this.savePostcard(); return; }
+        if (button.action === 'postcardInvite') { this.copyPostcardInvite(); return; }
+        if (button.action === 'showMood' || button.action === 'showBlackout') {
+            if (button.action === 'showMood') this.setShowMood(button.value);
+            else this.blackOutShow();
+            this._refreshVRQuickMenu();
+            return;
+        }
         if (button.action === 'spotGroup') {
             if (this.selectSpotRigGroup(button.group)) this._showVRQuickMenuPage('spotRig');
             return;
@@ -957,7 +1045,7 @@ class VRClubMenu extends window.VRClubControls {
             return;
         }
         if (button.action === 'credits') {
-            this._openQuestPanel('credits');
+            this._showVRQuickMenuPage('credits');
             return;
         }
         if (button.action === 'dj') {
@@ -977,6 +1065,16 @@ class VRClubMenu extends window.VRClubControls {
         if (button.action === 'quality') {
             const tiers = ['balanced', 'high', 'ultra'];
             this.setGraphicsTier(tiers[(tiers.indexOf(this.graphicsTier) + 1) % tiers.length]);
+            this._refreshVRQuickMenu();
+            return;
+        }
+        if (button.action === 'vrMsaa4x') {
+            this.toggleVRMsaa4x();
+            this._refreshVRQuickMenu();
+            return;
+        }
+        if (button.action === 'renderExperiment') {
+            this.toggleRenderExperiment(button.experiment);
             this._refreshVRQuickMenu();
             return;
         }

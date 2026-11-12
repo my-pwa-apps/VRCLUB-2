@@ -1,12 +1,29 @@
 import { test, expect } from '@playwright/test';
+import { readFile } from 'node:fs/promises';
 
 const API = 'https://api.mitwee.nl/payments';
 const cors = { 'access-control-allow-origin': 'http://localhost:4173', 'access-control-allow-credentials': 'true',
     'access-control-allow-headers': 'content-type', 'access-control-allow-methods': 'GET, POST, OPTIONS' };
 
+test('development phone page clearly refuses account transfer without contacting production', async ({ page }) => {
+    let apiRequests = 0;
+    await page.route('https://api.mitwee.nl/**', route => { apiRequests++; return route.abort(); });
+    await page.route('https://nocturnedev.mitwee.nl/link/**', async route => {
+        const path = new URL(route.request().url()).pathname;
+        const name = path.endsWith('/') ? 'index.html' : path.split('/').at(-1);
+        const contents = await readFile(new URL(`../../link/${name}`, import.meta.url));
+        const type = name.endsWith('.html') ? 'text/html' : name.endsWith('.css') ? 'text/css' : 'text/javascript';
+        await route.fulfill({ contentType: type, body: contents });
+    });
+    await page.goto('https://nocturnedev.mitwee.nl/link/?music=1');
+    await expect(page.getByRole('heading', { name: 'Phone companion unavailable' })).toBeVisible();
+    await expect(page.locator('#step')).toContainText('no verified-account phone companion');
+    expect(apiRequests).toBe(0);
+});
+
 /** A small stateful stand-in for the access API, so the page's whole decision flow runs in a real browser. */
-async function fakeApi(page, { verified = false, entitled = true, devices = [], music = null } = {}) {
-    const state = { verified, entitled, devices: [...devices], calls: [], approved: null, music };
+async function fakeApi(page, { verified = false, entitled = true, devices = [], music = null, lighting = null } = {}) {
+    const state = { verified, entitled, devices: [...devices], calls: [], approved: null, music, lighting, lightingRevision: lighting ? 1 : 0 };
     const reply = (route, body, status = 200) => route.fulfill({ status, headers: cors, contentType: 'application/json', body: JSON.stringify(body) });
     await page.route(`${API}/**`, async route => {
         const request = route.request();
@@ -43,10 +60,60 @@ async function fakeApi(page, { verified = false, entitled = true, devices = [], 
             state.music = body.items.map(item => ({ url: item.url, ...(item.name ? { name: item.name } : {}) }));
             return reply(route, { items: state.music, updatedAt: 2 });
         }
+        if (path === '/lighting') return state.verified
+            ? reply(route, { presets: state.lighting, updatedAt: state.lightingRevision })
+            : reply(route, { message: 'Verify your email first.' }, 401);
+        if (path === '/lighting/save') {
+            if (!state.verified) return reply(route, { message: 'Verify your email first.' }, 401);
+            if (body.expectedUpdatedAt !== state.lightingRevision) return reply(route, { message: 'Backup changed. Reload first.' }, 409);
+            state.lighting = JSON.parse(body.presets);
+            state.lightingRevision++;
+            return reply(route, { presets: state.lighting, updatedAt: state.lightingRevision });
+        }
         return reply(route, { message: 'not found' }, 404);
     });
+
     return state;
 }
+
+test('phone lighting backup requires explicit replacement and rejects invalid uploads', async ({ page }) => {
+    const state = await fakeApi(page, { verified: true, music: [] });
+    await page.goto('/link/?music=1');
+    await page.getByRole('button', { name: 'Lighting preset transfer' }).click();
+    const input = page.getByLabel('Choose lighting preset JSON');
+    await input.setInputFiles({ name: 'bad.json', mimeType: 'application/json', buffer: Buffer.from('{}') });
+    await expect(page.getByRole('status')).toContainText('not a supported');
+    expect(state.lighting).toBeNull();
+    const backup = { version: 1, slots: Array(12).fill(null) };
+    await input.setInputFiles({ name: 'backup.json', mimeType: 'application/json', buffer: Buffer.from(JSON.stringify(backup)) });
+    await expect(page.getByRole('button', { name: 'Confirm replace account backup' })).toBeVisible();
+    expect(state.lighting).toBeNull();
+    await page.getByRole('button', { name: 'Confirm replace account backup' }).click();
+    expect(state.lighting).toEqual(backup);
+    await expect(page.getByRole('status')).toContainText('saved');
+});
+
+test('phone rename is staged and concurrent account changes are not overwritten', async ({ page }) => {
+    const state = await fakeApi(page, { verified: true, music: [] });
+    await page.goto('/link/?music=1');
+    const backup = await page.evaluate(() => {
+        const fx = {};
+        for (const [key, spec] of Object.entries(globalThis.NocturnePresetValidator.MANUAL_FIXTURES)) {
+            fx[key] = spec === 'b' ? false : spec[0];
+        }
+        return { version: 1, slots: [{ name: 'Original', fx, colour: { hue: 0, hl: false, pal: 'triad', lh: 'match', mbi: 0 } }, ...Array(11).fill(null)] };
+    });
+    state.lighting = backup;
+    state.lightingRevision = 1;
+    await page.getByRole('button', { name: 'Lighting preset transfer' }).click();
+    await page.getByLabel('Slot 1 name').fill('Renamed');
+    await page.getByRole('button', { name: 'Stage rename' }).click();
+    expect(state.lighting.slots[0].name).toBe('Original');
+    state.lightingRevision++;
+    await page.getByRole('button', { name: 'Confirm replace account backup' }).click();
+    await expect(page.getByRole('status')).toContainText('changed');
+    expect(state.lighting.slots[0].name).toBe('Original');
+});
 
 test('an unverified owner pairs a headset: code, email, email code, confirm', async ({ page }) => {
     const state = await fakeApi(page, { verified: false, entitled: true });

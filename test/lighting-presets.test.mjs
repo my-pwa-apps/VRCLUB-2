@@ -52,7 +52,7 @@ function harness() {
     const presets = new LightingPresets(club, storage);
     club.lightingPresets = presets;
     const press = id => club._runVJDeskButton(VJDeskLayout.buttons.show.find(button => button.id === id));
-    return { data, storage, notices, club, presets, LightingPresets, ClubMultiplayer, press,
+    return { data, storage, notices, club, presets, LightingPresets, ClubMultiplayer, press, window: context.window,
         changes: () => changes, follow: value => { following = value; } };
 }
 
@@ -69,6 +69,62 @@ test('lighting presets persist complete lighting only, without taking control or
     assert.equal(saved.slots[0].fx.ledPattern, 7);
     assert.ok(Object.keys(saved.slots[0].fx).every(key => !/audio|dj$|safe|room|token|appearance/i.test(key)));
     assert.equal(new LightingPresets(club).slots[0].name, 'Violet rows');
+});
+
+test('phone and headset preset schemas stay identical and validate complete, retired and malformed records', () => {
+    const h = harness();
+    h.presets.save(0);
+    const context = vm.createContext({});
+    vm.runInContext(readFileSync(new URL('../link/presetValidation.js', import.meta.url), 'utf8'), context);
+    const validator = context.NocturnePresetValidator;
+    assert.deepEqual(JSON.parse(JSON.stringify(validator.MANUAL_FIXTURES)), JSON.parse(JSON.stringify(h.ClubMultiplayer.MANUAL_FIXTURES)));
+    const original = JSON.parse(h.presets.export());
+    const old = structuredClone(original);
+    Object.assign(old.slots[0].fx, { goboEnabled: true, goboPatternIndex: 9, goboRotationSpeed: -1 });
+    for (const value of [original, old]) {
+        const text = JSON.stringify(value);
+        assert.deepEqual(JSON.parse(JSON.stringify(validator.parse(text))), JSON.parse(JSON.stringify(h.LightingPresets.parse(text))));
+    }
+    delete original.slots[0].fx.spotPrismActive;
+    assert.throws(() => validator.parse(JSON.stringify(original)));
+    assert.throws(() => h.LightingPresets.parse(JSON.stringify(original)));
+});
+
+test('phone transfer requires explicit confirmation and rejects local changes and corruption', async () => {
+    const h = harness();
+    h.presets.save(0, 'First');
+    const backup = JSON.parse(h.presets.export());
+    h.presets.save(1, 'Second');
+    const original = h.data.get(h.LightingPresets.KEY);
+    let sent;
+    h.window.VRPayment = {
+        fetchLightingPresets: async () => ({ presets: backup, updatedAt: 12, email: 'owner@example.com' }),
+        saveLightingPresets: async (text, revision) => { sent = { text, revision }; }
+    };
+    await h.presets.stagePhoneImport();
+    assert.equal(h.data.get(h.LightingPresets.KEY), original);
+    h.presets.save(2, 'Changed');
+    assert.throws(() => h.presets.confirmPhoneImport(), /changed/);
+    await h.presets.stagePhoneImport();
+    h.presets.confirmPhoneImport();
+    assert.equal(h.presets.slots[1], null);
+    await h.presets.preparePhoneExport();
+    assert.equal(sent, undefined);
+    await h.presets.confirmPhoneExport();
+    assert.equal(sent.revision, 12);
+    assert.equal(JSON.parse(sent.text).slots[0].name, 'First');
+    h.data.set(h.LightingPresets.KEY, '{corrupt');
+    await assert.rejects(h.presets.stagePhoneImport());
+    assert.equal(h.data.get(h.LightingPresets.KEY), '{corrupt');
+});
+
+test('opening lighting management in VR stays in VR and opens the phone companion', async () => {
+    const h = harness();
+    h.club.isInVRMode = true;
+    h.club.openPhoneCompanion = kind => { h.club.phoneKind = kind; };
+    h.club.vrHelper = { baseExperience: { exitXRAsync: () => { throw new Error('must not leave VR'); } } };
+    await h.presets.openManager();
+    assert.equal(h.club.phoneKind, 'presets');
 });
 
 test('recall restores independent heads, colours, timing, brightness and sheet settings using the shared room path', () => {

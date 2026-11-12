@@ -68,6 +68,8 @@ const pinShow = page => page.evaluate(() => {
     look.hue = 0.1;
     look.colorLock = true;
     club.showDirector._applyCue({ look: 'firstLight', bars: 1024 });
+    // Mode switches reset base fog; settle the cue's eased smoke before comparing the same air.
+    for (let frame = 0; frame < 1200; frame++) club._tintClubAir(1 / 60);
     for (const group of club.scene.animationGroups) {
         group.goToFrame(group.from);
         group.pause();
@@ -197,8 +199,7 @@ test('VR keeps the desktop rendering features and image structure at the same gr
         });
         // The VR image must be at least as bright as the desktop one, with at least its peaks.
         // It was x0.30-0.51 with peaks capped at about a tenth, because the sharpen stage's colour
-        // amount (a brightness gain) was 0.1. Measured now at about x1.8 (exposure 0.6); the
-        // ceiling stops a regression the other way, into a washed-out headset.
+        // amount (a brightness gain) was 0.1. The ceiling also guards against a washed-out headset.
         expect(vrState.pipeline.sharpenGain, 'sharpen colour amount is a brightness gain: keep it 1.0').toBe(1);
         expect(luma).toBeGreaterThan(1.0);
         expect(luma).toBeLessThan(3.5);
@@ -213,6 +214,7 @@ test('VR keeps the desktop rendering features and image structure at the same gr
         window.vrClub.camera.position.set(...spawn.position);
         window.vrClub.camera.setTarget(new BABYLON.Vector3(...spawn.target));
     }, SPAWN);
+    await pinShow(page);
     await renderFrames(page, 15);
     const restoredState = await snapshotRenderState(page);
 

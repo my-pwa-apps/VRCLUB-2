@@ -28,7 +28,11 @@ class UploadedAvatarSharing {
     }
 
     setEnabled(enabled) {
-        localStorage.setItem('vrclub.shareUploadedAvatar', enabled ? '1' : '0');
+        try { localStorage.setItem('vrclub.shareUploadedAvatar', enabled ? '1' : '0'); }
+        catch (error) {
+            console.warn('Could not save uploaded avatar sharing preference:', error);
+            this.club.showErrorMessage('Avatar sharing preference could not be saved. This change applies only to this session.');
+        }
         this.enabled = !!enabled;
         this.emit(this.enabled ? 'Sharing enabled. Room guests may retain a copy of your uploaded model.'
             : this._publishedHash ? 'Stopping room sharing…' : 'Sharing is off. Your uploaded model stays on this device.');
@@ -65,8 +69,16 @@ class UploadedAvatarSharing {
             } else if (method === 'POST') headers['Content-Type'] = 'application/json';
             const response = await fetch(url, { method, body, headers, signal: controller.signal, cache: 'no-store', credentials: 'omit' });
             if (!response.ok) {
-                const error = await response.json();
-                throw new Error(error.message || `Avatar sharing failed (${response.status}).`);
+                let message = `Avatar sharing failed (${response.status}).`;
+                if (response.headers.get('content-type')?.includes('application/json')) {
+                    try {
+                        const error = await response.json();
+                        if (typeof error?.message === 'string') message = error.message;
+                    } catch (error) {
+                        throw new Error(message, { cause: error });
+                    }
+                }
+                throw new Error(message);
             }
             if (method !== 'GET') return await response.json();
             const limit = 8 * 1024 * 1024;

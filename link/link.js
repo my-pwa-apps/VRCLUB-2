@@ -13,6 +13,7 @@
     let busy = false;
     // ?music=1 turns this page into the headset's music list instead of the pairing flow.
     const MUSIC_MODE = new URLSearchParams(window.location.search).get('music') === '1';
+    const DEVELOPMENT = ['nocturnedev.mitwee.nl', 'nocturne-dev.pages.dev'].includes(window.location.hostname);
 
     const api = async (path, body) => {
         const response = await fetch(API + path, {
@@ -271,6 +272,7 @@
                 nodes.push(el('p', `You have saved ${MAX} links, the most the headset keeps. Remove one to add another.`, 'link-note'));
             }
             nodes.push(el('p', 'Works with direct HTTPS audio links (MP3, M4A, OGG or a stream) and SoundCloud tracks their creator has published to podcast players; the Share link from the SoundCloud app works too. YouTube and Spotify pages do not work. Local files need a browser, not the headset app.', 'link-note'));
+            nodes.push(action('Lighting preset transfer', lightingStep, true));
             nodes.push(action('Use a different email', async () => {
                 await api('/recovery/signout', {});
                 access = null;
@@ -278,6 +280,73 @@
                 emailStep();
             }, true));
             show('Your headset music', ...nodes);
+        };
+        render();
+        say('');
+    }
+
+    async function lightingStep() {
+        const result = await api('/lighting');
+        let presets = result.presets;
+        let revision = result.updatedAt;
+        let staged = null;
+        const render = () => {
+            const nodes = [el('p', `Account: ${access.email}. Transfer replaces all 12 slots only after confirmation. The headset keeps its local presets until you explicitly import them.`)];
+            if (presets) {
+                const list = el('ul', '', 'music-list');
+                presets.slots.forEach((preset, index) => {
+                    if (!preset) return;
+                    const row = el('li');
+                    const name = field(`Slot ${index + 1} name`, 'text', { maxLength: 32, value: preset.name });
+                    row.append(name.wrapper, action('Stage rename', () => {
+                        const next = structuredClone(presets);
+                        next.slots[index].name = name.input.value.trim();
+                        staged = JSON.stringify(NocturnePresetValidator.parse(JSON.stringify(next)));
+                        render();
+                        say('Rename checked. Confirm replacement below.');
+                    }, true));
+                    list.append(row);
+                });
+                nodes.push(list);
+                nodes.push(action('Download JSON', () => {
+                    const url = URL.createObjectURL(new Blob([JSON.stringify(presets, null, 2)], { type: 'application/json' }));
+                    const link = el('a');
+                    link.href = url;
+                    link.download = 'nocturne-lighting-presets.json';
+                    link.click();
+                    setTimeout(() => URL.revokeObjectURL(url), 1000);
+                    say('Lighting backup downloaded.');
+                }, true));
+            } else nodes.push(el('p', 'No lighting backup on this account yet.', 'link-note'));
+            const file = field('Choose lighting preset JSON', 'file', { accept: '.json,application/json' });
+            file.input.addEventListener('change', async () => {
+                staged = null;
+                const selected = file.input.files[0];
+                if (!selected) return;
+                try {
+                    if (selected.size > 65536) throw new Error('The preset file is too large.');
+                    const text = await selected.text();
+                    if (file.input.files[0] !== selected) return;
+                    staged = JSON.stringify(NocturnePresetValidator.parse(text));
+                    render();
+                    say('Backup checked. Confirm replacement below.');
+                } catch (error) { say(error.message, true); }
+            });
+            nodes.push(file.wrapper);
+            if (staged) {
+                nodes.push(el('p', 'This replaces the entire account backup, including empty slots. Your headset is not changed yet.', 'link-warning'));
+                nodes.push(action('Confirm replace account backup', async () => {
+                    const saved = await api('/lighting/save', { presets: staged, expectedUpdatedAt: revision });
+                    presets = saved.presets;
+                    revision = saved.updatedAt;
+                    staged = null;
+                    render();
+                    say('Account backup saved. Import it explicitly in the headset.');
+                }));
+                nodes.push(action('Cancel replacement', () => { staged = null; render(); say('Replacement cancelled.'); }, true));
+            }
+            nodes.push(action('Back to music', musicStep, true));
+            show('Lighting preset transfer', ...nodes);
         };
         render();
         say('');
@@ -305,6 +374,12 @@
     }
 
     (async () => {
+        if (DEVELOPMENT) {
+            show('Phone companion unavailable',
+                el('p', 'This development site has free VR entry but no verified-account phone companion. Music and lighting transfers are unavailable here.'),
+                el('p', 'Use the desktop Music and lighting preset controls instead.', 'link-note'));
+            return;
+        }
         try {
             const fromUrl = digits(new URLSearchParams(window.location.search).get('code'));
             if (fromUrl.length === 8) {

@@ -563,8 +563,9 @@ The download used carries no licence file; the page states CC0.
 
 Seventeen people, plus the bouncer at the street door, built by `scripts/build-crowd-glbs.mjs` from the Quaternius **Modular Women** and **Modular Men**
 packs (the "Individual Characters" glTF downloads), recoloured into a varied cast and carrying the club's own dance
-and idle clips retargeted onto their rig. The eleven floor dancers also carry eight dance moves (`Groove_*`) that the
+and idle clips retargeted onto their rig. The floor dancers also carry thirteen procedural grooves (`Groove_*`) that the
 script authors procedurally onto the rig itself (no third-party animation; see `js/crowdDance.js`). The scripts and tests treat them as `club-crowd-<id>.glb`:
+`Groove_Roll` adds a rolling shoulder and hip movement, and `Groove_Skank` alternates low arm swings over a beat-locked bounce.
 
 Dance authoring and detailed retargeting share `scripts/arm-frame.mjs`: both the
 limb axis and elbow hinge plane are aligned. The shipped `Groove_Bounce` exposed

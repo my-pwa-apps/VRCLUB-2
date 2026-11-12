@@ -17,14 +17,13 @@ class VRClubAnimationCore extends VRClubEffects {
         this.updateLaserSheet(ctx);
         this.updateDancers(ctx);
         this.updateMirrorBall(ctx);
-        this.updateVJPhasing(ctx);
+        this.updateSpotColorCycle(ctx);
+        this.updateRoomBounce(ctx);
+        this.updateStrobes(ctx);
         this.updateLEDWallPass(ctx);
         this.updateDanceFloorLEDs(ctx);
         this.updateLasers(ctx);
-        this.updateSpotColorCycle(ctx);
         this.updateSpotlights(ctx);
-        this.updateRoomBounce(ctx);
-        this.updateStrobes(ctx);
         if (typeof this._updateProjectedCharacterShadows === 'function') this._updateProjectedCharacterShadows();
         this.updateSpeakerCones(ctx);
         this.updateCameraPresence(ctx);
@@ -32,6 +31,7 @@ class VRClubAnimationCore extends VRClubEffects {
         this.updateNetworkPresence(ctx);
         if (typeof this.updateVJDesk === 'function') this.updateVJDesk(ctx);
         if (typeof this.updateRestroomMirror === 'function') this.updateRestroomMirror(ctx);
+        this.updateSessionExperience?.(ctx.dt);
     }
 
     /**
@@ -70,7 +70,12 @@ class VRClubAnimationCore extends VRClubEffects {
 
         const cam = (this.isInVRMode && this.vrHelper?.baseExperience?.camera) || this.camera;
         if (!cam) return;
-        const rotY = cam.rotationQuaternion ? cam.rotationQuaternion.toEulerAngles().y : (cam.rotation ? cam.rotation.y : 0);
+        let rotY = cam.rotation ? cam.rotation.y : 0;
+        if (cam.rotationQuaternion) {
+            const rotation = this._networkRotation || (this._networkRotation = new BABYLON.Vector3());
+            cam.rotationQuaternion.toEulerAnglesToRef(rotation);
+            rotY = rotation.y;
+        }
         const position = cam.globalPosition || cam.position;
         const state = this._networkPose || (this._networkPose = {
             x: 0, y: 0, z: 0, rotY: 0, hands: null, seated: false, floorY: 0, eh: 1.7
@@ -256,10 +261,22 @@ class VRClubAnimationCore extends VRClubEffects {
         const retention = 1 - Math.pow(1 - 0.045, ctx.dtScale);
         ambient.intensity += (targetIntensity - ambient.intensity) * retention;
 
-        const hue = this.currentSpotColor || this.cachedColors.white;
-        const targetR = 0.62 + hue.r * 0.30;
-        const targetG = 0.62 + hue.g * 0.30;
-        const targetB = 0.66 + hue.b * 0.30;
+        let r = 0, g = 0, b = 0, weight = 0;
+        let color = this.lightsActive && this.currentSpotColor;
+        if (color) { r += color.r * 0.120; g += color.g * 0.120; b += color.b * 0.120; weight += 0.120; }
+        color = this.ledWallActive && (this.ledShowColor || this.currentSpotColor);
+        if (color) { r += color.r * 0.060; g += color.g * 0.060; b += color.b * 0.060; weight += 0.060; }
+        color = (this.lasersActive || this.laserSheetActive) && typeof this._laserColor === 'function'
+            ? this._laserColor() : null;
+        if (color) {
+            const laserWeight = (this.lasersActive ? 0.070 : 0) + (this.laserSheetActive ? 0.090 : 0);
+            r += color.r * laserWeight; g += color.g * laserWeight; b += color.b * laserWeight; weight += laserWeight;
+        }
+        color = this.mirrorBallActive && this.mirrorBallSpotlightColor;
+        if (color) { r += color.r * 0.080; g += color.g * 0.080; b += color.b * 0.080; weight += 0.080; }
+        const targetR = 0.62 + (weight ? r / weight : 1) * 0.30;
+        const targetG = 0.62 + (weight ? g / weight : 1) * 0.30;
+        const targetB = 0.66 + (weight ? b / weight : 1) * 0.30;
         ambient.diffuse.r += (targetR - ambient.diffuse.r) * retention;
         ambient.diffuse.g += (targetG - ambient.diffuse.g) * retention;
         ambient.diffuse.b += (targetB - ambient.diffuse.b) * retention;
@@ -979,6 +996,11 @@ class VRClubAnimationCore extends VRClubEffects {
         for (let i = start; i < particles.length; i += stride) {
             const p = particles[i];
             const pos = p.position;
+            const hasBeamCamera = !!(cp && nBeams);
+            const cx = hasBeamCamera ? cp.x - pos.x : 0;
+            const cy = hasBeamCamera ? cp.y - pos.y : 0;
+            const cz = hasBeamCamera ? cp.z - pos.z : 0;
+            const cameraDistance = hasBeamCamera ? (Math.sqrt(cx * cx + cy * cy + cz * cz) || 1) : 1;
             let lit = 0;
             let beamR = 0, beamG = 0, beamB = 0;
             for (let k = 0; k < nBeams; k++) {
@@ -1001,9 +1023,7 @@ class VRClubAnimationCore extends VRClubEffects {
                 }
                 let phase = 0.5;
                 if (cp) {
-                    const cx = cp.x - pos.x, cy = cp.y - pos.y, cz = cp.z - pos.z;
-                    const cl = Math.sqrt(cx * cx + cy * cy + cz * cz) || 1;
-                    const cosT = (cx * b.dx + cy * b.dy + cz * b.dz) / cl;
+                    const cosT = (cx * b.dx + cy * b.dy + cz * b.dz) / cameraDistance;
                     // Henyey-Greenstein g = 0.5, normalised to 1 at cosT = 1
                     phase = Math.min(1, 0.35 / Math.pow(1.25 - cosT, 1.5));
                 }
@@ -1364,6 +1384,8 @@ class VRClubAnimationCore extends VRClubEffects {
             // Palette fades can mutate the same Color3; identity alone leaves incident beams on the old hue.
             const colorChanged = this._mirrorAppliedColorSource !== color ||
                 this._mirrorAppliedR !== color?.r || this._mirrorAppliedG !== color?.g || this._mirrorAppliedB !== color?.b;
+            const master = Math.max(0, Math.min(1, this.masterIntensity ?? 1));
+            const beamLevelChanged = this._mirrorAppliedBeamMaster !== master;
             if (colorChanged) {
                 this._mirrorAppliedColorSource = color;
                 this._mirrorAppliedR = color.r;
@@ -1374,12 +1396,13 @@ class VRClubAnimationCore extends VRClubEffects {
                         if (light) light.diffuse.copyFrom(this.mirrorBallSpotlightColor);
                     }
                 }
-                if (this.mirrorBallBeams) {
-                    for (const beam of this.mirrorBallBeams) {
-                        beam.material.emissiveColor.copyFrom(this.mirrorBallSpotlightColor);
-                    }
+            }
+            if ((colorChanged || beamLevelChanged) && this.mirrorBallBeams) {
+                for (const beam of this.mirrorBallBeams) {
+                    color.scaleToRef(master, beam.material.emissiveColor);
                 }
             }
+            this._mirrorAppliedBeamMaster = master;
             if (this.mirrorBallHousings) {
                 this._refreshMirrorBallColorCache();
                 for (const housing of this.mirrorBallHousings) {
@@ -1462,528 +1485,5 @@ class VRClubAnimationCore extends VRClubEffects {
         }
     }
 
-    /**
-     * Legacy wall-clock 12-phase cycler plus the per-frame micro-dynamics.
-     * Gated off entirely whenever the Show Director is driving - see the
-     * "three places hand control over" table in the agent instructions.
-     */
-    updateVJPhasing(ctx) {
-        const { time, dtScale } = ctx;
-
-        // PROFESSIONAL VJ AUTOMATIC PATTERN SYSTEM
-        // Designed by a world-class VJ with experience at Berghain, Fabric, Amnesia, and Output
-        // Philosophy: Build tension → Release → Create moments → Repeat
-        // Each phase tells a story with the lights
-        //
-        // QC O1: VJ Director macros (DROP / BLACKOUT / LOCK / forceScene) write the
-        // SAME state vars this legacy cycler writes (lightingPhase, vjDropActive,
-        // spotlightPattern, vjBuildIntensity). When a user fires a macro the
-        // director sets `manualSceneUntil` to a future timestamp; while that
-        // hold is active we MUST NOT let the legacy cycler trample those
-        // decisions, or the macro flickers back to whatever phase the timer
-        // happened to be in. Single source of truth during a manual hold.
-        const directorHoldingMacro = !!(this.vjDirector &&
-            this.vjDirector.manualSceneUntil > performance.now());
-        // The Show Director owns the rig when it is driving. Its cues land on
-        // musical bars; this legacy cycler fires on a randomised wall-clock timer.
-        // Running both means whichever wrote last wins, which is exactly why the
-        // old show read as arbitrary. Exactly one writer at a time.
-        const showDriving = !!(this.showDirector && this.showDirector.isDriving());
-        if (!this.vjManualMode && !directorHoldingMacro && !showDriving) {
-            const currentPhaseDuration = this.phaseDurations[this.lightingPhase];
-            
-            // Smoothly interpolate energy level toward target.
-            // energyLevel drives spotlight intensity, laser rotation speed and the
-            // colour-change interval, so an unscaled per-frame increment made the
-            // whole show's ramp rate device-dependent.
-            const energySpeed = 1 - Math.pow(1 - 0.005, dtScale);
-            this.energyLevel += (this.targetEnergy - this.energyLevel) * energySpeed;
-            
-            // === IMMERSIVE BEAT-SYNCED MICRO-DYNAMICS ===
-            // Real VJ: constant subtle adjustments, never static
-            const bpm = this.bpm || 128;
-            const beatTime = 60 / bpm;
-            this.syncedBeatPhase = (time % beatTime) / beatTime; // 0-1 per beat
-            
-            // Breathing effect synced to 4-beat bars
-            const barPhase = (time % (beatTime * 4)) / (beatTime * 4);
-            const microPulse = Math.sin(barPhase * Math.PI * 2) * 0.15;
-            
-            // Sharp beat pulse (peaks on each beat)
-            const beatPulse = Math.pow(1 - this.syncedBeatPhase, 3) * 0.2;
-            
-            // Crowd focus: spotlights occasionally converge on dance floor center
-            this.crowdFocusIntensity = Math.sin(time * 0.1) * 0.5 + 0.5;
-            
-            if (time - this.lightModeSwitchTime > currentPhaseDuration) {
-                // === IMMERSIVE 12-PHASE SHOW CYCLE ===
-                // Professional animation sequence designed for maximum crowd immersion
-                switch(this.lightingPhase) {
-                    case 'intro':
-                        // INTRO → BUILD: Tease the crowd, slow reveal
-                        this.lightingPhase = 'build';
-                        this.targetEnergy = 0.5;
-                        
-                        // Moving heads sweep slowly, creating anticipation
-                        this.lightsActive = true;
-                        this.lasersActive = false;
-                        this.mirrorBallActive = false;
-                        this.strobesActive = false;
-                        this.laserSheetActive = false;
-                        this.smokeActive = true; // Haze for beam visibility
-                        
-                        // === FOG MACHINES: Auto mode with moderate output ===
-                        this.fogIntensity = 0.8;
-                        this.fogBurstMode = 'auto';
-                        this.fogBurstInterval = 12; // Occasional bursts
-                        
-                        this.spotlightPattern = 0; // Automated movement patterns
-                        this.spotlightMode = 1; // Sweep only (no strobe)
-                        this.spotlightSpeed = 0.6; // Slow, hypnotic
-                        this.laserSpeed = 0.5;
-                        this.ledWallSpeed = 0.7;
-                        this.currentShowMode = 'spotlights';
-                        log.info('🎭 BUILD: Tension rising - Slow sweeping beams');
-                        break;
-                        
-                    case 'build':
-                        // BUILD → TENSION: Increase intensity with moving heads only
-                        this.lightingPhase = 'tension';
-                        this.targetEnergy = 0.75;
-                        
-                        // Fast sweeping, no lasers yet.
-                        this.lightsActive = true;
-                        this.lasersActive = false; // Lasers OFF - save for their moment
-                        this.mirrorBallActive = false;
-                        this.strobesActive = false;
-                        this.laserSheetActive = false;
-                        this.smokeActive = true;
-                        
-                        this.spotlightPattern = 3; // CROSSED BEAMS - dramatic X patterns build tension
-                        this.spotlightMode = 0; // Strobe + sweep
-                        this.spotlightSpeed = 1.4; // Faster as tension builds
-                        this.laserSpeed = 1.0;
-                        this.ledWallSpeed = 1.2;
-                        
-                        // === FOG: Building intensity ===
-                        this.fogIntensity = 1.2;
-                        this.fogBurstMode = 'auto';
-                        this.fogBurstInterval = 6;
-                        
-                        this.currentShowMode = 'spotlights';
-                        log.info('⚡ TENSION: Moving heads intensify - Crossed beams building');
-                        break;
-                        
-                    case 'tension':
-                        // TENSION → DROP: THE BIG MOMENT - Everything explodes!
-                        this.lightingPhase = 'drop';
-                        this.targetEnergy = 1.0;
-                        this.vjDropActive = true; // Trigger drop effects
-                        this.vjDropTimer = time;
-                        
-                        // MAXIMUM CHAOS - Laser sheet + strobes
-                        this.lightsActive = false; // Moving heads off for laser sheet
-                        this.lasersActive = false; // Ceiling lasers off
-                        this.mirrorBallActive = false;
-                        this.strobesActive = true; // STROBES FIRE
-                        this.smokeActive = true; // Maximum haze
-                        
-                        // === FOG MACHINE BURST ON DROP ===
-                        this.fogIntensity = 2.0; // Maximum fog output
-                        this.fogBurstInterval = 3; // Rapid bursts
-                        // Trigger immediate burst
-                        if (this.fogMachines) {
-                            this.fogMachines.forEach(machine => {
-                                machine.isBursting = true;
-                                machine.burstTimer = 4.0; // Long burst on drop
-                                machine.emitter.emitRate = 250;
-                            });
-                        }
-                        
-                        this.spotlightSpeed = 2.5; // FAST
-                        this.laserSpeed = 2.0;
-                        this.ledWallSpeed = 2.5; // LED wall goes crazy
-                        this.strobeSpeed = 2.0; // Rapid strobes
-                        this.currentShowMode = 'laserSheet';
-                        log.info('💥 DROP: MAXIMUM IMPACT - Fog machines blast!');
-                        break;
-                        
-                    case 'drop':
-                        // DROP → PEAK: Sustain the energy, controlled chaos
-                        this.lightingPhase = 'peak';
-                        this.targetEnergy = 0.95;
-                        this.vjDropActive = false;
-                        
-                        // High energy but slightly more controlled
-                        this.lightsActive = false;
-                        this.lasersActive = false;
-                        this.mirrorBallActive = false;
-                        this.strobesActive = true; // Keep strobes
-                        this.smokeActive = true;
-                        
-                        this.spotlightSpeed = 1.8;
-                        this.laserSpeed = 1.5;
-                        this.ledWallSpeed = 1.8;
-                        this.strobeSpeed = 1.5;
-                        
-                        // === FOG: Sustained high output ===
-                        this.fogIntensity = 1.5;
-                        this.fogBurstMode = 'continuous';
-                        
-                        this.currentShowMode = 'laserSheet';
-                        log.info('🔥 PEAK: Riding the wave - Sustained high energy');
-                        break;
-                        
-                    case 'peak':
-                        // PEAK → BREAKDOWN: Sudden cut - create contrast
-                        this.lightingPhase = 'breakdown';
-                        this.targetEnergy = 0.2; // DRAMATIC DROP in energy
-                        
-                        // EVERYTHING OFF except mirror ball - disco moment!
-                        this.lightsActive = false;
-                        this.lasersActive = false;
-                        this.mirrorBallActive = true; // THE DISCO BALL MOMENT
-                        this.strobesActive = false;
-                        this.laserSheetActive = false;
-                        this.smokeActive = false; // Clear air for reflections
-                        
-                        // === FOG MACHINE OFF for clean mirror ball reflections ===
-                        this.fogIntensity = 0.0;
-                        if (this.fogMachines) {
-                            this.fogMachines.forEach(machine => {
-                                machine.isBursting = false;
-                                machine.emitter.emitRate = 0;
-                            });
-                        }
-                        
-                        this.mirrorBallSpeed = 0.4; // Slow, romantic
-                        this.ledWallSpeed = 0.3; // LED wall very slow
-                        this.currentShowMode = 'mirror';
-                        log.info('🪩 BREAKDOWN: Disco moment - Clear air for reflections');
-                        break;
-                        
-                    case 'breakdown':
-                        // BREAKDOWN → ATMOSPHERIC: Slow moving heads only - dreamy
-                        this.lightingPhase = 'atmospheric';
-                        this.targetEnergy = 0.35;
-                        
-                        // Ethereal slow movement after the disco moment.
-                        this.lightsActive = true;
-                        this.lasersActive = false;  // No lasers
-                        this.mirrorBallActive = false; // Mirror ball had its moment
-                        this.strobesActive = false;
-                        this.laserSheetActive = false;
-                        this.smokeActive = true; // Light haze for beam visibility
-                        
-                        this.spotlightPattern = 2; // MIRROR SWEEP - converging/diverging ethereal
-                        this.spotlightMode = 1; // Sweep only
-                        this.spotlightSpeed = 0.3; // Very slow, dreamlike
-                        this.mirrorBallSpeed = 0.5;
-                        this.ledWallSpeed = 0.4;
-                        
-                        // === FOG: Light haze for ethereal beams ===
-                        this.fogIntensity = 0.6;
-                        this.fogBurstMode = 'auto';
-                        this.fogBurstInterval = 20;
-                        
-                        this.currentShowMode = 'spotlights';
-                        log.info('✨ ATMOSPHERIC: Ethereal moving heads - Dreamlike sweeps');
-                        break;
-                        
-                    case 'atmospheric':
-                        // ATMOSPHERIC → LASER TUNNEL: Immersive laser experience
-                        this.lightingPhase = 'laser_tunnel';
-                        this.targetEnergy = 0.7;
-                        
-                        // ALL lasers converge toward dance floor - tunnel effect
-                        this.lightsActive = false;
-                        this.lasersActive = true;
-                        this.mirrorBallActive = false;
-                        this.strobesActive = false;
-                        this.smokeActive = true; // Maximum haze for beam visibility
-                        
-                        // === FOG MACHINES: Heavy continuous output for laser tunnel ===
-                        this.fogIntensity = 1.5;
-                        this.fogBurstMode = 'continuous';
-                        
-                        this.laserSpeed = 0.3; // Very slow rotation
-                        this.laserFanAngle = 0.2; // Narrow fan - beams converge
-                        this.ledWallSpeed = 0.5;
-                        this.currentShowMode = 'lasers';
-                        log.info('🌀 LASER TUNNEL: Fog machines continuous for beam visibility');
-                        break;
-                        
-                    case 'laser_tunnel':
-                        // LASER TUNNEL → GROOVE: Transition to a moving-head-only hypnotic groove
-                        this.lightingPhase = 'groove';
-                        this.targetEnergy = 0.6;
-                        
-                        // Moving heads only for groove - lasers had their moment.
-                        this.lightsActive = true;
-                        this.lasersActive = false;  // Lasers OFF - contrast after laser tunnel
-                        this.mirrorBallActive = false;
-                        this.strobesActive = false;
-                        this.laserSheetActive = false;
-                        this.smokeActive = true;
-                        
-                        this.spotlightPattern = 2; // MIRROR SWEEP - hypnotic synchronized movement
-                        this.spotlightMode = 1; // Sweep only
-                        this.spotlightSpeed = 0.6; // Medium speed for groove
-                        this.laserSpeed = 0.6;
-                        this.laserFanAngle = 0.5; // Normal spread
-                        this.ledWallSpeed = 0.8;
-                        
-                        // === FOG: Light haze for groove ===
-                        this.fogIntensity = 0.7;
-                        this.fogBurstMode = 'auto';
-                        this.fogBurstInterval = 15;
-                        
-                        this.currentShowMode = 'spotlights';
-                        log.info('🎵 GROOVE: Moving-head hypnosis after laser intensity');
-                        break;
-                        
-                    case 'groove':
-                        // GROOVE → EUPHORIA: Mirror ball moment - disco glory
-                        this.lightingPhase = 'euphoria';
-                        this.targetEnergy = 0.85;
-                        
-                        // MIRROR BALL FEATURED - solo star with subtle moving heads
-                        // This is THE disco moment - mirror ball deserves focus
-                        this.lightsActive = true;   // Slow moving heads complement
-                        this.lasersActive = false;  // Lasers OFF - would overpower reflections
-                        this.mirrorBallActive = true; // THE STAR
-                        this.strobesActive = false; // No strobes - pure vibes
-                        this.laserSheetActive = false;
-                        this.smokeActive = false;   // Clear air for crisp reflections
-                        
-                        this.spotlightPattern = 1; // STATIC DOWN - let mirror ball shine
-                        this.spotlightMode = 1; // Sweep only - elegant
-                        this.spotlightSpeed = 0.3; // Very slow - don't compete
-                        this.mirrorBallSpeed = 0.6;
-                        this.ledWallSpeed = 0.4; // Subdued LED wall
-                        
-                        // === FOG OFF - clear air for mirror ball reflections ===
-                        this.fogIntensity = 0;
-                        if (this.fogMachines) {
-                            this.fogMachines.forEach(m => { m.isBursting = false; m.emitter.emitRate = 0; });
-                        }
-                        
-                        this.currentShowMode = 'mirror';
-                        log.info('💫 EUPHORIA: Mirror ball glory - Disco moment');
-                        break;
-                        
-                    case 'euphoria':
-                        // EUPHORIA → DARKNESS: Dramatic blackout for contrast
-                        this.lightingPhase = 'darkness';
-                        this.targetEnergy = 0.05; // Near-blackout
-                        
-                        // EVERYTHING OFF - total darkness except minimal LED
-                        this.lightsActive = false;
-                        this.lasersActive = false;
-                        this.mirrorBallActive = false;
-                        this.strobesActive = false;
-                        this.laserSheetActive = false;
-                        this.smokeActive = false;
-                        
-                        // === FOG OFF - pure darkness ===
-                        this.fogIntensity = 0;
-                        if (this.fogMachines) {
-                            this.fogMachines.forEach(m => { m.isBursting = false; m.emitter.emitRate = 0; });
-                        }
-                        
-                        this.ledWallSpeed = 0.1; // LED wall very dim, slow pulse
-                        this.currentShowMode = 'darkness';
-                        log.info('🌑 DARKNESS: Dramatic blackout - fog cleared');
-                        break;
-                        
-                    case 'darkness':
-                        // DARKNESS → STROBE ATTACK: Explosive return!
-                        this.lightingPhase = 'strobe_attack';
-                        this.targetEnergy = 1.0; // MAXIMUM
-                        
-                        // STROBES - sensory overload
-                        this.lightsActive = false;
-                        this.lasersActive = false;
-                        this.mirrorBallActive = false;
-                        this.strobesActive = true; // FULL STROBES
-                        this.smokeActive = true;
-                        
-                        // === FOG BURST on strobe attack ===
-                        this.fogIntensity = 1.8;
-                        this.fogBurstMode = 'auto';
-                        this.fogBurstInterval = 4;
-                        if (this.fogMachines) {
-                            this.fogMachines.forEach(m => {
-                                m.isBursting = true;
-                                m.burstTimer = 3.0;
-                                m.emitter.emitRate = 180;
-                            });
-                        }
-                        
-                        this.strobeSpeed = 3.0; // VERY FAST
-                        this.ledWallSpeed = 3.0; // LED goes crazy
-                        this.currentShowMode = 'strobe_attack';
-                        log.info('⚡ STROBE ATTACK: Fog blast with strobes!');
-                        break;
-                        
-                    case 'strobe_attack':
-                        // STROBE ATTACK → BUILD: Reset cycle with high energy start
-                        this.lightingPhase = 'build';
-                        this.targetEnergy = 0.55;
-                        
-                        // Transition back to building phase
-                        this.lightsActive = true;
-                        this.lasersActive = false;
-                        this.mirrorBallActive = false;
-                        this.strobesActive = false;
-                        this.laserSheetActive = false;
-                        this.smokeActive = true;
-                        
-                        // === FOG: moderate auto mode for new cycle ===
-                        this.fogIntensity = 1.0;
-                        this.fogBurstMode = 'auto';
-                        this.fogBurstInterval = 10;
-                        
-                        this.spotlightPattern = 0;
-                        this.spotlightMode = 1;
-                        this.spotlightSpeed = 0.7;
-                        this.ledWallSpeed = 0.8;
-                        this.currentShowMode = 'spotlights';
-                        log.info('🔄 BUILD: New cycle begins - The journey continues');
-                        break;
-                        
-                    default:
-                        // STARTUP: Begin with intro
-                        this.lightingPhase = 'intro';
-                        this.targetEnergy = 0.3;
-                        
-                        this.lightsActive = true;
-                        this.lasersActive = false;
-                        this.mirrorBallActive = false;
-                        this.strobesActive = false;
-                        this.laserSheetActive = false;
-                        this.smokeActive = true;
-                        
-                        this.spotlightPattern = 0; // Automated movement patterns
-                        this.spotlightMode = 1;
-                        this.spotlightSpeed = 0.4;
-                        this.ledWallSpeed = 0.5;
-                        this.currentShowMode = 'spotlights';
-                        log.info('🌅 INTRO: Show begins - Setting the mood');
-                        break;
-                }
-                
-                this.lightModeSwitchTime = time;
-                
-                // DYNAMIC PHASE DURATIONS - Randomized for natural feel
-                const phaseName = this.lightingPhase;
-                if (phaseName === 'intro') {
-                    this.phaseDurations.intro = 12 + Math.random() * 8;
-                } else if (phaseName === 'build') {
-                    this.phaseDurations.build = 20 + Math.random() * 12;
-                } else if (phaseName === 'tension') {
-                    this.phaseDurations.tension = 12 + Math.random() * 8;
-                } else if (phaseName === 'drop') {
-                    this.phaseDurations.drop = 6 + Math.random() * 6; // SHORT for impact!
-                } else if (phaseName === 'peak') {
-                    this.phaseDurations.peak = 16 + Math.random() * 12;
-                } else if (phaseName === 'breakdown') {
-                    this.phaseDurations.breakdown = 10 + Math.random() * 6;
-                } else if (phaseName === 'atmospheric') {
-                    this.phaseDurations.atmospheric = 14 + Math.random() * 10;
-                } else if (phaseName === 'groove') {
-                    this.phaseDurations.groove = 20 + Math.random() * 12;
-                } else if (phaseName === 'euphoria') {
-                    this.phaseDurations.euphoria = 8 + Math.random() * 6;
-                } else if (phaseName === 'darkness') {
-                    this.phaseDurations.darkness = 4 + Math.random() * 4; // Very short!
-                } else if (phaseName === 'strobe_attack') {
-                    this.phaseDurations.strobe_attack = 5 + Math.random() * 3;
-                } else if (phaseName === 'laser_tunnel') {
-                    this.phaseDurations.laser_tunnel = 12 + Math.random() * 8;
-                }
-            }
-            
-            // === IMMERSIVE MICRO-DYNAMICS: Real-time crowd-focused animations ===
-            // Professional VJ technique: constant subtle adjustments create "living" show
-            
-            // Speed variations based on energy (things accelerate as energy rises)
-            const energySpeedBoost = 0.7 + this.energyLevel * 0.6; // 0.7x to 1.3x
-            
-            // === SPOTLIGHT CROWD FOCUS ===
-            // Occasionally converge spotlights on dance floor center for dramatic effect
-            if (this.lightsActive && this.spotlights) {
-                this.spotlights.forEach((spot) => {
-                    if (spot.light) {
-                        // Intensity breathes with energy + beat sync
-                        const baseIntensity = 8 + this.energyLevel * 15; // 8-23
-                        const beatBoost = beatPulse * 2; // Punch on beats
-                        spot.light.intensity = baseIntensity * (1 + microPulse + beatBoost);
-
-                        // NOTE: there used to be a "colour temperature shifts with phase"
-                        // block here that did `spot.light.diffuse.r += 0.1` (clamped to 1)
-                        // every frame during the 'euphoria' and 'tension' phases.
-                        // It was dead AND wrong:
-                        //   - dead, because the spotlight pass later in this same frame
-                        //     unconditionally reassigns `spot.light.diffuse` from
-                        //     `this.currentSpotColor`, discarding the accumulation;
-                        //   - wrong, because it mutated a Color3 in place with no code
-                        //     anywhere to restore it, so had it survived, a few seconds of
-                        //     'euphoria' would have saturated every spotlight to white
-                        //     permanently. Phase colour is the palette's job (VJDirector /
-                        //     ShowDirector), not a per-frame additive nudge.
-                    }
-                });
-            }
-            
-            // === LASER DYNAMICS ===
-            // Lasers respond to energy and create immersive patterns
-            if (this.lasersActive && this.lasers) {
-                const fanAngle = this.laserFanAngle || 0.5;
-                
-                this.lasers.forEach((laser) => {
-                    // Rotation speed tied to energy
-                    laser.rotationSpeed = (0.008 + this.energyLevel * 0.03) * energySpeedBoost;
-                    
-                    // During laser_tunnel phase, lasers converge
-                    if (this.lightingPhase === 'laser_tunnel') {
-                        laser.convergenceTarget = this.beamConvergencePoint;
-                        laser.fanSpread = fanAngle; // Narrow spread
-                    } else {
-                        laser.convergenceTarget = null;
-                        laser.fanSpread = 0.5; // Normal spread
-                    }
-                });
-            }
-            
-            // === MIRROR BALL IMMERSIVE DYNAMICS ===
-            // OPTIMIZATION: Skip mirror ball updates in VR if performance is critical
-            if (this.mirrorBallActive && this.mirrorBall && (!this.isInVRMode || this.frameCounter % 2 === 0)) {
-                if (this.lightingPhase === 'breakdown') {
-                    // Romantic slow rotation with breathing
-                    const romancePulse = Math.sin(time * 0.3) * 0.15;
-                    this.mirrorBallSpeed = 0.35 + romancePulse;
-                } else if (this.lightingPhase === 'euphoria') {
-                    // Faster, joyful rotation
-                    this.mirrorBallSpeed = 0.6 + Math.sin(time * 0.5) * 0.1;
-                } else {
-                    // Normal rotation
-                    this.mirrorBallSpeed = 0.5;
-                }
-            }
-            
-            // === STROBE INTENSITY CONTROL ===
-            if (this.strobesActive && this.lightingPhase === 'strobe_attack') {
-                // Maximum intensity during strobe attack
-                this.strobeSpeed = 2.5 + Math.random() * 0.5; // Vary speed slightly
-            }
-            
-        } else {
-            // In manual mode: update lightModeSwitchTime to prevent immediate cycling when mode expires
-            this.lightModeSwitchTime = time;
-        }
-    }
-
-    /** Drive the LED wall (modular system, legacy pattern player, or forced black). */
 }
 window.VRClubAnimationCore = VRClubAnimationCore;

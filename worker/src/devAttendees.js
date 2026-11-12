@@ -45,7 +45,7 @@ chain('left', 'front-mid', 'front-left');
 chain('right', 'front-right', 'lounge-front');
 for (const [group, x, anchor] of [['inside-left', -8, 'front-left'], ['inside-mid', -4, 'front-mid'],
     ['inside-right', 4.8, 'front-right']]) {
-    for (const [i, dx, dz] of [[0, -0.65, 0], [1, 0.65, 0], [2, 0, -1.1]]) {
+    for (const [i, dx, dz] of [[0, -0.45, 0], [1, 0.45, 0], [2, 0, -0.78]]) {
         destination(`${group}-${i}`, anchor, x + dx, -1.7 + dz, 'talk', { group });
     }
 }
@@ -190,6 +190,9 @@ export class DevAttendees {
         this.chatTurn = 0;
         this.chatGroup = null;
         this.conversations = new Map();
+        this.peakActive = false;
+        this.peakTurn = this.seed;
+        this.peakChatAt = now;
     }
 
     _random(bot) {
@@ -350,7 +353,8 @@ export class DevAttendees {
             if (partners.length && bot.destination.activity !== 'toilet') {
                 const x = partners.reduce((sum, other) => sum + other.position.x, 0) / partners.length;
                 const z = partners.reduce((sum, other) => sum + other.position.z, 0) / partners.length;
-                if (!bot.state.seated) bot.state = { ...bot.state, rotY: Math.atan2(x - bot.position.x, z - bot.position.z),
+                const earAngle = bot.destination.activity === 'talk' && bot.destination.group.startsWith('inside-') ? 0.2 : 0;
+                if (!bot.state.seated) bot.state = { ...bot.state, rotY: Math.atan2(x - bot.position.x, z - bot.position.z) + earAngle,
                     talking: true };
             }
             if (this.clock >= bot.gestureAt && (partners.length || bot.state.dancing)) {
@@ -375,7 +379,20 @@ export class DevAttendees {
         members[turn % members.length].chat = script[turn % script.length];
     }
 
-    step(now, people = [], doors = []) {
+    _reactToPeak(show) {
+        const peak = show?.m === 'show' && (show.sp === 'release' || (!show.sp && show.mv === 'ignition'));
+        const entered = peak && !this.peakActive;
+        this.peakActive = peak;
+        if (!entered) return;
+        const turn = this.peakTurn++;
+        if (turn % 2 || this.clock < this.peakChatAt) return;
+        const dancers = [...this.guests.values()].filter(bot => !bot.path && !bot.yielding && bot.state.dancing);
+        if (!dancers.length) return;
+        dancers[Math.floor(turn / 2) % dancers.length].chat = 'Het lijkt wel gabber!';
+        this.peakChatAt = this.clock + 60000;
+    }
+
+    step(now, people = [], doors = [], show = null) {
         for (const bot of this.guests.values()) { bot.gesture = null; bot.emoji = null; bot.chat = null; }
         this.accumulator += Math.max(0, Math.min(250, now - this.now));
         this.now = now;
@@ -391,5 +408,6 @@ export class DevAttendees {
             }
             this._socialize();
         }
+        this._reactToPeak(show);
     }
 }

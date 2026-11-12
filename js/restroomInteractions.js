@@ -132,9 +132,9 @@ class RestroomInteractions {
             ['FLUSH', 'SEAT', 'LID', 'TAP'].forEach((word, i) => ctx.fillText(word, 128 + (i % 2) * 256, 64 + Math.floor(i / 2) * 128));
             this.labelTexture.update();
             this.labelMaterial = this.club.materialFactory.createStandardMaterial('restroomControlLabelsMat', {
-                diffuseColor: [1, 1, 1], emissiveColor: [0.2, 0.2, 0.2], disableLighting: true
+                diffuseColor: [1, 1, 1], emissiveColor: [0.2, 0.2, 0.2], disableLighting: true,
+                diffuseTexture: this.labelTexture
             });
-            this.labelMaterial.diffuseTexture = this.labelTexture;
         }
         const index = ['FLUSH', 'SEAT', 'LID', 'TAP'].indexOf(text);
         const face = BABYLON.MeshBuilder.CreatePlane(`${control.name}Label`, { width: 0.14, height: 0.07 }, this.club.scene);

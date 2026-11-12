@@ -1169,13 +1169,15 @@ class VRClubAudio extends VRClubUI {
      * sentences. The user's own music volume is untouched: the two multiply.
      * @returns {boolean} whether the music is now ducked
      */
-    setVoiceDuck(active) {
+    setVoiceDuck(active, amount = VRClubAudioCrowd.VOICE_DUCK_LEVEL) {
         active = !!active;
-        if (this._voiceDucked === active) return active;
+        const level = active ? Math.min(1, Math.max(VRClubAudioCrowd.VOICE_DUCK_LEVEL,
+            Number.isFinite(amount) ? amount : VRClubAudioCrowd.VOICE_DUCK_LEVEL)) : 1;
+        if (this._voiceDucked === active && this._voiceDuckLevel === level) return active;
         this._voiceDucked = active;
+        this._voiceDuckLevel = level;
         const node = this.voiceDuckGain;
         if (!node || !node.gain) return active;
-        const level = active ? VRClubAudioCrowd.VOICE_DUCK_LEVEL : 1;
         const ctx = this.audioContext;
         if (ctx && ctx.currentTime != null && node.gain.setTargetAtTime) {
             node.gain.cancelScheduledValues(ctx.currentTime);
