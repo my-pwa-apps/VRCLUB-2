@@ -217,6 +217,8 @@ class VRClubAnimationFinish extends VRClubAnimationFixtures {
                         // The burst is shown for the frame it fires on, whatever the frame time.
                         strobe._holdFrame = active;
                         if (!active) {
+                            strobe.emitter?.setEnabled(false);
+                            strobe.glare?.setEnabled(false);
                             if (!strobe._emisBuf) strobe._emisBuf = new BABYLON.Color3(0, 0, 0);
                             strobe._emisBuf.set(0, 0, 0);
                             strobe.material.emissiveColor = strobe._emisBuf;
@@ -236,6 +238,8 @@ class VRClubAnimationFinish extends VRClubAnimationFixtures {
                 this.strobes.forEach((strobe) => {
                     // Handle ongoing flash
                     if (strobe.flashDuration > 0) {
+                        strobe.emitter?.setEnabled(true);
+                        strobe.glare?.setEnabled(true);
                         // A burst is 20-90 ms, shorter than one frame on a loaded headset.
                         // Counting down before drawing lit and cleared it in the same pass,
                         // so the flash never reached the screen. The frame a burst fires on
@@ -277,6 +281,8 @@ class VRClubAnimationFinish extends VRClubAnimationFixtures {
                     }
                     
                     if (strobe.flashDuration <= 0) {
+                        strobe.emitter?.setEnabled(false);
+                        strobe.glare?.setEnabled(false);
                         strobe._emisBuf.set(0, 0, 0);
                         if (strobe.glareMaterial) {
                             strobe.glareMaterial.emissiveColor.set(0, 0, 0);
@@ -360,6 +366,8 @@ class VRClubAnimationFinish extends VRClubAnimationFixtures {
                     }
                     if (strobe.light) strobe.light.intensity = 0;
                     strobe.flashDuration = 0;
+                    strobe.emitter?.setEnabled(false);
+                    strobe.glare?.setEnabled(false);
                 });
                 if (this.strobeFlashLight) this.strobeFlashLight.intensity = 0;
                 this._nextStrobeBurstTime = undefined;

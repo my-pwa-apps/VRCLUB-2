@@ -1606,6 +1606,7 @@ class ShowDirector {
                     // Second bar: let the mirror ball creep back in, alone, so the
                     // room re-forms out of the dark rather than snapping back.
                     if (bar === 1) {
+                        show._blackoutBeats = 0;
                         show.club.mirrorBallActive = true;
                         show.club.mirrorBallRaysActive = false;
                         show.club.mirrorBallSpeed = 0.22;
@@ -1614,9 +1615,9 @@ class ShowDirector {
                         show.club.ledWallSpeed = 0.3;
                     }
                 },
-                onFrame(show, target) {
+                onFrame(show) {
                     // Slow bloom back up through the second bar only.
-                    return show._setPieceBar === 0 ? 0 : target * 0.35;
+                    return show._setPieceBar === 0 ? 0 : 0.35;
                 }
             },
 

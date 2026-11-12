@@ -1,5 +1,17 @@
 'use strict';
 
+const CLUB_OPTICAL_SLABS = (() => {
+    const deck = window.MezzanineLayout?.deck || { x0: -12.2, x1: -9.5, z0: -19, z1: -10.4, top: 3, thickness: 0.08 };
+    const bar = window.VenueLayout?.bar?.counter || { xFront: 9.7, xBack: 10.5, z0: -13.6, z1: -6.2, top: 1.1 };
+    return [
+        { x0: deck.x0, x1: deck.x1, z0: deck.z0, z1: deck.z1, top: deck.top, bottom: deck.top - deck.thickness },
+        { x0: -2, x1: 2, z0: -19, z1: -18, top: 1.42, bottom: 0.5 },
+        { x0: bar.xFront - 0.08, x1: bar.xBack, z0: bar.z0, z1: bar.z1, top: bar.top, bottom: bar.top - 0.06 },
+        { x0: -3, x1: 3, z0: -20, z1: -16, top: 0.5, bottom: 0 }
+    ];
+})();
+window.VRClubOpticalSlabs = CLUB_OPTICAL_SLABS;
+
 /**
  * A ray that has reached the left wall's club face (x -12.25): if it goes through the restroom doorway it does not
  * stop there (there is no wall in an opening, so a spot drawn on that plane floats in mid-air). It carries on into the
@@ -1397,6 +1409,15 @@ class VRClubEffects extends VRClubFixtures {
         else if (dy < -1e-6) { const k = (minY - oy) / dy; if (k < t) { t = k; nx = 0; ny = 1; nz = 0; } }
         if (dz > 1e-6) { const k = (maxZ - oz) / dz; if (k < t) { t = k; nx = 0; ny = 0; nz = -1; } }
         else if (dz < -1e-6) { const k = (minZ - oz) / dz; if (k < t) { t = k; nx = 0; ny = 0; nz = 1; } }
+        if (Math.abs(dy) > 1e-6) {
+            for (const slab of CLUB_OPTICAL_SLABS) {
+                const k = ((dy < 0 ? slab.top : slab.bottom) - oy) / dy;
+                if (k <= 0 || k >= t) continue;
+                const x = ox + dx * k, z = oz + dz * k;
+                if (x < slab.x0 || x > slab.x1 || z < slab.z0 || z > slab.z1) continue;
+                t = k; nx = 0; ny = dy < 0 ? 1 : -1; nz = 0;
+            }
+        }
         const frontX = ox + dx * t;
         const frontY = oy + dy * t;
         const opening = ROOM_INTERIOR.entrance;

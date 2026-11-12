@@ -295,13 +295,17 @@ test('every network avatar follows real left/right dance and wave targets after 
                 const wrist = at(`Wrist.${suffix}`);
                 const expected = { x: peer.root.position.x + target.x, y: peer.root.position.y + 1.7 + target.y,
                     z: peer.root.position.z + target.z };
-                assert.ok(dist(wrist, expected) < 0.035, `${file} ${side} frame ${frame}: wrist misses by ${dist(wrist, expected).toFixed(3)} m`);
+                if (target.weight === 1) {
+                    assert.ok(dist(wrist, expected) < 0.035, `${file} ${side} frame ${frame}: wrist misses by ${dist(wrist, expected).toFixed(3)} m`);
+                }
                 const shoulder = at(`UpperArm.${suffix}`), elbow = at(`LowerArm.${suffix}`);
                 const length = dist(shoulder, elbow) + dist(elbow, wrist);
                 assert.ok(Math.abs(length - reach) < 0.025, `${file}: limb stretched`);
                 const finger = at(`Index1.${suffix}`).add(at(`Pinky1.${suffix}`)).scale(0.5).subtract(wrist).normalize();
                 const forward = new B.Vector3(target.fx, target.fy, target.fz).normalize();
-                assert.ok(B.Vector3.Dot(finger, forward) > 0.97, `${file}: hand orientation does not follow the controller`);
+                if (target.weight === 1) {
+                    assert.ok(B.Vector3.Dot(finger, forward) > 0.97, `${file}: hand orientation does not follow the controller`);
+                }
             }
         }
         const onlyLeft = { x: leftShoulder.x - 0.1, y: leftShoulder.y - 1.7 + 0.2, z: leftShoulder.z + 0.25,
@@ -317,6 +321,10 @@ test('every network avatar follows real left/right dance and wave targets after 
         manager.updatePeerState('p', null, { x: 4, y: 4.7, z: -8, rotY: 1.2 });
         manager.update(1 / 60);
         scene.render();
+        assert.ok(peer.hands.left.weight > 0 && peer.hands.left.weight < 1, 'tracking loss blends with the animated pose');
+        const shoulder = at(`UpperArm.${leftSuffix}`), elbow = at(`LowerArm.${leftSuffix}`), wrist = at(`Wrist.${leftSuffix}`);
+        assert.ok(Math.abs(dist(shoulder, elbow) + dist(elbow, wrist) - reach) < 0.025, `${file}: transition stretches the arm`);
+        for (let frame = 0; frame < 10; frame++) { manager.update(1 / 60); scene.render(); }
         assert.equal(peer.hands.left, null, 'tracking loss returns to clip animation');
         manager.dispose();
         scene.dispose();
@@ -1135,8 +1143,13 @@ test('dance arms keep their elbow hinge aligned instead of corkscrewing the uppe
 });
 
 test('a conversation lean brings the head forward without lifting the feet', async () => {
-    for (const file of ['club-crowd-m6.glb', 'club-crowd-f8.glb']) {
-        const { scene, engine, container, B } = await loadContainer(file);
+    for (const file of ['club-crowd-m6.glb', 'club-crowd-f8.glb',
+        join(ROOT, 'js/models/characters/felix.glb'), join(ROOT, 'js/models/characters/leila.glb')]) {
+        const { scene, engine, container, B, box } = await loadContainer(file);
+        if (typeof box.VRClubAudioCrowd?._easeMinglerLean !== 'function') {
+            box.VRClubUI = class {};
+            vm.runInContext(readClubSource(join(ROOT, 'js/club/11-audio-crowd.js')), box);
+        }
         const entry = container.instantiateModelsToScene(name => name, false, { doNotInstantiate: true });
         const root = entry.rootNodes[0];
         root.rotationQuaternion = null;
@@ -1147,14 +1160,43 @@ test('a conversation lean brings the head forward without lifting the feet', asy
             n.computeWorldMatrix(true);
             return n.getAbsolutePosition().clone();
         };
-        const head = position('Head'), left = position('Foot.L'), right = position('Foot.R');
-        root.rotation.x = 0.135;
-        root.computeWorldMatrix(true);
-        const leaned = position('Head');
-        assert.ok(leaned.z - head.z > 0.18, `${file}: head does not approach the partner`);
-        for (const [name, before] of [['Foot.L', left], ['Foot.R', right]]) {
-            assert.ok(B.Vector3.Distance(position(name), before) < 0.035, `${file}: ${name} moved too far`);
+        for (const yaw of [0, 1.2, -2.1]) {
+            root.rotation.y = yaw;
+            const head = position('Head'), left = position('Foot.L'), right = position('Foot.R');
+            box.VRClubAudioCrowd._easeMinglerLean(root, 0.135, 10);
+            scene.onBeforeAnimationsObservable.notifyObservers(scene);
+            scene.onAfterAnimationsObservable.notifyObservers(scene);
+            const leaned = position('Head');
+            const forward = (leaned.x - head.x) * Math.sin(yaw) + (leaned.z - head.z) * Math.cos(yaw);
+            assert.ok(forward > 0.025, `${file}: head does not approach the partner at yaw ${yaw}`);
+            for (const [name, before] of [['Foot.L', left], ['Foot.R', right]]) {
+                assert.ok(B.Vector3.Distance(position(name), before) < 0.001, `${file}: ${name} moved too far`);
+            }
+            for (let i = 0; i < 120; i++) {
+                scene.onBeforeAnimationsObservable.notifyObservers(scene);
+                scene.onAfterAnimationsObservable.notifyObservers(scene);
+            }
+            assert.ok(B.Vector3.Distance(position('Head'), leaned) < 0.001, 'lean must not accumulate on paused clips');
+            box.VRClubAudioCrowd._easeMinglerLean(root, 0, 10);
+            scene.onBeforeAnimationsObservable.notifyObservers(scene);
+            scene.onAfterAnimationsObservable.notifyObservers(scene);
+            assert.ok(B.Vector3.Distance(position('Head'), head) < 0.001, 'the original pose returns on departure');
         }
+        root.rotation.y = 0;
+        const talking = entry.animationGroups.find(group => group.name === 'Idle_Talking_Loop');
+        assert.ok(talking, `${file}: missing talking clip`);
+        talking.start(true);
+        box.VRClubAudioCrowd._easeMinglerLean(root, 0.135, 10);
+        for (let i = 0; i < 10; i++) {
+            scene.onBeforeAnimationsObservable.notifyObservers(scene);
+            talking.goToFrame(talking.from + (talking.to - talking.from) * i / 10);
+            const head = position('Head'), feet = [position('Foot.L'), position('Foot.R')];
+            scene.onAfterAnimationsObservable.notifyObservers(scene);
+            assert.ok(position('Head').z - head.z > 0.025, 'the bend follows the evaluated talking clip');
+            assert.ok(B.Vector3.Distance(position('Foot.L'), feet[0]) < 0.001);
+            assert.ok(B.Vector3.Distance(position('Foot.R'), feet[1]) < 0.001);
+        }
+        talking.stop();
         scene.dispose();
         engine.dispose();
     }

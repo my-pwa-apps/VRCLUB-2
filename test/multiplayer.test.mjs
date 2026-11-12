@@ -723,6 +723,38 @@ function spotController() {
     return env;
 }
 
+test('host mingler music survives the relay for listeners, late joins, silence and host changes', async () => {
+    const { sanitizeShow } = await import('../worker/src/relay.js');
+    const host = spotController();
+    host.mp.connect({ serverUrl: 'wss://relay.example', room: 'r' });
+    FakeSocket.instances.at(-1).receive({ type: 'welcome', id: 'me', hostId: 'me', peers: [{ id: 'p1', name: 'Bo' }] });
+    host.club._minglerDanceMusic = { beatPresent: true, beat: 101.25, bpm: 126 };
+    const frame = sanitizeShow(host.mp._buildShowFrame());
+    assert.equal(frame.fx.dancePulse, true);
+    assert.equal(frame.fx.danceBeat, 1.25);
+    assert.equal(frame.fx.danceBpm, 126);
+    for (const listening of [true, false]) {
+        const guest = connectedController([{ id: 'p1', pid: PID_B, name: 'Bo' }], { hostId: 'p1' });
+        fakeRig(guest.club);
+        guest.mp.client.musicListening = listening;
+        guest.mp._applyShow(frame);
+        assert.equal(guest.club._sharedMinglerMusic.beatPresent, true);
+        assert.ok(Math.abs(guest.club._sharedMinglerMusic.beat - 1.25) < 0.1);
+        assert.equal(guest.club._sharedMinglerMusic.bpm, 126);
+        guest.mp._applyShow(sanitizeShow({ m: 'show', fx: { ...frame.fx, dancePulse: false, danceBpm: 90 } }));
+        assert.equal(guest.club._sharedMinglerMusic.beatPresent, false);
+        assert.equal(guest.club._sharedMinglerMusic.bpm, 90);
+        guest.mp._setStale(true);
+        assert.equal(guest.club._sharedMinglerMusic, null);
+        guest.mp._applyShow(frame);
+        guest.mp.client.hostId = 'me';
+        guest.mp._syncRole();
+        assert.equal(guest.club._sharedMinglerMusic, null, 'a promoted host never republishes the former host clock');
+        guest.mp.disconnect();
+    }
+    host.mp.disconnect();
+});
+
 test('spot rig: real relay sanitization retains every head and the timestamped beat in automatic and manual frames', async () => {
     const { sanitizeShow, MAX_SHOW_FIXTURES } = await import('../worker/src/relay.js');
     const { mp, club } = spotController();
@@ -734,6 +766,7 @@ test('spot rig: real relay sanitization retains every head and the timestamped b
     club.spotHead3Enabled = false;
     club.spotHead5Motion = 1;
     club.spotPrismActive = true;
+    club._minglerDanceMusic = { beatPresent: true, beat: 1.99999, bpm: 120 };
     for (const manual of [false, true]) {
         club.vjManualMode = manual;
         const frame = mp._buildShowFrame();
@@ -747,6 +780,7 @@ test('spot rig: real relay sanitization retains every head and the timestamped b
         assert.equal(retained.fx.spotSequenceBeat, 300.5);
         assert.equal(retained.fx.spotSequenceBpm, 120);
         assert.equal(retained.fx.spotSequenceAt, frame.fx.spotSequenceAt, 'numeric epoch milliseconds would be clamped by the relay');
+        assert.equal(Object.keys(retained.fx).length, Object.keys(frame.fx).length, 'dance metadata must not displace fixture fields');
         assert.ok(Object.keys(retained.fx).length <= MAX_SHOW_FIXTURES);
     }
     mp.disconnect();

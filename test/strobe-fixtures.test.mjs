@@ -13,7 +13,7 @@ function fixtureScene(t) {
         toDataURL: () => 'data:image/png;base64,'
     };
     const context = vm.createContext({
-        console, window: {}, CLUB_POSITIONS: { sideTrussX: 7.6 },
+        console, window: {}, CLUB_POSITIONS: { sideTrussX: 7.6 }, VRClubAnimationFixtures: class {},
         VRClubEnvironment: class {},
         document: { createElement: () => canvas },
         BABYLON: {
@@ -28,7 +28,7 @@ function fixtureScene(t) {
             }
         }
     });
-    for (const file of ['materialFactory.js', 'club/05-fixtures.js']) {
+    for (const file of ['materialFactory.js', 'club/05-fixtures.js', 'club/09-animation-finish.js']) {
         vm.runInContext(readFileSync(new URL(`../js/${file}`, import.meta.url), 'utf8'), context);
     }
     const engine = new B.NullEngine();
@@ -38,7 +38,7 @@ function fixtureScene(t) {
         scene, materialFactory: new context.window.MaterialFactory(scene, 4)
     });
     club.createStrobeLights();
-    return { club, scene };
+    return { club, scene, finish: context.window.VRClubAnimationFinish.prototype };
 }
 
 function close(actual, expected, message) {
@@ -81,6 +81,8 @@ test('strobes match Unity placement, inward aim, casing, reflector and tube meas
         assert.equal(fixture.material.disableDepthWrite, true);
         assert.ok(fixture.material.emissiveColor.asArray().every(value => value === 0));
         assert.equal(fixture.glareMaterial.alpha, 0);
+        assert.equal(emitter.isEnabled(), false, 'the additive emitter does not draw while idle');
+        assert.equal(glare.isEnabled(), false, 'the glare plane does not draw while idle');
         assert.equal(fixture.light, null);
         for (const [part, colour, metallic, roughness] of [
             [mesh, [0.05, 0.05, 0.055], 0.3, 0.3],
@@ -108,6 +110,23 @@ test('strobes match Unity placement, inward aim, casing, reflector and tube meas
         }
         close(clampRadius, 0.06, 'Unity clamp outer radius');
     }
+});
+
+test('strobe overlay planes are submitted only for the flash window', t => {
+    const { club, finish } = fixtureScene(t);
+    club.cachedColors = { ledMonoWhite: new B.Color3(1, 1, 1) };
+    club.strobesActive = true;
+    club.photosensitiveSafeMode = false;
+    club.masterIntensity = 1;
+    club.strobeSpeed = 1;
+    club.strobePattern = 'all';
+    club.vjBuildIntensity = 0;
+    club.vjDropActive = false;
+    finish.updateStrobes.call(club, { time: 1, dt: 1 / 60, audio: { bass: 0 } });
+    assert.ok(club.strobes.every(strobe => strobe.emitter.isEnabled() && strobe.glare.isEnabled()));
+
+    finish.updateStrobes.call(club, { time: 1.2, dt: 0.2, audio: { bass: 0 } });
+    assert.ok(club.strobes.every(strobe => !strobe.emitter.isEnabled() && !strobe.glare.isEnabled()));
 });
 
 test('static fixture parts share instance draws and do not add enabled flash lights', t => {

@@ -305,7 +305,8 @@ set-piece starting or the movement entering `ignition`) and the visitors (this g
   instead of freezing or snapping with a missed kick. Audible state holds for two beats
   (at least one second), like the crowd, before returning to the silent clock.
   Subtle gaze and breathing offsets keep held poses alive. Everything is eased; the pose object and its hands
-  are reused (no per-frame allocation).
+  are reused (no per-frame allocation). Knob and jog gestures use an integrated beat clock;
+  never multiply elapsed set time by the current BPM, which jumps when tempo estimates change.
 - **Placement is measured, not guessed.** The desk is `console_final`'s world bounds (`_djDesk()`, with a fallback);
   the DJ's eyes stand 0.18 m behind its near edge on the 0.5 m riser, eyes at 93% of the look's height. Both DJs' arms
   (~0.49 m shoulder to wrist) reach every knob only from there with the activity's lean; further back they stop short.
@@ -530,8 +531,18 @@ Rules when editing:
 - Mirror-ball incident beams and housing caches compare RGB values as well as
   the source reference: palette fades can mutate a `Color3` in place. Reflected
   colour updates on that same frame, even between VR geometry updates.
+  Incident beam emission also follows the show master on every change.
   `_updateMirrorReflectionColors()` must not rebuild or upload instance matrices;
   the tier's reflection-geometry cadence remains unchanged.
+- NOCTURNE's CUT TO BLACK holds the first bar dark, then returns the mirror and
+  aurora at a 0.35 target in the second bar, still subject to the show master.
+  Late followers entering that second bar clear the initial blackout gate too.
+- The legacy laser colour timer stands down while the show or a remote host drives.
+  The floor strip uses the show's spot colour instead of its legacy rainbow while
+  the show drives; the manual/legacy paths retain their existing behaviour.
+- Indirect room bounce keeps its existing energy budget, but blends the colours of
+  active spots, wall, lasers and mirror ball rather than tinting every solo with
+  the inactive spot colour. Crowd proximity yaw integrates elapsed time.
 - **All structural decisions happen in `_onBar()`, never mid-bar.** Landing changes off the
   musical grid is exactly the failure this class exists to fix.
 - Explicit section changes clear the interrupted set-piece and its old kick evidence;
@@ -640,8 +651,9 @@ speed by absolute time. Aim, pan and tilt are rate-limited; per-head independent
 shares the phase without adding it to presets. In every pattern the beam and light direction follow the animated physical
 head, not the uneased aim target. `_resolveSpotSurfaceHit()` forces the current yoke/head/lens transforms and places both
 the cone and the multi-beam filter just outside the centre of the lens face. Their near ends spread over the lens without
-exceeding its 0.17 m radius even under the beam's tilt stretch; the source end of the opacity gradient no longer fades to
-zero. The real-scene prism test checks alignment and aperture coverage through pattern transitions; headset appearance
+exceeding its 0.17 m radius; the source end of the opacity gradient no longer fades to zero. The circular cone's wide end
+is 2 m across, with matching extension and pool sizing; the surface intersection, not the airborne cone, stretches at a tilt.
+The real-scene prism test checks alignment and aperture coverage through pattern transitions; headset appearance
 and the additional transform cost remain unmeasured.
 **Kick punch reaches the fixtures.** `club.kickDepth` (the look's `punch`, written by the
 director) × `beatEnvelope` gives `club.kickPulse` each frame, halved in Safe Mode. It lifts
@@ -826,6 +838,9 @@ moving-head shutter and Warehouse LED flash all claim the same room-wide
 `VRClubCore._tryClubFlash()` governor, so their combined output cannot exceed one abrupt
 flash per 0.34 s (Warehouse requests its stricter 0.4 s gap). Safe Mode denies every claim;
 the Warehouse pattern may still run its explicitly tested slow Safe Mode swell.
+The strobe bank claims first, after room bounce but before the wall and moving heads, so simultaneous
+beat requests cannot steal its flash or overwrite its ambient impulse. A late moving-head timer claims
+at the actual frame time, not an expired deadline that would reset the governor.
 The floor-edge strips obey the whole-show master, including zero, and use only a
 slow white swell during the legacy strobe phase, never an independent flash source.
 
@@ -906,7 +921,10 @@ Rules when touching this:
 - Mirror reflection spots and outgoing rays are two thin-instanced meshes backed by
   preallocated matrix buffers. `_intersectRoomInterior()` analytically clips them to
   `ROOM_INTERIOR` (the shell's inner faces: x ±12.25, ceiling y 9.85, LED wall z -20, front
-  wall z -0.25), except rays through the front doorway continue onto the analytically modelled
+  wall z -0.25), and to the horizontal top/underside of the deck, DJ table, bar and riser.
+  Spotlight pools and their larger glow are conservatively bounded to elevated surfaces, not left
+  floating beyond their edges. These analytic slabs are not full scene occlusion.
+  Rays through the front doorway continue onto the analytically modelled
   entrance stair treads and risers. `ROOM_BOUNDS` is the narrower walkable band and must not be used for optics.
   Do not restore per-spot meshes or `scene.pickWithRay()` calls.
 - **Every new heavy effect must be feature-detected** (`if (BABYLON.X)`) and wrapped in
@@ -1070,6 +1088,7 @@ Search engines and link previews use `https://nocturne.mitwee.nl/` as the only c
 `WebApplication` microdata in `#modelCredits`; `robots.txt` points at the one-URL `sitemap.xml`.
 The 1200x630 preview is `icons/social-preview.png`, cropped by `npm run social-preview` from the editable artwork
 `design/social-preview-source.png` (kept outside `icons/` because the build copies that whole folder into `dist/`).
+The generator losslessly compresses the PNG to preserve headroom under the deployment payload ceiling.
 `npm run quest:art` reuses the same artwork for the SideQuest banner. `scripts/build.mjs` copies all four crawl/preview assets into `dist/`.
 Keep development and `pages.dev` hostnames out of canonical metadata and the sitemap so they do
 not compete with production in search results.
@@ -1339,6 +1358,11 @@ cloth appearance and GPU/CPU cost on a physical Quest are unmeasured.
   `_updateBouncer`. **He lingers**: a conversation is 22-38 s, watching the floor 25-40 s, the bar is two sips with a
   chat between them (~25 s), a cigarette 75-105 s and the balcony 25-40 s at the rail plus 25-40 s talking. He walks
   about a quarter of the time (the real-club test fails above 45%); before 2026-10-08 he walked most of it.
+  His dance uses the same two-beat clip anchor and pulse as the crowd, resting when neither kick nor
+  rhythm is present. In rooms, the host's timestamped pulse, phase and tempo travel in the existing show
+  metadata, so listeners, silent guests and late joiners follow the same music. Missing or stale metadata
+  falls back to the canonical room-clock animation at 120 BPM, not a guest's local analyser. Promotion
+  replaces the old host clock with the new host's music; the route itself never changes.
   - **In a networked room**, `MinglerClock` samples a deterministic round from the relay's `world` welcome
     (`v`, `startedAt`, `seed`), not local startup, random frame updates or host snapshots. The client advances it
     with `performance.now()` and corrects it using timestamped heartbeat replies (half-round-trip compensation).
@@ -1357,9 +1381,11 @@ cloth appearance and GPU/CPU cost on a physical Quest are unmeasured.
     are navigation only and are passed without a dwell; only social and named activity nodes stop. Moving any crowd,
     guest, bar, entrance or mezzanine slot means re-running that test.
     Standing conversation stops keep 0.8-0.9 m between roots, turn slightly toward the partner's ear and alternate a
-    small, eased whole-body lean while talking. The balcony rail pose and bar service retain their measured contacts;
-    the lean returns to zero on departure. The shared clock supplies the same conversation phase in a room.
-    Real-GLB tests bound foot displacement; headset appearance is unmeasured.
+    small, eased upper-torso lean while talking. A scene animation observer restores the unmodified chest
+    before animation and applies the world-space bend afterward, so paused clips cannot accumulate it and
+    the feet stay planted. The balcony rail pose and bar service retain their measured contacts; the lean
+    returns to zero on departure. The shared clock supplies the same conversation phase in a room.
+    Real-GLB tests cover both character styles and several orientations; headset appearance is unmeasured.
   - **Height comes from the venue.** `_minglerSurfaceLevel()` reads `VenueLayout.vestibule.walkLevel()` and then
     `MezzanineLayout.walkLevel()`, so the same authoritative surfaces used by the player carry him up the entrance
     stair to street level and up the mezzanine stair to the deck. His collider and contact-shadow translations include
@@ -2695,7 +2721,8 @@ protocol only grew, so older clients keep working.
   vectors from the same `_handPose()` used by the local body. Missing tracking is null.
   `sanitizeState()` validates finite numbers, a 1.5 m reach envelope, unit-ish orthogonal orientation,
   strips extra fields and normalises directions; position-only older clients still work.
-  `AvatarManager` interpolates hand targets, times out stale samples after 0.5 s of update time,
+  `AvatarManager` interpolates hand positions and spherical orientation, times out stale samples after 0.5 s of update time,
+  and blends tracked joint rotations with the freshly evaluated clip over 0.12 s on loss or reacquisition,
   and runs the arm-only helper in one `onAfterAnimationsObservable` observer, removed in `dispose()`.
   Never put the arm override before animation evaluation: clips would erase it in `scene.render()`.
   The helper reads the animated torso, overrides only the tracked upper/lower arm and wrist,
@@ -2834,6 +2861,7 @@ protocol only grew, so older clients keep working.
      animation LOD without a measured need (pausing animatables skews playhead time and the beat lock).
    - Empty club: ~388k active triangles when the monitors were simplified (about +11k now that they are at full detail, 10k each, again). Largest: DJ console 48k, bar bottles 47k, three trusses ~28k each, hoist chains ~13k, side beams 27k. The truss welds and
      chain links are 6-sided; the DJ monitors are NOT simplified (a 4.3k copy looked worse and was undone; the optimizer no longer touches geometry).
+   - Repeated moving-head yokes, housings and bezels, and fog-machine bodies/brackets/nozzles share source geometry through instances while keeping their own animated pivots or parent transforms. Strobe emitter/glare planes are disabled outside the actual flash window. Idle pointer movement skips world picking; picking resumes for an active drag and stops on release. Air-particle beam phase reuses one camera-to-particle vector across beams. These preserve scene detail; their physical-headset performance is unmeasured.
    - **Seen-only animation (street people and remote guests).** Only the *pose* is ever held; positions, facing, speed and state keep running on
      their normal clocks (a remote guest's root keeps interpolating toward the last network position, the mingler stays on `MinglerClock`), so
      whoever you turn to is where everyone else sees them. Street characters (`npc.street`) are held only when more than 130 degrees off the gaze

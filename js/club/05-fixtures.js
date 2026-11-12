@@ -396,28 +396,32 @@ class VRClubFixtures extends VRClubEnvironment {
                 roughness: 0.4
             }, true); // shared
             
-            const body = BABYLON.MeshBuilder.CreateBox(`fogMachineBody${i}`, {
-                width: 0.6,
-                height: 0.35,
-                depth: 0.4
-            }, this.scene);
+            const body = i
+                ? this.fogMachines[0].body.createInstance(`fogMachineBody${i}`)
+                : BABYLON.MeshBuilder.CreateBox(`fogMachineBody${i}`, {
+                    width: 0.6,
+                    height: 0.35,
+                    depth: 0.4
+                }, this.scene);
             body.position = new BABYLON.Vector3(0, 0, 0);
             body.parent = machineParent;
-            body.material = bodyMat;
+            if (!i) body.material = bodyMat;
             // UPGRADE: Freeze static fog machine hardware
             body.freezeWorldMatrix();
             body.doNotSyncBoundingInfo = true;
             
             // Mounting bracket (attaches to truss)
             const bracketMat = this.materialFactory.getPreset('barStool');
-            const bracket = BABYLON.MeshBuilder.CreateBox(`fogMachineBracket${i}`, {
-                width: 0.15,
-                height: 0.1,
-                depth: 0.3
-            }, this.scene);
+            const bracket = i
+                ? this.fogMachines[0].bracket.createInstance(`fogMachineBracket${i}`)
+                : BABYLON.MeshBuilder.CreateBox(`fogMachineBracket${i}`, {
+                    width: 0.15,
+                    height: 0.1,
+                    depth: 0.3
+                }, this.scene);
             bracket.position = new BABYLON.Vector3(0, 0.22, 0);
             bracket.parent = machineParent;
-            bracket.material = bracketMat;
+            if (!i) bracket.material = bracketMat;
             bracket.freezeWorldMatrix();
             bracket.doNotSyncBoundingInfo = true;
             
@@ -429,15 +433,17 @@ class VRClubFixtures extends VRClubEnvironment {
                 roughness: 0.2
             }, true); // shared
             
-            const nozzle = BABYLON.MeshBuilder.CreateCylinder(`fogMachineNozzle${i}`, {
-                diameter: 0.12,
-                height: 0.15,
-                tessellation: 12
-            }, this.scene);
+            const nozzle = i
+                ? this.fogMachines[0].nozzle.createInstance(`fogMachineNozzle${i}`)
+                : BABYLON.MeshBuilder.CreateCylinder(`fogMachineNozzle${i}`, {
+                    diameter: 0.12,
+                    height: 0.15,
+                    tessellation: 12
+                }, this.scene);
             nozzle.position = new BABYLON.Vector3(0, -0.25, 0.1);
             nozzle.rotation.x = Math.PI / 2 + 0.3; // Angled slightly downward
             nozzle.parent = machineParent;
-            nozzle.material = nozzleMat;
+            if (!i) nozzle.material = nozzleMat;
             nozzle.freezeWorldMatrix();
             nozzle.doNotSyncBoundingInfo = true;
             
@@ -536,6 +542,7 @@ class VRClubFixtures extends VRClubEnvironment {
             this.fogMachines.push({
                 parent: machineParent,
                 body: body,
+                bracket: bracket,
                 nozzle: nozzle,
                 led: led,
                 ledMat: ledMat,
@@ -773,34 +780,41 @@ class VRClubFixtures extends VRClubEnvironment {
             yoke.parent = root;
             yoke.position.y = -0.1; // Below base
             
-            // Yoke Geometry (U-bracket, merged into one draw per moving yoke)
-            const yokeCrossbar = BABYLON.MeshBuilder.CreateBox("yokeCross" + i, {
-                width: 0.5,
-                height: 0.05,
-                depth: 0.15
-            }, this.scene);
-            yokeCrossbar.position.y = 0;
-
-            const yokeArmL = BABYLON.MeshBuilder.CreateBox("yokeArmL" + i, {
-                width: 0.05,
-                height: 0.4,
-                depth: 0.15
-            }, this.scene);
-            yokeArmL.position = new BABYLON.Vector3(-0.225, -0.2, 0);
-
-            const yokeArmR = BABYLON.MeshBuilder.CreateBox("yokeArmR" + i, {
-                width: 0.05,
-                height: 0.4,
-                depth: 0.15
-            }, this.scene);
-            yokeArmR.position = new BABYLON.Vector3(0.225, -0.2, 0);
-
-            const yokeMesh = BABYLON.Mesh.MergeMeshes([yokeCrossbar, yokeArmL, yokeArmR], true, true, undefined, false, false);
-            if (yokeMesh) {
-                yokeMesh.name = "yokeMesh" + i;
+            // All yokes share the same rigid geometry; only their parent pan nodes move.
+            let yokeMesh;
+            if (i) {
+                yokeMesh = this.trussLights[0].yokeMesh.createInstance("yokeMesh" + i);
                 yokeMesh.parent = yoke;
-                yokeMesh.material = lightFixtureMat;
-                yokeMesh.isPickable = false;
+                yokeMesh.position.set(0, 0, 0);
+            } else {
+                const yokeCrossbar = BABYLON.MeshBuilder.CreateBox("yokeCross" + i, {
+                    width: 0.5,
+                    height: 0.05,
+                    depth: 0.15
+                }, this.scene);
+                yokeCrossbar.position.y = 0;
+
+                const yokeArmL = BABYLON.MeshBuilder.CreateBox("yokeArmL" + i, {
+                    width: 0.05,
+                    height: 0.4,
+                    depth: 0.15
+                }, this.scene);
+                yokeArmL.position = new BABYLON.Vector3(-0.225, -0.2, 0);
+
+                const yokeArmR = BABYLON.MeshBuilder.CreateBox("yokeArmR" + i, {
+                    width: 0.05,
+                    height: 0.4,
+                    depth: 0.15
+                }, this.scene);
+                yokeArmR.position = new BABYLON.Vector3(0.225, -0.2, 0);
+
+                yokeMesh = BABYLON.Mesh.MergeMeshes([yokeCrossbar, yokeArmL, yokeArmR], true, true, undefined, false, false);
+                if (yokeMesh) {
+                    yokeMesh.name = "yokeMesh" + i;
+                    yokeMesh.parent = yoke;
+                    yokeMesh.material = lightFixtureMat;
+                    yokeMesh.isPickable = false;
+                }
             }
 
             // 3. HEAD (Tilt mechanism - Rotates around X)
@@ -810,25 +824,29 @@ class VRClubFixtures extends VRClubEnvironment {
             head.position.y = -0.2; // Center of rotation between arms
             
             // Main fixture body
-            const fixture = BABYLON.MeshBuilder.CreateCylinder("lightFixture" + i, {
-                diameterTop: 0.3,
-                diameterBottom: 0.38,
-                height: 0.5,
-                tessellation: 20
-            }, this.scene);
+            const fixture = i
+                ? this.trussLights[0].fixture.createInstance("lightFixture" + i)
+                : BABYLON.MeshBuilder.CreateCylinder("lightFixture" + i, {
+                    diameterTop: 0.3,
+                    diameterBottom: 0.38,
+                    height: 0.5,
+                    tessellation: 20
+                }, this.scene);
             fixture.parent = head;
             fixture.position.y = 0;
-            fixture.material = lightFixtureMat;
+            if (!i) fixture.material = lightFixtureMat;
             
             // Recessed front rim keeps the aperture readable without a separate bulb or billboard flare.
-            const bezel = BABYLON.MeshBuilder.CreateTorus("bezel" + i, {
-                diameter: 0.37,
-                thickness: 0.025,
-                tessellation: 20
-            }, this.scene);
+            const bezel = i
+                ? this.trussLights[0].bezel.createInstance("bezel" + i)
+                : BABYLON.MeshBuilder.CreateTorus("bezel" + i, {
+                    diameter: 0.37,
+                    thickness: 0.025,
+                    tessellation: 20
+                }, this.scene);
             bezel.parent = head;
             bezel.position.y = -0.255;
-            bezel.material = bezelMat;
+            if (!i) bezel.material = bezelMat;
             
             // Light lens
             const lens = BABYLON.MeshBuilder.CreateCylinder("lens" + i, {
@@ -856,6 +874,7 @@ class VRClubFixtures extends VRClubEnvironment {
                 root,
                 yoke,
                 head,
+                yokeMesh,
                 fixture, 
                 lens, 
                 lensMat, 
@@ -991,6 +1010,7 @@ class VRClubFixtures extends VRClubEnvironment {
             emitter.material = strobeMat;
             emitter.isPickable = false;
             emitter.renderingGroupId = 2;
+            emitter.setEnabled(false);
             if (this.glowLayer) this.glowLayer.addIncludedOnlyMesh(emitter);
 
             const glare = BABYLON.MeshBuilder.CreatePlane(`strobeGlare${i}`, {
@@ -1002,6 +1022,7 @@ class VRClubFixtures extends VRClubEnvironment {
             glare.rotation.y = Math.PI;
             glare.isPickable = false;
             glare.renderingGroupId = 2;
+            glare.setEnabled(false);
             const glareMat = this.materialFactory.createStandardMaterial(`strobeGlareMat${i}`, {
                 mutable: true, emissiveColor: [0, 0, 0], opacityTexture: glareTexture, disableLighting: true
             });

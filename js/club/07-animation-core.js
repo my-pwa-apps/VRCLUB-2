@@ -18,13 +18,13 @@ class VRClubAnimationCore extends VRClubEffects {
         this.updateDancers(ctx);
         this.updateMirrorBall(ctx);
         this.updateVJPhasing(ctx);
+        this.updateSpotColorCycle(ctx);
+        this.updateRoomBounce(ctx);
+        this.updateStrobes(ctx);
         this.updateLEDWallPass(ctx);
         this.updateDanceFloorLEDs(ctx);
         this.updateLasers(ctx);
-        this.updateSpotColorCycle(ctx);
         this.updateSpotlights(ctx);
-        this.updateRoomBounce(ctx);
-        this.updateStrobes(ctx);
         if (typeof this._updateProjectedCharacterShadows === 'function') this._updateProjectedCharacterShadows();
         this.updateSpeakerCones(ctx);
         this.updateCameraPresence(ctx);
@@ -261,10 +261,22 @@ class VRClubAnimationCore extends VRClubEffects {
         const retention = 1 - Math.pow(1 - 0.045, ctx.dtScale);
         ambient.intensity += (targetIntensity - ambient.intensity) * retention;
 
-        const hue = this.currentSpotColor || this.cachedColors.white;
-        const targetR = 0.62 + hue.r * 0.30;
-        const targetG = 0.62 + hue.g * 0.30;
-        const targetB = 0.66 + hue.b * 0.30;
+        let r = 0, g = 0, b = 0, weight = 0;
+        let color = this.lightsActive && this.currentSpotColor;
+        if (color) { r += color.r * 0.120; g += color.g * 0.120; b += color.b * 0.120; weight += 0.120; }
+        color = this.ledWallActive && (this.ledShowColor || this.currentSpotColor);
+        if (color) { r += color.r * 0.060; g += color.g * 0.060; b += color.b * 0.060; weight += 0.060; }
+        color = (this.lasersActive || this.laserSheetActive) && typeof this._laserColor === 'function'
+            ? this._laserColor() : null;
+        if (color) {
+            const laserWeight = (this.lasersActive ? 0.070 : 0) + (this.laserSheetActive ? 0.090 : 0);
+            r += color.r * laserWeight; g += color.g * laserWeight; b += color.b * laserWeight; weight += laserWeight;
+        }
+        color = this.mirrorBallActive && this.mirrorBallSpotlightColor;
+        if (color) { r += color.r * 0.080; g += color.g * 0.080; b += color.b * 0.080; weight += 0.080; }
+        const targetR = 0.62 + (weight ? r / weight : 1) * 0.30;
+        const targetG = 0.62 + (weight ? g / weight : 1) * 0.30;
+        const targetB = 0.66 + (weight ? b / weight : 1) * 0.30;
         ambient.diffuse.r += (targetR - ambient.diffuse.r) * retention;
         ambient.diffuse.g += (targetG - ambient.diffuse.g) * retention;
         ambient.diffuse.b += (targetB - ambient.diffuse.b) * retention;
@@ -984,6 +996,11 @@ class VRClubAnimationCore extends VRClubEffects {
         for (let i = start; i < particles.length; i += stride) {
             const p = particles[i];
             const pos = p.position;
+            const hasBeamCamera = !!(cp && nBeams);
+            const cx = hasBeamCamera ? cp.x - pos.x : 0;
+            const cy = hasBeamCamera ? cp.y - pos.y : 0;
+            const cz = hasBeamCamera ? cp.z - pos.z : 0;
+            const cameraDistance = hasBeamCamera ? (Math.sqrt(cx * cx + cy * cy + cz * cz) || 1) : 1;
             let lit = 0;
             let beamR = 0, beamG = 0, beamB = 0;
             for (let k = 0; k < nBeams; k++) {
@@ -1006,9 +1023,7 @@ class VRClubAnimationCore extends VRClubEffects {
                 }
                 let phase = 0.5;
                 if (cp) {
-                    const cx = cp.x - pos.x, cy = cp.y - pos.y, cz = cp.z - pos.z;
-                    const cl = Math.sqrt(cx * cx + cy * cy + cz * cz) || 1;
-                    const cosT = (cx * b.dx + cy * b.dy + cz * b.dz) / cl;
+                    const cosT = (cx * b.dx + cy * b.dy + cz * b.dz) / cameraDistance;
                     // Henyey-Greenstein g = 0.5, normalised to 1 at cosT = 1
                     phase = Math.min(1, 0.35 / Math.pow(1.25 - cosT, 1.5));
                 }
@@ -1369,6 +1384,8 @@ class VRClubAnimationCore extends VRClubEffects {
             // Palette fades can mutate the same Color3; identity alone leaves incident beams on the old hue.
             const colorChanged = this._mirrorAppliedColorSource !== color ||
                 this._mirrorAppliedR !== color?.r || this._mirrorAppliedG !== color?.g || this._mirrorAppliedB !== color?.b;
+            const master = Math.max(0, Math.min(1, this.masterIntensity ?? 1));
+            const beamLevelChanged = this._mirrorAppliedBeamMaster !== master;
             if (colorChanged) {
                 this._mirrorAppliedColorSource = color;
                 this._mirrorAppliedR = color.r;
@@ -1379,12 +1396,13 @@ class VRClubAnimationCore extends VRClubEffects {
                         if (light) light.diffuse.copyFrom(this.mirrorBallSpotlightColor);
                     }
                 }
-                if (this.mirrorBallBeams) {
-                    for (const beam of this.mirrorBallBeams) {
-                        beam.material.emissiveColor.copyFrom(this.mirrorBallSpotlightColor);
-                    }
+            }
+            if ((colorChanged || beamLevelChanged) && this.mirrorBallBeams) {
+                for (const beam of this.mirrorBallBeams) {
+                    color.scaleToRef(master, beam.material.emissiveColor);
                 }
             }
+            this._mirrorAppliedBeamMaster = master;
             if (this.mirrorBallHousings) {
                 this._refreshMirrorBallColorCache();
                 for (const housing of this.mirrorBallHousings) {

@@ -1293,6 +1293,7 @@ class ClubMultiplayer {
     _syncRole() {
         const hostId = this.client && this.client.hostId;
         if (hostId !== this._musicHostId) {
+            this.club._sharedMinglerMusic = null;
             this._musicHostId = hostId;
             this._stopRemoteMusic();
             this._stopMusicBroadcast();
@@ -1414,6 +1415,16 @@ class ClubMultiplayer {
         } else {
             frame.fx = this._captureFixtures();
         }
+        const music = club._minglerDanceMusic;
+        if (music && Number.isFinite(music.beat) && Number.isFinite(music.bpm)) {
+            frame.fx = {
+                dancePulse: !!(music.beatPresent || music.rhythm || music.fallback),
+                danceBeat: ((music.beat % 2) + 2) % 2,
+                danceBpm: Math.min(300, Math.max(40, music.bpm)),
+                danceAt: new Date(Date.now() + (this.client.serverOffset || 0)).toISOString(),
+                ...frame.fx
+            };
+        }
         // Room appearance travels through the existing relay's validated flat metadata map, in every show mode.
         if (typeof club.getRoomCharacterStyle === 'function') {
             frame.fx = { ...frame.fx, characterStyle: club.getRoomCharacterStyle() };
@@ -1459,8 +1470,11 @@ class ClubMultiplayer {
         if (!frame) return;
         const bar = frame._bar;
         delete frame._bar;
+        const keyFx = { ...frame.fx };
+        delete keyFx.danceBeat;
+        delete keyFx.danceAt;
         const key = JSON.stringify([frame.m, frame.mv, frame.cue, frame.sp, frame.spb, bar, frame.hue === undefined ? 0 : Math.round(frame.hue * 500),
-            frame.hl, frame.pal, frame.lh, frame.mbi, frame.fx, frame.dj, frame.audioFx]);
+            frame.hl, frame.pal, frame.lh, frame.mbi, keyFx, frame.dj, frame.audioFx]);
         if (!show.dirty && key === show.key && now - show.sentAt < ClubMultiplayer.SHOW_HEARTBEAT_MS) return;
         if (this.client.sendShow(frame)) {
             show.key = key;
@@ -1485,6 +1499,18 @@ class ClubMultiplayer {
         const show = this._show;
         show.lastFrameAt = now;
         if (show.stale) this._setStale(false);
+        const fx = frame.fx || {};
+        const danceAt = typeof fx.danceAt === 'string' ? Date.parse(fx.danceAt) : NaN;
+        const age = (Date.now() + (this.client.serverOffset || 0) - danceAt) / 1000;
+        if (typeof fx.dancePulse === 'boolean' && Number.isFinite(fx.danceBeat) && fx.danceBeat >= 0 && fx.danceBeat <= 2 &&
+            Number.isFinite(fx.danceBpm) && fx.danceBpm >= 40 && fx.danceBpm <= 300 && Number.isFinite(age) && Math.abs(age) < 12) {
+            club._sharedMinglerMusic = {
+                beatPresent: fx.dancePulse, beat: fx.danceBeat + Math.max(0, age) * fx.danceBpm / 60,
+                bpm: fx.danceBpm, at: now
+            };
+        } else {
+            club._sharedMinglerMusic = null;
+        }
 
         if (vj.applyRemoteColour) vj.applyRemoteColour(frame);
         if (!Object.prototype.hasOwnProperty.call(frame.fx || {}, 'spotSequence') && typeof club.resetSpotRig === 'function') club.resetSpotRig();
@@ -1508,6 +1534,7 @@ class ClubMultiplayer {
     _setStale(stale) {
         const show = this._show;
         show.stale = stale;
+        if (stale) this.club._sharedMinglerMusic = null;
         const follow = this.following && !stale;
         if (this.club.showDirector) this.club.showDirector.setFollower(follow);
         if (this.club.vjDirector) this.club.vjDirector.remoteDriven = follow;

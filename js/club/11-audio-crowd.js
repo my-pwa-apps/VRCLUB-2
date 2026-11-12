@@ -853,9 +853,10 @@ class VRClubAudioCrowd extends window.VRClubCrowd {
         }
         if (!npc.root.isEnabled()) {
             this._releaseMinglerPartner(state);
+            VRClubAudioCrowd._easeMinglerLean(npc.root, 0, 10);
             if (state.returning && state.returning.root) {
                 state.returning.root.rotation.y = state.returning.slotYaw || 0;
-                state.returning.root.rotation.x = 0;
+                VRClubAudioCrowd._easeMinglerLean(state.returning.root, 0, 10);
                 state.returning = null;
             }
             this._updateBartender(step, patronService);
@@ -910,6 +911,7 @@ class VRClubAudioCrowd extends window.VRClubCrowd {
             }
         }
 
+        if (!Number.isFinite(roomTime) && state.activity === 'dance') this._updateMinglerDance(npc);
         this._updateBartender(step, state.partner && state.partner.name === 'bartender' ? state : patronService);
         this._syncMinglerDrinkPose(npc);
         if (Number.isFinite(roomTime)) npc.root.rotation.y = state.yaw;
@@ -950,6 +952,27 @@ class VRClubAudioCrowd extends window.VRClubCrowd {
         this._moveContactShadow(npc);
     }
 
+    _updateMinglerDance(npc, music = this._minglerDanceMusic, sync = false) {
+        if (!music || typeof CrowdDance === 'undefined') return;
+        if (!music.beatPresent && !music.rhythm && !music.fallback) {
+            VRClubAudioCrowd._playClip(npc, 'Idle_Loop', npc.baseSpeed);
+            return;
+        }
+        const meta = CrowdDance.MOVES.Dance_Loop;
+        const target = CrowdDance.wrap01((music.beat + meta.anchor) / meta.beats);
+        const previous = npc.poses?.current;
+        const base = Math.max(40, music.bpm || 120) / CrowdDance.CLIP_BPM;
+        if (!VRClubAudioCrowd._playClip(npc, 'Dance_Loop', base)) return;
+        const group = npc.poses.current;
+        const frac = VRClubAudioCrowd._loopFraction(group);
+        const error = frac == null ? 0 : CrowdDance.wrapHalf(target - frac) * meta.beats;
+        if (sync || group !== previous || frac == null || Math.abs(error) > 0.9) {
+            if (group.to > group.from) group.goToFrame(group.from + target * (group.to - group.from));
+        } else {
+            group.speedRatio = base * (1 + Math.max(-0.6, Math.min(0.6, error * 0.8)));
+        }
+    }
+
     _sampleSharedMingler(npc, route, clock, seconds) {
         if (!this._sharedMingleClock || this._sharedMingleSeed !== clock.seed || this._sharedMingleStart !== clock.startedAt) {
             const slots = this._guestSlots();
@@ -983,8 +1006,23 @@ class VRClubAudioCrowd extends window.VRClubCrowd {
         npc.root.position.set(sample.x, this._minglerSurfaceLevel(sample.x, sample.z, sample.level), sample.z);
         const drinking = sample.clip === 'Drink_Loop';
         const dancing = sample.clip === 'Dance_Loop';
+        if (dancing) {
+            const multiplayer = this.multiplayer;
+            const remote = multiplayer && multiplayer.following && this._sharedMinglerMusic;
+            let music = multiplayer && multiplayer.isHost() ? this._minglerDanceMusic : null;
+            if (remote && performance.now() - remote.at < 12000) {
+                music = this._sharedMinglerMusicFrame || (this._sharedMinglerMusicFrame = {});
+                music.beatPresent = remote.beatPresent;
+                music.beat = remote.beat + Math.max(0, performance.now() - remote.at) * remote.bpm / 60000;
+                music.bpm = remote.bpm;
+            }
+            if (music) {
+                this._updateMinglerDance(npc, music, true);
+                return;
+            }
+        }
         const speed = sample.phase === 'walk' ? route.speed / route.walkClipSpeed
-            : drinking ? 1 : dancing ? Math.max(0.65, Math.min(1.5, ((this.vjDirector && this.vjDirector.bpm) || 120) / 120))
+            : drinking ? 1 : dancing ? 1
                 : npc.baseSpeed;
         VRClubAudioCrowd._playClip(npc, sample.clip, speed, !drinking);
         const group = npc.animations[0];
@@ -999,17 +1037,63 @@ class VRClubAudioCrowd extends window.VRClubCrowd {
         VRClubAudioCrowd._playClip(state.partner, state.partner.slotClip, state.partner.baseSpeed);
         if (state.returning && state.returning.root) {
             state.returning.root.rotation.y = state.returning.slotYaw || 0;
-            state.returning.root.rotation.x = 0;
+            VRClubAudioCrowd._easeMinglerLean(state.returning.root, 0, 10);
         }
         state.returning = state.partner;
         state.partner = null;
     }
 
     static _easeMinglerLean(root, target, dt) {
-        const current = root.rotation.x || 0;
+        const current = root._minglerLean || 0;
         const next = current + (target - current) * (1 - Math.exp(-3 * dt));
-        root.rotation.x = Math.abs(next - target) < 0.001 ? target : next;
-        return root.rotation.x === target;
+        root._minglerLean = Math.abs(next - target) < 0.001 ? target : next;
+        if (root._minglerLean && root.getScene && !root._minglerLeanPose) {
+            const chest = root.getDescendants(false, node => /(^|_)Chest$/.test(node.name))[0];
+            if (chest && chest.rotationQuaternion) {
+                const scene = root.getScene();
+                if (!scene._minglerLeanPoses) {
+                    const poses = scene._minglerLeanPoses = new Set();
+                    scene.onBeforeAnimationsObservable.add(() => {
+                        for (const pose of poses) {
+                            if (pose.applied) pose.chest.rotationQuaternion.copyFrom(pose.base);
+                            pose.applied = false;
+                            if (pose.root.isDisposed() || !pose.root._minglerLean) {
+                                poses.delete(pose);
+                                pose.root._minglerLeanPose = null;
+                            }
+                        }
+                    });
+                    scene.onAfterAnimationsObservable.add(() => {
+                        for (const pose of poses) {
+                            const { root: actor, chest: bone, matrices: m } = pose;
+                            if (!actor.isEnabled() || !actor._minglerLean) continue;
+                            pose.base.copyFrom(bone.rotationQuaternion);
+                            bone.computeWorldMatrix(true);
+                            const world = bone.getWorldMatrix();
+                            const x = world.m[12], y = world.m[13], z = world.m[14];
+                            m[0].copyFrom(world);
+                            m[0].setTranslationFromFloats(0, 0, 0);
+                            pose.axis.set(Math.cos(actor.rotation.y), 0, -Math.sin(actor.rotation.y));
+                            BABYLON.Quaternion.RotationAxisToRef(pose.axis, actor._minglerLean, pose.delta);
+                            pose.delta.toRotationMatrix(m[1]);
+                            m[0].multiplyToRef(m[1], m[2]);
+                            m[2].setTranslationFromFloats(x, y, z);
+                            bone.parent.computeWorldMatrix(true).invertToRef(m[3]);
+                            m[2].multiplyToRef(m[3], m[4]);
+                            m[4].decompose(pose.scale, bone.rotationQuaternion, pose.translation);
+                            pose.applied = true;
+                        }
+                    });
+                }
+                const pose = root._minglerLeanPose = {
+                    root, chest, applied: false, base: new BABYLON.Quaternion(), delta: new BABYLON.Quaternion(),
+                    axis: new BABYLON.Vector3(), scale: new BABYLON.Vector3(), translation: new BABYLON.Vector3(),
+                    matrices: Array.from({ length: 5 }, () => new BABYLON.Matrix())
+                };
+                scene._minglerLeanPoses.add(pose);
+            }
+        }
+        return root._minglerLean === target;
     }
 
     _minglerArrive(npc, route, node) {
@@ -1032,7 +1116,10 @@ class VRClubAudioCrowd extends window.VRClubCrowd {
             if (dancing) {
                 const group = npc.animations[0];
                 const beat = this.vjDirector && Number.isFinite(this.vjDirector.beatNumber) ? this.vjDirector.beatNumber : 0;
-                if (group && group.to > group.from) group.goToFrame(group.from + (beat % 4) / 4 * (group.to - group.from));
+                if (group && group.to > group.from) {
+                    const phase = ((beat + 0.5) % 2 + 2) % 2 / 2;
+                    group.goToFrame(group.from + phase * (group.to - group.from));
+                }
             }
             return;
         }

@@ -53,6 +53,7 @@ class DJPerformer {
         this.time = 0;
         this._clockBeats = 0;          // the internal tempo when there is no music
         this._motionPhase = null;
+        this._gestureBeats = 0;
         this._knob = { left: 0, right: 0, at: -1 };
         this._deckSide = -1;
         this._activityStartedAt = 0;
@@ -183,6 +184,7 @@ class DJPerformer {
         }
         beatPhase = this._motionPhase;
         this._activityBeats += dt * beatRate;
+        this._gestureBeats += dt * beatRate;
 
         // Events that cut in: a drop puts the hands up; a new visitor gets a point.
         if (audio && music.drop && !this._dropActive &&
@@ -218,7 +220,7 @@ class DJPerformer {
             }
         }
 
-        this._targets(beatPhase, beatRate, energy);
+        this._targets(beatPhase, energy);
 
         // Ease toward the goals: hands travel in a few tenths of a second, the head a little slower.
         const kh = 1 - Math.exp(-dt * (this.activity === 'handsUp' || this.activity === 'point' ? 8 : 7.5));
@@ -252,8 +254,9 @@ class DJPerformer {
     }
 
     /** Where the hands, head and spine should be for the current activity at this moment of the beat. */
-    _targets(beatPhase, beatRate, energy) {
+    _targets(beatPhase, energy) {
         const d = this.desk, t = this.time, L = this._goalL, R = this._goalR;
+        const beats = this._gestureBeats;
         L.point = R.point = 0;
         const top = d.top + 0.035;
         const depth = d.far - d.near;
@@ -261,7 +264,7 @@ class DJPerformer {
         const jogX = d.halfWidth * 0.58, jogZ = d.near + depth * 0.3;
         const mixZ = d.near + depth * 0.3;
         // Mixer knobs: a small grid in the middle; a hand moves to a new one every two beats.
-        const beatIndex = Math.floor(t * beatRate / 4);
+        const beatIndex = Math.floor(beats / 4);
         if (beatIndex !== this._knob.at) {
             this._knob.at = beatIndex;
             this._knob.left = Math.floor(this.rng() * 6);
@@ -270,14 +273,14 @@ class DJPerformer {
         const palmDown = DJPerformer._palmDown;
         const twistAmp = 0.25 + 0.45 * energy;
         const TAU = 2 * Math.PI;
-        const beatNumber = Math.floor(t * beatRate);
+        const beatNumber = Math.floor(beats);
 
         let yaw = 0, pitch = -0.45, lean = 0.26;
         switch (this.activity) {
             case 'mix': {
                 const deckHand = this._deckSide < 0 ? L : R;
                 const mixerHand = this._deckSide < 0 ? R : L;
-                const nudge = Math.sin(TAU * t * beatRate * 0.25);
+                const nudge = Math.sin(TAU * beats * 0.25);
                 deckHand.x = d.cx + this._deckSide * jogX + 0.012 * nudge;
                 deckHand.z = jogZ + 0.022 * nudge;
                 deckHand.y = top - 0.003 * Math.max(0, nudge);
@@ -285,7 +288,7 @@ class DJPerformer {
                 const mixerSide = -this._deckSide;
                 const knob = mixerSide < 0 ? this._knob.left : this._knob.right;
                 this._knobAt(knob, mixerSide, mixerHand, mixZ, top);
-                palmDown(mixerHand, mixerSide, twistAmp * DJPerformer._turnGesture(t * beatRate * 0.5));
+                palmDown(mixerHand, mixerSide, twistAmp * DJPerformer._turnGesture(beats * 0.5));
                 yaw = this._deckSide * 0.08 + 0.025 * Math.sin(t * 0.37);
                 pitch = -0.52; lean = 0.43;
                 break;
@@ -297,7 +300,7 @@ class DJPerformer {
                 L.x = this.home.x - 0.11; L.y = headY; L.z = this.home.z + 0.06;
                 L.fx = 0.12; L.fy = 1; L.fz = 0.1; L.ux = 0; L.uy = 0; L.uz = -1;
                 this._knobAt(this._knob.right, 1, R, mixZ, top);
-                palmDown(R, 1, 0.7 * twistAmp * DJPerformer._turnGesture(t * beatRate * 0.25));
+                palmDown(R, 1, 0.7 * twistAmp * DJPerformer._turnGesture(beats * 0.25));
                 yaw = -0.13 + 0.02 * Math.sin(t * 0.31);
                 pitch = -0.34; lean = 0.34;
                 break;
@@ -305,7 +308,7 @@ class DJPerformer {
             case 'tweak': {
                 this._knobAt(this._knob.left, -1, L, mixZ, top);
                 this._knobAt(this._knob.right, 1, R, mixZ, top);
-                const turn = twistAmp * DJPerformer._turnGesture(t * beatRate);
+                const turn = twistAmp * DJPerformer._turnGesture(beats);
                 palmDown(L, -1, beatNumber % 2 === 0 ? turn : 0);
                 palmDown(R, 1, beatNumber % 2 === 1 ? turn : 0);
                 yaw = beatNumber % 2 === 0 ? -0.05 : 0.05;

@@ -832,7 +832,9 @@ test('state for an id never announced by welcome or join creates no avatar', () 
 function loadAvatarManager() {
     class Node3 { constructor() { this.position = { x: 0, y: 0, z: 0, set(x, y, z) { this.x = x; this.y = y; this.z = z; } }; this.rotation = { y: 0 }; this.enabled = true; } setEnabled(v) { this.enabled = v; } isEnabled() { return this.enabled; } dispose() { this.disposed = true; } }
     const created = [];
+    const realBabylon = require('../js/vendor/babylon.js');
     const BABYLON = {
+        Vector3: realBabylon.Vector3, Quaternion: realBabylon.Quaternion, Matrix: realBabylon.Matrix,
         TransformNode: Node3,
         MeshBuilder: {
             CreateCapsule: () => new Node3(),
@@ -1375,6 +1377,20 @@ test('remote hands interpolate, expire, override gesture clips only while tracke
     manager.updatePeerState('p', null, { ...state, hands: { left: { ...hand, x: 0.3 }, right: null } });
     manager.update(1 / 60);
     assert.ok(peer.hands.left.x > -0.3 && peer.hands.left.x < 0.3, 'a new sample is smoothed');
+    manager.updatePeerState('p', null, { ...state, hands: { left: { ...hand, fz: -1 }, right: null } });
+    for (let i = 0; i < 10; i++) {
+        manager.update(1 / 60);
+        const h = peer.hands.left;
+        assert.ok(Math.abs(Math.hypot(h.fx, h.fy, h.fz) - 1) < 1e-6);
+        assert.ok(Math.abs(h.fx * h.ux + h.fy * h.uy + h.fz * h.uz) < 1e-6, 'opposite orientations must remain orthogonal');
+    }
+    manager.updatePeerState('p', null, { ...state, hands: null });
+    manager.update(1 / 60);
+    const fading = peer.hands.left.weight;
+    assert.ok(fading > 0 && fading < 1, 'tracking loss blends instead of snapping to the clip');
+    manager.updatePeerState('p', null, state);
+    manager.update(1 / 60);
+    assert.ok(peer.hands.left.weight > fading, 'reacquisition reverses the fade');
     manager.update(0.51);
     assert.equal(peer.hands.left, null, 'a missing tracking feed releases the arm');
     manager.updatePeerState('p', null, { ...state, hands: undefined });
@@ -2975,6 +2991,32 @@ test('aesthetic smoke passages keep fixtures powered and replace automatic black
     }
 });
 
+test('NOCTURNE blackout returns the mirror and wall after one bar while respecting the show master', () => {
+    const ShowDirector = loadClassic('js/showDirector.js').window.ShowDirector;
+    const vj = { beatEnvelope: 0, showMasterIntensity: 1, blackoutUntil: 0 };
+    const club = { vjManualMode: false, vjDirector: vj };
+    const show = new ShowDirector(club);
+    show._beginSetPiece('cutToBlack', 'afterglow');
+    for (let i = 0; i < 60; i++) show._applyContinuous(vj, { hasAudio: true });
+    assert.ok(club.masterIntensity < 1e-12);
+    show._setPieceBar = 1;
+    show._setPiece.onBar(show, 1);
+    for (let i = 0; i < 60; i++) show._applyContinuous(vj, { hasAudio: true });
+    assert.equal(club.mirrorBallActive, true);
+    assert.equal(club.ledWallActive, true);
+    assert.ok(club.masterIntensity > 0.34 && club.masterIntensity <= 0.35);
+    const followerClub = { vjManualMode: false, vjDirector: vj };
+    const follower = new ShowDirector(followerClub);
+    follower.setFollower(true);
+    assert.equal(follower.applyRemote({ m: 'show', sp: 'cutToBlack', spb: 1, spt: 'afterglow', bib: 0 }), true);
+    for (let i = 0; i < 60; i++) follower._applyContinuous(vj, { hasAudio: true });
+    assert.equal(follower._blackoutBeats, 0);
+    assert.ok(followerClub.masterIntensity > 0.34);
+    vj.showMasterIntensity = 0;
+    show._applyContinuous(vj, { hasAudio: true });
+    assert.equal(club.masterIntensity, 0);
+});
+
 test('dense show smoke is emitted in bounded bursts, accumulates gradually and disperses after the cue', () => {
     const proto = loadClassic('js/club/07-animation-core.js', { VRClubEffects: class {} }).window.VRClubAnimationCore.prototype;
     const simulate = hz => {
@@ -4344,13 +4386,83 @@ test('mingling guests lean in by turns and return upright after talking', () => 
     mingler.root.position.z = node.z;
     club._minglerArrive(mingler, route, node);
     for (let i = 0; i < 30; i++) club._updateMingler(0.1);
-    assert.ok(mingler.root.rotation.x > 0.06);
-    assert.ok(partner.root.rotation.x > 0.02);
-    assert.ok(mingler.root.rotation.x > partner.root.rotation.x);
+    assert.ok(mingler.root._minglerLean > 0.06);
+    assert.ok(partner.root._minglerLean > 0.02);
+    assert.ok(mingler.root._minglerLean > partner.root._minglerLean);
+    assert.equal(mingler.root.rotation.x, undefined);
     club._minglerDepart(mingler, route);
     for (let i = 0; i < 30; i++) club._updateMingler(0.1);
-    assert.equal(mingler.root.rotation.x, 0);
-    assert.equal(partner.root.rotation.x, 0);
+    assert.equal(mingler.root._minglerLean, 0);
+    assert.equal(partner.root._minglerLean, 0);
+});
+
+test('the offline mingler uses the dance clip beat anchor and rests when the music has no pulse', () => {
+    const CrowdDance = loadClassic('js/crowdDance.js').window.CrowdDance;
+    const Crowd = loadClassic('js/club/11-audio-crowd.js', {
+        BABYLON: makeBabylonStub(), VRClubUI: class {}, CrowdDance
+    }).window.VRClubAudioCrowd;
+    const group = name => ({
+        name, from: 0, to: 40, isPlaying: false, animatables: [{ masterFrame: 0 }],
+        start() { this.isPlaying = true; }, stop() { this.isPlaying = false; },
+        goToFrame(frame) { this.animatables[0].masterFrame = frame; }
+    });
+    const idle = group('Idle_Loop'), dance = group('Dance_Loop');
+    const npc = { baseSpeed: 1, poses: { current: idle, groups: new Map([['Idle_Loop', idle], ['Dance_Loop', dance]]) }, animations: [idle] };
+    const club = Object.assign(Object.create(Crowd.prototype), {
+        _minglerDanceMusic: { beatPresent: true, beat: 4, bpm: 120 }
+    });
+    club._updateMinglerDance(npc);
+    assert.equal(npc.poses.current, dance);
+    assert.equal(dance.animatables[0].masterFrame, 10, 'the two-beat clip lands a beat at its half-beat anchor');
+    club._minglerDanceMusic = { beatPresent: false, rhythm: false };
+    club._updateMinglerDance(npc);
+    assert.equal(npc.poses.current, idle, 'silence does not leave him dancing to an imaginary beat');
+    club._minglerDanceMusic = { beatPresent: false, rhythm: true, beat: 5, bpm: 120 };
+    club._updateMinglerDance(npc);
+    assert.equal(dance.animatables[0].masterFrame, 30, 'rhythm without a kick still uses the grid');
+});
+
+test('shared minglers follow host music rather than each listener and keep a deterministic legacy fallback', () => {
+    const CrowdDance = loadClassic('js/crowdDance.js').window.CrowdDance;
+    const Crowd = loadClassic('js/club/11-audio-crowd.js', {
+        BABYLON: makeBabylonStub(), VRClubUI: class {}, CrowdDance
+    }).window.VRClubAudioCrowd;
+    const sample = { phase: 'dwell', activity: 'dance', clip: 'Dance_Loop', node: 0, dir: 1,
+        duration: 30, timer: 20, elapsed: 10, yaw: 0, x: 0, z: 0, level: 0 };
+    const clock = { seed: 1, startedAt: 1 };
+    const route = { nodes: [{}], speed: 1, walkClipSpeed: 1 };
+    const create = (host, remote) => {
+        const group = name => ({
+            name, from: 0, to: 40, isPlaying: false, animatables: [{ masterFrame: 0 }],
+            targetedAnimations: [{ animation: { framePerSecond: 20 } }],
+            start() { this.isPlaying = true; }, stop() { this.isPlaying = false; },
+            goToFrame(frame) { this.animatables[0].masterFrame = frame; }
+        });
+        const idle = group('Idle_Loop'), dance = group('Dance_Loop');
+        const npc = { root: { position: { set() {} } }, mingle: {}, baseSpeed: 1,
+            poses: { current: idle, groups: new Map([['Idle_Loop', idle], ['Dance_Loop', dance]]) }, animations: [idle] };
+        const club = Object.assign(Object.create(Crowd.prototype), {
+            multiplayer: { following: !host, isHost: () => host },
+            _minglerDanceMusic: { beatPresent: true, beat: host ? 5 : 17, bpm: host ? 120 : 180 },
+            _sharedMinglerMusic: remote, _sharedMingleClock: { sample: () => sample },
+            _sharedMingleSeed: 1, _sharedMingleStart: 1,
+            _mingleGuest: () => null, _minglerSurfaceLevel: () => 0
+        });
+        return { club, npc, dance, idle };
+    };
+    const host = create(true), listener = create(false, { beatPresent: true, beat: 5, bpm: 120, at: 0 });
+    const silentGuest = create(false, { beatPresent: true, beat: 5, bpm: 120, at: 0 });
+    for (const actor of [host, listener, silentGuest]) actor.club._sampleSharedMingler(actor.npc, route, clock, 10);
+    assert.equal(host.dance.animatables[0].masterFrame, 30);
+    assert.equal(listener.dance.animatables[0].masterFrame, 30);
+    assert.equal(silentGuest.dance.animatables[0].masterFrame, 30);
+    silentGuest.club._sharedMinglerMusic.beatPresent = false;
+    silentGuest.club._sampleSharedMingler(silentGuest.npc, route, clock, 10);
+    assert.equal(silentGuest.npc.poses.current, silentGuest.idle, 'host silence stops dancing even if this guest has audio');
+    const oldRelay = create(false, null);
+    oldRelay.club._sampleSharedMingler(oldRelay.npc, route, clock, 10);
+    assert.equal(oldRelay.dance.speedRatio, 1, 'legacy room animation does not depend on local tempo');
+    assert.equal(oldRelay.dance.animatables[0].masterFrame, 0);
 });
 
 test('exactly one side guest walks the room, and his round never crosses anybody standing in it', () => {
@@ -5467,6 +5579,28 @@ test('the dance-floor strip never adds independent flashes and obeys the show ma
         club.masterIntensity = 0;
         update();
         assert.deepEqual([led.material.emissiveColor.r, led.material.emissiveColor.g, led.material.emissiveColor.b], [0, 0, 0]);
+    }
+    const led = { material: { emissiveColor: new BABYLON.Color3() } };
+    const club = { danceFloorLEDs: [led], lightingPhase: 'intro', masterIntensity: 1,
+        showDirector: { isDriving: () => true }, currentSpotColor: new BABYLON.Color3(0, 0, 1) };
+    window.VRClubAnimationFixtures.prototype.updateDanceFloorLEDs.call(club, { time: 3, audio: { bass: 0.5, mid: 0.5 } });
+    assert.equal(led.material.emissiveColor.r, 0);
+    assert.equal(led.material.emissiveColor.g, 0);
+    assert.ok(led.material.emissiveColor.b > 0);
+});
+
+test('laser colour timer stands down for automatic shows and remote followers', () => {
+    const fixtures = loadClassic('js/club/08-animation-fixtures.js', {
+        BABYLON: makeBabylonStub(), VRClubAnimationCore: class {}
+    }).window.VRClubAnimationFixtures.prototype;
+    for (const [showDriving, remoteDriven, manual, expected] of [
+        [true, false, false, 0], [false, true, false, 0],
+        [false, false, true, 0], [false, false, false, 1]
+    ]) {
+        const club = { showDirector: { isDriving: () => showDriving }, vjDirector: { remoteDriven },
+            vjManualMode: manual, currentColorIndex: 0, colorSwitchTime: 0, _laserColorInterval: 8 };
+        fixtures.updateLasers.call(club, { time: 20, dt: 1 / 60, dtScale: 1 });
+        assert.equal(club.currentColorIndex, expected);
     }
 });
 
@@ -7122,14 +7256,18 @@ test('a drag belongs to the pointer that started it: the other hand cannot steer
     club.releaseVJDesk = () => calls.push('release');
     club.dragVJDesk = () => {};
     club.setupVJControlInteraction();
+    assert.equal(club.scene.skipPointerMovePicking, true, 'idle pointer movement skips world picking');
     const press = { hit: true, pickedMesh: seekMesh };
 
     club.scene.onPointerDown({ pointerId: 7 }, press);
+    assert.equal(club.scene.skipPointerMovePicking, false, 'an active seek needs pointer-move picks');
     club.scene.onPointerMove({ pointerId: 9 }, press);
     club.scene.onPointerUp({ pointerId: 9 });
+    assert.equal(club.scene.skipPointerMovePicking, false, 'a foreign pointer cannot end the drag');
     assert.equal(calls.join(), 'begin', 'the idle hand neither moves the drag nor ends it');
     club.scene.onPointerMove({ pointerId: 7 }, press);
     club.scene.onPointerUp({ pointerId: 7 });
+    assert.equal(club.scene.skipPointerMovePicking, true, 'pointer picking returns to the idle policy after release');
     assert.equal(calls.join(), 'begin,move,end,release', 'the hand that started it steers it and ends it');
 
     // A mouse (no pointer id) and a drag that never started behave as before.
@@ -8065,6 +8203,15 @@ test('visual-only fixtures contribute bounded room bounce in desktop and VR', ()
     assert.ok(Math.abs(settle({ vr: true, spots: true, lasers: true, mirror: true }) - 0.15) < 0.001);
     // The headset must never be lit more flatly than the desktop for the same rig.
     assert.ok(settle({ vr: true, spots: true }) <= settle({ vr: false, spots: true }));
+    club.currentSpotColor.set(1, 0, 0);
+    club._laserColor = () => new BABYLON.Color3(0, 0, 1);
+    settle({ vr: false, lasers: true });
+    assert.ok(ambient.diffuse.b > ambient.diffuse.r + 0.25, 'an inactive red spotlight tinted blue laser bounce');
+    club.lasersActive = false;
+    club.ledWallActive = true;
+    club.ledShowColor = new BABYLON.Color3(0, 1, 0);
+    for (let frame = 0; frame < 240; frame++) update.call(club, { dtScale: 1 });
+    assert.ok(ambient.diffuse.g > ambient.diffuse.r + 0.25, 'wall-only bounce ignored the wall colour');
 });
 
 test('spinning lasers run at quarter speed, independently of frame rate, with the existing multiplier', () => {
@@ -8220,6 +8367,12 @@ test('mirror-ball incident beams, housings and reflections follow in-place colou
     tick();
     matches();
     assert.equal(club.mirrorBallColorIndex, 1);
+    club.masterIntensity = 0.35;
+    tick();
+    assert.ok(beamBuffer.equals(club.mirrorBallSpotlightColor.scale(0.35)), 'incident beam did not follow the show master');
+    club.mirrorBallSpotlightColor.set(0.1, 0.6, 0.9);
+    tick();
+    assert.ok(beamBuffer.equals(club.mirrorBallSpotlightColor.scale(0.35)), 'dimmed incident beam retained the old hue');
     const facetBuffer = club.mirrorBall.material.emissiveColor;
     club.masterIntensity = 0;
     tick();
@@ -8335,6 +8488,16 @@ test('mirror reflections use analytic room hits and thin-instance tier counts', 
     effects._intersectRoomInterior(3, 6.5, -12, 0, 0, 1, hit);
     assert.ok(Math.abs(hit.pz - (-0.25 - 0.02)) < 1e-9, `front-wall hit at z ${hit.pz}`);
     assert.deepEqual([hit.nx, hit.ny, hit.nz], [0, 0, -1]);
+    for (const [x, z, y] of [[-11, -15, 3], [0, -18.5, 1.42], [10, -10, 1.1], [2.5, -17, 0.5]]) {
+        effects._intersectRoomInterior(x, 7, z, 0, -1, 0, hit);
+        assert.ok(Math.abs(hit.py - y) < 1e-9, `ray missed the elevated surface at ${x}, ${z}`);
+        assert.equal(hit.ny, 1);
+    }
+    effects._intersectRoomInterior(-11, 1, -15, 0, 1, 0, hit);
+    assert.ok(Math.abs(hit.py - 2.92) < 1e-9, 'upward rays must stop at the underside of the deck');
+    assert.equal(hit.ny, -1);
+    effects._intersectRoomInterior(-9.4, 7, -15, 0, -1, 0, hit);
+    assert.ok(Math.abs(hit.py - 0.02) < 1e-9, 'rays outside the deck must reach the floor');
 
     // The front doorway is not a phantom wall: a downward ray through it lands on the real stair.
     effectsModule.window.VenueLayout = {
@@ -8373,12 +8536,12 @@ test('mirror reflections use analytic room hits and thin-instance tier counts', 
     // Concrete columns stand 5 cm proud of the side walls: reflections land on their faces, not inside them.
     for (const [side, wallX] of [[-1, -12.25], [1, 12.25]]) {
         for (const z of [-5, -15, -4.8]) {
-            d = toward(wallX, 2, z);
+            d = toward(wallX, 4, z);
             effects._intersectRoomInterior(0, 6.5, -12, d.x, d.y, d.z, hit);
             assert.ok(Math.abs(hit.px - side * 12.2) < 1e-6, `a reflection at z ${z} on the ${side < 0 ? 'left' : 'right'} wall is inside a column (x ${hit.px})`);
             assert.ok(Math.abs(hit.t - Math.hypot(hit.px, hit.py - 6.5, hit.pz + 12)) < 1e-6);
         }
-        d = toward(wallX, 2, -10);
+        d = toward(wallX, 4, -10);
         effects._intersectRoomInterior(0, 6.5, -12, d.x, d.y, d.z, hit);
         assert.ok(Math.abs(hit.px - side * 12.23) < 1e-6, 'between the columns the reflection stays on the wall');
     }
@@ -13757,6 +13920,21 @@ function loadDJPerformer(seed = 7) {
     return { dj, desk, DJPerformer: window.DJPerformer };
 }
 
+test('DJ gestures remain continuous when tempo changes after a long set', () => {
+    const { dj } = loadDJPerformer();
+    const music = { hasAudio: true, beatPhase: 0.2, bar: 0, energy: 0.7, drop: false, bpm: 120 };
+    dj.time = 1200;
+    dj._begin('mix', 99);
+    dj.update(1 / 60, music);
+    const x = dj._goalL.x;
+    const z = dj._goalL.z;
+    const knob = dj._knob.at;
+    music.bpm = 120.1;
+    dj.update(1 / 60, music);
+    assert.ok(Math.hypot(dj._goalL.x - x, dj._goalL.z - z) < 0.003);
+    assert.equal(dj._knob.at, knob);
+});
+
 test('every DJ activity and eased transition produces hands accepted by the real relay', () => {
     for (const fps of [12, 60, 120]) {
         const { dj } = loadDJPerformer();
@@ -14778,6 +14956,29 @@ test('crowd attention is bounded, deterministic and frame-rate independent witho
     assert.deepEqual([at30.x, at30.z], [0, -12], 'attention moved the dancer into the floor or an obstacle');
 });
 
+test('crowd proximity turns and returns at the same rate at different frame rates', () => {
+    const simulate = fps => {
+        const BABYLON = makeBabylonStub();
+        const { window } = loadClassic('js/club/11-audio-crowd.js', { BABYLON, VRClubUI: class {} });
+        const Crowd = window.VRClubAudioCrowd;
+        const npc = { root: { position: { x: 0, z: 0 }, rotation: { y: 0 }, isEnabled: () => true },
+            animations: [], homeYaw: 0, reactsToBeat: false };
+        const camera = { position: { x: -0.5, z: 0 } };
+        const club = Object.assign(Object.create(Crowd.prototype), {
+            npcAvatars: [npc], scene: { activeCamera: camera }, _npcBeatBoost: 1, _updateAmbientNPC() {}
+        });
+        for (let frame = 0; frame < fps / 4; frame++) club.updateDancingNPCs(frame / fps, { bass: 0 }, 1 / fps);
+        const near = npc.avoidYaw;
+        camera.position.x = -3;
+        for (let frame = 0; frame < fps / 4; frame++) club.updateDancingNPCs(frame / fps, { bass: 0 }, 1 / fps);
+        return [near, npc.avoidYaw];
+    };
+    const a = simulate(60), b = simulate(120);
+    assert.ok(a[0] > 0.25);
+    assert.ok(Math.abs(a[0] - b[0]) < 1e-9);
+    assert.ok(Math.abs(a[1] - b[1]) < 1e-9);
+});
+
 test('when the kick goes every dancer keeps swaying off the grid, and dances again when it comes back', () => {
     const { CrowdDance, choreographer } = loadCrowdDance(23);
     const dancers = Array.from({ length: 200 }, () => choreographer.createDancer(ALL_MOVES));
@@ -14888,6 +15089,61 @@ test('replacing a character disposes its smoke systems without disposing the sha
 // ---------------------------------------------------------------------------
 // Light hold policy, strobe patterns and smoke
 // ---------------------------------------------------------------------------
+
+test('a beat-synced strobe wins simultaneous wall and moving-head flash requests', () => {
+    const BABYLON = makeBabylonStub();
+    const Core = loadClassic('js/club/01-core.js', { BABYLON }).window.VRClubCore;
+    const Animation = loadClassic('js/club/07-animation-core.js', { BABYLON, VRClubEffects: class {} }).window.VRClubAnimationCore;
+    const Fixtures = loadClassic('js/club/08-animation-fixtures.js', { BABYLON, VRClubAnimationCore: class {} }).window.VRClubAnimationFixtures;
+    const Finish = loadClassic('js/club/09-animation-finish.js', { BABYLON, VRClubAnimationFixtures: class {} }).window.VRClubAnimationFinish;
+    const led = loadClassic('js/ledPatterns.js', { BABYLON }).window.LEDPatterns;
+    const ambient = { intensity: 0.2 };
+    const club = {
+        ...led,
+        _tryClubFlash: Core.prototype._tryClubFlash,
+        _sampleSpotFlash: Fixtures.prototype._sampleSpotFlash,
+        _strobeSyncDue: Finish.prototype._strobeSyncDue,
+        updateStrobes: Finish.prototype.updateStrobes,
+        scene: { getLightByName: () => ambient },
+        strobesActive: true, strobePattern: 'all', strobeSync: 'beat', masterIntensity: 1,
+        cachedColors: { ledMonoWhite: new BABYLON.Color3(1, 1, 1) },
+        strobes: [{ mesh: {}, material: { emissiveColor: new BABYLON.Color3() }, flashDuration: 0 }],
+        strobeFlashLight: { intensity: 0, position: { set() {} } },
+        vjDirector: { beatNumber: 3, bpm: 120, lastBeatAt: performance.now() },
+        showDirector: { isDriving: () => true, _energy: 0.4 },
+        ledPanels: [{ row: 0, col: 0, colorBuffer: new BABYLON.Color3(), material: { emissiveColor: new BABYLON.Color3() } }],
+        ledCols: 1, ledRows: 1, bpm: 120,
+        updateRoomBounce() { ambient.intensity = 0.2; },
+        updateLEDWallPass(ctx) { this.patternWarehouse(new BABYLON.Color3(1, 1, 1), ctx.time, ctx.audio); },
+        updateSpotlights(ctx) { this._sampleSpotFlash(ctx.time, 1); },
+        _beginFrame() { return this.ctx; }
+    };
+    for (const name of ['updateFogMachines', 'updateLaserSheet', 'updateDancers', 'updateMirrorBall', 'updateVJPhasing',
+        'updateSpotColorCycle', 'updateDanceFloorLEDs', 'updateLasers', 'updateSpeakerCones',
+        'updateCameraPresence', 'updateEyeAdaptation', 'updateNetworkPresence']) club[name] = () => {};
+    club.ctx = { time: 9, dt: 1 / 60, audio: { bass: 0, hasAudio: false } };
+    club.patternWarehouse(new BABYLON.Color3(1, 1, 1), 9, club.ctx.audio);
+    club._wh.lastBeat = 3;
+    club._wh.energy = 0.8;
+    club._wh.flashAt = -Infinity;
+    club.flashGovernor = { minGap: 0.34, lastFlashAt: -Infinity, lastSource: null, count: 0 };
+    club._strobeSyncSeen = performance.now();
+    club._strobeSyncBeat = 3;
+    club._spotFlashState = { lastTime: 9, nextBurstAt: 9.9, onUntil: -1, sampleTime: NaN, visible: false };
+    club.vjDirector.beatNumber = 4;
+    club.ctx.time = 10;
+    Animation.prototype.updateAnimations.call(club);
+    assert.equal(club.flashGovernor.lastSource, 'strobe');
+    assert.equal(club.flashGovernor.count, 1, 'a stale moving-head deadline must not reset the governor');
+    assert.ok(club._wh.flashAt < 0, 'the wall must not flash on the same beat');
+    assert.ok(ambient.intensity > 0.2, 'room bounce must not overwrite the strobe impulse');
+    club.photosensitiveSafeMode = true;
+    club.ctx.time = 10.5;
+    club.vjDirector.beatNumber = 5;
+    Animation.prototype.updateAnimations.call(club);
+    assert.equal(club.flashGovernor.count, 1, 'Safe Mode denies all flash sources');
+    assert.equal(ambient.intensity, 0.2, 'Safe Mode restores the ambient level');
+});
 
 test('strobe patterns pick the right corners: the ring is 0, 1, 3, 2 (a circle), not the Z of plain index order', () => {
     const { window } = loadClassic('js/club/09-animation-finish.js', { VRClubAnimationFixtures: class {} });
@@ -15665,11 +15921,28 @@ test('moving-head beams clip and place pools on elevated venue surfaces (mezzani
     assert.ok(Math.abs(mezzSpot.beamMat.clipPlane4.d - 3.01) < 1e-6, 'clipPlane4.d must clip at y = 3.01');
     club._placeSpotPool(mezzSpot, down, mezzGeom.hitSurface, mezzGeom.surfaceIntersection, 0.8, 0.8, 0, 0, 0);
     assert.ok(Math.abs(mezzSpot.lightPool.position.y - 3.004) < 1e-6, 'pool rests on the 3.0 m deck');
+    for (const dir of [new BABYLON.Vector3(0.5, -1, 0), new BABYLON.Vector3(0, -1, 0.5)]) {
+        dir.normalize();
+        const spot = makeSpot(0, 7.3, -12);
+        const geom = club._updateSpotBeamGeometry(spot, 0, dir, 0, 1, 1);
+        assert.equal(spot.beam.scaling.x, spot.beam.scaling.z, 'beam cross-section must not depend on azimuth');
+        assert.ok(Math.abs(geom.beamLength - geom.centerBeamLength - 0.5) < 1e-6, 'wide rim must reach the floor');
+    }
 
     // 2. Beam aimed down at the bar counter (x = 10.1, z = -10) stops at y = 1.1.
     const barSpot = makeSpot(10.1, 7.3, -10);
     const barHit = club._resolveSpotSurfaceHit(barSpot, down);
     assert.ok(Math.abs(barHit.surfaceIntersection.y - 1.1) < 1e-6, `expected y=1.1 on bar counter, got ${barHit.surfaceIntersection.y}`);
+    const barGeom = club._updateSpotBeamGeometry(barSpot, 0, down, 0, 1, 1);
+    club._updateSpotLightPool(barSpot, 0, down, 0, barGeom,
+        { beamVisible: true, spotColor: new BABYLON.Color3(1, 1, 1), physicsIntensity: 1, master: 1 });
+    const clearance = Math.min(barGeom.surfaceIntersection.x - barGeom.surfaceBounds.x0,
+        barGeom.surfaceBounds.x1 - barGeom.surfaceIntersection.x,
+        barGeom.surfaceIntersection.z - barGeom.surfaceBounds.z0,
+        barGeom.surfaceBounds.z1 - barGeom.surfaceIntersection.z);
+    assert.ok(barSpot.lightPool.scaling.x <= clearance + 1e-9);
+    assert.ok(barSpot.lightPoolGlow.scaling.x * 1.5 <= clearance + 1e-9,
+        'the larger glow disc must also fit on the counter');
 
     // 3. Beam aimed down at the DJ riser (x = 2.5, z = -17) stops at y = 0.5, and at the DJ table (x = 0, z = -18.5) stops at y = 1.42.
     const riserSpot = makeSpot(2.5, 7.3, -17);

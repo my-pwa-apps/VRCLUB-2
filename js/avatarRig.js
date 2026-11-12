@@ -586,7 +586,11 @@ class AvatarRig {
             this._limb(arm.upper, arm.lower, arm.hand, this._v[4].set(hand.x, hand.y, hand.z),
                 -fx * 0.7 + dx / width * 0.7, -0.35, -fz * 0.7 + dz / width * 0.7);
             this._poseHand(arm.hand, arm.suffix, hand);
-            for (const index of arm.indices) this.order[index].rotationQuaternion.copyFrom(this.Lq[index]);
+            const weight = Number.isFinite(relative.weight) ? Math.max(0, Math.min(1, relative.weight)) : 1;
+            for (const index of arm.indices) {
+                const rotation = this.order[index].rotationQuaternion;
+                BABYLON.Quaternion.SlerpToRef(rotation, this.Lq[index], weight, rotation);
+            }
         }
     }
 

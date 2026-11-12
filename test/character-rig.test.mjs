@@ -139,9 +139,13 @@ test('All 17 detailed online bodies play their full clips and track physical han
                     const h = peer.hands[side];
                     const expected = new B.Vector3(peer.root.position.x + h.x,
                         peer.root.position.y + peer.eyeHeight + h.y, peer.root.position.z + h.z);
-                    assert.ok(B.Vector3.Distance(at(`Wrist.${suffix}`), expected) < 0.035, `${id}/${side}: hand misses target`);
+                    if (h.weight === 1) {
+                        assert.ok(B.Vector3.Distance(at(`Wrist.${suffix}`), expected) < 0.035, `${id}/${side}: hand misses target`);
+                    }
                 }
             }
+            assert.equal(peer.hands.left.weight, 1, `${id}: tracking never finished blending`);
+            assert.equal(peer.hands.right.weight, 1, `${id}: tracking never finished blending`);
         } finally {
             if (manager) manager.dispose();
             container.dispose(); scene.dispose(); engine.dispose();
