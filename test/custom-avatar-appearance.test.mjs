@@ -229,7 +229,7 @@ test('uploaded wardrobe routes desktop and VR to uploaded controls without chang
 });
 
 test('sharing UI is explicit, personal and explains downloadable model privacy', () => {
-    const html = readFileSync(`${root}\\index.html`, 'utf8'), ui = readFileSync(`${root}\\js\\ui-init.js`, 'utf8');
+    const html = readFileSync(join(root, 'index.html'), 'utf8'), ui = readFileSync(join(root, 'js', 'ui-init.js'), 'utf8');
     assert.match(html, /Share uploaded avatar with room guests/);
     assert.match(html, /Guests can retain a copy/);
     assert.match(ui, /setCustomAvatarSharing\(customAvatarShare.checked\)/);
