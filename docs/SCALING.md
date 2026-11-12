@@ -248,6 +248,15 @@ the same browser/device, wait for **Development owner signed in**, then return t
 club and press **Join room** again.
 A phone login does not sign in a headset browser. Use the custom development domain;
 preview `pages.dev` hosts can be subject to third-party-cookie blocking.
+Only `nocturnedev.mitwee.nl` and `nocturne-dev.pages.dev` select development
+access behavior. Hash-prefixed Pages preview hosts are not supported development
+origins; do not broaden authentication or relay allow-lists to make them work.
+
+After deployment, verify `sw.js` and `serviceworker.js` return
+`Cache-Control: no-cache` on the custom host as well as Pages. These headers are already defined
+in `_headers`, and registration uses `updateViaCache: 'none'`. A custom-domain
+cache rule overriding them is an infrastructure issue: make it respect origin
+headers rather than changing app access behavior or assuming a specific stale interval.
 
 `worker/wrangler.dev.jsonc` enables `DEV_OWNER_ACCESS="1"` and supplies
 `DEV_OWNER_ORIGIN`, `DEV_ACCESS_TEAM_DOMAIN`, `DEV_ACCESS_AUD` and

@@ -243,10 +243,8 @@ class VRClubCore {
                 fogDensity: 0.028 // Haze/smoke density tuned so spot/laser beams are clearly visible
             },
             vr: {
-                // Base exposure. The 1.8x headset/desktop ratio was measured while desktop gain was 0.5.
-                // Desktop gain is now 1.0 and its exposure is 0.6, so this value may need to rise if
-                // vr-parity.spec.mjs reports a ratio below 1.0. Do not put the desktop gain back below 1.
-                exposure: 0.6,
+                // Compensate for the headset's lower room fill without changing fixture levels or output gain.
+                exposure: 0.7,
                 contrast: 1.18,
                 bloomWeight: 0.22,
                 bloomThreshold: 0.85,

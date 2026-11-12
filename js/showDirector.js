@@ -732,6 +732,8 @@ class ShowDirector {
     forceMovement(name) {
         if (this.follower || !this.movements[name]) return false;
         this._setPiece = null;
+        this._setPieceThen = null;
+        this._onsetBase = this.club.vjDirector?.realOnsetCount || 0;
         this._enterMovement(name);
         return true;
     }

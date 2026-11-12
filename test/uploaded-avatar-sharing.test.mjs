@@ -9,7 +9,7 @@ function fixture(fetch) {
     const store = new Map(), errors = [], events = [];
     const context = vm.createContext({
         URL, AbortController, CustomEvent: class { constructor(type) { this.type = type; } },
-        setTimeout, clearTimeout, console, fetch, crypto: webcrypto,
+        setTimeout, clearTimeout, console, fetch, crypto: webcrypto, Uint8Array, ArrayBuffer,
         localStorage: { getItem: key => store.get(key), setItem: (key, value) => store.set(key, value) }
     });
     context.window = { dispatchEvent: event => events.push(event.type), CustomAvatarAppearance: { key: JSON.stringify } };
@@ -21,8 +21,25 @@ function fixture(fetch) {
     const sharing = new context.window.UploadedAvatarSharing(club);
     const client = { status: 'connected', serverUrl: 'wss://relay.example', room: 'private-test',
         avatarAssetToken: 'private-membership-token', uploadedAvatarsSupported: true };
-    return { sharing, club, client, errors, events, appearance };
+    return { sharing, club, client, errors, events, appearance, context };
 }
+
+test('sharing changes survive storage errors in-session and non-JSON relay errors remain actionable', async () => {
+    const f = fixture(async () => new Response('Unavailable', { status: 503 }));
+    f.context.localStorage.setItem = () => { throw new Error('Storage unavailable'); };
+    f.sharing.setEnabled(true);
+    await f.sharing._queue;
+    assert.equal(f.sharing.enabled, true);
+    assert.match(f.errors.at(-1), /only to this session/);
+    f.sharing._publishedHash = 'a'.repeat(64);
+    f.sharing.client = f.client;
+    f.sharing.setEnabled(false);
+    await f.sharing._queue;
+    assert.equal(f.sharing.enabled, false, 'failed persistence must not prevent withdrawing consent');
+    assert.match(f.errors.at(-1), /503/);
+    await assert.rejects(f.sharing.request(f.client, 'GET'), /Avatar sharing failed \(503\)/);
+    f.sharing.dispose();
+});
 
 test('sharing is opt-in, sends membership only as authorization, and coalesces wardrobe updates without another upload', async () => {
     const calls = [];

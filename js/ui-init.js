@@ -1114,8 +1114,6 @@ function initVJMenu() {
             const category = button.getAttribute('data-people');
             const here = vrClubInstance.togglePeopleVisible(category);
             renderPeopleButtons();
-            window.addEventListener('characterstylechange', renderPeopleButtons);
-            teardowns.push(() => window.removeEventListener('characterstylechange', renderPeopleButtons));
             flashButton(button);
             if (vrClubInstance.showErrorMessage) {
                 const who = category === 'all' ? 'Everyone' : button.textContent.trim().toLowerCase();
@@ -1126,6 +1124,8 @@ function initVJMenu() {
             }
         });
     }
+    window.addEventListener('characterstylechange', renderPeopleButtons);
+    teardowns.push(() => window.removeEventListener('characterstylechange', renderPeopleButtons));
     renderPeopleButtons();
 
     // Update button states periodically

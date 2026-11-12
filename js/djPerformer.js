@@ -361,6 +361,8 @@ class DJPerformer {
             }
             default: break;
         }
+        DJPerformer._orthogonalHand(L);
+        DJPerformer._orthogonalHand(R);
         this._goalYaw = yaw;
         this._goalPitch = pitch;
         this._goalLean = lean;
@@ -410,6 +412,16 @@ class DJPerformer {
         h.fx += (g.fx - h.fx) * k; h.fy += (g.fy - h.fy) * k; h.fz += (g.fz - h.fz) * k;
         h.ux += (g.ux - h.ux) * k; h.uy += (g.uy - h.uy) * k; h.uz += (g.uz - h.uz) * k;
         h.point += (g.point - h.point) * k;
+        DJPerformer._orthogonalHand(h);
+    }
+
+    static _orthogonalHand(h) {
+        const forward = Math.hypot(h.fx, h.fy, h.fz);
+        h.fx /= forward; h.fy /= forward; h.fz /= forward;
+        const dot = h.fx * h.ux + h.fy * h.uy + h.fz * h.uz;
+        h.ux -= dot * h.fx; h.uy -= dot * h.fy; h.uz -= dot * h.fz;
+        const up = Math.hypot(h.ux, h.uy, h.uz);
+        h.ux /= up; h.uy /= up; h.uz /= up;
     }
 }
 

@@ -16,6 +16,7 @@ import vm from 'node:vm';
 import { createRequire } from 'node:module';
 import { Blob } from 'node:buffer';
 import { readClubSource } from './club-sources.mjs';
+import { sanitizeState } from '../worker/src/relay.js';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
 const require = createRequire(import.meta.url);
@@ -1316,14 +1317,15 @@ test('remote avatar turns follow the shortest arc', () => {
 });
 
 test('network presence sends both eye-relative controllers only in VR and retains desktop cadence', () => {
-    const { window } = loadClassic('js/club/07-animation-core.js', { VRClubEffects: class {} });
+    const B = require('../js/vendor/babylon.js');
+    const { window } = loadClassic('js/club/07-animation-core.js', { VRClubEffects: class {}, BABYLON: B });
     const club = Object.create(window.VRClubAnimationCore.prototype);
     club._bodyEyeHeight = () => 1.7;
     const samples = [];
     club.networkManager = { connected: true, sendState: state => samples.push(JSON.parse(JSON.stringify(state))) };
     club.camera = { position: { x: 1, y: 1.7, z: 2 }, rotation: { y: 0.2 } };
     const camera = { position: { x: 0, y: 0, z: 0 }, globalPosition: { x: 5, y: 4.7, z: -10 },
-        rotationQuaternion: { toEulerAngles: () => ({ y: 0.8 }) } };
+        rotationQuaternion: B.Quaternion.RotationYawPitchRoll(0.8, 0, 0) };
     club.vrHelper = { baseExperience: { camera } };
     club.isInVRMode = true;
     const left = { x: 4.6, y: 4.9, z: -9.6, fx: 0, fy: 0, fz: 1, ux: 0, uy: 1, uz: 0 };
@@ -1334,11 +1336,14 @@ test('network presence sends both eye-relative controllers only in VR and retain
     assert.ok(Math.abs(samples[0].hands.right.y + 0.4) < 1e-8);
     assert.equal(samples[0].hands.left.fz, 1);
     assert.equal(samples[0].y, 4.7);
+    assert.ok(Math.abs(samples[0].rotY - 0.8) < 1e-8);
+    const rotationBuffer = club._networkRotation;
     assert.equal(samples[0].seated, false);
     club.updateNetworkPresence({ time: 1.02, dt: 1 / 60 });
     assert.equal(samples.length, 1);
     club._handPose = side => side === 'left' ? left : null;
     club.updateNetworkPresence({ time: 1.06, dt: 1 / 60 });
+    assert.equal(club._networkRotation, rotationBuffer, 'network rotation must reuse its scratch vector');
     assert.equal(samples[1].hands.right, null);
     club.isInVRMode = false;
     club.updateNetworkPresence({ time: 1.12, dt: 1 / 60 });
@@ -3964,6 +3969,26 @@ test('NOCTURNE plays a breakdown arc while the kick is gone and releases when it
     assert.equal(safe.club.strobesActive, false);
 });
 
+test('forcing a section clears stale breakdown evidence but still detects a new kick-less passage', () => {
+    const clock = 100000;
+    const { window } = loadClassic('js/showDirector.js', { performance: { now: () => clock } });
+    const vj = {
+        bpm: 120, beatNumber: 0, realOnsetCount: 64, lastRealOnsetAt: clock - 10000,
+        setMasterHue() {}, unlockHue() {}
+    };
+    const show = new window.ShowDirector({ vjManualMode: false, vjDirector: vj });
+    show._hasAudio = true;
+    assert.equal(show._shouldBreakdown(), true);
+    show._beginSetPiece('breakdown', 'afterglow');
+    assert.equal(show.forceMovement('pulse'), true);
+    show._onBar();
+    assert.equal(show._setPiece, null, 'the previous passage immediately hijacked the selected section');
+    assert.equal(show._setPieceThen, null);
+    vj.realOnsetCount += 32;
+    show._onBar();
+    assert.equal(show._setPiece, show.setPieces.breakdown, 'a fresh groove must still enable breakdown detection');
+});
+
 test('a breakdown ends in AFTERGLOW when the music stops, but survives a one-beat gap', () => {
     let clock = 100000;
     const { window } = loadClassic('js/showDirector.js', { performance: { now: () => clock } });
@@ -5403,7 +5428,7 @@ test('Quest effect cadence and fog output follow the graphics tier without chang
     assert.equal(reflections, beforeMirrorBlackout + 1, 'mirror cadence delayed a hard blackout');
 });
 
-test('safe mode keeps the dance-floor strip from strobing in the legacy strobe phase', () => {
+test('the dance-floor strip never adds independent flashes and obeys the show master', () => {
     const BABYLON = makeBabylonStub();
     const { window } = loadClassic('js/club/08-animation-fixtures.js', {
         BABYLON,
@@ -5426,8 +5451,23 @@ test('safe mode keeps the dance-floor strip from strobing in the legacy strobe p
         }
         return switches;
     };
-    assert.ok(hardSwitches(false) > 4, 'control: the strobe phase should flash without Safe Mode');
+    assert.equal(hardSwitches(false), 0, 'the floor must not add flashes outside the room governor');
     assert.equal(hardSwitches(true), 0, 'Safe Mode let the floor strip strobe');
+    for (const lightingPhase of ['darkness', 'strobe_attack', 'euphoria', 'laser_tunnel', 'breakdown', 'pulse']) {
+        const led = { material: { emissiveColor: new BABYLON.Color3() } };
+        const club = { danceFloorLEDs: [led], lightingPhase, masterIntensity: 1 };
+        const ctx = { time: 1, audio: { bass: 0.5, mid: 0.5 } };
+        const update = () => window.VRClubAnimationFixtures.prototype.updateDanceFloorLEDs.call(club, ctx);
+        update();
+        const full = led.material.emissiveColor.r;
+        assert.ok(full > 0);
+        club.masterIntensity = 0.5;
+        update();
+        assert.equal(led.material.emissiveColor.r, full / 2);
+        club.masterIntensity = 0;
+        update();
+        assert.deepEqual([led.material.emissiveColor.r, led.material.emissiveColor.g, led.material.emissiveColor.b], [0, 0, 0]);
+    }
 });
 
 test('master dimming keeps the LED wall live below the old blackout threshold', () => {
@@ -6319,7 +6359,8 @@ test('VR controller pointers appear independently for controls or trigger use an
     club._updateXRPointerVisibility();
     assert.deepEqual(states(), [[0, 0], [1, 1]]);
     right.inputSource.gamepad.buttons[0].value = 0;
-    for (const mesh of [desk, seat, { metadata: { vrclubDoor: 0 } }]) {
+    for (const mesh of [desk, seat, { metadata: { vrclubDoor: 0 } },
+        { metadata: { vrclubRestroom: { action: 'tap', fixture: 0 } } }]) {
         target.right = mesh;
         club._updateXRPointerVisibility();
         assert.deepEqual(states(), [[0, 0], [1, 1]]);
@@ -13715,6 +13756,28 @@ function loadDJPerformer(seed = 7) {
     const dj = new window.DJPerformer({ x: 0, z: -19.1, groundY: 0.5, eyeHeight: 1.65, desk, rng });
     return { dj, desk, DJPerformer: window.DJPerformer };
 }
+
+test('every DJ activity and eased transition produces hands accepted by the real relay', () => {
+    for (const fps of [12, 60, 120]) {
+        const { dj } = loadDJPerformer();
+        const music = { hasAudio: true, beatPhase: 0, bar: 0, energy: 0.8, drop: false, bpm: 124 };
+        for (const activity of ['mix', 'cue', 'tweak', 'crowd', 'handsUp', 'point', 'mix']) {
+            dj._visitor = { id: 'guest', x: 2, z: -16 };
+            dj._begin(activity, 99);
+            for (let frame = 0; frame < fps * 2; frame++) {
+                const pose = dj.update(1 / fps, music);
+                const hands = {};
+                for (const side of ['left', 'right']) {
+                    const h = pose[side];
+                    hands[side] = { ...h, x: h.x - pose.x, y: h.y - pose.eyeY, z: h.z - pose.z };
+                    assert.ok(Math.abs(h.fx * h.ux + h.fy * h.uy + h.fz * h.uz) < 1e-10);
+                }
+                const sanitized = sanitizeState({ x: pose.x, y: pose.eyeY, z: pose.z, rotY: 0, hands });
+                for (const side of ['left', 'right']) assert.ok(sanitized.hands[side], `${activity}/${side} rejected at ${fps} Hz`);
+            }
+        }
+    }
+});
 
 /** Run the performer at 60 Hz on a 124 BPM grid; `each(frame)` may change the music or visitors. */
 function perform(dj, seconds, { energy = 0.5, hasAudio = true, visitors = null, each = null, t0 = 0 } = {}) {

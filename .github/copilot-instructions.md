@@ -74,6 +74,10 @@ npm run optimize:models  # idempotent model/texture shrink; `-- --check` fails i
 npm run test:e2e # Playwright: production build in Chromium, with a Quest 3 emulated by IWER
 ```
 
+`npm test` enumerates top-level `test/*.test.mjs` files in `scripts/test.mjs`
+before launching Node, so Node 20 on Windows does not depend on shell glob expansion.
+CI measures the deployed payload as file bytes (165 MiB), not filesystem block allocation.
+
 The e2e suite needs no headset. `test/e2e/support.mjs` injects IWER (`iwer`, a WebXR runtime
 emulator) as a Quest 3 with two controllers; it also patches IWER 2.3.0's
 `getOffsetReferenceSpace()`, which stores the `XRRigidTransform` instead of its matrix and so
@@ -293,6 +297,9 @@ set-piece starting or the movement entering `ignition`) and the visitors (this g
   ranked by distance with a small centre-line salience tie-break, not array order; a point locks attention to that visitor
   and tracks them until the gesture ends. With no
   music it keeps its own 118 BPM and never throws its hands up.
+- Both target and eased hand directions are normalized and orthogonalized before use.
+  The performing player's network poses must pass the relay's unchanged hand-frame validation,
+  including during activity transitions; resident and shared hands use the same pose.
 - A short nod and knee compression land just after each beat and deepen with energy instead of following a continuous
   cosine. Their tempo-integrated phase follows detector corrections at at most 0.12 beats/s
   instead of freezing or snapping with a missed kick. Audible state holds for two beats
@@ -527,6 +534,8 @@ Rules when editing:
   the tier's reflection-geometry cadence remains unchanged.
 - **All structural decisions happen in `_onBar()`, never mid-bar.** Landing changes off the
   musical grid is exactly the failure this class exists to fix.
+- Explicit section changes clear the interrupted set-piece and its old kick evidence;
+  another automatic breakdown requires a newly established groove.
 - An automatic countdown requires energy to rise by at least 0.035 over four bars.
   High but flat energy can enter IGNITION without a countdown; manual DROP stays available.
 - Look keys are validated at construction by `_validateLooks()` — a typo warns rather than
@@ -803,7 +812,8 @@ its pass includes every relevant occluder and the added full-scene draw cost has
 `colour * colorAmount - edge * edgeAmount` and runs after tone mapping, so a value below 1 darkens the
 whole image and caps peak white at that value. VR shipped at 0.1 (a headset frame at 10% brightness,
 which no amount of fixture boosting could fix); keep it at 1.0 on both desktop and VR and set brightness
-with `exposure`. Desktop exposure is 0.6 so the dark-room mean matches the old 1.2 × 0.5 path. SSAO and
+with `exposure`. Desktop exposure is 0.6 so the dark-room mean matches the old 1.2 × 0.5 path.
+VR exposure is 0.7 to compensate for its lower room fill; physical-headset brightness is unmeasured. SSAO and
 SSR detach the XR camera only when it is actually attached (`VRClubCore.detachPipelineCamera`): Babylon
 splices `indexOf`, and -1 used to delete the desktop camera. `applyDesktopSettings()` reattaches SSAO
 only if that camera is missing. Sharpening strength is `edgeAmount` only. `test/e2e/vr-parity.spec.mjs` fails if the VR gain drifts or
@@ -816,6 +826,8 @@ moving-head shutter and Warehouse LED flash all claim the same room-wide
 `VRClubCore._tryClubFlash()` governor, so their combined output cannot exceed one abrupt
 flash per 0.34 s (Warehouse requests its stricter 0.4 s gap). Safe Mode denies every claim;
 the Warehouse pattern may still run its explicitly tested slow Safe Mode swell.
+The floor-edge strips obey the whole-show master, including zero, and use only a
+slow white swell during the legacy strobe phase, never an independent flash source.
 
 **The XR layer's `antialias` does not antialias the scene.** The headset renders into the pipeline's
 offscreen target first, so MSAA must be set on that pipeline: `vrSettings.vr.msaaSamples` through
@@ -1024,6 +1036,11 @@ loaded them before the new worker controlled it; later misses return the network
 immediately and finish the cache write through `event.waitUntil()`. This preserves subsequent
 offline starts without putting the vendor payload on the install-critical path or blocking
 script execution on Cache Storage.
+Warm vendor URLs match the page exactly: versioned in development, unversioned
+in production. Only the scope root and `index.html` may refresh the canonical shell;
+`link/`, `broadcast/` and unrelated navigations bypass it. Navigation writes use
+`event.waitUntil()`. The PWA regression checks the first offline reload before
+any controlled online reload, and again after visiting the broadcaster.
 
 **PWA contract.** `manifest.json` (served as `application/manifest+json`, `no-cache`, because its name is not hashed; the
 same goes for `icons/` and `screenshots/`) declares id, scope, `standalone` with `display_override`, a `launch_handler`

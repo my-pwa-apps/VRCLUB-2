@@ -779,7 +779,9 @@ class VRClubAudioCrowd extends window.VRClubCrowd {
         wrist.getTranslationToRef(p);
         knuckle.getTranslationToRef(glass.handPosition);
         glass.handPosition.addInPlace(p).scaleInPlace(0.5);
-        glass.handPosition.addInPlace(n.scaleInPlace(0.045)).addInPlace(t.scale(0.01));
+        glass.handPosition.x += n.x * 0.045 + t.x * 0.01;
+        glass.handPosition.y += n.y * 0.045 + t.y * 0.01;
+        glass.handPosition.z += n.z * 0.045 + t.z * 0.01;
     }
 
     // The cup follows the thumb axis, less the slight natural cant of a relaxed grip, so it stands upright on the counter

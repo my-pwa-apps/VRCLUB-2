@@ -124,10 +124,10 @@ test('aesthetic show and independent sheet controls use shared desktop, VR and d
         club.showDirector.forceMovement('pulse');
         out.row = { sequence: club.spotSequence, rate: club.spotSequenceRate, locked: club.colorLockActive };
         club.showDirector._applyCue({ look: 'aestheticSheet', bars: 16 });
-        for (let i = 0; i < 1200; i++) club._tintClubAir(1 / 60);
+        for (let i = 0; i < 1200; i++) club._tintClubAir(1 / 60, 1);
         out.dense = club.scene.fogDensity;
         club.toggleLightControl('toggleReducedShowSmoke');
-        for (let i = 0; i < 1200; i++) club._tintClubAir(1 / 60);
+        for (let i = 0; i < 1200; i++) club._tintClubAir(1 / 60, 1);
         out.reduced = club.scene.fogDensity;
         const sheetSpeed = club.laserSheetSpeed;
         const sourceSpeed = club.laserSpeed;

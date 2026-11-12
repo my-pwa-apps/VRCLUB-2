@@ -377,7 +377,7 @@ class VRClubLifecycle extends VRClubCore {
 
     _isXRPointerTarget(mesh) {
         if (!mesh) return false;
-        if (mesh.metadata?.vrclubSeats || mesh.metadata?.vrclubDoor !== undefined) return true;
+        if (mesh.metadata?.vrclubSeats || mesh.metadata?.vrclubDoor !== undefined || mesh.metadata?.vrclubRestroom) return true;
         for (let node = mesh; node; node = node.parent) {
             if (node === this._vrQuickMenuRoot) return true;
         }

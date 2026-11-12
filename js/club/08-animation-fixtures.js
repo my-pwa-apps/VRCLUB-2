@@ -69,6 +69,7 @@ class VRClubAnimationFixtures extends VRClubAnimationCore {
         // === IMMERSIVE DANCE FLOOR EDGE LED ANIMATION ===
         // Creates a "breathing" floor that responds to the music and phase
         if (this.danceFloorLEDs && this.danceFloorLEDs.length > 0) {
+            const master = Math.max(0, Math.min(1, this.masterIntensity ?? 1));
             // getAudioData() already returns 0..1 (see the /255 in its band sums).
             // Dividing again yielded <=0.004, which pinned every audio-driven term to
             // its floor - the perimeter strip was completely non-reactive, and was
@@ -86,12 +87,9 @@ class VRClubAnimationFixtures extends VRClubAnimationCore {
                     r = 0.1; g = 0.1; b = 0.2;
                     intensity = 0.2 + Math.sin(time * 0.5) * 0.1;
                 } else if (phase === 'strobe_attack' && !this.photosensitiveSafeMode) {
-                    // White strobe sync with floor (~3 Hz full on/off). Safe Mode falls
-                    // through to the slow colour cycle: the legacy cycler still reaches
-                    // this phase whenever the Show Director is switched off.
-                    const strobe = Math.sin(time * 20) > 0 ? 1 : 0;
-                    r = g = b = strobe;
-                    intensity = 1.0;
+                    // The strobe bank owns abrupt flashes; the floor is a slow accompaniment.
+                    r = g = b = 1;
+                    intensity = 0.3 + 0.2 * Math.sin(time * 1.2);
                 } else if (phase === 'euphoria') {
                     // Warm golden pulse
                     const warmPhase = time * 1.2 + i * 0.5;
@@ -119,6 +117,7 @@ class VRClubAnimationFixtures extends VRClubAnimationCore {
                     intensity = 0.5 + bassLevel * 0.5;
                 }
                 
+                intensity *= master;
                 led.material.emissiveColor.set(r * intensity, g * intensity, b * intensity);
             });
         }
