@@ -64,6 +64,8 @@ const differences = (a, b) => {
  */
 const pinShow = page => page.evaluate(() => {
     const club = window.vrClub;
+    // Entry music must not replace the pinned cue with a detected breakdown during slow captures.
+    club.showDirector.setFollower(true);
     const look = club.showDirector.looks.firstLight;
     look.hue = 0.1;
     look.colorLock = true;
