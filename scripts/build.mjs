@@ -119,6 +119,7 @@ const distPrecache = [
 ];
 const swBuilt = swSource
     .replace(/const VERSION = '[^']+';/, `const VERSION = '${swVersion}';`)
+    .replace(/const VENDOR_QUERY = [^;]+;/, "const VENDOR_QUERY = '';")
     .replace(/const PRECACHE = \[[\s\S]*?\n\];/, `const PRECACHE = ${JSON.stringify(distPrecache, null, 4)};`);
 if (!swBuilt.includes(swVersion) || !swBuilt.includes(`assets/${jsName}`)) {
     throw new Error('build: failed to rewrite sw.js for the dist build');

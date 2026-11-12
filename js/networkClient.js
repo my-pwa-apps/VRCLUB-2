@@ -175,6 +175,12 @@ class NetworkClient {
         this.voiceAudience = null;
         this.targetedChat = false;
         this.hostTransferSupported = false;
+        this.vjPassSupported = false;
+        this.moderatorRoleSupported = false;
+        this.moderatorId = null;
+        this.vjId = null;
+        this.sharedWaterSupported = false;
+        this.waterClinkSupported = false;
         this.musicStream = null;
         this.musicState = null;
         this.musicListening = false;
@@ -209,6 +215,10 @@ class NetworkClient {
         this.onDoors = () => {};
         this.onDoor = () => {};
         this.onRestroom = () => {};
+        this.onVJPass = () => {};
+        this.onModerator = () => {};
+        this.onWater = () => {};
+        this.onWaterClink = () => {};
         this.onChat = () => {};
         this.onModerationReport = () => {};
         this.onRemoteStream = () => {};
@@ -221,6 +231,7 @@ class NetworkClient {
     get connected() { return this.status === 'connected'; }
     get peerCount() { return this.peers.size; }
     isHost() { return !!this.selfId && this.selfId === this.hostId; }
+    canModerate() { return this.connected && (this.isHost() || (this.moderatorRoleSupported && this.selfId === this.moderatorId)); }
     get preferredAppearance() { return this._preferredAppearance; }
     set preferredAppearance(value) { this.setPreferredAppearance(value); }
     /** Save a validated preference for the next join, without claiming a room update. */
@@ -496,6 +507,12 @@ class NetworkClient {
                 }
                 this.targetedChat = msg.targetedChat === true;
                 this.hostTransferSupported = msg.hostTransfer === true;
+                this.vjPassSupported = msg.vjPass === true;
+                this.moderatorRoleSupported = msg.moderatorRole === true;
+                this.moderatorId = this.moderatorRoleSupported && typeof msg.moderatorId === 'string' ? msg.moderatorId : null;
+                this.vjId = this.vjPassSupported && typeof msg.vjId === 'string' ? msg.vjId : null;
+                this.sharedWaterSupported = msg.sharedWater === true;
+                this.waterClinkSupported = msg.waterClink === true;
                 this.locked = !!msg.locked;
                 const skew = Number(msg.serverTime) - Date.now();
                 this.serverOffset = Number.isFinite(skew) ? skew : 0;
@@ -525,6 +542,9 @@ class NetworkClient {
                     this.requestAvatar(this.avatarPool, this.preferredAvatar);
                 }
                 for (const peer of msg.peers || []) this._addPeer(peer);
+                this.onVJPass(this.vjId);
+                this.onModerator(this.moderatorId);
+                this.onWater(this.sharedWaterSupported ? msg.water : []);
                 if (this.liveEvent) this.onLiveEvent(this.liveEvent);
                 if (msg.music) this.onMusic(msg.music);
                 if (msg.show) this.onShow(msg.show);
@@ -619,7 +639,7 @@ class NetworkClient {
                 break;
 
             case 'moderation-report':
-                if (this.isHost() && msg.reporter && msg.target &&
+                if (this.canModerate() && msg.reporter && msg.target &&
                     typeof msg.reporter.name === 'string' && typeof msg.target.name === 'string' &&
                     NetworkClient.REPORT_REASONS.includes(msg.reason)) {
                     this.onModerationReport(msg);
@@ -673,12 +693,31 @@ class NetworkClient {
                 this.onShow(msg);
                 break;
 
-            case 'restroom':
-                if (msg.id === this.selfId || this.peers.has(msg.id)) this.onRestroom(msg.state);
+            case 'moderator':
+                if (!this.moderatorRoleSupported) break;
+                this.moderatorId = typeof msg.id === 'string' ? msg.id : null;
+                this.onModerator(this.moderatorId);
                 break;
 
-            case 'restroom-error':
-                this.onError(new Error(typeof msg.message === 'string' ? msg.message.slice(0, 120) : 'Restroom action was rejected.'));
+            case 'vj-pass':
+                if (msg.show) this.onShow({ ...msg.show, authorityTransfer: true });
+                this.vjId = typeof msg.id === 'string' ? msg.id : null;
+                this.onVJPass(this.vjId);
+                break;
+
+            case 'water':
+                if (this.sharedWaterSupported) this.onWater(msg.drinks);
+                break;
+
+            case 'water-clink': {
+                const known = id => id === this.selfId || this.peers.has(id);
+                if (this.waterClinkSupported && known(msg.id) && known(msg.target) && msg.id !== msg.target &&
+                    [msg.x, msg.y, msg.z].every(value => Number.isFinite(value) && Math.abs(value) <= 1000)) this.onWaterClink(msg);
+                break;
+            }
+
+            case 'session-error':
+                this.onError(new Error(typeof msg.message === 'string' ? msg.message.slice(0, 120) : 'The room action was rejected.'));
                 break;
 
             case 'door':
@@ -831,6 +870,16 @@ class NetworkClient {
     // Host-only: the relay ignores these from anyone else.
     kickPeer(id) { this._send({ type: 'kick', target: id }); }
     banPeer(id) { this._send({ type: 'ban', target: id }); }
+
+    setModerator(target) {
+        let error = '';
+        if (!this.connected || !this.isHost()) error = 'Only the host can delegate moderation.';
+        else if (!this.moderatorRoleSupported) error = 'This relay needs an update before moderation can be delegated.';
+        else if (target !== null && (!this.peers.has(target) || this.peers.get(target).simulated)) error = 'Choose a connected real guest as moderator.';
+        if (error) { this.onError(new Error(error)); return false; }
+        this._send({ type: 'moderator', target });
+        return true;
+    }
     setRoomLocked(locked) { this._send({ type: 'lock', locked: !!locked }); }
 
     transferHost(id) {
@@ -1019,8 +1068,39 @@ class NetworkClient {
 
     /** Host-only: the light show's current frame. The relay ignores it from anyone else. */
     sendShow(show) {
-        if (!this.isHost() || !show || typeof show !== 'object') return false;
+        if ((!this.isHost() && this.selfId !== this.vjId) || !show || typeof show !== 'object') return false;
         this._send({ ...show, type: 'show' });
+        return true;
+    }
+
+    setVJPass(target) {
+        if (!this.connected || !this.vjPassSupported) {
+            this.onError(new Error('This relay does not support lights-only VJ passes.'));
+            return false;
+        }
+        if (!this.isHost() || (target !== null && (!this.peers.has(target) || this.peers.get(target).simulated))) return false;
+        this._send({ type: 'vj-pass', target });
+        return true;
+    }
+
+    sendWater(action, hand = 'right') {
+        if (!this.connected || !this.sharedWaterSupported) {
+            this.onError(new Error('Join a room with shared water support to use the water station.'));
+            return false;
+        }
+
+        if (!['order', 'pickup', 'putdown'].includes(action) || !['left', 'right'].includes(hand)) return false;
+        this._send({ type: 'water', action, hand });
+        return true;
+    }
+
+    sendWaterClink(target) {
+        if (!this.connected || !this.waterClinkSupported) {
+            this.onError(new Error('This relay does not support shared water clinks.'));
+            return false;
+        }
+        if (!this.peers.has(target) || this.peers.get(target).simulated) return false;
+        this._send({ type: 'water-clink', target });
         return true;
     }
 

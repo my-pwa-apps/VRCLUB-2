@@ -1178,9 +1178,10 @@ const VJDesk = {
 
     /** Who has the lights, in words, for the SHOW panel's header. */
     _vjDeskStatus() {
-        if (this.isFollowingHost()) {
+        if (this.multiplayer?.followingLights || (this.isFollowingHost() && !this.multiplayer?.canControlLights?.())) {
             const host = (this.multiplayer.hostName() || 'The host').toUpperCase();
-            return { tone: 'host', title: `${host} HAS THE LIGHTS`, detail: 'THEIR ROOM, THEIR SHOW. THE DJ BUTTON IS STILL YOURS.' };
+            const vj = this.multiplayer.client?.peers.get(this.multiplayer.client.vjId)?.name;
+            return { tone: 'host', title: `${(vj || host).toUpperCase()} HAS THE LIGHTS`, detail: 'LIGHTS-ONLY PASS. MUSIC AND HOST TOOLS STAY WITH THE HOST.' };
         }
         if (this.vjManualMode) {
             const hold = this.lightHold || { mode: 'resume' };
@@ -1246,7 +1247,7 @@ const VJDesk = {
         if (this.multiplayer?.hasLiveEvent && ['transport', 'seek', 'effect', 'crossfader', 'effectClear'].includes(button.kind)) return 'LIVE EVENT DJ';
         if (button.kind.startsWith('preset')) {
             const store = this._lightingPresetStore();
-            if (button.kind === 'presetRecall' && this.isFollowingHost()) return 'HOST ONLY';
+            if (button.kind === 'presetRecall' && (this.multiplayer?.connected ? !this.multiplayer.canControlLights() : this.isFollowingHost())) return this.multiplayer?.client?.vjId ? 'ROOM VJ ONLY' : 'HOST ONLY';
             if (['presetRecall', 'presetDelete'].includes(button.kind) && !store.slots[store.selected]) return 'EMPTY SLOT';
             if (['presetSave', 'presetDelete', 'presetRecall'].includes(button.kind) && store.error) return 'RESTORE A BACKUP FIRST';
             return '';
@@ -1256,7 +1257,8 @@ const VJDesk = {
         if (button.kind === 'dj' || button.kind === 'holdMode' || button.kind === 'safeMode') return '';
         if (button.kind === 'playerPage') return '';
         if (button.kind === 'holdTiming') return this.lightHold && this.lightHold.mode === 'keep' ? 'NOT USED WHEN KEPT' : '';
-        if (this.isFollowingHost()) return 'HOST ONLY';
+        const music = ['transport', 'seek', 'effect', 'crossfader', 'effectClear'].includes(button.kind);
+        if (music ? this.isFollowingHost() : (this.multiplayer?.connected ? !this.multiplayer.canControlLights() : this.isFollowingHost())) return !music && this.multiplayer?.client?.vjId ? 'ROOM VJ ONLY' : 'HOST ONLY';
         if (button.kind === 'effect' || button.kind === 'crossfader' || button.kind === 'effectClear') {
             if (this.isPeopleVisible('dj')) return 'SEND DJ HOME';
             return this._audioKind === 'soundcloud' ? 'PLAYER AUDIO ONLY' : '';

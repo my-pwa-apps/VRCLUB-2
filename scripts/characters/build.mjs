@@ -120,8 +120,20 @@ for (const [sourceId, id] of Object.entries(wardrobe ? players : npcs)) {
         if (!animations.length) continue;
         modularNames(doc, skeleton(doc), true);
         const target = skeleton(doc);
-        for (const animation of animations) {
-            const name = animation.getName();
+        const retired = dancers.has(sourceId) && !wardrobe && animations.find(animation => animation.getName() === 'Groove_Still');
+        if (retired) {
+            retired.listChannels().forEach(channel => channel.dispose());
+            retired.listSamplers().forEach(sampler => sampler.dispose());
+            retired.dispose();
+            animations.splice(animations.indexOf(retired), 1);
+        }
+        const names = new Set(animations.map(animation => animation.getName()));
+        if (dancers.has(sourceId) && !wardrobe) {
+            for (const clip of sources.f1.getRoot().listAnimations()) {
+                if (clip.getName().startsWith('Groove_') && clip.getName() !== 'Groove_Still') names.add(clip.getName());
+            }
+        }
+        for (const name of names) {
             const from = dancers.has(sourceId) && !wardrobe || name.startsWith('Groove_') ? 'f1' : 'm6';
             const source = sources[from];
             const clip = source.getRoot().listAnimations().find(a => a.getName() === name);
@@ -129,9 +141,12 @@ for (const [sourceId, id] of Object.entries(wardrobe ? players : npcs)) {
             const result = retarget(skeleton(source), target, sampler(clip));
             assert.ok(result.metrics.maxAnkleError < 0.005, `${id}/${name}: ankle reach`);
             assert.ok(result.metrics.maxHandError < 0.025, `${id}/${name}: hand reach`);
-            animation.listChannels().forEach(channel => channel.dispose());
-            animation.listSamplers().forEach(sampler => sampler.dispose());
-            animation.dispose();
+            const animation = animations.find(item => item.getName() === name);
+            if (animation) {
+                animation.listChannels().forEach(channel => channel.dispose());
+                animation.listSamplers().forEach(sampler => sampler.dispose());
+                animation.dispose();
+            }
             addAnimation(doc, target, result);
         }
         modularNames(doc, target);

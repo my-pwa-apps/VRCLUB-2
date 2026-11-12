@@ -158,7 +158,11 @@ class VRClubSocialUI extends window.VRClubMenu {
             net('REPORT + BLOCK', 'peerReport', { peer: person.id, danger: true })
         ];
         if (mp.isHost()) {
+            if (!person.simulated) rows.push(net(mp.client.vjId === person.id ? 'REVOKE VJ PASS' : 'GIVE VJ PASS', 'peerVJ', { peer: person.id }));
+            if (!person.simulated) rows.push(net(mp.client.moderatorId === person.id ? 'REVOKE MODERATOR' : 'MAKE MODERATOR', 'peerModerator', { peer: person.id }));
             rows.push(net(armedFor('host') ? 'SURE? MAKE HOST' : 'MAKE HOST', 'peerHost', { peer: person.id }));
+        }
+        if (mp.canModerate() && person.id !== mp.client.hostId) {
             rows.push(net(armedFor('kick') ? 'SURE? KICK' : 'KICK', 'peerKick', { peer: person.id, danger: true }));
             rows.push(net(armedFor('ban') ? 'SURE? BAN' : 'BAN', 'peerBan', { peer: person.id, danger: true }));
         }
@@ -242,6 +246,8 @@ class VRClubSocialUI extends window.VRClubMenu {
         switch (button.op) {
             case 'joinListedRoom': return button.locked ? 'LOCKED' : button.full ? 'FULL' : button.inactive ? 'START ROOM' : `${button.people}/${button.capacity} HERE`;
             case 'peerHost': return !mp.isHost() ? 'HOST ONLY' : !mp.client.hostTransferSupported ? 'UPDATE RELAY' : 'YOU STAY IN ROOM';
+            case 'peerVJ': return !mp.isHost() ? 'HOST ONLY' : !mp.client.vjPassSupported ? 'UPDATE RELAY' : 'LIGHTS ONLY';
+            case 'peerModerator': return !mp.isHost() ? 'HOST ONLY' : !mp.client.moderatorRoleSupported ? 'UPDATE RELAY' : 'REPORTS / KICK / BAN';
             case 'browseRooms': return mp.roomDirectory.loading ? 'CHECKING...' : 'PUBLIC + SAVED PRIVATE';
             case 'audienceAll': return active ? 'SELECTED' : '';
             case 'audienceClear': return 'SEND TO NOBODY';
@@ -433,6 +439,12 @@ class VRClubSocialUI extends window.VRClubMenu {
                 this._showVRQuickMenuPage('people');
                 return;
             }
+            case 'peerVJ':
+                mp.setVJPass(mp.client.vjId === button.peer ? null : button.peer);
+                break;
+            case 'peerModerator':
+                mp.setModerator(mp.client.moderatorId === button.peer ? null : button.peer);
+                break;
             case 'peerKick':
             case 'peerBan':
             case 'peerHost': {
@@ -452,7 +464,10 @@ class VRClubSocialUI extends window.VRClubMenu {
                     if (!mp.transferHost(button.peer)) return;
                     this.showErrorMessage('Host transfer requested. You stay in the room.');
                 } else {
-                    if (kind === 'kick') mp.kickPeer(button.peer); else mp.banPeer(button.peer);
+                    if (!(kind === 'kick' ? mp.kickPeer(button.peer) : mp.banPeer(button.peer))) {
+                        this.showErrorMessage('This moderation action is no longer available.');
+                        return;
+                    }
                     this.showErrorMessage(kind === 'kick' ? 'Guest removed from the room' : 'Guest banned from this room');
                 }
                 this._vrPerson = null;

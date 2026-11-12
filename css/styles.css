@@ -206,6 +206,16 @@ html, body {
 }
 
 /* Enter VR - a top-level control, not a setting. Sits beside #vjToggle. */
+.postcard-toggle {
+    align-self: center;
+    padding: 10px 18px;
+    border: 1px solid #6f7787;
+    border-radius: 8px;
+    background: #16191f;
+    color: #fff;
+    cursor: pointer;
+}
+
 #vrButton {
     position: absolute;
     top: 20px;

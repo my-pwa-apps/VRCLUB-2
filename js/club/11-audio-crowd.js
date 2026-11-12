@@ -226,9 +226,9 @@ class VRClubAudioCrowd extends window.VRClubCrowd {
             dwell: { min: 22, max: 38 },
             home: 1,
             nodes: [
-                { x: -9.0, z: -13.6, guest: 6 },
+                { x: -8.95, z: -13.75, guest: 6 },
                 { x: -8.2, z: -10.8, yaw: 1.716, activity: 'watch', clip: 'Idle_Loop', dwell: { min: 25, max: 40 } },
-                { x: -7.5, z: -6.1, guest: 4 },
+                { x: -7.55, z: -6.5, guest: 4 },
                 { x: -7.5, z: -5.5 },   // the lane along the front of the dance floor, the only way across the room
                 { x: -2.0, z: -5.5 },
                 { x: 5.2, z: -5.5 },
@@ -238,7 +238,7 @@ class VRClubAudioCrowd extends window.VRClubCrowd {
                 { x: 3.4, z: -9.1, yaw: Math.PI, activity: 'dance', clip: 'Dance_Loop', dwell: { min: 28, max: 48 } },
                 { x: 5.2, z: -6.3 },
                 { x: 7.9, z: -5.5 },
-                { x: 8.45, z: -7.3, guest: 0 },  // a brief conversation with the standing guest beside the bar
+                { x: 8.3, z: -7.3, guest: 0 },  // a brief conversation with the standing guest beside the bar
                 { x: 8.3, z: -6.3 },
                 { x: 5.1, z: -6.3 },
                 { x: 5.1, z: -7.1 },
@@ -779,7 +779,9 @@ class VRClubAudioCrowd extends window.VRClubCrowd {
         wrist.getTranslationToRef(p);
         knuckle.getTranslationToRef(glass.handPosition);
         glass.handPosition.addInPlace(p).scaleInPlace(0.5);
-        glass.handPosition.addInPlace(n.scaleInPlace(0.045)).addInPlace(t.scale(0.01));
+        glass.handPosition.x += n.x * 0.045 + t.x * 0.01;
+        glass.handPosition.y += n.y * 0.045 + t.y * 0.01;
+        glass.handPosition.z += n.z * 0.045 + t.z * 0.01;
     }
 
     // The cup follows the thumb axis, less the slight natural cant of a relaxed grip, so it stands upright on the counter
@@ -851,8 +853,10 @@ class VRClubAudioCrowd extends window.VRClubCrowd {
         }
         if (!npc.root.isEnabled()) {
             this._releaseMinglerPartner(state);
+            VRClubAudioCrowd._easeMinglerLean(npc.root, 0, 10);
             if (state.returning && state.returning.root) {
                 state.returning.root.rotation.y = state.returning.slotYaw || 0;
+                VRClubAudioCrowd._easeMinglerLean(state.returning.root, 0, 10);
                 state.returning = null;
             }
             this._updateBartender(step, patronService);
@@ -892,7 +896,7 @@ class VRClubAudioCrowd extends window.VRClubCrowd {
             }
             if (state.partner && state.partner.root && !state.partner.rig) {
                 const px = state.partner.root.position;
-                state.yaw = Math.atan2(px.x - pos.x, px.z - pos.z);
+                state.yaw = Math.atan2(px.x - pos.x, px.z - pos.z) + (state.activity === 'talk' && !state.drinkStop ? 0.2 : 0);
             } else if ((state.activity === 'watch' || state.activity === 'smoke') && Number.isFinite(state.baseYaw)) {
                 const amount = state.activity === 'smoke' ? 0.22 : 0.13;
                 state.yaw = state.baseYaw + amount * (
@@ -907,17 +911,25 @@ class VRClubAudioCrowd extends window.VRClubCrowd {
             }
         }
 
+        if (!Number.isFinite(roomTime) && state.activity === 'dance') this._updateMinglerDance(npc);
         this._updateBartender(step, state.partner && state.partner.name === 'bartender' ? state : patronService);
         this._syncMinglerDrinkPose(npc);
         if (Number.isFinite(roomTime)) npc.root.rotation.y = state.yaw;
         else VRClubAudioCrowd._easeYaw(npc.root, state.yaw, step, 4.0);
+        const closeTalk = state.activity === 'talk' && !state.drinkStop && state.partner && !state.partner.rig;
+        const turn = closeTalk ? 0.5 + 0.5 * Math.sin((state.attentionTime || 0) * Math.PI / 7) : 0;
+        VRClubAudioCrowd._easeMinglerLean(npc.root, closeTalk ? 0.035 + 0.1 * turn : 0, step);
         // The people he stops at look at him while he is there, and go back to the way they were placed afterwards.
         if (state.partner && state.partner.root) {
             const px = state.partner.root.position;
-            VRClubAudioCrowd._easeYaw(state.partner.root, Math.atan2(pos.x - px.x, pos.z - px.z), step, 2.2);
+            const earAngle = state.activity === 'talk' && !state.drinkStop ? 0.2 : 0;
+            VRClubAudioCrowd._easeYaw(state.partner.root, Math.atan2(pos.x - px.x, pos.z - px.z) + earAngle, step, 2.2);
+            if (!state.partner.rig) VRClubAudioCrowd._easeMinglerLean(state.partner.root, closeTalk ? 0.035 + 0.1 * (1 - turn) : 0, step);
         }
         if (state.returning && state.returning.root) {
-            if (VRClubAudioCrowd._easeYaw(state.returning.root, state.returning.slotYaw || 0, step, 2.0)) {
+            const facingHome = VRClubAudioCrowd._easeYaw(state.returning.root, state.returning.slotYaw || 0, step, 2.0);
+            const upright = VRClubAudioCrowd._easeMinglerLean(state.returning.root, 0, step);
+            if (facingHome && upright) {
                 state.returning = null;
             }
         }
@@ -938,6 +950,27 @@ class VRClubAudioCrowd extends window.VRClubCrowd {
         }
         if (npc.collider) npc.collider.position.set(pos.x, pos.y + 0.85, pos.z);
         this._moveContactShadow(npc);
+    }
+
+    _updateMinglerDance(npc, music = this._minglerDanceMusic, sync = false) {
+        if (!music || typeof CrowdDance === 'undefined') return;
+        if (!music.beatPresent && !music.rhythm && !music.fallback) {
+            VRClubAudioCrowd._playClip(npc, 'Idle_Loop', npc.baseSpeed);
+            return;
+        }
+        const meta = CrowdDance.MOVES.Dance_Loop;
+        const target = CrowdDance.wrap01((music.beat + meta.anchor) / meta.beats);
+        const previous = npc.poses?.current;
+        const base = Math.max(40, music.bpm || 120) / CrowdDance.CLIP_BPM;
+        if (!VRClubAudioCrowd._playClip(npc, 'Dance_Loop', base)) return;
+        const group = npc.poses.current;
+        const frac = VRClubAudioCrowd._loopFraction(group);
+        const error = frac == null ? 0 : CrowdDance.wrapHalf(target - frac) * meta.beats;
+        if (sync || group !== previous || frac == null || Math.abs(error) > 0.9) {
+            if (group.to > group.from) group.goToFrame(group.from + target * (group.to - group.from));
+        } else {
+            group.speedRatio = base * (1 + Math.max(-0.6, Math.min(0.6, error * 0.8)));
+        }
     }
 
     _sampleSharedMingler(npc, route, clock, seconds) {
@@ -973,8 +1006,23 @@ class VRClubAudioCrowd extends window.VRClubCrowd {
         npc.root.position.set(sample.x, this._minglerSurfaceLevel(sample.x, sample.z, sample.level), sample.z);
         const drinking = sample.clip === 'Drink_Loop';
         const dancing = sample.clip === 'Dance_Loop';
+        if (dancing) {
+            const multiplayer = this.multiplayer;
+            const remote = multiplayer && multiplayer.following && this._sharedMinglerMusic;
+            let music = multiplayer && multiplayer.isHost() ? this._minglerDanceMusic : null;
+            if (remote && performance.now() - remote.at < 12000) {
+                music = this._sharedMinglerMusicFrame || (this._sharedMinglerMusicFrame = {});
+                music.beatPresent = remote.beatPresent;
+                music.beat = remote.beat + Math.max(0, performance.now() - remote.at) * remote.bpm / 60000;
+                music.bpm = remote.bpm;
+            }
+            if (music) {
+                this._updateMinglerDance(npc, music, true);
+                return;
+            }
+        }
         const speed = sample.phase === 'walk' ? route.speed / route.walkClipSpeed
-            : drinking ? 1 : dancing ? Math.max(0.65, Math.min(1.5, ((this.vjDirector && this.vjDirector.bpm) || 120) / 120))
+            : drinking ? 1 : dancing ? 1
                 : npc.baseSpeed;
         VRClubAudioCrowd._playClip(npc, sample.clip, speed, !drinking);
         const group = npc.animations[0];
@@ -987,9 +1035,65 @@ class VRClubAudioCrowd extends window.VRClubCrowd {
     _releaseMinglerPartner(state) {
         if (!state.partner) return;
         VRClubAudioCrowd._playClip(state.partner, state.partner.slotClip, state.partner.baseSpeed);
-        if (state.returning && state.returning.root) state.returning.root.rotation.y = state.returning.slotYaw || 0;
+        if (state.returning && state.returning.root) {
+            state.returning.root.rotation.y = state.returning.slotYaw || 0;
+            VRClubAudioCrowd._easeMinglerLean(state.returning.root, 0, 10);
+        }
         state.returning = state.partner;
         state.partner = null;
+    }
+
+    static _easeMinglerLean(root, target, dt) {
+        const current = root._minglerLean || 0;
+        const next = current + (target - current) * (1 - Math.exp(-3 * dt));
+        root._minglerLean = Math.abs(next - target) < 0.001 ? target : next;
+        if (root._minglerLean && root.getScene && !root._minglerLeanPose) {
+            const chest = root.getDescendants(false, node => /(^|_)Chest$/.test(node.name))[0];
+            if (chest && chest.rotationQuaternion) {
+                const scene = root.getScene();
+                if (!scene._minglerLeanPoses) {
+                    const poses = scene._minglerLeanPoses = new Set();
+                    scene.onBeforeAnimationsObservable.add(() => {
+                        for (const pose of poses) {
+                            if (pose.applied) pose.chest.rotationQuaternion.copyFrom(pose.base);
+                            pose.applied = false;
+                            if (pose.root.isDisposed() || !pose.root._minglerLean) {
+                                poses.delete(pose);
+                                pose.root._minglerLeanPose = null;
+                            }
+                        }
+                    });
+                    scene.onAfterAnimationsObservable.add(() => {
+                        for (const pose of poses) {
+                            const { root: actor, chest: bone, matrices: m } = pose;
+                            if (!actor.isEnabled() || !actor._minglerLean) continue;
+                            pose.base.copyFrom(bone.rotationQuaternion);
+                            bone.computeWorldMatrix(true);
+                            const world = bone.getWorldMatrix();
+                            const x = world.m[12], y = world.m[13], z = world.m[14];
+                            m[0].copyFrom(world);
+                            m[0].setTranslationFromFloats(0, 0, 0);
+                            pose.axis.set(Math.cos(actor.rotation.y), 0, -Math.sin(actor.rotation.y));
+                            BABYLON.Quaternion.RotationAxisToRef(pose.axis, actor._minglerLean, pose.delta);
+                            pose.delta.toRotationMatrix(m[1]);
+                            m[0].multiplyToRef(m[1], m[2]);
+                            m[2].setTranslationFromFloats(x, y, z);
+                            bone.parent.computeWorldMatrix(true).invertToRef(m[3]);
+                            m[2].multiplyToRef(m[3], m[4]);
+                            m[4].decompose(pose.scale, bone.rotationQuaternion, pose.translation);
+                            pose.applied = true;
+                        }
+                    });
+                }
+                const pose = root._minglerLeanPose = {
+                    root, chest, applied: false, base: new BABYLON.Quaternion(), delta: new BABYLON.Quaternion(),
+                    axis: new BABYLON.Vector3(), scale: new BABYLON.Vector3(), translation: new BABYLON.Vector3(),
+                    matrices: Array.from({ length: 5 }, () => new BABYLON.Matrix())
+                };
+                scene._minglerLeanPoses.add(pose);
+            }
+        }
+        return root._minglerLean === target;
     }
 
     _minglerArrive(npc, route, node) {
@@ -1012,7 +1116,10 @@ class VRClubAudioCrowd extends window.VRClubCrowd {
             if (dancing) {
                 const group = npc.animations[0];
                 const beat = this.vjDirector && Number.isFinite(this.vjDirector.beatNumber) ? this.vjDirector.beatNumber : 0;
-                if (group && group.to > group.from) group.goToFrame(group.from + (beat % 4) / 4 * (group.to - group.from));
+                if (group && group.to > group.from) {
+                    const phase = ((beat + 0.5) % 2 + 2) % 2 / 2;
+                    group.goToFrame(group.from + phase * (group.to - group.from));
+                }
             }
             return;
         }

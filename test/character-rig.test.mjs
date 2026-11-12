@@ -139,9 +139,13 @@ test('All 17 detailed online bodies play their full clips and track physical han
                     const h = peer.hands[side];
                     const expected = new B.Vector3(peer.root.position.x + h.x,
                         peer.root.position.y + peer.eyeHeight + h.y, peer.root.position.z + h.z);
-                    assert.ok(B.Vector3.Distance(at(`Wrist.${suffix}`), expected) < 0.035, `${id}/${side}: hand misses target`);
+                    if (h.weight === 1) {
+                        assert.ok(B.Vector3.Distance(at(`Wrist.${suffix}`), expected) < 0.035, `${id}/${side}: hand misses target`);
+                    }
                 }
             }
+            assert.equal(peer.hands.left.weight, 1, `${id}: tracking never finished blending`);
+            assert.equal(peer.hands.right.weight, 1, `${id}: tracking never finished blending`);
         } finally {
             if (manager) manager.dispose();
             container.dispose(); scene.dispose(); engine.dispose();
@@ -193,7 +197,7 @@ test('All fourteen detailed dancers retain rigid limbs, planted claps and anatom
             const sample = () => Object.fromEntries(['UpperLeg.L', 'LowerLeg.L', 'Foot.L', 'UpperLeg.R', 'LowerLeg.R', 'Foot.R',
                 'Wrist.L', 'Wrist.R', 'Middle2.L', 'Middle2.R'].map(name => [name, at(name)]));
             const dances = entry.animationGroups.filter(group => group.name === 'Dance_Loop' || group.name.startsWith('Groove_'));
-            assert.equal(dances.length, 11);
+            assert.equal(dances.length, 13);
             for (const group of dances) {
                 for (const channel of group.targetedAnimations) channel.animation.enableBlending = false;
                 group.start(false); group.pause(); group.goToFrame(group.from);

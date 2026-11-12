@@ -24,7 +24,7 @@ test('the crowd dances varied moves locked to the beat, and keeps swaying when t
         };
     });
     expect(setup.dancers).toBeGreaterThanOrEqual(4);
-    expect(setup.repertoire).toBe(11);
+    expect(setup.repertoire).toBe(13);
     expect(setup.playing.every(count => count === 1), 'one clip plays per dancer').toBe(true);
     // No music in the harness: nobody dances to a beat that is not there.
     expect(setup.moves.every(move => ['Groove_Sway', 'Groove_ArmsWide', 'Groove_ArmsUp'].includes(move))).toBe(true);

@@ -65,7 +65,8 @@ class VRClubAvatars extends window.VRClubAudio {
      * materials, so a single pass covers the whole crowd.
      */
     _prepareAvatarMaterials(materials, garmentColor = null, hairColor = null) {
-        const aniso = this.tierSettings.anisotropy;
+        const aniso = this.isInVRMode && this.isRenderExperimentEnabled('anisotropy')
+            ? this._vrTextureAnisotropy() : this.tierSettings.anisotropy;
 
         materials.forEach(mat => {
             const characterHair = mat._vrclubCharacterHair === true;
@@ -987,7 +988,7 @@ class VRClubAvatars extends window.VRClubAudio {
     // ───────────────────────── the DJ, performing ─────────────────────────
     //
     // The DJ files carry one idle clip. A performing DJ is an AvatarRig (the player-body driver) whose pose comes from
-    // DJPerformer every frame: mixing, cueing in the headphones, looking at the crowd, hands up on a drop, waving at a
+    // DJPerformer every frame: mixing, cueing in the headphones, looking at the crowd, hands up on a drop, pointing at a
     // visitor, nodding and bouncing on the beat. If the rig cannot drive the file, the idle clip stays (the caller).
 
     /** The controller on the DJ table, measured from the scene, with the numbers it had when this was written as fallback. */
@@ -1010,7 +1011,7 @@ class VRClubAvatars extends window.VRClubAudio {
         if (typeof AvatarRig === 'undefined' || typeof DJPerformer === 'undefined') return null;
         // Eyes ~93% of the standing height (the height includes hair and headphones).
         const eyeHeight = look.height * 0.93;
-        const rig = new AvatarRig(this, container, { eyeHeight, allowCustomSkeleton: !!look.personal });
+        const rig = new AvatarRig(this, container, { eyeHeight, allowCustomSkeleton: !!look.personal, djPointing: true });
         if (!rig.ok) { rig.dispose(); return null; }
         if (look.personal) window.CustomAvatarAppearance.apply(rig, this.getCustomAvatarAppearance());
         rig.root.name = 'djPerformer';
@@ -1046,8 +1047,16 @@ class VRClubAvatars extends window.VRClubAudio {
         const music = this._djMusic || (this._djMusic = { hasAudio: false, beatPhase: 0, bar: 0, energy: 0, drop: false, bpm: 120 });
         const vj = this.vjDirector, show = this.showDirector;
         const fallback = this._unanalysedDanceMusic();
-        music.hasAudio = this._audioKind === 'soundcloud' ? !!fallback : !!(audioData && audioData.hasAudio);
         music.bpm = (vj && vj.bpm) || 120;
+        if (this._audioKind === 'soundcloud') {
+            this._djAudioUntil = 0;
+            music.hasAudio = !!fallback;
+        } else {
+            const now = performance.now();
+            const audible = !!(audioData && audioData.hasAudio);
+            if (audible) this._djAudioUntil = now + Math.max(1000, 2 * 60000 / music.bpm);
+            music.hasAudio = audible || now < (this._djAudioUntil || 0);
+        }
         // Beat phase inside the beat, from the bar phase (0..1 over four beats).
         const barPhase = Number.isFinite(this.barPhase) ? this.barPhase : 0;
         music.beatPhase = (barPhase * 4) % 1;

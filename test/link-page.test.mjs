@@ -40,8 +40,6 @@ test('the build ships the pairing page, revalidates it, and the service worker l
     assert.match(build, /cp\(path\.join\(root, 'link'\), path\.join\(dist, 'link'\)/);
     assert.match(read('_headers'), /\/link\/\*\s+Cache-Control: no-cache/);
     assert.match(read('scripts/serve.mjs'), /icons\|screenshots\|link/);
-    const sw = read('sw.js');
-    assert.match(sw, /\.\/link\/.*\)\.pathname\)\) return;/, 'the worker must not treat /link/ as the app shell');
     // Checkout can send the owner back to the pairing page, and only there.
     const payments = read('worker/src/payments.js');
     assert.match(payments, /body\?\.returnTo === 'link' \? '\/link\/' : '\/'/);

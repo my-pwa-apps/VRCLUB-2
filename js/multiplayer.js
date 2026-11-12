@@ -285,6 +285,8 @@ class ClubMultiplayer {
     get connecting() { return !!this.client && this.client.status === 'connecting'; }
     get micEnabled() { return !!this.client && this.client.micEnabled; }
     isHost() { return !!this.client && this.client.isHost(); }
+    canModerate() { return this.connected && (this.isHost() || (this.client.moderatorRoleSupported && this.client.moderatorId === this.client.selfId)); }
+    setModerator(id) { return !!this.client && this.client.setModerator(id); }
     /** In someone else's room: the host owns the music and the lights, and this guest follows them. */
     get following() {
         // Only while the host is someone this guest can see: blocking is two-way, so a guest who blocked the host (or
@@ -292,6 +294,29 @@ class ClubMultiplayer {
         // their own controls waiting for frames that will never arrive.
         const client = this.client;
         return this.connected && !this.isHost() && !!client.hostId && client.peers.has(client.hostId);
+    }
+
+    canControlLights() {
+        if (!this.connected) return true;
+        const client = this.client;
+        return client.vjId ? client.vjId === client.selfId || !client.peers.has(client.vjId) : this.isHost() || !this.following;
+    }
+
+    get followingLights() {
+        if (!this.connected || this.canControlLights()) return false;
+        return this.client.vjId ? this.client.peers.has(this.client.vjId) : this.following;
+    }
+
+    setVJPass(id) {
+        return !!this.client && this.client.setVJPass(id);
+    }
+
+    requestWater(action, hand = 'right') {
+        return !!this.client && this.client.sendWater(action, hand);
+    }
+
+    requestWaterClink(id) {
+        return !!this.client && this.client.sendWaterClink(id);
     }
 
     /** The room host's display name ('' when nobody is connected). */
@@ -466,6 +491,7 @@ class ClubMultiplayer {
             const view = shown.get(id) || {};
             return {
                 id, name: peer.name, pid: peer.pid, avatar: peer.avatar,
+                simulated: peer.simulated === true,
                 muted: !!view.muted, speaking: !!view.speaking, isHost: id === this.client.hostId
             };
         });
@@ -512,6 +538,8 @@ class ClubMultiplayer {
             this._emit();
             return false;
         }
+        this._waterOfflineAllowed = false;
+        this.club.setSessionWater?.([]);
         this._write(ClubMultiplayer.PREFS.serverUrl, serverUrl);
         this._write(ClubMultiplayer.PREFS.room, room);
         this._write(ClubMultiplayer.PREFS.name, name);
@@ -574,6 +602,8 @@ class ClubMultiplayer {
         if (!this.client) return;
         // disconnect() reports every peer through onPeerLeave, which removes their avatars.
         this.client.disconnect();
+        this._waterOfflineAllowed = true;
+        this.club.setSessionWater?.([]);
         this.listenAlong = false;
         this.pendingMusic = null;
         this.dancing = false;
@@ -744,6 +774,10 @@ class ClubMultiplayer {
                 // The doors belong to the room: out of it they are ajar again.
                 if (typeof club.setSharedDoors === 'function') club.setSharedDoors([]);
                 club.setSharedRestroom?.(null);
+                club.setSessionWater?.([]);
+                client.vjId = null;
+                client.moderatorId = null;
+                this.moderationReports = [];
             }
             if (status === 'error' || status === 'disconnected') {
                 this._stopPing();
@@ -779,7 +813,7 @@ class ClubMultiplayer {
         client.onPeerUploadedAvatar = (id, model) => { manager.setUploadedAvatar?.(id, model); this._emit(); };
         client.onSelfAppearance = appearance => { club._appearanceAcknowledged?.(appearance); this._emit(); };
         client.onSelfAvatar = (avatar) => { this.selfAvatar = avatar; this._emit(); };
-        client.onEmoji = (id, emoji) => manager.showEmoji(id, emoji);
+        client.onEmoji = (id, emoji) => { manager.showEmoji(id, emoji); club.recordBoothReaction?.(id, emoji); };
         client.onChat = (id, text, restricted) => {
             const peer = client.peers.get(id);
             this._logChat({ id, name: peer ? peer.name : 'Guest', text, self: false, restricted });
@@ -794,7 +828,7 @@ class ClubMultiplayer {
             if (typeof club.showErrorMessage === 'function') club.showErrorMessage(this.notice);
             this._emit();
         };
-        client.onGesture = (id, gesture) => manager.playGesture(id, gesture);
+        client.onGesture = (id, gesture) => { manager.playGesture(id, gesture); club.recordBoothReaction?.(id, gesture); };
         client.onHostChange = (hostId) => {
             for (const id of client.peers.keys()) manager.setHost(id, id === hostId);
             this._show.dirty = true;
@@ -824,6 +858,18 @@ class ClubMultiplayer {
         client.onDoors = (doors) => { if (typeof club.setSharedDoors === 'function') club.setSharedDoors(doors); };
         client.onDoor = (door, shut) => { if (typeof club.setSharedDoor === 'function') club.setSharedDoor(door, shut); };
         client.onRestroom = state => club.setSharedRestroom?.(state);
+        client.onVJPass = () => {
+            this._syncRole();
+            this._show.dirty = true;
+            this._show.force = true;
+            this._emit();
+        };
+        client.onModerator = () => {
+            if (!this.canModerate()) this.moderationReports = [];
+            this._emit();
+        };
+        client.onWater = drinks => club.setSessionWater?.(drinks);
+        client.onWaterClink = event => club.playSessionWaterClink?.(event);
         client.musicDecorator = (music) => this._decorateMusic(music);
         client.onRemoteStream = (id, stream) => stream ? manager.attachVoice(id, stream) : manager.detachVoice(id);
         client.onError = (err) => {
@@ -937,6 +983,20 @@ class ClubMultiplayer {
         if (!this.duckForVoice || !this.connected) {
             this._duckHoldUntil = 0;
             club.setVoiceDuck(false);
+            return;
+        }
+        const nearby = club.getVoiceClarityMode?.() === 'nearby';
+        if (this._nearbyDuckMode !== nearby) {
+            this._nearbyDuckMode = nearby;
+            this._duckHoldUntil = 0;
+        }
+        if (nearby) {
+            const strength = Math.round((club.nearbyVoiceActivity?.() || 0) * 10) / 10;
+            if (strength > 0) {
+                this._nearbyDuckLevel = 1 - 0.45 * strength;
+                this._duckHoldUntil = now + ClubMultiplayer.DUCK_HOLD_MS;
+            }
+            club.setVoiceDuck(strength > 0 || now < this._duckHoldUntil, this._nearbyDuckLevel || 1);
             return;
         }
         const talking = this.micEnabled || (!!this.manager && this.manager.anyoneSpeaking());
@@ -1100,15 +1160,15 @@ class ClubMultiplayer {
         return list.length;
     }
 
-    // Host-only. The relay enforces it; these refuse early so a guest's UI says why.
+    // The relay is authoritative; a moderator cannot remove the host.
     kickPeer(id) {
-        if (!this.isHost() || !this.client.peers.has(id)) return false;
+        if (!this.canModerate() || id === this.client.hostId || !this.client.peers.has(id)) return false;
         this.client.kickPeer(id);
         return true;
     }
 
     banPeer(id) {
-        if (!this.isHost() || !this.client.peers.has(id)) return false;
+        if (!this.canModerate() || id === this.client.hostId || !this.client.peers.has(id)) return false;
         this.client.banPeer(id);
         return true;
     }
@@ -1290,6 +1350,7 @@ class ClubMultiplayer {
     _syncRole() {
         const hostId = this.client && this.client.hostId;
         if (hostId !== this._musicHostId) {
+            this.club._sharedMinglerMusic = null;
             this._musicHostId = hostId;
             this._stopRemoteMusic();
             this._stopMusicBroadcast();
@@ -1299,14 +1360,27 @@ class ClubMultiplayer {
             if (this.client) this.client.resetMusic();
         }
         if (!this.following) this._stopRemoteMusic();
-        const following = this.following;
+        const following = this.followingLights;
         const club = this.club;
-        if (!following && (!this.connected || !this.isHost()) && typeof club.setRoomCharacterStyle === 'function') {
+        if (!this.following && (!this.connected || !this.isHost()) && typeof club.setRoomCharacterStyle === 'function') {
             club.setRoomCharacterStyle(null);
         }
-        if (following && this.client && !this.client.musicListening && !this.hasLiveEvent) {
+        if (this.following && this.client && !this.client.musicListening && !this.hasLiveEvent) {
             this.client.setMusicListening(true);
         }
+        if (this.following !== this._performanceFollowing || (this._roleApplied === null && this.following)) {
+            if (this.following) {
+                if (typeof club.djEffectsSnapshot === 'function') this._savedDJEffects = club.djEffectsSnapshot();
+            } else {
+                const effects = this._performanceFollowing && this.connected && this.isHost() && typeof club.djEffectsSnapshot === 'function'
+                    ? club.djEffectsSnapshot() : this._savedDJEffects;
+                club.setRoomDJVisible?.(null);
+                if (effects) club._applySharedDJEffects?.(effects);
+                this._savedDJEffects = null;
+            }
+            this._performanceFollowing = this.following;
+        }
+        if (typeof document !== 'undefined' && document.documentElement) document.documentElement.classList.toggle('room-guest', this.following);
         if (following === this._roleApplied) return;
         const was = this._roleApplied;
         const promotedSpotBeat = was && !following && this.connected && this.isHost() && typeof club.spotRigBeat === 'function'
@@ -1330,28 +1404,20 @@ class ClubMultiplayer {
                 };
             }
         } else if (was) {
-            if (!(this.connected && this.isHost())) {
+            const keepsLights = this.connected && (this.isHost() || this.client.vjId === this.client.selfId);
+            if (!keepsLights) {
                 club.showDirector?.setProgram?.(this._savedShowProgram || 'nocturne');
                 if (this._savedSheetSettings) this._applyFixtures(this._savedSheetSettings, true);
             }
             this._savedShowProgram = null;
             this._savedSheetSettings = null;
-            if (!(this.connected && this.isHost()) && this._savedSpotRig) this._applyFixtures(this._savedSpotRig, true);
-            if (!(this.connected && this.isHost()) && this._savedLightMaster && club.vjDirector) {
+            if (!keepsLights && this._savedSpotRig) this._applyFixtures(this._savedSpotRig, true);
+            if (!keepsLights && this._savedLightMaster && club.vjDirector) {
                 club.vjDirector.targetMasterIntensity = this._savedLightMaster.target;
                 club.vjDirector.showMasterIntensity = this._savedLightMaster.show;
             }
             this._savedSpotRig = null;
             this._savedLightMaster = null;
-        }
-        if (following && typeof club.djEffectsSnapshot === 'function') {
-            this._savedDJEffects = club.djEffectsSnapshot();
-        } else if (!following) {
-            const effects = was && this.connected && this.isHost() && typeof club.djEffectsSnapshot === 'function'
-                ? club.djEffectsSnapshot() : this._savedDJEffects;
-            if (typeof club.setRoomDJVisible === 'function') club.setRoomDJVisible(null);
-            if (effects && typeof club._applySharedDJEffects === 'function') club._applySharedDJEffects(effects);
-            this._savedDJEffects = null;
         }
         this._show.lastFrameAt = performance.now();
         this._show.stale = false;
@@ -1361,12 +1427,12 @@ class ClubMultiplayer {
         if (club.vjDirector) club.vjDirector.remoteDriven = following;
         if (promotedSpotBeat !== null) club._spotBeatOffset = (club._spotBeatOffset || 0) + promotedSpotBeat - club.spotRigBeat();
         club.roomFollower = following;
-        if (typeof document !== 'undefined' && document.documentElement) document.documentElement.classList.toggle('room-guest', following);
         // Leaving a host's show: the rig carries on, and a console left in manual does not expire the instant it is handed back.
         if (was && !following) club.lastVJInteraction = performance.now() / 1000;
         // A promotion can follow a departure or an explicit handover.
         if (was === true && !following && this.connected && !this.isHost() && typeof club.showErrorMessage === 'function') {
-            club.showErrorMessage('You can no longer see the host, so your music and lights are your own again.');
+            club.showErrorMessage(this.client.vjId === this.client.selfId ? 'You have the lights-only VJ pass. Music and host tools stay with the host.'
+                : 'You can no longer see the host, so your music and lights are your own again.');
         } else if (was === true && !following && this.connected && typeof club.showErrorMessage === 'function') {
             const playing = club.audioElement && !club.audioElement.paused && club._audioKind === 'stream';
             club.showErrorMessage(playing ? 'You are now the host. You control the music and the lights.'
@@ -1410,6 +1476,16 @@ class ClubMultiplayer {
             frame._bar = snap.bar;
         } else {
             frame.fx = this._captureFixtures();
+        }
+        const music = club._minglerDanceMusic;
+        if (music && Number.isFinite(music.beat) && Number.isFinite(music.bpm)) {
+            frame.fx = {
+                dancePulse: !!(music.beatPresent || music.rhythm || music.fallback),
+                danceBeat: ((music.beat % 2) + 2) % 2,
+                danceBpm: Math.min(300, Math.max(40, music.bpm)),
+                danceAt: new Date(Date.now() + (this.client.serverOffset || 0)).toISOString(),
+                ...frame.fx
+            };
         }
         // Room appearance travels through the existing relay's validated flat metadata map, in every show mode.
         if (typeof club.getRoomCharacterStyle === 'function') {
@@ -1456,8 +1532,11 @@ class ClubMultiplayer {
         if (!frame) return;
         const bar = frame._bar;
         delete frame._bar;
+        const keyFx = { ...frame.fx };
+        delete keyFx.danceBeat;
+        delete keyFx.danceAt;
         const key = JSON.stringify([frame.m, frame.mv, frame.cue, frame.sp, frame.spb, bar, frame.hue === undefined ? 0 : Math.round(frame.hue * 500),
-            frame.hl, frame.pal, frame.lh, frame.mbi, frame.fx, frame.dj, frame.audioFx]);
+            frame.hl, frame.pal, frame.lh, frame.mbi, keyFx, frame.dj, frame.audioFx]);
         if (!show.dirty && key === show.key && now - show.sentAt < ClubMultiplayer.SHOW_HEARTBEAT_MS) return;
         if (this.client.sendShow(frame)) {
             show.key = key;
@@ -1468,11 +1547,14 @@ class ClubMultiplayer {
 
     /** Guest: put this rig on the host's frame. */
     _applyShow(frame) {
-        if (!this.following || !frame || typeof frame.m !== 'string') return;
+        if ((!this.following && !this.followingLights) || !frame || typeof frame.m !== 'string') return;
         const club = this.club;
-        if (typeof club.setRoomCharacterStyle === 'function') club.setRoomCharacterStyle(frame.fx?.characterStyle ?? 'quaternius');
-        if (typeof club.setRoomDJVisible === 'function') club.setRoomDJVisible(frame.dj);
-        if (typeof club._applySharedDJEffects === 'function') club._applySharedDJEffects(frame.audioFx || this._savedDJEffects);
+        if (this.following) {
+            if (typeof club.setRoomCharacterStyle === 'function') club.setRoomCharacterStyle(frame.fx?.characterStyle ?? 'quaternius');
+            if (typeof club.setRoomDJVisible === 'function') club.setRoomDJVisible(frame.dj);
+            if (typeof club._applySharedDJEffects === 'function') club._applySharedDJEffects(frame.audioFx || this._savedDJEffects);
+        }
+        if (!this.followingLights || frame.performanceOnly === true) return;
         const director = club.showDirector, vj = club.vjDirector;
         if (!director || !vj) return;
         const program = frame.fx?.showProgram === 'aesthetic' ? 'aesthetic' : 'nocturne';
@@ -1480,8 +1562,21 @@ class ClubMultiplayer {
         if (programChanged) director.setProgram?.(program);
         const now = performance.now();
         const show = this._show;
+        if (frame.authorityTransfer === true) show.force = true;
         show.lastFrameAt = now;
         if (show.stale) this._setStale(false);
+        const fx = frame.fx || {};
+        const danceAt = typeof fx.danceAt === 'string' ? Date.parse(fx.danceAt) : NaN;
+        const age = (Date.now() + (this.client.serverOffset || 0) - danceAt) / 1000;
+        if (typeof fx.dancePulse === 'boolean' && Number.isFinite(fx.danceBeat) && fx.danceBeat >= 0 && fx.danceBeat <= 2 &&
+            Number.isFinite(fx.danceBpm) && fx.danceBpm >= 40 && fx.danceBpm <= 300 && Number.isFinite(age) && Math.abs(age) < 12) {
+            club._sharedMinglerMusic = {
+                beatPresent: fx.dancePulse, beat: fx.danceBeat + Math.max(0, age) * fx.danceBpm / 60,
+                bpm: fx.danceBpm, at: now
+            };
+        } else {
+            club._sharedMinglerMusic = null;
+        }
 
         if (vj.applyRemoteColour) vj.applyRemoteColour(frame);
         if (!Object.prototype.hasOwnProperty.call(frame.fx || {}, 'spotSequence') && typeof club.resetSpotRig === 'function') club.resetSpotRig();
@@ -1505,7 +1600,8 @@ class ClubMultiplayer {
     _setStale(stale) {
         const show = this._show;
         show.stale = stale;
-        const follow = this.following && !stale;
+        if (stale) this.club._sharedMinglerMusic = null;
+        const follow = this.followingLights && !stale;
         if (this.club.showDirector) this.club.showDirector.setFollower(follow);
         if (this.club.vjDirector) this.club.vjDirector.remoteDriven = follow;
         if (!stale) show.force = true;
@@ -1620,9 +1716,13 @@ class ClubMultiplayer {
                     if (audio) this.club._shareAudioPosition();
                 }
             }
+            if (!this.followingLights) return;
+        }
+        if (this.client?.vjId === this.client?.selfId && !this.isHost()) {
+            if (this.client.peerCount > 0) this._broadcastShow(now);
             return;
         }
-        if (!this.following) return;
+        if (!this.followingLights) return;
         const stale = now - show.lastFrameAt > ClubMultiplayer.SHOW_STALE_MS;
         if (stale !== show.stale) this._setStale(stale);
         if (stale) return;

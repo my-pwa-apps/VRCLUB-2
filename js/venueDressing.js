@@ -1472,8 +1472,12 @@ const VenueDressing = {
         };
         if (this._restroomMeshes) this._restroomMeshes.forEach(add);
         if (this._restroomFixtures) this._restroomFixtures.forEach(add);
+        this._sessionExperience?.cups.forEach(add);
         const double = this._mirrorDouble;
-        if (double) {
+        const wardrobe = this._wardrobeMirrorPreview;
+        if (wardrobe) {
+            wardrobe.meshes.forEach(mesh => { add(mesh); reveal.push(mesh); });
+        } else if (double) {
             double.meshes.forEach(mesh => { add(mesh); reveal.push(mesh); });
         } else if (this._localRig && this._localRig.meshes) {
             this._localRig.meshes.forEach(mesh => {

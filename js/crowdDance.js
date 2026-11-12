@@ -30,6 +30,8 @@ class CrowdDance {
         Groove_ClapUp: Object.freeze({ beats: 2, anchor: 0, halfAnchor: -0.5, weight: 0.45, energy: 0.45, build: 4, drop: 0.7 }),
         Groove_Pump: Object.freeze({ beats: 8, anchor: 0, weight: 0.7, energy: 0.6, build: 1.5, drop: 4 }),
         Groove_Twist: Object.freeze({ beats: 4, anchor: 0, weight: 1.0, energy: 0.4 }),
+        Groove_Roll: Object.freeze({ beats: 8, anchor: 0, weight: 1.2, energy: 0.2 }),
+        Groove_Skank: Object.freeze({ beats: 8, anchor: 0, weight: 1.2, energy: 0.4 }),
         Groove_HandsUp: Object.freeze({ beats: 4, anchor: 0, weight: 0.35, energy: 0.75, build: 1.5, drop: 6 }),
         Groove_Sway: Object.freeze({ beats: 4, anchor: 0, weight: 0.5, energy: 0, quiet: 4, free: true, rhythm: 2.5 }),
         // What dancers do when there is no beat at all: a slow sway for most, arms spread wide or up high for a few.
@@ -45,7 +47,8 @@ class CrowdDance {
     static get RHYTHM_WEIGHTS() {
         return this._rhythmWeights || (this._rhythmWeights = Object.freeze({
             Groove_Sway: 2.5, Groove_Bounce: 1.4, Groove_SideTap: 1.4, Groove_Clap: 1.3, Groove_ClapUp: 0.4, Groove_Twist: 1.0,
-            Dance_Loop: 0.7, Groove_Pump: 0.15, Groove_HandsUp: 0, Groove_ArmsWide: 0, Groove_ArmsUp: 0
+            Dance_Loop: 0.7, Groove_Roll: 1.3, Groove_Skank: 0.8, Groove_Pump: 0.15,
+            Groove_HandsUp: 0, Groove_ArmsWide: 0, Groove_ArmsUp: 0
         }));
     }
 

@@ -139,6 +139,7 @@ class VRClubUI extends window.VRClubSocialUI {
         // the other hand's move or release must not steer it or end it. Events without a pointer id (a mouse stub) match anything.
         const dragging = () => !!((this._vrSeek && this._vrSeek.drag) || this._vjDeskDrag || this._vjDeskSeek);
         const foreign = evt => this._dragPointer !== undefined && evt && evt.pointerId !== undefined && evt.pointerId !== this._dragPointer;
+        this.scene.skipPointerMovePicking = true;
         this.scene.onPointerDown = (evt, pickResult) => guarded('press', () => {
             if (!pickResult || !pickResult.hit || !pickResult.pickedMesh) return;
             // A right-click puts a desk knob or the crossfader back to its default (a controller uses A / X, see the bindings).
@@ -148,6 +149,7 @@ class VRClubUI extends window.VRClubSocialUI {
             if (this._vrSeek && pickResult.pickedMesh === this._vrSeek.mesh) {
                 this._beginVRSeek(pickResult);
                 this._dragPointer = dragging() ? (evt && evt.pointerId) : undefined;
+                this.scene.skipPointerMovePicking = !dragging();
                 return;
             }
             if (vrMenuButton) {
@@ -156,9 +158,12 @@ class VRClubUI extends window.VRClubSocialUI {
             }
             if (typeof this._pressStallDoor === 'function' && this._pressStallDoor(pickResult)) return;
             if (this.restroomInteractions?.press(pickResult)) return;
+            if (this._pressGuestTouchpoint?.(pickResult)) return;
+            if (this.pressSessionExperience?.(pickResult)) return;
             if (this._pressSeat(pickResult)) return;
             if (typeof this.pressVJDesk === 'function') this.pressVJDesk(pickResult);
             this._dragPointer = dragging() ? (evt && evt.pointerId) : undefined;
+            this.scene.skipPointerMovePicking = !dragging();
         });
 
         this.scene.onPointerUp = evt => guarded('release', () => {
@@ -166,6 +171,7 @@ class VRClubUI extends window.VRClubSocialUI {
             this._dragPointer = undefined;
             this._endVRSeek();
             if (typeof this.releaseVJDesk === 'function') this.releaseVJDesk();
+            this.scene.skipPointerMovePicking = true;
         });
 
         this.scene.onPointerMove = (evt, pickResult) => guarded('move', () => {

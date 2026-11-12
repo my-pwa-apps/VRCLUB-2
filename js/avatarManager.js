@@ -44,8 +44,10 @@ class AvatarManager {
     static CHAT_MIN_SECONDS = 5;
     static CHAT_MAX_SECONDS = 12;
     static HAND_KEYS = ['x', 'y', 'z', 'fx', 'fy', 'fz', 'ux', 'uy', 'uz'];
+    static HAND_POSITION_KEYS = ['x', 'y', 'z'];
     static HAND_SIDES = ['left', 'right'];
     static HAND_TIMEOUT = 0.5;
+    static HAND_BLEND_SECONDS = 0.12;
 
     /** Shortest signed angle from `from` to `to`, in (-PI, PI]. */
     static shortestAngle(from, to) {
@@ -565,7 +567,6 @@ class AvatarManager {
             const valid = hand && AvatarManager.HAND_KEYS.every(key => Number.isFinite(hand[key])) &&
                 Math.hypot(hand.x, hand.y, hand.z) <= 1.5;
             peer.handTargets[side] = valid ? hand : null;
-            if (!valid) peer.hands[side] = null;
         }
         peer.handsAt = this._poseTime;
         if (!peer.hasState) {
@@ -818,7 +819,7 @@ class AvatarManager {
             root.rotation.y += AvatarManager.shortestAngle(root.rotation.y, peer.target.rotY) * lerpK;
             peer.seated = peer.target.seated;
             peer.body.position.y = peer.seated ? 0.62 : 0.9;
-            this._updateTrackedHands(peer, lerpK);
+            this._updateTrackedHands(peer, lerpK, step);
             // Out of sight this device skips only the pose: where they are, how fast they move and what they are doing
             // keep updating below, so on return the right clip starts straight away, in the right place.
             this._updateCulling(peer);
@@ -855,20 +856,41 @@ class AvatarManager {
     }
 
     _hasTrackedHands(peer) {
-        return this._poseTime - peer.handsAt <= AvatarManager.HAND_TIMEOUT && !!(peer.hands.left || peer.hands.right);
+        return !!(peer.hands.left || peer.hands.right);
     }
 
-    _updateTrackedHands(peer, k) {
+    _updateTrackedHands(peer, k, dt) {
         for (const side of AvatarManager.HAND_SIDES) {
             const target = peer.handTargets[side];
-            if (!target || this._poseTime - peer.handsAt > AvatarManager.HAND_TIMEOUT) { peer.hands[side] = null; continue; }
+            const tracked = !!target && this._poseTime - peer.handsAt <= AvatarManager.HAND_TIMEOUT;
             const fresh = !peer.hands[side];
             const hand = peer.handBuffers[side];
-            for (const key of AvatarManager.HAND_KEYS) {
-                const value = target[key];
-                if (fresh) hand[key] = value;
-                else hand[key] += (value - hand[key]) * k;
+            if (!tracked) {
+                if (!fresh) {
+                    hand.weight = Math.max(0, hand.weight - dt / AvatarManager.HAND_BLEND_SECONDS);
+                    if (hand.weight === 0) peer.hands[side] = null;
+                }
+                continue;
             }
+            for (const key of AvatarManager.HAND_POSITION_KEYS) {
+                if (fresh) hand[key] = target[key];
+                else hand[key] += (target[key] - hand[key]) * k;
+            }
+            const pose = hand._orientation || (hand._orientation = {
+                current: new BABYLON.Quaternion(), target: new BABYLON.Quaternion(),
+                forward: new BABYLON.Vector3(), up: new BABYLON.Vector3(), matrix: new BABYLON.Matrix()
+            });
+            pose.forward.set(target.fx, target.fy, target.fz);
+            pose.up.set(target.ux, target.uy, target.uz);
+            BABYLON.Quaternion.FromLookDirectionRHToRef(pose.forward, pose.up, pose.target);
+            if (fresh) pose.current.copyFrom(pose.target);
+            else BABYLON.Quaternion.SlerpToRef(pose.current, pose.target, k, pose.current);
+            pose.current.toRotationMatrix(pose.matrix);
+            BABYLON.Vector3.TransformNormalFromFloatsToRef(0, 0, 1, pose.matrix, pose.forward);
+            BABYLON.Vector3.TransformNormalFromFloatsToRef(0, 1, 0, pose.matrix, pose.up);
+            hand.fx = pose.forward.x; hand.fy = pose.forward.y; hand.fz = pose.forward.z;
+            hand.ux = pose.up.x; hand.uy = pose.up.y; hand.uz = pose.up.z;
+            hand.weight = Math.min(1, (fresh ? 0 : hand.weight) + dt / AvatarManager.HAND_BLEND_SECONDS);
             peer.hands[side] = hand;
         }
     }

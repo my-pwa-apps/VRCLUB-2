@@ -36,7 +36,16 @@ for (const mode of ['development', 'dist']) test(`${mode} server keeps private f
     const { port } = reservation.address();
     await new Promise((resolve, reject) => reservation.close(error => error ? reject(error) : resolve()));
 
-    const server = spawn(process.execPath, [join(root, 'scripts', 'serve.mjs'), ...(mode === 'dist' ? ['--dist'] : [])], {
+    let launchRoot = root;
+    try {
+        const alias = join(root, 'server-alias');
+        await symlink(root, alias, process.platform === 'win32' ? 'junction' : 'dir');
+        launchRoot = alias;
+    } catch (error) {
+        if (!['EPERM', 'EACCES', 'ENOSYS'].includes(error.code)) throw error;
+        t.diagnostic('Directory aliases are unavailable; using the real server path.');
+    }
+    const server = spawn(process.execPath, ['--preserve-symlinks-main', join(launchRoot, 'scripts', 'serve.mjs'), ...(mode === 'dist' ? ['--dist'] : [])], {
         env: { ...process.env, HOST: '127.0.0.1', PORT: String(port) }, stdio: ['ignore', 'pipe', 'pipe']
     });
     t.after(async () => {

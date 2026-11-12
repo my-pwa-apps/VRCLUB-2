@@ -141,7 +141,8 @@ class VRClubRendering extends VRClubLifecycle {
             this.renderPipeline.samples = this.isInVRMode
                 ? VRClubCore.resolveVRMsaaSamples(
                     tier.vrMsaaSamples || this.vrSettings.vr.msaaSamples,
-                    this.engine.getCaps().maxMSAASamples)
+                    this.engine.getCaps().maxMSAASamples,
+                    Boolean(this.xrMultiviewProbe && this.xrMultiviewProbe.enabled))
                 : tier.pipelineSamples;
             this.renderPipeline.bloomKernel = this.isInVRMode
                 ? tier.vrBloomKernel
@@ -333,7 +334,8 @@ class VRClubRendering extends VRClubLifecycle {
     _applyAnisotropicFiltering() {
         const caps = this.engine.getCaps();
         const max = caps.maxAnisotropy || 1;
-        const target = Math.min(this.tierSettings.anisotropy, max);
+        const target = this.isInVRMode && this.isRenderExperimentEnabled('anisotropy')
+            ? this._vrTextureAnisotropy() : Math.min(this.tierSettings.anisotropy, max);
         if (target <= 1) return;
 
         let count = 0;

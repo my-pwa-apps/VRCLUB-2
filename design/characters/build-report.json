@@ -1,7 +1,7 @@
 [
   {
     "id": "nia",
-    "bytes": 1951476,
+    "bytes": 2042804,
     "clips": [
       "Idle",
       "Walk",
@@ -22,12 +22,14 @@
       "Groove_ArmsWide",
       "Groove_ArmsUp",
       "Groove_Sway",
-      "Dance_Loop"
+      "Dance_Loop",
+      "Groove_Roll",
+      "Groove_Skank"
     ]
   },
   {
     "id": "luca",
-    "bytes": 1855360,
+    "bytes": 1946688,
     "clips": [
       "Idle",
       "Walk",
@@ -48,12 +50,14 @@
       "Groove_ArmsWide",
       "Groove_ArmsUp",
       "Groove_Sway",
-      "Dance_Loop"
+      "Dance_Loop",
+      "Groove_Roll",
+      "Groove_Skank"
     ]
   },
   {
     "id": "robin",
-    "bytes": 1003772,
+    "bytes": 1095056,
     "clips": [
       "Idle_Loop",
       "Idle_Talking_Loop",
@@ -67,12 +71,14 @@
       "Groove_ArmsWide",
       "Groove_ArmsUp",
       "Groove_Sway",
-      "Dance_Loop"
+      "Dance_Loop",
+      "Groove_Roll",
+      "Groove_Skank"
     ]
   },
   {
     "id": "tao",
-    "bytes": 1951556,
+    "bytes": 2042884,
     "clips": [
       "Idle",
       "Walk",
@@ -93,12 +99,14 @@
       "Groove_ArmsWide",
       "Groove_ArmsUp",
       "Groove_Sway",
-      "Dance_Loop"
+      "Dance_Loop",
+      "Groove_Roll",
+      "Groove_Skank"
     ]
   },
   {
     "id": "sofia",
-    "bytes": 1907772,
+    "bytes": 1999100,
     "clips": [
       "Idle",
       "Walk",
@@ -119,12 +127,14 @@
       "Groove_ArmsWide",
       "Groove_ArmsUp",
       "Groove_Sway",
-      "Dance_Loop"
+      "Dance_Loop",
+      "Groove_Roll",
+      "Groove_Skank"
     ]
   },
   {
     "id": "asha",
-    "bytes": 1872500,
+    "bytes": 1963828,
     "clips": [
       "Idle",
       "Walk",
@@ -145,12 +155,14 @@
       "Groove_ArmsWide",
       "Groove_ArmsUp",
       "Groove_Sway",
-      "Dance_Loop"
+      "Dance_Loop",
+      "Groove_Roll",
+      "Groove_Skank"
     ]
   },
   {
     "id": "diego",
-    "bytes": 1947792,
+    "bytes": 2039120,
     "clips": [
       "Idle",
       "Walk",
@@ -171,12 +183,14 @@
       "Groove_ArmsWide",
       "Groove_ArmsUp",
       "Groove_Sway",
-      "Dance_Loop"
+      "Dance_Loop",
+      "Groove_Roll",
+      "Groove_Skank"
     ]
   },
   {
     "id": "iris",
-    "bytes": 1820396,
+    "bytes": 1911724,
     "clips": [
       "Idle",
       "Walk",
@@ -197,12 +211,14 @@
       "Groove_ArmsWide",
       "Groove_ArmsUp",
       "Groove_Sway",
-      "Dance_Loop"
+      "Dance_Loop",
+      "Groove_Roll",
+      "Groove_Skank"
     ]
   },
   {
     "id": "eden",
-    "bytes": 991768,
+    "bytes": 1083052,
     "clips": [
       "Idle_Loop",
       "Idle_Talking_Loop",
@@ -216,12 +232,14 @@
       "Groove_ArmsWide",
       "Groove_ArmsUp",
       "Groove_Sway",
-      "Dance_Loop"
+      "Dance_Loop",
+      "Groove_Roll",
+      "Groove_Skank"
     ]
   },
   {
     "id": "ren",
-    "bytes": 1895012,
+    "bytes": 1986340,
     "clips": [
       "Idle",
       "Walk",
@@ -242,12 +260,14 @@
       "Groove_ArmsWide",
       "Groove_ArmsUp",
       "Groove_Sway",
-      "Dance_Loop"
+      "Dance_Loop",
+      "Groove_Roll",
+      "Groove_Skank"
     ]
   },
   {
     "id": "felix",
-    "bytes": 1871708,
+    "bytes": 1963036,
     "clips": [
       "Idle",
       "Walk",
@@ -268,12 +288,14 @@
       "Groove_ArmsWide",
       "Groove_ArmsUp",
       "Groove_Sway",
-      "Dance_Loop"
+      "Dance_Loop",
+      "Groove_Roll",
+      "Groove_Skank"
     ]
   },
   {
     "id": "kai",
-    "bytes": 1006836,
+    "bytes": 1098120,
     "clips": [
       "Idle_Loop",
       "Idle_Talking_Loop",
@@ -287,12 +309,14 @@
       "Groove_ArmsWide",
       "Groove_ArmsUp",
       "Groove_Sway",
-      "Dance_Loop"
+      "Dance_Loop",
+      "Groove_Roll",
+      "Groove_Skank"
     ]
   },
   {
     "id": "jonas",
-    "bytes": 988828,
+    "bytes": 1080116,
     "clips": [
       "Idle_Loop",
       "Idle_Talking_Loop",
@@ -306,12 +330,14 @@
       "Groove_ArmsWide",
       "Groove_ArmsUp",
       "Groove_Sway",
-      "Dance_Loop"
+      "Dance_Loop",
+      "Groove_Roll",
+      "Groove_Skank"
     ]
   },
   {
     "id": "mara",
-    "bytes": 973208,
+    "bytes": 1064492,
     "clips": [
       "Idle_Loop",
       "Idle_Talking_Loop",
@@ -325,7 +351,9 @@
       "Groove_HandsUp",
       "Groove_ArmsWide",
       "Groove_ArmsUp",
-      "Groove_Sway"
+      "Groove_Sway",
+      "Groove_Roll",
+      "Groove_Skank"
     ]
   },
   {

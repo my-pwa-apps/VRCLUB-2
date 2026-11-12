@@ -14,7 +14,7 @@ import { pipeline } from 'node:stream';
 
 const PROJECT_ROOT = normalize(join(fileURLToPath(new URL('.', import.meta.url)), '..'));
 const IS_DIST = process.argv.includes('--dist');
-const ROOT = IS_DIST ? join(PROJECT_ROOT, 'dist') : PROJECT_ROOT;
+const ROOT = await realpath(IS_DIST ? join(PROJECT_ROOT, 'dist') : PROJECT_ROOT);
 const PORT = Number(process.env.PORT) || 8000;
 const HOST = process.env.HOST || '0.0.0.0';
 
