@@ -58,10 +58,10 @@ jobs:
       - name: Enforce deploy payload budget
         if: matrix.os == 'ubuntu-latest' && matrix.node == '20'
         run: |
-          SIZE_MB=$(du -sm dist | cut -f1)
-          echo "dist/ is ${SIZE_MB} MB"
-          if [ "$SIZE_MB" -gt 165 ]; then
-            echo "::error::dist/ is ${SIZE_MB} MB, over the 165 MB budget. Optimise or prune assets."
+          SIZE_BYTES=$(find dist -type f -printf '%s\n' | awk '{n+=$1} END {printf "%.0f", n}')
+          echo "dist/ payload is ${SIZE_BYTES} bytes (budget: 173015040 bytes / 165 MiB)"
+          if [ "$SIZE_BYTES" -gt 173015040 ]; then
+            echo "::error::dist/ exceeds the 165 MiB payload budget. Optimise or prune assets."
             exit 1
           fi
 

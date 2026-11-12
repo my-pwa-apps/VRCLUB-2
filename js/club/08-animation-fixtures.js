@@ -2,6 +2,12 @@
 const SPOT_FLASH_BASE_S = 0.040;
 const SPOT_FLASH_MIN_S = 0.022;
 const SPOT_FLASH_MIN_INTERVAL_S = 0.34;
+const SPOT_FALLBACK_SLABS = [
+    { top: 3, x0: -12.2, x1: -9.5, z0: -19, z1: -10.4 },
+    { top: 1.42, x0: -2, x1: 2, z0: -19, z1: -18 },
+    { top: 1.1, x0: 9.7, x1: 10.5, z0: -13.6, z1: -6.2 },
+    { top: 0.5, x0: -3, x1: 3, z0: -20, z1: -16 }
+];
 class VRClubAnimationFixtures extends VRClubAnimationCore {
     updateLEDWallPass(ctx) {
         const { time, audio: audioData } = ctx;
@@ -69,6 +75,7 @@ class VRClubAnimationFixtures extends VRClubAnimationCore {
         // === IMMERSIVE DANCE FLOOR EDGE LED ANIMATION ===
         // Creates a "breathing" floor that responds to the music and phase
         if (this.danceFloorLEDs && this.danceFloorLEDs.length > 0) {
+            const master = Math.max(0, Math.min(1, this.masterIntensity ?? 1));
             // getAudioData() already returns 0..1 (see the /255 in its band sums).
             // Dividing again yielded <=0.004, which pinned every audio-driven term to
             // its floor - the perimeter strip was completely non-reactive, and was
@@ -81,17 +88,19 @@ class VRClubAnimationFixtures extends VRClubAnimationCore {
                 let r, g, b, intensity;
                 
                 // Phase-specific floor colors for immersion
-                if (phase === 'darkness') {
+                if (this.showDirector && this.showDirector.isDriving() && this.currentSpotColor) {
+                    r = this.currentSpotColor.r;
+                    g = this.currentSpotColor.g;
+                    b = this.currentSpotColor.b;
+                    intensity = 0.3 + bassLevel * 0.2;
+                } else if (phase === 'darkness') {
                     // Minimal glow during blackout - just enough to see
                     r = 0.1; g = 0.1; b = 0.2;
                     intensity = 0.2 + Math.sin(time * 0.5) * 0.1;
                 } else if (phase === 'strobe_attack' && !this.photosensitiveSafeMode) {
-                    // White strobe sync with floor (~3 Hz full on/off). Safe Mode falls
-                    // through to the slow colour cycle: the legacy cycler still reaches
-                    // this phase whenever the Show Director is switched off.
-                    const strobe = Math.sin(time * 20) > 0 ? 1 : 0;
-                    r = g = b = strobe;
-                    intensity = 1.0;
+                    // The strobe bank owns abrupt flashes; the floor is a slow accompaniment.
+                    r = g = b = 1;
+                    intensity = 0.3 + 0.2 * Math.sin(time * 1.2);
                 } else if (phase === 'euphoria') {
                     // Warm golden pulse
                     const warmPhase = time * 1.2 + i * 0.5;
@@ -119,6 +128,7 @@ class VRClubAnimationFixtures extends VRClubAnimationCore {
                     intensity = 0.5 + bassLevel * 0.5;
                 }
                 
+                intensity *= master;
                 led.material.emissiveColor.set(r * intensity, g * intensity, b * intensity);
             });
         }
@@ -153,7 +163,9 @@ class VRClubAnimationFixtures extends VRClubAnimationCore {
         // collapsed to ~8.02 s with essentially zero variance - the randomness was
         // entirely illusory.
         if (this._laserColorInterval === undefined) this._laserColorInterval = 8 + Math.random() * 4;
-        if (!this.vjManualMode && time - this.colorSwitchTime > this._laserColorInterval) {
+        const showDriving = !!(this.showDirector && this.showDirector.isDriving());
+        if (!this.vjManualMode && !showDriving && !this.vjDirector?.remoteDriven &&
+            time - this.colorSwitchTime > this._laserColorInterval) {
             this.currentColorIndex = (this.currentColorIndex + 1) % 3; // RGB cycle
             this.colorSwitchTime = time;
             this._laserColorInterval = 8 + Math.random() * 4;
@@ -718,12 +730,12 @@ class VRClubAnimationFixtures extends VRClubAnimationCore {
         }
         if (state.sampleTime !== time) {
             state.lastTime = time;
-            while (time >= state.nextBurstAt) {
-                const burstAt = state.nextBurstAt;
+            if (time >= state.nextBurstAt) {
+                const steps = Math.floor((time - state.nextBurstAt) / interval) + 1;
+                state.nextBurstAt += steps * interval;
                 const granted = typeof this._tryClubFlash !== 'function' ||
-                    this._tryClubFlash(burstAt, 'moving-head', SPOT_FLASH_MIN_INTERVAL_S);
-                if (granted) state.onUntil = burstAt + duration;
-                state.nextBurstAt += interval;
+                    this._tryClubFlash(time, 'moving-head', SPOT_FLASH_MIN_INTERVAL_S);
+                if (granted) state.onUntil = time + duration;
             }
             state.sampleTime = time;
             state.visible = time < state.onUntil;
@@ -1073,6 +1085,7 @@ class VRClubAnimationFixtures extends VRClubAnimationCore {
         let centerDistanceToSurface;
         const surfaceIntersection = spot._surfaceIntersection;
         let hitSurface = 'floor'; // 'floor', 'backWall', 'leftWall', 'rightWall'
+        let surfaceBounds = null;
         
         // Club optical boundaries. Sourced from ROOM_INTERIOR (01-core.js) when available,
         // plus elevated horizontal venue surfaces (mezzanine deck, DJ table/riser, bar counter)
@@ -1093,20 +1106,18 @@ class VRClubAnimationFixtures extends VRClubAnimationCore {
             const invNegY = -1 / direction.y;
             distToFloor = emissionPoint.y * invNegY;
             // Mezzanine deck (y = 3.0), DJ table (y = 1.42), bar counter (y = 1.1), DJ riser (y = 0.5)
-            const checkSlab = (topY, x0, x1, z0, z1) => {
-                if (emissionPoint.y <= topY) return;
-                const t = (emissionPoint.y - topY) * invNegY;
-                if (t <= 0 || t >= distToFloor) return;
+            const slabs = window.VRClubOpticalSlabs || SPOT_FALLBACK_SLABS;
+            for (const slab of slabs) {
+                if (emissionPoint.y <= slab.top) continue;
+                const t = (emissionPoint.y - slab.top) * invNegY;
+                if (t <= 0 || t >= distToFloor) continue;
                 const hx = emissionPoint.x + direction.x * t;
                 const hz = emissionPoint.z + direction.z * t;
-                if (hx >= x0 && hx <= x1 && hz >= z0 && hz <= z1) {
+                if (hx >= slab.x0 && hx <= slab.x1 && hz >= slab.z0 && hz <= slab.z1) {
                     distToFloor = t;
+                    surfaceBounds = slab;
                 }
-            };
-            checkSlab(3.0, -12.2, -9.5, -19.0, -10.4);
-            checkSlab(1.42, -2.0, 2.0, -19.0, -18.0);
-            checkSlab(1.1, 9.7, 10.5, -13.6, -6.2);
-            checkSlab(0.5, -3.0, 3.0, -20.0, -16.0);
+            }
         }
         
         // Back wall intersection (beam pointing back/negative Z)
@@ -1155,6 +1166,7 @@ class VRClubAnimationFixtures extends VRClubAnimationCore {
         hit.hitSurface = hitSurface;
         hit.emissionPoint = emissionPoint;
         hit.surfaceIntersection = surfaceIntersection;
+        hit.surfaceBounds = hitSurface === 'floor' ? surfaceBounds : null;
         return hit;
     }
 
@@ -1164,7 +1176,7 @@ class VRClubAnimationFixtures extends VRClubAnimationCore {
      * appearance and light-pool passes read.
      */
     _updateSpotBeamGeometry(spot, i, direction, time, dtScale, speedMultiplier) {
-        const { centerDistanceToSurface, hitSurface, emissionPoint, surfaceIntersection } = this._resolveSpotSurfaceHit(spot, direction);
+        const { centerDistanceToSurface, hitSurface, emissionPoint, surfaceIntersection, surfaceBounds } = this._resolveSpotSurfaceHit(spot, direction);
         const bounds = typeof ROOM_INTERIOR !== 'undefined' ? ROOM_INTERIOR : ROOM_BOUNDS;
         const BACK_WALL_Z = bounds.z.min;
         const LEFT_WALL_X = bounds.x.min;
@@ -1187,8 +1199,8 @@ class VRClubAnimationFixtures extends VRClubAnimationCore {
         const sinTheta = Math.sqrt(1 - cosTheta * cosTheta);
         const tanTheta = cosTheta > 0.1 ? sinTheta / cosTheta : 0;
         
-        // Cone radius at surface end (from mesh: diameterTop=1.5, so radius=0.75)
-        const coneRadius = 0.75;
+        // The beam mesh's wide end is 2 m across.
+        const coneRadius = 1;
         
         // Extension needed for uphill edge to reach surface: r * tan(θ)
         // For floor: extends cone past floor so edges touch
@@ -1216,7 +1228,7 @@ class VRClubAnimationFixtures extends VRClubAnimationCore {
         // After rotation, one end will be at emission point, other past floor
         // 
         // BABYLON cylinder: local +Y is "top" (diameterTop), local -Y is "bottom" (diameterBottom)
-        // We created: diameterTop=1.5 (wide), diameterBottom=0.2 (narrow)
+        // We created: diameterTop=2.0 (wide), diameterBottom=0.2 (narrow)
         // We want: wide end toward/past floor, narrow end at fixture (emission point)
         // So: local +Y should point TOWARD FLOOR (same as direction)
         //
@@ -1240,13 +1252,13 @@ class VRClubAnimationFixtures extends VRClubAnimationCore {
         // Orient beam to point from emission toward floor
         // The cylinder's local +Y points "up". We rotate it so +Y aligns with our direction.
         // But we want narrow end (diameterBottom) at emission, wide end (diameterTop) at floor.
-        // Cylinder is created with diameterTop=1.5 (wide), diameterBottom=0.2 (narrow)
+        // Cylinder is created with diameterTop=2.0 (wide), diameterBottom=0.2 (narrow)
         // Default: +Y is top (wide). We need +Y to point TOWARD floor (where wide end should be).
         // direction points FROM emission TOWARD floor - that's exactly what we want for +Y!
         
         // Use lookAt toward floor intersection, then rotate 90° to align cylinder axis
         // Actually, easier: compute rotation directly from direction vector
-        // Cylinder: diameterTop=1.5 (wide), diameterBottom=0.2 (narrow)
+        // Cylinder: diameterTop=2.0 (wide), diameterBottom=0.2 (narrow)
         // We want WIDE end at FLOOR, NARROW end at fixture
         // So cylinder +Y (diameterTop) should point TOWARD floor (same as direction)
         // QC O5: pool the rotation axis + per-spot rotation quaternion so we
@@ -1312,33 +1324,26 @@ class VRClubAnimationFixtures extends VRClubAnimationCore {
         // REMOVED: Old local positioning code (now using world space)
         // Beam is positioned at beamMidpoint with quaternion rotation above
         
-        // HYPERREALISTIC: Stretch beam cone when hitting floor at angle
-        // The cone's base (diameterTop) expands into an ellipse on the floor
-        // We approximate this by scaling the cylinder wider in the tilt direction
-        // Note: cosTheta already calculated above for beam extension
-        const tiltStretch = 1.0 / Math.max(0.4, cosTheta); // How much to stretch due to angle
-        
         // Scale beam: X/Z control diameter, Y controls length
-        // When tilted, the cone appears wider in the tilt direction
         const baseScale = 1.0;
         spot.beam.scaling.x = baseScale;
-        spot.beam.scaling.z = baseScale * Math.min(1.3, tiltStretch); // Subtle stretch in Z (forward/back)
+        spot.beam.scaling.z = baseScale;
         
         const g = spot._beamGeom || (spot._beamGeom = {});
         g.cosTheta = cosTheta;
         g.beamMidpoint = beamMidpoint;
         g.beamLength = beamLength;
         g.baseScale = baseScale;
-        g.tiltStretch = tiltStretch;
         g.centerBeamLength = centerBeamLength;
         g.hitSurface = hitSurface;
         g.surfaceIntersection = surfaceIntersection;
+        g.surfaceBounds = surfaceBounds;
         return g;
     }
 
     /** Beam visibility (strobe), glow beam and emissive colour/alpha. Returns the per-spot beam state. */
     _updateSpotBeamAppearance(spot, i, time, globalPhase, audioSpeedMultiplier, g) {
-        const { beamMidpoint, beamLength, baseScale, tiltStretch } = g;
+        const { beamMidpoint, beamLength, baseScale } = g;
         const master = (this.masterIntensity == null ? 1 : Math.min(1, Math.max(0, this.masterIntensity))) *
             (Number.isFinite(this.spotBrightness) ? Math.min(this.photosensitiveSafeMode ? 1 : 2, Math.max(0, this.spotBrightness)) : 1) *
             (spot._rigLevel == null ? 1 : spot._rigLevel);
@@ -1390,7 +1395,7 @@ class VRClubAnimationFixtures extends VRClubAnimationCore {
             spot.beamGlow.rotationQuaternion = spot._beamGlowQuat;
             spot.beamGlow.scaling.y = beamLength;
             spot.beamGlow.scaling.x = baseScale;
-            spot.beamGlow.scaling.z = baseScale * Math.min(1.3, tiltStretch);
+            spot.beamGlow.scaling.z = baseScale;
             
             // CRITICAL: Sync glow visibility with strobe/beam visibility
             spot.beamGlow.visibility = beamVisible ? 1.0 : 0;
@@ -1455,21 +1460,13 @@ class VRClubAnimationFixtures extends VRClubAnimationCore {
             if (this.lightsActive && beamVisible) {
                 // === PHYSICS-ACCURATE ELLIPTICAL PROJECTION ===
                 // The beam mesh is a cone with:
-                //   - diameterTop = 1.5m (at floor end, after scaling)
+                //   - diameterTop = 2.0m (at the wide end)
                 //   - diameterBottom = 0.2m (at fixture lens)
                 //   - height = beamLength (scaled dynamically)
                 // The pool should match the beam's floor intersection exactly
                 
-                // Beam half-angle from mesh geometry: atan((0.75 - 0.1) / beamLength)
-                // For typical 7.3m beam: atan(0.65/7.3) ≈ 5.1°
-                // But the mesh scales, so floor diameter is always proportional to length
-                // diameterAtFloor = diameterBottom + (diameterTop - diameterBottom) * 1.0
-                //                 = 0.2 + (1.5 - 0.2) = 1.5m for unit height
-                // When scaled by beamLength, the cone expands proportionally
-                
-                // For consistent visuals: use fixed ratio based on mesh geometry
-                // The beam scales uniformly in Y, so floor diameter scales with length
-                const meshFloorDiameter = 0.2 + (1.5 - 0.2) * 1.0; // 1.5m at unit height
+                // Only the length scales in Y; the wide end remains 2 m across.
+                const meshFloorDiameter = 2.0;
                 const beamDiameterAtFloor = meshFloorDiameter; // Fixed for mesh consistency
                 
                 // === ELLIPSE GEOMETRY ===
@@ -1559,6 +1556,19 @@ class VRClubAnimationFixtures extends VRClubAnimationCore {
                 // === OUTER GLOW (penumbra scatter) ===
                 // HYPERREALISTIC: Wall hits produce larger scatter halos (rough surface diffusion)
                 this._updateSpotPoolGlow(spot, hitSurface, minorRadius, majorRadius, tiltMagnitude, physicsIntensity, shimmer, spotColor);
+                if (hitSurface === 'floor' && g.surfaceBounds) {
+                    const b = g.surfaceBounds;
+                    const clearance = Math.max(0, Math.min(surfaceIntersection.x - b.x0, b.x1 - surfaceIntersection.x,
+                        surfaceIntersection.z - b.z0, b.z1 - surfaceIntersection.z));
+                    const poolScale = Math.min(1, clearance / majorRadius);
+                    spot.lightPool.scaling.x *= poolScale;
+                    spot.lightPool.scaling.y *= poolScale;
+                    if (spot.lightPoolGlow) {
+                        const glowScale = Math.min(1, clearance / (majorRadius * 2.2 * 1.5));
+                        spot.lightPoolGlow.scaling.x *= glowScale;
+                        spot.lightPoolGlow.scaling.y *= glowScale;
+                    }
+                }
                 
             } else {
                 // CRITICAL: Hide floor pools immediately when lights turn off or flashing off

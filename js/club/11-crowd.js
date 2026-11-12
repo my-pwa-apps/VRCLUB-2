@@ -903,6 +903,7 @@ class VRClubCrowd extends window.VRClubAvatars {
         if (!this.npcAvatars || typeof CrowdDance === 'undefined') return;
         const choreographer = this._crowdDance || (this._crowdDance = new CrowdDance());
         const music = this._crowdMusic(audioData);
+        this._minglerDanceMusic = music;
         this._crowdBeatPresent = music.beatPresent;
         const decision = this._crowdDecision || (this._crowdDecision = {});
         // Starting a clip builds an animatable for every bone, so only a couple of dancers may change move in one frame; the
@@ -1024,7 +1025,6 @@ class VRClubCrowd extends window.VRClubAvatars {
         // TransformNode/skinned-hierarchy frustum bounds are unreliable as animation advances, especially in stereo
         // XR. Every enabled character therefore keeps animating; tier and district visibility own explicit pausing.
         const cam = this.scene ? this.scene.activeCamera : null;
-        const checkProximity = cam && (this.frameCounter % 4 === 0);
         const camPos = cam ? (cam.globalPosition || cam.position) : null;
 
         for (let i = 0; i < this.npcAvatars.length; i++) {
@@ -1044,7 +1044,7 @@ class VRClubCrowd extends window.VRClubAvatars {
                 }
             }
 
-            if (checkProximity && camPos) {
+            if (camPos) {
                 const rootPos = npc.root.position;
                 const dx = rootPos.x - camPos.x;
                 const dz = rootPos.z - camPos.z;
@@ -1052,10 +1052,10 @@ class VRClubCrowd extends window.VRClubAvatars {
 
                 if (npc.homeYaw != null) {
                     if (distSq < 2.56) {
-                        const step = dx >= 0 ? 0.08 : -0.08;
+                        const step = (dx >= 0 ? 1.2 : -1.2) * Math.max(0, Math.min(0.1, dt));
                         npc.avoidYaw = Math.max(-0.5, Math.min(0.5, (npc.avoidYaw || 0) + step));
                     } else if (npc.avoidYaw) {
-                        npc.avoidYaw *= 0.75;
+                        npc.avoidYaw *= Math.exp(-4.315 * Math.max(0, Math.min(0.1, dt)));
                         if (Math.abs(npc.avoidYaw) < 0.01) npc.avoidYaw = 0;
                     }
                 }

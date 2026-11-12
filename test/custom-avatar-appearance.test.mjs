@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import vm from 'node:vm';
 import { fileURLToPath } from 'node:url';
+import { join } from 'node:path';
 
 const root = fileURLToPath(new URL('..', import.meta.url));
 const box = { console, setTimeout, clearTimeout, performance, URL, TextDecoder, TextEncoder };
@@ -10,9 +11,9 @@ box.window = box; box.self = box; box.globalThis = box;
 box.addEventListener = () => {};
 box.removeEventListener = () => {};
 vm.createContext(box);
-for (const file of ['js\\vendor\\babylon.js', 'js\\materialFactory.js', 'js\\avatarDetails.js',
-    'js\\customAvatarAppearance.js', 'js\\avatarEditor.js']) {
-    vm.runInContext(readFileSync(`${root}\\${file}`, 'utf8'), box, { filename: file });
+for (const file of ['js/vendor/babylon.js', 'js/materialFactory.js', 'js/avatarDetails.js',
+    'js/customAvatarAppearance.js', 'js/avatarEditor.js']) {
+    vm.runInContext(readFileSync(join(root, file), 'utf8'), box, { filename: file });
 }
 const B = box.BABYLON, api = box.CustomAvatarAppearance;
 B.Logger.LogLevels = B.Logger.ErrorLogLevel;

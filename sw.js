@@ -14,6 +14,7 @@
 // whole precache was previously dead weight (every asset downloaded twice).
 const VERSION = 'vrclub-v20261021-5';
 const CACHE_TOKEN = '20261021-5';
+const VENDOR_QUERY = `?v=${CACHE_TOKEN}`;
 const CACHE_NAME = `vrclub-cache-${VERSION}`;
 // Vendor URLs change with CACHE_TOKEN, not with every first-party bundle hash. Keep
 // the 9.5 MB runtime cache across ordinary app deploys and rotate it on a version bump.
@@ -104,14 +105,19 @@ self.addEventListener('activate', (event) => {
 
 async function warmVendorCache() {
     const cache = await caches.open(VENDOR_CACHE_NAME);
-    await Promise.all([...VENDOR_SCRIPTS].map(async pathname => {
+    const urls = [...VENDOR_SCRIPTS].map(pathname => {
         const url = new URL(pathname, self.registration.scope);
-        url.searchParams.set('v', CACHE_TOKEN);
-        if (await cache.match(url.href)) return;
+        url.search = VENDOR_QUERY;
+        return url.href;
+    });
+    const allowed = new Set(urls);
+    await Promise.all((await cache.keys()).filter(key => !allowed.has(key.url)).map(key => cache.delete(key)));
+    await Promise.all(urls.map(async url => {
+        if (await cache.match(url)) return;
         try {
-            const response = await fetch(url.href);
+            const response = await fetch(url);
             if (response && response.status === 200 && response.type === 'basic') {
-                await cache.put(url.href, response);
+                await cache.put(url, response);
             }
         } catch (_) { /* offline activation degrades to the normal network fallback */ }
     }));
@@ -129,8 +135,11 @@ self.addEventListener('fetch', (event) => {
     // on `request.url.includes('stream')`, which matched any deploy path or query
     // string containing that word and silently disabled the SW for it.
     if (url.origin !== self.location.origin) return;
-    // The phone pairing page is its own tiny site: never answer it with (or cache it as) the club's app shell.
-    if (url.pathname.startsWith(new URL('./link/', self.registration.scope).pathname)) return;
+    // Standalone pages must never replace (or fall back to) the club shell.
+    for (const page of ['link', 'broadcast']) {
+        const path = new URL(`./${page}`, self.registration.scope).pathname;
+        if (url.pathname === path || url.pathname.startsWith(`${path}/`)) return;
+    }
     if (request.destination === 'audio' || request.destination === 'media') return;
     if (IDB_OWNED.test(url.pathname)) return;
 
@@ -144,7 +153,9 @@ self.addEventListener('fetch', (event) => {
 
     // App shell: always answer navigations from the cached shell when offline.
     if (request.mode === 'navigate') {
-        event.respondWith(handleNavigation(request));
+        if (![new URL('./', self.registration.scope).pathname,
+            new URL(SHELL_URL, self.registration.scope).pathname].includes(url.pathname)) return;
+        event.respondWith(handleNavigation(event, request));
         return;
     }
 
@@ -174,7 +185,7 @@ async function handleVendor(event, request) {
     }
 }
 
-async function handleNavigation(request) {
+async function handleNavigation(event, request) {
     try {
         const response = await fetch(request);
         if (response && response.ok) {
@@ -183,7 +194,7 @@ async function handleNavigation(request) {
             // always find it, regardless of which URL the user navigated to. The
             // previous version cached navigations under the request key ('/') and
             // then looked them up as './index.html', so the fallback never hit.
-            caches.open(CACHE_NAME).then(cache => cache.put(SHELL_URL, copy));
+            event.waitUntil(caches.open(CACHE_NAME).then(cache => cache.put(SHELL_URL, copy)));
         }
         return response;
     } catch (_) {

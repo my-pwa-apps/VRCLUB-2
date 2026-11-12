@@ -4,6 +4,50 @@ import { enterClub, enterVR, exitVR, expectHealthyRuntime, useQuestHarness } fro
 
 useQuestHarness();
 
+test('repeated fixture shells share geometry without sharing their animated transforms', async ({ page }) => {
+    test.setTimeout(900_000);
+    await enterClub(page);
+    await page.evaluate(() => window.vrClub.modelLoadPromise);
+    const state = await page.evaluate(() => {
+        const club = window.vrClub;
+        const describe = (mesh, parent) => mesh && ({
+            name: mesh.name,
+            source: mesh.sourceMesh?.name || mesh.name,
+            instance: !!mesh.isAnInstance,
+            hasExpectedParent: mesh.parent === parent
+        });
+        return {
+            heads: club.trussLights.map(light => [
+                describe(light.yokeMesh, light.yoke),
+                describe(light.fixture, light.head),
+                describe(light.bezel, light.head)
+            ]),
+            fog: club.fogMachines.map(machine => [machine.body, machine.bracket, machine.nozzle]
+                .map(mesh => describe(mesh, machine.parent)))
+        };
+    });
+    expect(state.heads).toHaveLength(6);
+    for (const [index, head] of state.heads.entries()) {
+        for (const [partIndex, part] of head.entries()) {
+            expect(part, `head hardware ${index}/${partIndex} exists`).toBeTruthy();
+            expect(part.hasExpectedParent, `head hardware ${index} keeps its independent pivot`).toBe(true);
+            expect(part.instance, `head hardware ${index} shares source geometry`).toBe(index > 0);
+            if (index > 0) expect(part.source).toBe(state.heads[0][partIndex].name);
+        }
+    }
+    expect(state.fog).toHaveLength(2);
+    for (const [index, machine] of state.fog.entries()) {
+        for (const [partIndex, part] of machine.entries()) {
+            expect(part, `fog-machine hardware ${index}/${partIndex} exists`).toBeTruthy();
+            expect(part.instance).toBe(index > 0);
+            expect(part.hasExpectedParent).toBe(true);
+        }
+        if (index > 0) {
+            for (let part = 0; part < machine.length; part++) expect(machine[part].source).toBe(state.fog[0][part].name);
+        }
+    }
+});
+
 test('aesthetic smoke fill keeps real fixtures lit and obscures distance without adding geometry or lights', async ({ page }) => {
     test.setTimeout(900_000);
     await enterClub(page);

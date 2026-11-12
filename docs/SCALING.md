@@ -248,6 +248,15 @@ the same browser/device, wait for **Development owner signed in**, then return t
 club and press **Join room** again.
 A phone login does not sign in a headset browser. Use the custom development domain;
 preview `pages.dev` hosts can be subject to third-party-cookie blocking.
+Only `nocturnedev.mitwee.nl` and `nocturne-dev.pages.dev` select development
+access behavior. Hash-prefixed Pages preview hosts are not supported development
+origins; do not broaden authentication or relay allow-lists to make them work.
+
+After deployment, verify `sw.js` and `serviceworker.js` return
+`Cache-Control: no-cache` on the custom host as well as Pages. These headers are already defined
+in `_headers`, and registration uses `updateViaCache: 'none'`. A custom-domain
+cache rule overriding them is an infrastructure issue: make it respect origin
+headers rather than changing app access behavior or assuming a specific stale interval.
 
 `worker/wrangler.dev.jsonc` enables `DEV_OWNER_ACCESS="1"` and supplies
 `DEV_OWNER_ORIGIN`, `DEV_ACCESS_TEAM_DOMAIN`, `DEV_ACCESS_AUD` and
@@ -259,30 +268,43 @@ Worker. Production payment and invitation-administration routes stay untouched.
 The client credentialed
 `GET /dev-owner/check` must pass before `/dev-owner/socket` opens.
 Sign-in verifies Access's `Cf-Access-Jwt-Assertion` RS256 signature, issuer, audience,
-expiry, app type and owner identity before setting `__Secure-NocturneDevOwner`:
-host-only, Secure, HttpOnly, SameSite=None, session lifetime, path `/dev-owner/`.
-Its value is the already signed Access token; it is never placed in a page body,
-JavaScript or URL. Preflight and socket verify that token independently, including
-its expiry and the current owner allow-list. Duplicate cookies are refused.
+expiry, app type and owner identity, stores a domain-separated SHA-256 session hash
+in the isolated `nocturne-dev-rooms` D1 `dev_owner_sessions` table
+(`worker/dev-migrations/0001_dev_owner_sessions.sql`), and sets
+`__Secure-NocturneDevOwner`: host-only, Secure, HttpOnly, SameSite=None,
+one-year `Max-Age=31536000` (surviving browser/headset restarts), path `/dev-owner/`.
+Its value is an opaque `dvo_<64 hex>` session token; it is never placed in a page body,
+JavaScript or URL, and the Access administration session itself stays at six hours.
+Preflight and socket verify that hashed session independently in `nocturne-dev-rooms`,
+including expiry, revocation and the current `DEV_ROOM_OWNERS` allow-list. Duplicate
+cookies are refused.
 The flow does not require changing Access cookie-path restrictions, which could
 otherwise prevent the administration-page cookie reaching the development socket.
 The socket independently rechecks identity on every reconnect, is pinned to
 `private-000032`, and strips credentials before DO forwarding. Requests on other
-hosts, origins, routes or with forged owner/email headers are refused. A missing
-or expired development cookie requires another **Owner sign-in**; no account grant
-or long-lived unsigned browser authorization is created.
+hosts, origins, routes or with forged owner/email headers are refused. A missing,
+revoked or expired development session requires another **Owner sign-in**; no production
+account grant or unsigned browser authorization is created.
 Development databases, SFU and avatars remain separate; no production entitlement,
 invitation or session data is copied or read.
 
-Deploy both the development Worker and frontend after changes:
+Apply the development D1 schema and deploy both the development Worker and frontend after changes:
 
 ```powershell
+npx --yes wrangler@4.141.0 d1 execute nocturne-dev-rooms --remote --file worker\dev-migrations\0001_dev_owner_sessions.sql --config worker\wrangler.dev.jsonc
 npx --yes wrangler@4.141.0 deploy --config worker\wrangler.dev.jsonc
 npm run build
 npx --yes wrangler@4.141.0 pages deploy dist --project-name nocturne-dev --branch QuestDev --commit-dirty=true
 ```
 
 The first real owner starts the simulation. `worker/src/devAttendees.js` gives
+one resting floor dancer an occasional "Het lijkt wel gabber!" chat balloon on
+the host's automatic IGNITION/release peak entries. Alternate peak entries are
+eligible, with at least one minute between room-wide reactions and no repetition
+during a held peak. These use the existing block-aware scripted chat, not audio
+analysis, speech synthesis or a new message type.
+
+The simulation gives
 each guest individual activity choices on a measured navigation graph, not a shared
 tour: dance, watch from a wall or balcony, chat indoors/outside, get fresh air, sit
 at one of four available bar stools, either couch cushion or either balcony chair,
@@ -696,3 +718,62 @@ Official references retrieved for this implementation (10 October 2026):
 * [Publish/receive/ICE connection patterns](https://developers.cloudflare.com/realtime/sfu/get-started/connection-patterns/)
 * [Negotiation, forced closure, lost responses and teardown](https://developers.cloudflare.com/realtime/sfu/concepts/negotiation/)
 * [Per-track errors and explicit already-closed outcomes](https://developers.cloudflare.com/realtime/sfu/observability/error-codes/)
+
+## Session roles and self-service water
+
+The main, Quest and SideQuest web distributions share the same smoke, show,
+rendering and guest-experience code while retaining their own deployment and
+access configuration. Main must use GitHub Actions-built Pages output, not the
+legacy repository-root publisher. Its exact origin `https://my-pwa-apps.github.io`
+is allowed by both the shared relay and account API. The isolated QuestDev
+origins and owner-session implementation remain outside production.
+
+The separate Unity Creator SDK project is not a web distribution branch.
+Its native smoke, crowd, visibility and performance implementations have their
+own tests and publishing procedure; web relay moderator grants and browser
+rendering preferences must not be copied over its platform authority/settings.
+
+The host can assign one real, mutually visible guest as **moderator** from People
+on desktop or in VR, and revoke or replace them. The relay advertises
+`moderatorRole`; older relays explicitly leave delegation unavailable.
+The moderator receives new safety reports and may kick or ban visible guests,
+but cannot remove the host, delegate roles, lock the room, transfer hosting,
+change music/FX or control lights without a separate VJ pass.
+Reports are transient, not historical or account-level moderation records.
+The role clears on host handover, host/moderator departure, mutual blocking
+or an empty room; reconnecting never restores a stale grant.
+
+The relay advertises `vjPass` and `sharedWater`. An older relay explicitly leaves
+these controls unavailable. Both frontend and Worker updates are required; nothing
+in this change deploys them automatically.
+
+The host may grant one connected, mutually visible real guest a revocable
+**lights-only VJ pass** from People. It is not a host transfer: music, audio FX,
+DJ presence, character style, events and moderation remain host-owned. The relay
+merges host performance metadata with the VJ's validated lighting frame. Latest
+lights survive late joins and host handover; the pass itself clears on handover,
+host/VJ departure, mutual blocking or an empty room. A guest who cannot see the
+VJ runs their own local lights rather than receiving blocked frames.
+
+The booth readout counts other visible real guests, those within eight metres
+of the booth and distinct guests who reacted in the last fifteen seconds. It
+does not infer enjoyment, musical energy or crowd response from the audio.
+
+The marked self-service water station at the bar supports explicit Order,
+Pick up and Put down pointer actions, including one local cup offline.
+Starting a room connection clears that local cup; unsupported or failed room
+connections never fall back to local props. Acknowledged, session-only room state
+owns four reserved cup positions, one per owner; actions require a recent
+position at the station and have their own bounded rate limit. Cups and
+positions are retained for late joins, hidden across two-way blocks and
+released when their owner leaves. Held cups follow the existing body's actual
+palm landmarks after animation, without overriding seats, controller arms or
+desk hand holds. The frosted opaque cup is an inexpensive approximation.
+Selecting another held cup requests a shared clink: the relay requires two
+nearby, mutually visible real holders with recent positions and enforces a
+three-second cooldown on both. Only guests visible to both hear its local
+spatial sound; it is transient, not replayed for late joins, and has no haptics.
+**No bartender pour, physical handoff, finger-grasp animation, sip mechanic or
+liquid simulation is implemented.** The sign explicitly describes self-service;
+ordering does not claim that a bartender performed an unseen action.
+Physical-headset appearance, fit and frame cost remain unmeasured.

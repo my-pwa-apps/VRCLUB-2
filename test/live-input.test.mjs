@@ -233,7 +233,7 @@ test('Live input Perform as DJ mode hides the NPC DJ, drives the player avatar w
 
     // Verify VRClub.setPerformingAsDJ + _updateDJ + updateNetworkPresence broadcast the DJPerformer pose and hands
     const ctx = vm.createContext({
-        window: {}, console, Math, Number, Boolean, String, Object, Array, Map, Set, Float32Array, Float64Array, Uint8Array,
+        window: {}, console, performance, Math, Number, Boolean, String, Object, Array, Map, Set, Float32Array, Float64Array, Uint8Array,
         BABYLON: { Vector3: class { constructor(x = 0, y = 0, z = 0) { this.x = x; this.y = y; this.z = z; } set(x, y, z) { this.x = x; this.y = y; this.z = z; return this; } } },
         VRClubEffects: class {},
         VRClubUI: class {}

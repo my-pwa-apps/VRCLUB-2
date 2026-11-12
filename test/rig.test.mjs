@@ -295,13 +295,17 @@ test('every network avatar follows real left/right dance and wave targets after 
                 const wrist = at(`Wrist.${suffix}`);
                 const expected = { x: peer.root.position.x + target.x, y: peer.root.position.y + 1.7 + target.y,
                     z: peer.root.position.z + target.z };
-                assert.ok(dist(wrist, expected) < 0.035, `${file} ${side} frame ${frame}: wrist misses by ${dist(wrist, expected).toFixed(3)} m`);
+                if (target.weight === 1) {
+                    assert.ok(dist(wrist, expected) < 0.035, `${file} ${side} frame ${frame}: wrist misses by ${dist(wrist, expected).toFixed(3)} m`);
+                }
                 const shoulder = at(`UpperArm.${suffix}`), elbow = at(`LowerArm.${suffix}`);
                 const length = dist(shoulder, elbow) + dist(elbow, wrist);
                 assert.ok(Math.abs(length - reach) < 0.025, `${file}: limb stretched`);
                 const finger = at(`Index1.${suffix}`).add(at(`Pinky1.${suffix}`)).scale(0.5).subtract(wrist).normalize();
                 const forward = new B.Vector3(target.fx, target.fy, target.fz).normalize();
-                assert.ok(B.Vector3.Dot(finger, forward) > 0.97, `${file}: hand orientation does not follow the controller`);
+                if (target.weight === 1) {
+                    assert.ok(B.Vector3.Dot(finger, forward) > 0.97, `${file}: hand orientation does not follow the controller`);
+                }
             }
         }
         const onlyLeft = { x: leftShoulder.x - 0.1, y: leftShoulder.y - 1.7 + 0.2, z: leftShoulder.z + 0.25,
@@ -317,6 +321,10 @@ test('every network avatar follows real left/right dance and wave targets after 
         manager.updatePeerState('p', null, { x: 4, y: 4.7, z: -8, rotY: 1.2 });
         manager.update(1 / 60);
         scene.render();
+        assert.ok(peer.hands.left.weight > 0 && peer.hands.left.weight < 1, 'tracking loss blends with the animated pose');
+        const shoulder = at(`UpperArm.${leftSuffix}`), elbow = at(`LowerArm.${leftSuffix}`), wrist = at(`Wrist.${leftSuffix}`);
+        assert.ok(Math.abs(dist(shoulder, elbow) + dist(elbow, wrist) - reach) < 0.025, `${file}: transition stretches the arm`);
+        for (let frame = 0; frame < 10; frame++) { manager.update(1 / 60); scene.render(); }
         assert.equal(peer.hands.left, null, 'tracking loss returns to clip animation');
         manager.dispose();
         scene.dispose();
@@ -846,6 +854,77 @@ test('at the balcony the mingling guest rests both hands on the rail beside the 
     scene.dispose();
 });
 
+test('the DJ points an index finger at the visitor and relaxes the hand afterward', async () => {
+    const desk = { cx: 0, near: -18.89, far: -18.35, top: 1.54, halfWidth: 0.51 };
+    const models = [
+        ['club-dj-male.glb', 1.78], ['club-dj-female.glb', 1.68],
+        [join(ROOT, 'js/models/characters/jin.glb'), 1.78], [join(ROOT, 'js/models/characters/zara.glb'), 1.68]
+    ];
+    for (const [file, height] of models) {
+        const { rig, B, scene, engine } = await loadRig(file, { eyeHeight: height * 0.93, djPointing: true });
+        const Performer = vm.runInContext('DJPerformer', sandbox());
+        const dj = new Performer({ x: 0, z: desk.near - 0.18, groundY: 0.5, eyeHeight: height * 0.93, desk });
+        const music = { hasAudio: true, beatPhase: 0, bar: 0, energy: 0.6, drop: false, bpm: 124 };
+        const guest = { x: 2, z: -15, id: 'guest' };
+        const side = rig.sideL < 0 ? 'r' : 'l';
+        const find = name => rig.root.getChildTransformNodes(false).find(node => node.name.endsWith(`_${name}`));
+        const at = name => {
+            const node = find(name);
+            assert.ok(node, `${file}: missing ${name}`);
+            node.computeWorldMatrix(true);
+            return node.getAbsolutePosition().clone();
+        };
+        for (let i = 0; i < 45; i++) rig.update(DT, dj.update(DT, music, [guest]));
+        const indexStart = at(`index_01_${side}`), indexTip = at(`index_03_${side}`);
+        const middleStart = at(`middle_01_${side}`), middleTip = at(`middle_03_${side}`);
+        const aim = new B.Vector3(guest.x - indexStart.x, 1.6 - indexStart.y, guest.z - indexStart.z).normalize();
+        const indexDirection = indexTip.subtract(indexStart).normalize();
+        const middleDirection = middleTip.subtract(middleStart).normalize();
+        assert.ok(B.Vector3.Dot(indexDirection, aim) > 0.85, `${file}: index finger misses the guest`);
+        assert.ok(B.Vector3.Dot(indexDirection, middleDirection) < 0.8, `${file}: the other fingers do not curl`);
+        const wrist = at(`hand_${side}`);
+        const curledDistances = ['middle', 'ring', 'pinky'].map(digit =>
+            B.Vector3.Distance(at(`${digit}_03_${side}`), wrist));
+        const pose = dj.pose;
+        const amount = pose.right.point;
+        pose.right.point = 0;
+        rig.update(DT, pose);
+        const straightWrist = at(`hand_${side}`);
+        const straightDistances = ['middle', 'ring', 'pinky'].map(digit =>
+            B.Vector3.Distance(at(`${digit}_03_${side}`), straightWrist));
+        pose.right.point = amount;
+        for (let i = 0; i < curledDistances.length; i++) {
+            assert.ok(curledDistances[i] < straightDistances[i] - 0.005, `${file}: finger ${i} bends away from the palm`);
+        }
+        guest.x = -2;
+        for (let i = 0; i < 45; i++) rig.update(DT, dj.update(DT, music, [guest]));
+        const movedStart = at(`index_01_${side}`);
+        const movedDirection = at(`index_03_${side}`).subtract(movedStart).normalize();
+        const movedAim = new B.Vector3(guest.x - movedStart.x, 1.6 - movedStart.y, guest.z - movedStart.z).normalize();
+        assert.ok(B.Vector3.Dot(movedDirection, movedAim) > 0.85, `${file}: index finger does not follow the guest`);
+        for (let i = 0; i < 180; i++) rig.update(DT, dj.update(DT, music, [guest]));
+        assert.ok(dj.pose.right.point < 0.01, `${file}: the pointing hand did not relax`);
+        const relaxedIndex = at(`index_03_${side}`).subtract(at(`index_01_${side}`)).normalize();
+        const relaxedMiddle = at(`middle_03_${side}`).subtract(at(`middle_01_${side}`)).normalize();
+        assert.ok(B.Vector3.Dot(relaxedIndex, relaxedMiddle) > 0.85, `${file}: fingers remain curled`);
+        rig.dispose(); scene.dispose(); engine.dispose();
+    }
+});
+
+test('a DJ skeleton without finger joints still accepts a pointing pose', async () => {
+    const { scene, engine, container, box } = await loadContainer('club-dj-male.glb');
+    for (const node of container.transformNodes) {
+        if (/^middle_02_[lr]$/.test(node.name)) node.name = `missing_${node.name}`;
+    }
+    const rig = new box.AvatarRig({ scene }, container, { eyeHeight: 1.65, djPointing: true });
+    assert.ok(rig.ok);
+    assert.equal(rig._djPointFingers, undefined);
+    const pose = makePose();
+    pose.right = { x: 0.3, y: 1.5, z: -7.5, fx: 0, fy: 0, fz: 1, ux: -1, uy: 0, uz: 0, point: 1 };
+    assert.doesNotThrow(() => rig.update(DT, pose));
+    rig.dispose(); scene.dispose(); engine.dispose();
+});
+
 test('the DJ puts the palm, not the back of the hand, on the headphone cup, and raises open palms to the crowd', async () => {
     const desk = { cx: 0, near: -18.89, far: -18.35, top: 1.54, halfWidth: 0.51 };
     for (const [glb, height] of [['club-dj-male.glb', 1.78], ['club-dj-female.glb', 1.68]]) {
@@ -891,7 +970,7 @@ test('the performing DJ reaches the controller, leans in, keeps the feet on the 
     // eyes at 93% of the look's height (see _spawnPerformingDJ).
     const desk = { cx: 0, near: -18.89, far: -18.35, top: 1.54, halfWidth: 0.51 };
     for (const [glb, height] of [['club-dj-male.glb', 1.78], ['club-dj-female.glb', 1.68]]) {
-        const { rig, scene } = await loadRig(glb, { eyeHeight: height * 0.93 });
+        const { rig, scene } = await loadRig(glb, { eyeHeight: height * 0.93, djPointing: true });
         assert.equal(rig.ok, true, `${glb} cannot be driven`);
         const Performer = vm.runInContext('DJPerformer', sandbox());
         let pick = 0.5;
@@ -1063,10 +1142,70 @@ test('dance arms keep their elbow hinge aligned instead of corkscrewing the uppe
     }
 });
 
+test('a conversation lean brings the head forward without lifting the feet', async () => {
+    for (const file of ['club-crowd-m6.glb', 'club-crowd-f8.glb',
+        join(ROOT, 'js/models/characters/felix.glb'), join(ROOT, 'js/models/characters/leila.glb')]) {
+        const { scene, engine, container, B, box } = await loadContainer(file);
+        if (typeof box.VRClubAudioCrowd?._easeMinglerLean !== 'function') {
+            box.VRClubUI = class {};
+            vm.runInContext(readClubSource(join(ROOT, 'js/club/11-audio-crowd.js')), box);
+        }
+        const entry = container.instantiateModelsToScene(name => name, false, { doNotInstantiate: true });
+        const root = entry.rootNodes[0];
+        root.rotationQuaternion = null;
+        root.rotation.set(0, 0, 0);
+        const node = name => root.getDescendants(false, n => n.name === name)[0];
+        const position = name => {
+            const n = node(name);
+            n.computeWorldMatrix(true);
+            return n.getAbsolutePosition().clone();
+        };
+        for (const yaw of [0, 1.2, -2.1]) {
+            root.rotation.y = yaw;
+            const head = position('Head'), left = position('Foot.L'), right = position('Foot.R');
+            box.VRClubAudioCrowd._easeMinglerLean(root, 0.135, 10);
+            scene.onBeforeAnimationsObservable.notifyObservers(scene);
+            scene.onAfterAnimationsObservable.notifyObservers(scene);
+            const leaned = position('Head');
+            const forward = (leaned.x - head.x) * Math.sin(yaw) + (leaned.z - head.z) * Math.cos(yaw);
+            assert.ok(forward > 0.025, `${file}: head does not approach the partner at yaw ${yaw}`);
+            for (const [name, before] of [['Foot.L', left], ['Foot.R', right]]) {
+                assert.ok(B.Vector3.Distance(position(name), before) < 0.001, `${file}: ${name} moved too far`);
+            }
+            for (let i = 0; i < 120; i++) {
+                scene.onBeforeAnimationsObservable.notifyObservers(scene);
+                scene.onAfterAnimationsObservable.notifyObservers(scene);
+            }
+            assert.ok(B.Vector3.Distance(position('Head'), leaned) < 0.001, 'lean must not accumulate on paused clips');
+            box.VRClubAudioCrowd._easeMinglerLean(root, 0, 10);
+            scene.onBeforeAnimationsObservable.notifyObservers(scene);
+            scene.onAfterAnimationsObservable.notifyObservers(scene);
+            assert.ok(B.Vector3.Distance(position('Head'), head) < 0.001, 'the original pose returns on departure');
+        }
+        root.rotation.y = 0;
+        const talking = entry.animationGroups.find(group => group.name === 'Idle_Talking_Loop');
+        assert.ok(talking, `${file}: missing talking clip`);
+        talking.start(true);
+        box.VRClubAudioCrowd._easeMinglerLean(root, 0.135, 10);
+        for (let i = 0; i < 10; i++) {
+            scene.onBeforeAnimationsObservable.notifyObservers(scene);
+            talking.goToFrame(talking.from + (talking.to - talking.from) * i / 10);
+            const head = position('Head'), feet = [position('Foot.L'), position('Foot.R')];
+            scene.onAfterAnimationsObservable.notifyObservers(scene);
+            assert.ok(position('Head').z - head.z > 0.025, 'the bend follows the evaluated talking clip');
+            assert.ok(B.Vector3.Distance(position('Foot.L'), feet[0]) < 0.001);
+            assert.ok(B.Vector3.Distance(position('Foot.R'), feet[1]) < 0.001);
+        }
+        talking.stop();
+        scene.dispose();
+        engine.dispose();
+    }
+});
+
 test('the crowd grooves: on the beat where it matters, feet planted, hands where they should be, seamless loops', async () => {
     const GROOVES = {
         Groove_Bounce: 8, Groove_SideTap: 8, Groove_Clap: 2, Groove_ClapUp: 2, Groove_Pump: 8, Groove_Twist: 4, Groove_HandsUp: 4,
-        Groove_Sway: 4, Groove_ArmsWide: 8, Groove_ArmsUp: 8, Groove_Still: 8
+        Groove_Sway: 4, Groove_ArmsWide: 8, Groove_ArmsUp: 8, Groove_Still: 8, Groove_Roll: 8, Groove_Skank: 8
     };
     for (const file of ['club-crowd-f1.glb', 'club-crowd-m1.glb', 'club-crowd-m7.glb', 'club-crowd-f2.glb']) {
         const { scene, container, B } = await loadContainer(file);

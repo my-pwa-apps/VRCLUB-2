@@ -17,6 +17,20 @@ test('the production build is installable, works offline and offers an install b
     }, null, { timeout: 60_000 });
     // The worker claims the page on activation; wait until it controls it so the next load can be answered offline.
     await page.waitForFunction(() => !!navigator.serviceWorker.controller, null, { timeout: 30_000 });
+    const vendorsReady = await page.evaluate(async () => {
+        const scripts = [...document.scripts].filter(script => script.src.includes('/js/vendor/'));
+        const name = (await window.caches.keys()).find(key => key.startsWith('vrclub-vendor-'));
+        const cache = await window.caches.open(name);
+        return Promise.all(scripts.map(async script => !!await cache.match(script.src)));
+    });
+    expect(vendorsReady).toEqual([true, true, true]);
+    // No controlled online reload first: activation alone must prepare the vendor keys.
+    await cdp.send('Network.clearBrowserCache');
+    await context.setOffline(true);
+    const firstOffline = await page.reload();
+    expect(firstOffline?.status()).toBe(200);
+    await page.waitForFunction(() => !!window.BABYLON && !!window.VRClub);
+    await context.setOffline(false);
 
     const manifest = await cdp.send('Page.getAppManifest');
     expect(manifest.errors, 'the manifest has warnings or errors').toEqual([]);
@@ -54,11 +68,11 @@ test('the production build is installable, works offline and offers an install b
     await expect.poll(() => page.evaluate(() => window.__installPrompts)).toBe(1);
     await expect(page.locator('#installApp')).toBeHidden();
 
-    // Offline: the shell is answered by the service worker.
-    await page.reload();
-    await page.waitForFunction(() => !!navigator.serviceWorker.controller);
+    // A standalone broadcaster navigation must not poison the club's cached document.
+    await page.goto('/broadcast/');
+    await expect(page.locator('#enterClubBtn')).toHaveCount(0);
     await context.setOffline(true);
-    const response = await page.reload();
+    const response = await page.goto('/');
     expect(response && response.status()).toBe(200);
     await expect(page.locator('#enterClubBtn')).toBeVisible();
     await expect(page).toHaveTitle(/NOCTURNE/);

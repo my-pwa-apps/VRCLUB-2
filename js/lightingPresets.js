@@ -153,6 +153,60 @@ class LightingPresets {
         this._write(data.slots);
     }
 
+    async stagePhoneImport() {
+        const generation = this._phoneImportGeneration = (this._phoneImportGeneration || 0) + 1;
+        this._phoneImport = null;
+        if (this.error) throw new Error(this.error);
+        const raw = this.storage.getItem(LightingPresets.KEY);
+        if (raw !== null) LightingPresets.parse(raw);
+        const result = await window.VRPayment.fetchLightingPresets();
+        if (generation !== this._phoneImportGeneration || this._events.signal.aborted) throw new Error('Phone transfer was cancelled.');
+        if (result.signedIn === false) throw new Error('Link this device to your verified account first.');
+        if (result.presets === null) throw new Error('No lighting backup is saved on your account.');
+        const text = JSON.stringify(result.presets);
+        const data = LightingPresets.parse(text);
+        for (const preset of data.slots) if (preset) this._checkAvailable(preset);
+        if (this.storage.getItem(LightingPresets.KEY) !== raw || this.error) throw new Error('Local presets changed. Try again.');
+        this._phoneImport = { text, raw };
+        return { count: data.slots.filter(Boolean).length, email: result.email };
+    }
+
+    confirmPhoneImport() {
+        const pending = this._phoneImport;
+        this._phoneImport = null;
+        if (!pending) throw new Error('Check the phone backup first.');
+        if (this.error || this.storage.getItem(LightingPresets.KEY) !== pending.raw) {
+            throw new Error('Local presets changed or cannot be read. Check the phone backup again.');
+        }
+        this.import(pending.text);
+    }
+
+    async preparePhoneExport() {
+        const generation = this._phoneExportGeneration = (this._phoneExportGeneration || 0) + 1;
+        this._phoneExport = null;
+        const text = this.export();
+        const raw = this.storage.getItem(LightingPresets.KEY);
+        if (raw !== null && JSON.stringify(LightingPresets.parse(raw)) !== JSON.stringify(LightingPresets.parse(text))) {
+            throw new Error('Local presets changed in another tab. Reload before sending them.');
+        }
+        const result = await window.VRPayment.fetchLightingPresets();
+        if (generation !== this._phoneExportGeneration || this._events.signal.aborted) throw new Error('Phone transfer was cancelled.');
+        if (result.signedIn === false) throw new Error('Link this device to your verified account first.');
+        if (this.storage.getItem(LightingPresets.KEY) !== raw || this.error) throw new Error('Local presets changed. Try again.');
+        this._phoneExport = { text, raw, updatedAt: result.updatedAt };
+        return { replacing: result.presets !== null, email: result.email };
+    }
+
+    async confirmPhoneExport() {
+        const pending = this._phoneExport;
+        this._phoneExport = null;
+        if (!pending) throw new Error('Check the account backup first.');
+        if (this.error || this.storage.getItem(LightingPresets.KEY) !== pending.raw) {
+            throw new Error('Local presets changed or cannot be read. Check the account backup again.');
+        }
+        return window.VRPayment.saveLightingPresets(pending.text, pending.updatedAt);
+    }
+
     _checkSlot(slot) {
         if (!Number.isInteger(slot) || slot < 0 || slot >= LightingPresets.COUNT) throw new Error('Choose a preset slot from 1 to 12');
     }
@@ -160,11 +214,8 @@ class LightingPresets {
     async openManager() {
         const club = this.club;
         if (club.isInVRMode) {
-            if (club._immersive && club._immersive.mode !== 'manual') {
-                throw new Error('Rename and transfer presets in this site on your desktop or phone. Saving and recalling work here in VR');
-            }
-            window.VRPayment?.holdLeaseForSetup?.();
-            await club.vrHelper.baseExperience.exitXRAsync();
+            club.openPhoneCompanion('presets');
+            return;
         }
         const dialog = document.getElementById('lightingPresetDialog');
         if (!this._dialog) this._bindManager(dialog);
@@ -217,6 +268,8 @@ class LightingPresets {
         input.addEventListener('change', async () => {
             importButton.disabled = true;
             this._importText = null;
+            this._phoneImport = null;
+            this._phoneExport = null;
             const file = input.files[0];
             if (!file) return;
             try {
