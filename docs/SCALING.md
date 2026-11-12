@@ -268,24 +268,30 @@ Worker. Production payment and invitation-administration routes stay untouched.
 The client credentialed
 `GET /dev-owner/check` must pass before `/dev-owner/socket` opens.
 Sign-in verifies Access's `Cf-Access-Jwt-Assertion` RS256 signature, issuer, audience,
-expiry, app type and owner identity before setting `__Secure-NocturneDevOwner`:
-host-only, Secure, HttpOnly, SameSite=None, session lifetime, path `/dev-owner/`.
-Its value is the already signed Access token; it is never placed in a page body,
-JavaScript or URL. Preflight and socket verify that token independently, including
-its expiry and the current owner allow-list. Duplicate cookies are refused.
+expiry, app type and owner identity, stores a domain-separated SHA-256 session hash
+in the isolated `nocturne-dev-rooms` D1 `dev_owner_sessions` table
+(`worker/dev-migrations/0001_dev_owner_sessions.sql`), and sets
+`__Secure-NocturneDevOwner`: host-only, Secure, HttpOnly, SameSite=None,
+one-year `Max-Age=31536000` (surviving browser/headset restarts), path `/dev-owner/`.
+Its value is an opaque `dvo_<64 hex>` session token; it is never placed in a page body,
+JavaScript or URL, and the Access administration session itself stays at six hours.
+Preflight and socket verify that hashed session independently in `nocturne-dev-rooms`,
+including expiry, revocation and the current `DEV_ROOM_OWNERS` allow-list. Duplicate
+cookies are refused.
 The flow does not require changing Access cookie-path restrictions, which could
 otherwise prevent the administration-page cookie reaching the development socket.
 The socket independently rechecks identity on every reconnect, is pinned to
 `private-000032`, and strips credentials before DO forwarding. Requests on other
-hosts, origins, routes or with forged owner/email headers are refused. A missing
-or expired development cookie requires another **Owner sign-in**; no account grant
-or long-lived unsigned browser authorization is created.
+hosts, origins, routes or with forged owner/email headers are refused. A missing,
+revoked or expired development session requires another **Owner sign-in**; no production
+account grant or unsigned browser authorization is created.
 Development databases, SFU and avatars remain separate; no production entitlement,
 invitation or session data is copied or read.
 
-Deploy both the development Worker and frontend after changes:
+Apply the development D1 migration and deploy both the development Worker and frontend after changes:
 
 ```powershell
+npx --yes wrangler@4.141.0 d1 migrations apply nocturne-dev-rooms --remote --config worker\wrangler.dev.jsonc
 npx --yes wrangler@4.141.0 deploy --config worker\wrangler.dev.jsonc
 npm run build
 npx --yes wrangler@4.141.0 pages deploy dist --project-name nocturne-dev --branch QuestDev --commit-dirty=true
@@ -712,3 +718,40 @@ Official references retrieved for this implementation (10 October 2026):
 * [Publish/receive/ICE connection patterns](https://developers.cloudflare.com/realtime/sfu/get-started/connection-patterns/)
 * [Negotiation, forced closure, lost responses and teardown](https://developers.cloudflare.com/realtime/sfu/concepts/negotiation/)
 * [Per-track errors and explicit already-closed outcomes](https://developers.cloudflare.com/realtime/sfu/observability/error-codes/)
+
+## Session VJ passes and self-service water
+
+The relay advertises `vjPass` and `sharedWater`. An older relay explicitly leaves
+these controls unavailable. Both frontend and Worker updates are required; nothing
+in this change deploys them automatically.
+
+The host may grant one connected, mutually visible real guest a revocable
+**lights-only VJ pass** from People. It is not a host transfer: music, audio FX,
+DJ presence, character style, events and moderation remain host-owned. The relay
+merges host performance metadata with the VJ's validated lighting frame. Latest
+lights survive late joins and host handover; the pass itself clears on handover,
+host/VJ departure, mutual blocking or an empty room. A guest who cannot see the
+VJ runs their own local lights rather than receiving blocked frames.
+
+The booth readout counts other visible real guests, those within eight metres
+of the booth and distinct guests who reacted in the last fifteen seconds. It
+does not infer enjoyment, musical energy or crowd response from the audio.
+
+The marked self-service water station at the bar supports explicit Order,
+Pick up and Put down pointer actions, including one local cup offline.
+Starting a room connection clears that local cup; unsupported or failed room
+connections never fall back to local props. Acknowledged, session-only room state
+owns four reserved cup positions, one per owner; actions require a recent
+position at the station and have their own bounded rate limit. Cups and
+positions are retained for late joins, hidden across two-way blocks and
+released when their owner leaves. Held cups follow the existing body's actual
+palm landmarks after animation, without overriding seats, controller arms or
+desk hand holds. The frosted opaque cup is an inexpensive approximation.
+Selecting another held cup requests a shared clink: the relay requires two
+nearby, mutually visible real holders with recent positions and enforces a
+three-second cooldown on both. Only guests visible to both hear its local
+spatial sound; it is transient, not replayed for late joins, and has no haptics.
+**No bartender pour, physical handoff, finger-grasp animation, sip mechanic or
+liquid simulation is implemented.** The sign explicitly describes self-service;
+ordering does not claim that a bartender performed an unseen action.
+Physical-headset appearance, fit and frame cost remain unmeasured.

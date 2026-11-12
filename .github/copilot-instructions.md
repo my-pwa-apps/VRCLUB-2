@@ -31,6 +31,8 @@ emits one minified, content-hashed production bundle with esbuild.
 6. loaders/factories (`textureLoader`, `modelLoader`, `materialFactory`, `lightFactory`)
 7. `js/vjDirector.js`, then `js/showDirector.js`
 8. `js/ledPatterns.js`, then `js/barProps.js` (bottle geometry and label atlas; no club dependency), then `js/restroomArt.js` (the restroom's painted poster atlas and placement plan; needs `js/nocturneLogo.js` only at paint time), then `js/venueDressing.js` (entrance stair hall, bar, lounge couch and restroom), `js/mezzanine.js` (steel balcony and stair, and the walking-surface follow) and `js/cityDistrict.js` (the street outside, at street level) and `js/vjDesk.js` (the VJ desk's show, lights and set-player touch panels at the DJ table), all mixed into `VRClub.prototype`
+   `js/guestExperience.js` and `js/sessionExperience.js` follow the desk and supply guest touchpoints,
+   native credits, phone transfer, local postcards and shared session props.
    Then `js/characterCatalog.js` (generated licensed adult cast and assignments) and `js/characterStyles.js` (room style, local performance override and live model replacement, mixed into `VRClub.prototype`), followed by `js/wardrobeCatalog.js`, `js/avatarDetails.js`, `js/avatarAppearance.js` and `js/avatarEditor.js`.
 9. `js/playerHeight.js` (pure player-height maths), `js/avatarRig.js` (the local player's procedural body), `js/djPerformer.js` (the DJ's live set, posed through the rig), `js/crowdDance.js` (the crowd's choreographer), `js/minglerClock.js` (the shared room-time round), then `js/sfuClient.js`, `js/liveAudioClient.js` (event-owned music; no connection until admitted), `js/liveInput.js` (private mixer testing and explicit publishing), `js/networkClient.js`, `js/avatarManager.js` and `js/multiplayer.js` (`ClubMultiplayer`), then `js/lightingPresets.js` (validated local lighting snapshots reusing the multiplayer fixture schema).
 10. `js/club/01-core.js` through `09-animation-finish.js`, then `10-ui-controls.js`,
@@ -576,17 +578,18 @@ Rules when editing:
   lighting. Never bypass this.
 - Keep the laser/spotlight composition restrained: one aerial idea at a time, or the haze turns to soup.
 
-**Four places hand control over. All four must stay gated:**
+**Three competing writers hand control over. All three must stay gated:**
 
 | Gate | File | Guard |
 |------|------|-------|
-| Legacy 12-phase wall-clock cycler | `js/club/07-animation-core.js` | `&& !showDriving` |
 | LED wall private pattern timer | `js/club/09-animation-finish.js` | `if (!showOwnsPattern && …)` |
 | Auto-scene energy-threshold picker | `vjDirector.js` `update()` step 5 | `&& !showDriving` |
 | Spotlight palette cycler (it swapped the heads' colour every few seconds, overriding any look's hue) | `js/club/08-animation-fixtures.js` `updateSpotColorCycle()` | `&& !showDriving` |
 
 VJDirector keeps running throughout — beat tracking, BPM and the colour palette are inputs
 to the show, not competitors. Only the *look decision* is handed over.
+The legacy twelve-phase wall-clock cycler and its randomized duration table are retired.
+Turning off the automatic show keeps the current moving look; it does not start another show engine.
 
 **Reading the track's structure.** VJDirector has a *flywheel*: after 1.5 beats without a
 kick it keeps counting beats at the tracked BPM, so the bar grid survives a kick-less
@@ -847,7 +850,25 @@ slow white swell during the legacy strobe phase, never an independent flash sour
 **The XR layer's `antialias` does not antialias the scene.** The headset renders into the pipeline's
 offscreen target first, so MSAA must be set on that pipeline: `vrSettings.vr.msaaSamples` through
 `VRClubCore.resolveVRMsaaSamples()` (clamped to `maxMSAASamples`, overridable with `localStorage`
-`vrclub.vrMsaa` = 1, 2 or 4). Ultra/High default to 2x and Balanced to 1x plus FXAA. The XR
+`vrclub.vrMsaa` = 1, 2 or 4). Ultra/High default to 2x and Balanced to 1x plus FXAA.
+The personal VR COMFORT → 4X EDGE SMOOTHING switch (`vrclub.vrMsaa4x`) opts into 4x
+on capable devices and warns that frame rate may fall. It updates the active pipeline,
+survives tier changes and VR re-entry, and switching off restores the prior tier or
+diagnostic override. Unsupported devices and the multiview probe cannot enable it.
+The physical Quest 3S was already far below its frame budget in an initial 2x/4x
+trial; neither a visual benefit nor a reliable performance difference is established.
+VR COMFORT also offers three experimental personal options: HIGH PRECISION SHADERS
+(`vrclub.highPrecisionShaders`) selects Babylon's engine precision for the whole app
+after a reload; SMOOTH SHINY SURFACES (`vrclub.proceduralSpecularAA`) adds a Babylon
+material plugin to factory-created metallic-roughness materials after a reload; and
+MAX TEXTURE FILTERING (`vrclub.vrMaxAnisotropy`) uses the GPU's supported anisotropy
+in VR immediately, including later-loaded textures, restoring the tier on exit/off.
+The plugin sets Babylon 9.28's internal `SPECULARAA` shader define through its public
+`prepareDefines` hook because simple PBR exposes no public specular-AA switch; a
+real-render test must guard this version-sensitive integration. Imported PBR materials
+and the couch's disabled normal map are unchanged. These options may cost frame time;
+their visual benefit and physical-headset cost remain unmeasured.
+The XR
 framebuffer stays at native scale (`framebufferScaleFactor: 1.0`) and the engine does not preserve
 an unread back buffer; do not restore the old 1.2x stereo supersampling or
 `preserveDrawingBuffer: true` without a physical-headset measurement.
@@ -2130,20 +2151,27 @@ It never copies the desktop heading. A failed street load gives an explicit noti
 inside instead. Desktop initial position and the existing travel presets are unchanged.
 `moveCameraToPreset()` routes to the XR camera when active,
 preserving head orientation and measured seated height with a booth floor offset.
-The paged quick menu separates LIGHTS (fixtures, colours and movement), EFFECTS (LED wall, strobes, smoke, mirror
-beams and the spotlight multi-beam filter), SHOW (automatic-show actions plus a five-movement section page), a CROWD page (who is in the club), comfort (locomotion, safe mode, quality, auto quality, credits) with a **ME** sub-page (seated mode, measure height and MY CHARACTER: `setLocalCharacter`, one of the 17 relay people saved as `vrclub.myCharacter`, picked on a two-page grid: DEFAULT plus women `f1`-`f8`, then men `m1`-`m9`; the same saved choice is requested on room joins/reconnects and its gender sets `vrclub.avatarStyle`). A page holds at most 12 slots (the HOME page is full in a room, hence ME lives under comfort),
+The guest quick menu offers SHOW (automatic NOCTURNE/AESTHETIC moods, Drop Now, Blackout and travel to the booth),
+CROWD, COMFORT, WARDROBE and CAMERA. Detailed fixture editing belongs at the physical VJ desk.
+COMFORT includes locomotion, Safe Mode, seated play, measured eye height, quality and conversation audio;
+the four rendering experiments live under ADVANCED GRAPHICS. WARDROBE groups body selection and outfit editing.
+Club character selection still uses `setLocalCharacter`, the seventeen saved relay IDs and the two-page
+women/men grid. Uploaded-body selection and sharing live under the same body chooser.
+A page holds at most twelve slots; ACCESS is never displaced by Camera when social actions fill HOME.
+The menu retains
 five destinations (entrance, dance floor, DJ booth, balcony, street) and a **Music** page: a seek
 strip (`vrQuickMenuSeek`, click or drag a ray on it; `_beginVRSeek/_moveVRSeek/_endVRSeek` ride the
 scene pointer observables and a drag belongs to the pointer that started it (`_dragPointer`), because both hands have a live pointer (`enablePointerSelectionOnAllControllers`); the seek happens on release), ±1 min, play/pause, saved-set Previous/Next,
-Play saved set and ADD LINKS / FILE (in the immersive app: ADD FROM PHONE, see below). `_openQuestPanel()` exits XR for music entry or licences;
-the guest then presses Enter VR to return (not in the immersive app, where it only shows a message). CROWD → CHOOSE DJ offers male/female.
+Play saved set and ADD FROM PHONE. Local file/folder setup is an explicitly marked LEAVES VR option
+in ordinary browsers; immersive-only apps never expose that exit. Credits are paged natively in VR,
+including the original attribution text and complete source/license URLs. CROWD → CHOOSE DJ offers male/female.
 Its clock redraws from a 500 ms ticker that runs only while that page is open;
 Y/B or the runtime menu component opens it, world-locked where the player is looking
 (`_placeVRQuickMenu()`); never parent it to the XR camera. **Its backing is a rounded, translucent glass sheet** drawn
 into a `DynamicTexture` (`_drawVRQuickMenuBack`, 632 px a metre, alpha from the same texture) only as tall as the page's
 last button row, not an opaque slab with dead space; the second line of a button (ON/OFF, the current value) is 40 px
 and the page subtitle 36 px, shrinking to fit, because the old 30-32 px text was about one degree tall in a headset.
-Buttons that leave the immersive session (ADD MUSIC, CREDITS / LICENCES) say `LEAVES VR` before they are pressed.
+Local file/folder setup says `LEAVES VR` before it is pressed; phone transfer and credits stay inside XR.
 **Controller rays hide while idle.** Each hand's Babylon pointer and cursor appear independently
 when aimed at a quick-menu control, VJ desk panel, seat or restroom door, or while its trigger is
 pressed. Picking stays active while the visual is hidden; teleportation keeps its own indicator.
@@ -2168,6 +2196,44 @@ immediately on XR exit, right-controller removal, comfort-mode changes or dispos
 multiplayer subscription are disposed with the scene.
 
 ## UI
+
+### Guest experience
+
+`GuestExperience` owns the static entrance Tonight board and the restroom wardrobe touchpoint.
+Neither joins a room or fetches the directory at startup. Mirror wardrobe drafts replace only
+the reflected body until an explicit, acknowledged save; cancel restores the existing body.
+Draft eye sizing is measured from geometry and the normal body pose is reused.
+Custom uploaded bodies retain their supported editor preview.
+
+The personal `vrclub.voiceClarity` preference defaults to `standard`, preserving the existing
+strong voice duck. Optional `nearby` uses a gentler distance-weighted dip for visible,
+unmuted real guests between 1.1 and 1.8 metres. It does not change remote voice gain,
+musical analysis, shared playback or room ambience, and respects the existing duck switch.
+
+CAMERA / desktop Photo produces a local still postcard, never an upload or automatic share.
+Capture excludes menu, peer names, chat and emoji, restores visibility even on failure,
+and does not embed room invitations. Copying an invite is a separate confirmed clipboard action.
+The access veil prevents capture. Physical-headset capture cost remains unmeasured.
+
+The phone companion reuses eight-digit verified pairing, bounded cancellable polling and
+explicit music sync. Lighting transfers stage and validate all twelve slots before a
+second confirmed replacement; corruption and concurrent changes are reported, not overwritten.
+Phone editing includes preset names and complete backup upload/download.
+Account lighting storage requires migration `0010_account_lighting_presets.sql`.
+QuestDev deliberately has no verified-account service: it advertises phone transfer as
+unavailable and never borrows production sessions or changes its free VR entry.
+
+`SessionExperience` owns self-service water and the booth's factual real-guest/reaction
+readout. Water is session-only: four authoritative room slots, retained for late joins,
+plus one local cup offline. Entering a room replaces offline state; unsupported relays
+never get a local sharing fallback. Cups attach to actual palms and clinks are bounded,
+spatial sound only, never controller haptics. There is no bartender handoff, authored
+finger grasp or sip animation. Headset fit and cost remain unmeasured.
+
+The host may delegate only lighting to one visible real guest. `canControlLights()` and
+`followingLights` separate fixture authority/following from host-owned music, FX, room
+character style, DJ presence and moderation. The relay owns grants, cleanup and accepted
+lighting publication; an old relay reports unsupported delegation. See `docs/SCALING.md`.
 
 The DOM panel (`js/ui-init.js`), the VR quick menu (`js/club/10-ui.js`) and the VJ desk at the DJ table
 (`js/vjDesk.js`) are three surfaces over ONE control set. All state mutation lives on `VRClub` —
@@ -2212,8 +2278,8 @@ controller ray therefore use the same path (`pressVJDesk` / `dragVJDesk` / `rele
   is captured from the current show level. Do not store beat phases, music/audio effects, DJ presence, people,
   safety, room state or credentials. Recall respects personal Safe Mode and the room flash governor.
   Selection alone does not recall. Overwrite/delete require a second matching press within four seconds.
-  NAME / TRANSFER opens `#lightingPresetDialog` for rename/export/import; it says LEAVES VR before exiting and
-  holds the setup lease. Immersive-only apps never exit for it. Imports validate the complete bounded schema
+  NAME / TRANSFER opens `#lightingPresetDialog` for desktop rename/export/import and the phone companion
+  inside VR, without exiting XR. Imports validate the complete bounded schema
   and current colour/pattern availability, then explicitly replace all twelve slots; writes are atomic with
   respect to in-memory state, and storage/corruption errors surface without overwriting unreadable data.
 - **LIGHTS** (right): every fixture on/off, plus steppers for spot colour (with a swatch), movement mode, spot aim
@@ -2414,10 +2480,13 @@ Ordinary Online rooms need no owner login. Development room `000032` uses
 `GET https://api.mitwee.nl/dev-owner/check`, then uses `/dev-owner/socket`.
 The narrow `api.mitwee.nl/dev-owner/*` and `api.mitwee.nl/admin/dev-owner/*`
 routes point to the development Worker. Owner sign-in is `/admin/dev-owner/sign-in`,
-protected by the existing Access application: it verifies the signed RS256 assertion
-before setting a Secure HttpOnly host-only session cookie at `/dev-owner/`.
-Preflight/socket verify that cookie's signed token against issuer/audience/expiry and
-the explicit owner allow-list, never production D1 payment/session records. They do
+protected by the existing Access application: it verifies the signed RS256 assertion,
+stores a domain-separated SHA-256 session hash in the isolated `nocturne-dev-rooms`
+`dev_owner_sessions` table (`worker/dev-migrations/0001_dev_owner_sessions.sql`), and
+sets a one-year (`Max-Age=31536000`) Secure HttpOnly host-only session cookie at
+`/dev-owner/` so headset restarts do not clear it while `/admin` retains its six-hour
+Access session. Preflight/socket verify that hashed session against expiry, revocation
+and the explicit owner allow-list, never production D1 payment/session records. They do
 not depend on the Access cookie's path or trust incoming assertion/email headers.
 Sign in in the same browser/device, wait for confirmation, return and retry Join room.
 Production room authentication

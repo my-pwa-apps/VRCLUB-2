@@ -2032,6 +2032,27 @@ test('MaterialFactory freezes by explicit mutability, never by material name', (
     assert.notEqual(frozen, live);
 });
 
+test('procedural specular AA uses the Babylon plugin only when opted in', () => {
+    const BABYLON = require('../js/vendor/babylon.js');
+    const engine = new BABYLON.NullEngine();
+    const scene = new BABYLON.Scene(engine);
+    const { window } = loadClassic('js/materialFactory.js', { BABYLON });
+    const normal = new window.MaterialFactory(scene);
+    const experimental = new window.MaterialFactory(scene, 4, console, { specularAA: true });
+    const ordinary = normal.createPBRMaterial('ordinary');
+    const material = experimental.createPBRMaterial('experimental');
+    const plugin = material.pluginManager?.getPlugin('VRClubSpecularAA');
+    assert.ok(plugin);
+    assert.ok(!ordinary.pluginManager?.getPlugin('VRClubSpecularAA'));
+    const defines = { SPECULARAA: false };
+    plugin.prepareDefines(defines, { getEngine: () => ({ getCaps: () => ({ standardDerivatives: true }) }) });
+    assert.equal(defines.SPECULARAA, true);
+    plugin.prepareDefines(defines, { getEngine: () => ({ getCaps: () => ({ standardDerivatives: false }) }) });
+    assert.equal(defines.SPECULARAA, false);
+    scene.dispose();
+    engine.dispose();
+});
+
 test('the factory floor is matte concrete, and SSR skips dielectrics', () => {
     const BABYLON = makeBabylonStub();
     BABYLON.PBRMaterial = class {
@@ -5934,6 +5955,88 @@ test('headset MSAA follows the config, never exceeds the GPU, and can be overrid
     assert.match(lifecycle, /true,\s*false/);
 });
 
+test('optional 4x headset smoothing preserves tier and diagnostic settings', () => {
+    const values = new Map([['vrclub.vrMsaa', '1']]);
+    let writeFails = false;
+    const storage = {
+        getItem: key => values.get(key) ?? null,
+        setItem(key, value) { if (writeFails) throw new Error('denied'); values.set(key, value); },
+        removeItem(key) { if (writeFails) throw new Error('denied'); values.delete(key); }
+    };
+    const { window } = loadClassic('js/club/01-core.js', { localStorage: storage });
+    const Core = window.VRClubCore;
+    const messages = [];
+    const club = Object.assign(Object.create(Core.prototype), {
+        engine: { getCaps: () => ({ maxMSAASamples: 4 }) },
+        qualityTiers: { high: { vrMsaaSamples: 2 } }, graphicsTier: 'high',
+        vrSettings: { vr: { msaaSamples: 2 } }, isInVRMode: true,
+        renderPipeline: { samples: 1 }, showErrorMessage: message => messages.push(message)
+    });
+    assert.equal(Core.resolveVRMsaaSamples(2, 4), 1);
+    assert.equal(club.toggleVRMsaa4x(), true);
+    assert.equal(club.renderPipeline.samples, 4);
+    assert.equal(Core.resolveVRMsaaSamples(2, 2), 2, 'still capped by the device');
+    assert.equal(Core.resolveVRMsaaSamples(2, 4, true), 1, 'multiview stays single-sample');
+    assert.equal(values.get('vrclub.vrMsaa'), '1', 'the previous diagnostic choice is retained');
+    assert.equal(club.toggleVRMsaa4x(), true);
+    assert.equal(club.renderPipeline.samples, 1);
+    assert.equal(club.isVRMsaa4xEnabled(), false);
+    writeFails = true;
+    assert.equal(club.toggleVRMsaa4x(), false);
+    assert.equal(club.renderPipeline.samples, 1);
+    assert.match(messages.at(-1), /Could not save/);
+    writeFails = false;
+    club.engine.getCaps = () => ({ maxMSAASamples: 2 });
+    assert.equal(club.toggleVRMsaa4x(), false);
+    assert.equal(values.has('vrclub.vrMsaa4x'), false);
+    club.engine.getCaps = () => ({ maxMSAASamples: 4 });
+    club.xrMultiviewProbe = { enabled: true };
+    assert.equal(club.toggleVRMsaa4x(), false);
+    assert.match(messages.at(-1), /not available/);
+});
+
+test('render experiments persist separately, check capabilities and restore VR filtering', () => {
+    const values = new Map();
+    let writeFails = false;
+    const storage = {
+        getItem: key => values.get(key) ?? null,
+        setItem(key, value) { if (writeFails) throw new Error('denied'); values.set(key, value); },
+        removeItem(key) { if (writeFails) throw new Error('denied'); values.delete(key); }
+    };
+    const { window } = loadClassic('js/club/01-core.js', {
+        localStorage: storage, BABYLON: { MaterialPluginBase: class {} }
+    });
+    const Core = window.VRClubCore;
+    const textures = [{}, { isCube: true }, { isRenderTarget: true }];
+    const messages = [];
+    const caps = { maxAnisotropy: 16, standardDerivatives: true, highPrecisionShaderSupported: true };
+    const club = Object.assign(Object.create(Core.prototype), {
+        engine: { getCaps: () => caps }, scene: { textures }, isInVRMode: true,
+        qualityTiers: { high: { vrAnisotropy: 8 } }, graphicsTier: 'high',
+        showErrorMessage: message => messages.push(message)
+    });
+    assert.equal(club.toggleRenderExperiment('precision'), true);
+    assert.equal(Core.readRenderExperiment('precision'), true);
+    assert.match(messages.at(-1), /Reload/);
+    assert.equal(club.toggleRenderExperiment('specular'), true);
+    assert.equal(Core.readRenderExperiment('specular'), true);
+    assert.equal(club.toggleRenderExperiment('anisotropy'), true);
+    assert.equal(textures[0].anisotropicFilteringLevel, 16);
+    assert.equal(textures[1].anisotropicFilteringLevel, undefined);
+    assert.equal(textures[2].anisotropicFilteringLevel, undefined);
+    assert.equal(club.toggleRenderExperiment('anisotropy'), true);
+    assert.equal(textures[0].anisotropicFilteringLevel, 8);
+    writeFails = true;
+    assert.equal(club.toggleRenderExperiment('anisotropy'), false);
+    assert.equal(textures[0].anisotropicFilteringLevel, 8);
+    assert.match(messages.at(-1), /Could not save/);
+    writeFails = false;
+    caps.maxAnisotropy = 1;
+    assert.equal(club.toggleRenderExperiment('anisotropy'), false);
+    assert.match(messages.at(-1), /not available/);
+    assert.throws(() => club.toggleRenderExperiment('unknown'), /Unknown rendering experiment/);
+});
+
 test('XR multiview probe is opt-in and selects standard OVR multiview when available', () => {
     const { window } = loadClassic('js/club/01-core.js', { URLSearchParams });
     const configure = window.VRClubCore.configureXRMultiviewProbe;
@@ -7280,7 +7383,7 @@ test('a drag belongs to the pointer that started it: the other hand cannot steer
     assert.equal(calls.join(), 'release', 'with no drag, any release goes through');
 });
 
-test('the VR menu: COMFORT holds how you move, ME holds who you are, and the character picker pages nine at a time', () => {
+test('VR comfort separates advanced graphics and Wardrobe groups identity choices within twelve slots', () => {
     const BABYLON = { Axis: { Z: 'Z', Y: 'Y' }, Vector3: class {}, Color3: class { constructor(r, g, b) { Object.assign(this, { r, g, b }); } } };
     const store = new Map();
     const localStorage = { getItem: k => (store.has(k) ? store.get(k) : null), setItem: (k, v) => store.set(k, String(v)), removeItem: k => store.delete(k) };
@@ -7297,11 +7400,23 @@ test('the VR menu: COMFORT holds how you move, ME holds who you are, and the cha
     };
     const labels = page => UI._vrQuickMenuPageDefinitions.call(club, page).map(b => (b ? b.label : null));
 
-    const same = (a, b, message) => assert.equal(JSON.stringify(a), JSON.stringify(b), message);
+    const same = (a, b, message = '') => assert.equal(JSON.stringify(a), JSON.stringify(b), message);
     const comfort = labels('comfort');
-    same(comfort, ['LOCOMOTION', 'SAFE MODE', 'QUALITY', 'AUTO QUALITY', 'ME', 'CREDITS / LICENCES', '\u2190 BACK', 'CLOSE']);
-    same(labels('me'), ['MY CHARACTER', 'EDIT MY CHARACTER', 'MEASURE EYE HEIGHT', 'SEATED MODE', '\u2190 BACK', 'CLOSE']);
-    for (const page of ['comfort', 'me', 'character']) assert.ok(labels(page).length <= 12, `${page} fits the twelve slots`);
+    same(comfort, ['LOCOMOTION', 'SAFE MODE', 'SEATED MODE', 'MEASURE EYE HEIGHT', 'QUALITY', 'AUTO QUALITY',
+        'CONVERSATION AUDIO', 'ADVANCED GRAPHICS', 'CREDITS / LICENCES', 'CAMERA', '\u2190 BACK', 'CLOSE']);
+    same(labels('graphics'), ['4X EDGE SMOOTHING',
+        'HIGH PRECISION SHADERS', 'SMOOTH SHINY SURFACES', 'MAX TEXTURE FILTERING',
+        '\u2190 BACK', 'CLOSE']);
+    same(labels('me'), ['CHOOSE BODY', 'EDIT OUTFIT', '\u2190 BACK', 'CLOSE']);
+    same(labels('body'), ['CLUB CHARACTERS', '\u2190 BACK', 'CLOSE']);
+    for (const page of ['home', 'comfort', 'graphics', 'me', 'body', 'character']) {
+        assert.ok(labels(page).length <= 12, `${page} fits the twelve slots`);
+    }
+    club._multiplayer = () => ({ connected: true });
+    club._immersive = { needsAccess: () => true };
+    assert.equal(labels('home').length, 12, 'social controls and ACCESS must not displace CLOSE');
+    assert.equal(labels('home').at(-1), 'CLOSE');
+    assert.ok(labels('home').includes('ACCESS'));
 
     // Page one: the default and the eight women; page two: the nine men. Each names the kind of person and what they wear.
     const first = UI._vrCharacterPageDefinitions.call(club, { back: { label: 'BACK', action: 'back' }, close: { label: 'CLOSE', action: 'close' } });
@@ -11982,14 +12097,18 @@ test('VR menu: lighting and music buttons read HOST ONLY for a guest, and travel
     const club = Object.create(proto);
     club.multiplayer = { following: true };
     club.graphicsTier = 'ultra';
+    club.canUseVRMsaa4x = () => true;
+    club.canUseRenderExperiment = () => true;
+    club._renderExperiments = { precision: false };
     for (const owned of [{ action: 'seek' }, { action: 'playPause' }, { action: 'savedSet' }, { action: 'autoShow' }, { action: 'reset' },
         { action: 'cycle', control: 'changeColor' }, { control: 'lightsActive' }, { control: 'strobesActive' }]) {
         assert.equal(proto._vrQuickMenuButtonValue.call(club, owned, true), 'HOST ONLY', JSON.stringify(owned));
     }
     for (const local of [{ action: 'travel', control: 'danceFloor' }, { control: 'photosensitiveSafeMode' }, { control: 'vrComfortMode' },
-        { action: 'quality' }]) {
+        { action: 'quality' }, { action: 'vrMsaa4x' }, { action: 'renderExperiment', experiment: 'precision' }]) {
         assert.notEqual(proto._vrQuickMenuButtonValue.call(club, local, true), 'HOST ONLY', JSON.stringify(local));
     }
+    assert.match(proto._vrQuickMenuButtonValue.call(club, { action: 'renderExperiment', experiment: 'precision' }, true), /RELOAD/);
     club.multiplayer = { following: false };
     assert.notEqual(proto._vrQuickMenuButtonValue.call(club, { control: 'lightsActive' }, true), 'HOST ONLY');
 });
@@ -13364,8 +13483,8 @@ test('all VJ surfaces offer the multi-beam filter without projected shapes', () 
 
     const show = club._vrQuickMenuPageDefinitions('show');
     const sections = club._vrQuickMenuPageDefinitions('showSections');
-    assert.ok(show.some(button => button && button.action === 'showDrop'));
-    assert.ok(show.some(button => button && button.target === 'showSections'));
+    assert.ok(show.some(button => button && button.action === 'showPeak'));
+    assert.ok(show.some(button => button && button.action === 'travel' && button.control === 'djBooth'));
     assert.deepEqual([...sections.filter(button => button.action === 'showSection').map(button => button.section)],
         ['arrival', 'pulse', 'ascent', 'ignition', 'afterglow']);
 
@@ -13456,6 +13575,9 @@ test('setVoiceDuck dips the music after the compressor, changes only on a change
     assert.equal(club.setVoiceDuck(true), true);
     assert.equal(targets.length, 1, 'a repeated request does not reschedule the fade');
     assert.equal(targets[0], club.constructor.VOICE_DUCK_LEVEL);
+    club.setVoiceDuck(true, 0.55);
+    club.setVoiceDuck(true, 0.55);
+    assert.deepEqual(targets, [0.25, 0.55], 'nearby mode eases to a gentler level without rescheduling identical requests');
     club.setVoiceDuck(false);
     assert.equal(targets.at(-1), 1);
     assert.equal(club._audioVolume ?? 1, 1, 'the user\'s own music volume is untouched');
@@ -15745,7 +15867,7 @@ test('the lights panel offers a strobe pattern, show sections and the hold choic
     assert.match(ui, /\[data-hold\], #vjHoldTiming/);
 });
 
-test('the VR menu offers the strobe pattern, the next section and the hold choice, with the timing disabled while keeping', () => {
+test('VR Show offers simple moods and booth navigation while retaining personal hold policy semantics', () => {
     const { window } = loadClassic('js/club/10-ui.js', { VRClubAnimationFinish: class {}, VRClubCore: { peopleCategories: () => [] } });
     const proto = window.VRClubUI.prototype;
     const club = Object.create(proto);
@@ -15754,11 +15876,13 @@ test('the VR menu offers the strobe pattern, the next section and the hold choic
     const label = (page, text) => club._vrQuickMenuPageDefinitions(page).filter(Boolean).find(item => item.label === text);
     assert.ok(label('effects', 'STROBE PATTERN'), 'EFFECTS has no strobe pattern button');
     assert.equal(club._vrQuickMenuPageDefinitions('effects').filter(Boolean).length <= 12, true);
-    for (const text of ['NEXT SECTION', 'AFTER MY CHANGE', 'AUTO AFTER']) assert.ok(label('show', text), `SHOW is missing ${text}`);
-    club.lightHold.mode = 'shuffle';
-    assert.ok(label('show', 'COLOUR EVERY'));
+    for (const text of ['AUTO NOCTURNE', 'AUTO AESTHETIC', 'DROP NOW', 'BLACKOUT', 'GO TO VJ BOOTH']) {
+        assert.ok(label('show', text), `SHOW is missing ${text}`);
+    }
+    assert.equal(label('show', 'NEXT SECTION'), undefined);
+    assert.equal(label('home', 'LIGHTS'), undefined, 'detailed lighting lives at the physical booth');
+    assert.equal(label('home', 'EFFECTS'), undefined);
     club.lightHold.mode = 'keep';
-    assert.ok(label('show', 'TIMING'));
     assert.equal(club._isVRButtonDisabled({ action: 'holdTiming' }), true, 'KEEP IT has no timing');
     club.isFollowingHost = () => false;
     club.lightHold.mode = 'resume';

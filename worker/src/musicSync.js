@@ -7,6 +7,7 @@
 // `items: null` means the account has never saved a list, so a headset keeps whatever it has locally. Validation here only
 // keeps junk and non-HTTPS links out of the table; the headset's MusicLibrary applies the full playback rules again.
 import { accessSession, limit } from './accessRecovery.js';
+import '../../link/presetValidation.js';
 
 export const MAX_MUSIC_SETS = 8;
 const MAX_URL = 500;
@@ -35,7 +36,7 @@ export function cleanMusicItems(value) {
     });
 }
 
-async function readBounded(request) {
+async function readBounded(request, maxBytes = MAX_BODY) {
     if (!request.body) return null;
     const reader = request.body.getReader();
     const decoder = new TextDecoder();
@@ -45,7 +46,7 @@ async function readBounded(request) {
             const { done, value } = await reader.read();
             if (done) break;
             length += value.byteLength;
-            if (length > MAX_BODY) { await reader.cancel(); return null; }
+            if (length > maxBytes) { await reader.cancel(); return null; }
             text += decoder.decode(value, { stream: true });
         }
         text += decoder.decode();
@@ -57,6 +58,9 @@ async function readBounded(request) {
 
 export async function handleMusicSync(request, env, headers, helpers) {
     const path = new URL(request.url).pathname;
+    if (path === '/payments/lighting' || path === '/payments/lighting/save') {
+        return handleLightingSync(request, env, headers, helpers, path);
+    }
     if (path !== '/payments/music' && path !== '/payments/music/save') return null;
     const { json } = helpers;
     const respond = (body, status = 200) => json(body, status, headers);
@@ -64,17 +68,74 @@ export async function handleMusicSync(request, env, headers, helpers) {
     if (!env.DB || !env.SESSION_SECRET || env.ACCESS_RECOVERY_ENABLED !== '1') {
         return respond({ error: 'music_unavailable', message: 'Saving music is not configured.' }, 503);
     }
+
+    async function handleLightingSync(request, env, headers, { json }, path) {
+        const respond = (body, status = 200) => json(body, status, headers);
+        const reading = path === '/payments/lighting';
+        if (request.method !== (reading ? 'GET' : 'POST')) return respond({ message: 'Method not allowed.' }, 405);
+        if (!env.DB || !env.SESSION_SECRET || env.ACCESS_RECOVERY_ENABLED !== '1') {
+            return respond({ error: 'lighting_unavailable', message: 'Lighting transfer is not configured.' }, 503);
+        }
+        try {
+            const session = await accessSession(request, env);
+            if (!session) return respond({ error: 'verification_required', message: 'Verify your email first.' }, 401);
+            const row = await env.DB.prepare('SELECT presets, updated_at FROM account_lighting_presets WHERE user_id = ?')
+                .bind(session.user_id).first();
+            let current = null;
+            if (row) {
+                try { current = globalThis.NocturnePresetValidator.parse(row.presets); }
+                catch (_) {
+                    return respond({ error: 'lighting_corrupt', message: 'The account lighting backup cannot be read. It was not changed.' }, 409);
+                }
+            }
+            if (reading) return respond({ presets: current, updatedAt: row?.updated_at || 0, email: session.email });
+            const body = await readBounded(request, 70000);
+            if (!body || typeof body !== 'object' || typeof body.presets !== 'string'
+                || !Number.isSafeInteger(body.expectedUpdatedAt) || body.expectedUpdatedAt < 0
+                || new TextEncoder().encode(body.presets).byteLength > 65536) {
+                return respond({ error: 'invalid_lighting', message: 'Invalid lighting backup.' }, 400);
+            }
+            let presets;
+            try { presets = globalThis.NocturnePresetValidator.parse(body.presets); }
+            catch (error) { return respond({ error: 'invalid_lighting', message: error.message }, 400); }
+            if ((row?.updated_at || 0) !== body.expectedUpdatedAt) {
+                return respond({ error: 'lighting_conflict', message: 'The account backup changed. Reload it before replacing it.' }, 409);
+            }
+            if (!await limit(env, `lighting-save:${session.user_id}`, 60, 3600000)) {
+                return respond({ error: 'lighting_rate_limit', message: 'Too many changes. Please try again later.' }, 429);
+            }
+            const now = Math.max(Date.now(), (row?.updated_at || 0) + 1);
+            const text = JSON.stringify(presets);
+            const result = row
+                ? await env.DB.prepare('UPDATE account_lighting_presets SET presets = ?, updated_at = ? WHERE user_id = ? AND updated_at = ? AND presets = ?')
+                    .bind(text, now, session.user_id, row.updated_at, row.presets).run()
+                : await env.DB.prepare('INSERT OR IGNORE INTO account_lighting_presets (user_id, presets, updated_at) VALUES (?, ?, ?)')
+                    .bind(session.user_id, text, now).run();
+            if ((result.meta?.changes ?? result.changes) !== 1) {
+                return respond({ error: 'lighting_conflict', message: 'The account backup changed. Reload it before replacing it.' }, 409);
+            }
+            return respond({ presets, updatedAt: now });
+        } catch (error) {
+            console.error('lighting sync failed', error && error.message);
+            return respond({ error: 'lighting_failed', message: 'Could not reach your lighting backup. Please retry.' }, 503);
+        }
+    }
     try {
         const session = await accessSession(request, env);
         if (!session) return respond({ error: 'verification_required', message: 'Verify your email first.' }, 401);
 
+        const row = await env.DB.prepare('SELECT items, updated_at FROM account_music WHERE user_id = ?').bind(session.user_id).first();
+        let current = null;
+        if (row) {
+            try { current = cleanMusicItems(JSON.parse(row.items)); }
+            catch (_) {
+                return respond({ error: 'music_corrupt', message: 'Your account music list cannot be read. It was not changed.' }, 409);
+            }
+        }
         if (request.method === 'GET') {
-            const row = await env.DB.prepare('SELECT items, updated_at FROM account_music WHERE user_id = ?').bind(session.user_id).first();
             // The email lets a headset (which cannot show a keyboard) tell its owner which account the phone must use.
             if (!row) return respond({ items: null, updatedAt: 0, email: session.email });
-            let items;
-            try { items = JSON.parse(row.items); } catch (_) { items = []; }
-            return respond({ items: Array.isArray(items) ? items : [], updatedAt: row.updated_at, email: session.email });
+            return respond({ items: current, updatedAt: row.updated_at, email: session.email });
         }
 
         const body = await readBounded(request);

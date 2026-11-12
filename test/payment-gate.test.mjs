@@ -8,7 +8,7 @@ import vm from 'node:vm';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
 
-function loadPaymentGate(handler, search = '') {
+function loadPaymentGate(handler, search = '', hostname = 'club.example') {
     const elements = [], requests = [], timers = new Map(), events = {};
     let now = 100000, wallNow = 100000, timerId = 0;
     const document = {
@@ -38,13 +38,13 @@ function loadPaymentGate(handler, search = '') {
         }
     };
     const window = {
-        location: { origin: 'https://club.example', search, pathname: '/', hash: '', assign(url) { this.assigned = url; } },
+        location: { origin: 'https://club.example', hostname, search, pathname: '/', hash: '', assign(url) { this.assigned = url; } },
         history: { replaceState() { this.replaced = true; } },
         addEventListener(type, fn) { events[type] = fn; },
         removeEventListener(type, fn) { if (events[type] === fn) delete events[type]; }
     };
     const context = vm.createContext({
-        window, document, URLSearchParams, console,
+        window, document, URLSearchParams, AbortController, console,
         Date: { now: () => wallNow }, performance: { now: () => now }, crypto: { randomUUID: () => 'tab-uuid' },
         setTimeout: (fn, delay) => { timers.set(++timerId, { fn, delay, interval: false }); return timerId; },
         setInterval: (fn, delay) => { timers.set(++timerId, { fn, delay, interval: true }); return timerId; },
@@ -86,6 +86,70 @@ function loadPaymentGate(handler, search = '') {
 }
 const fresh = { entitled: false, configured: true, verified: false, deviceRegistered: false, devices: [] };
 const registered = { entitled: true, configured: true, verified: true, deviceRegistered: true, devices: [] };
+
+test('phone music sync works independently of immersive launch and refuses unreadable local data', async () => {
+    const h = loadPaymentGate(async path => path === '/music' ? { items: [{ url: 'https://audio.example/set.mp3' }] } : registered);
+    const library = { readError: '', replaceAll(items) { this.items = items; return { count: items.length }; } };
+    const result = await h.window.VRPayment.syncPhoneMusic(library);
+    assert.equal(result.count, 1);
+    assert.equal(library.items[0].url, 'https://audio.example/set.mp3');
+    library.readError = 'corrupt';
+    await assert.rejects(h.window.VRPayment.syncPhoneMusic(library), /cannot be read/);
+    assert.equal(h.requests.filter(request => request.path === '/music').length, 1);
+});
+
+test('isolated development explicitly reports companion unavailable without contacting account services', async () => {
+    const h = loadPaymentGate(async () => { throw new Error('unexpected network request'); }, '', 'nocturnedev.mitwee.nl');
+    assert.equal(h.window.VRPayment.phoneCompanionAvailable, false);
+    await assert.rejects(h.window.VRPayment.syncPhoneMusic({}), /unavailable on the development site/);
+    await assert.rejects(h.window.VRPayment.fetchLightingPresets(), /unavailable on the development site/);
+    assert.equal(h.requests.length, 0);
+});
+
+test('ordinary VR pairing is explicit, bounded and cancellable without entering XR', async () => {
+    let approve = false;
+    const h = loadPaymentGate(async path => {
+        if (path === '/link/start') return { linkId: '11111111-1111-1111-1111-111111111111', secret: 'a'.repeat(64), code: '12345678', expiresInSeconds: 10, intervalSeconds: 3 };
+        if (path === '/link/poll') return { body: { status: approve ? 'approved' : 'pending', ...registered } };
+        return registered;
+    });
+    const codes = [], statuses = [];
+    const pairing = h.window.VRPayment.startPhonePairing({ onCode: code => codes.push(code), onStatus: status => statuses.push(status) });
+    await new Promise(resolve => setImmediate(resolve));
+    assert.equal(codes[0].code, '12345678');
+    let timer = [...h.timers.values()].find(value => value.delay === 3000 && !value.interval);
+    h.setNow(103000);
+    timer.fn();
+    await new Promise(resolve => setImmediate(resolve));
+    assert.deepEqual(statuses, ['pending']);
+    approve = true;
+    timer = [...h.timers.values()].filter(value => value.delay === 3000 && !value.interval).at(-1);
+    h.setNow(106000);
+    timer.fn();
+    assert.equal(await pairing.done, 'approved');
+    assert.deepEqual(statuses, ['pending', 'approved']);
+    assert.equal(h.requests.filter(request => request.path === '/link/poll').length, 2);
+    const next = h.window.VRPayment.startPhonePairing();
+    await new Promise(resolve => setImmediate(resolve));
+    next.cancel();
+    assert.equal(await next.done, 'cancelled');
+    assert.equal(h.requests.filter(request => request.path === '/link/poll').length, 2);
+});
+
+test('ordinary VR pairing stops at expiry without polling', async () => {
+    const h = loadPaymentGate(async path => path === '/link/start'
+        ? { linkId: '11111111-1111-1111-1111-111111111111', secret: 'a'.repeat(64), code: '12345678', expiresInSeconds: 2, intervalSeconds: 3 }
+        : registered);
+    const statuses = [];
+    const pairing = h.window.VRPayment.startPhonePairing({ onStatus: status => statuses.push(status) });
+    await new Promise(resolve => setImmediate(resolve));
+    const expiry = [...h.timers.values()].find(value => value.delay === 2000 && !value.interval);
+    h.setNow(102000);
+    expiry.fn();
+    assert.equal(await pairing.done, 'expired');
+    assert.deepEqual(statuses, ['expired']);
+    assert.equal(h.requests.filter(request => request.path === '/link/poll').length, 0);
+});
 
 test('access dialog has an explicit header Close button that dismisses without entering VR', async () => {
     const gate = loadPaymentGate(() => fresh);

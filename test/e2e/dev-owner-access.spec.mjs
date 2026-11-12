@@ -15,11 +15,36 @@ test('development Online offers owner sign-in, retries 000032 and keeps ordinary
     let payments = 0;
     const keys = await generateKeyPair('RS256');
     const jwk = { ...await exportJWK(keys.publicKey), kid: 'browser-owner', alg: 'RS256', use: 'sig' };
+    const sessions = new Map();
     const env = {
         DEV_ROOM_ENABLED: '1', MEDIA_TRANSPORT: 'sfu', DEV_ROOM_OWNERS: 'owner@example.com',
         DEV_OWNER_ACCESS: '1', DEV_OWNER_ORIGIN: 'https://api.mitwee.nl',
         DEV_ACCESS_TEAM_DOMAIN: 'https://browser-team.cloudflareaccess.com', DEV_ACCESS_AUD: 'browser-owner',
-        ALLOWED_ORIGINS: 'https://nocturnedev.mitwee.nl', DB: {}
+        ALLOWED_ORIGINS: 'https://nocturnedev.mitwee.nl',
+        DB: {
+            prepare(sql) {
+                return {
+                    bind(...args) {
+                        return {
+                            sql, args,
+                            async run() { return {}; },
+                            async first() {
+                                const row = sessions.get(args[0]);
+                                return row && row.expires_at > args[1] ? { email: row.email } : null;
+                            }
+                        };
+                    }
+                };
+            },
+            async batch(statements) {
+                for (const { sql, args } of statements) {
+                    if (/INSERT INTO dev_owner_sessions/i.test(sql)) {
+                        sessions.set(args[0], { email: args[1], created_at: args[2], expires_at: args[3] });
+                    }
+                }
+                return [];
+            }
+        }
     };
     const jwt = await new SignJWT({ type: 'app', email: 'owner@example.com' })
         .setProtectedHeader({ alg: 'RS256', kid: 'browser-owner' }).setSubject('owner')
@@ -91,6 +116,8 @@ test('development Online offers owner sign-in, retries 000032 and keeps ordinary
         await expect(login.getByRole('heading', { name: 'Development owner signed in' })).toBeVisible();
         const cookie = (await context.cookies('https://api.mitwee.nl/dev-owner/check')).find(value => value.name === DEV_OWNER_COOKIE);
         expect(cookie).toMatchObject({ httpOnly: true, secure: true, path: '/dev-owner/', sameSite: 'None' });
+        expect(cookie.value).toMatch(/^dvo_[a-f0-9]{64}$/);
+        expect(cookie.expires).toBeGreaterThan(Date.now() / 1000 + 360 * 86400);
         expect(await login.evaluate(() => document.cookie)).not.toContain(DEV_OWNER_COOKIE);
         await login.close();
         await page.locator('#networkConnectBtn').click();

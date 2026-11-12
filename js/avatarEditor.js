@@ -544,7 +544,8 @@ class AvatarEditor {
                 const meshes = loaded.root.getChildMeshes?.() || [];
                 meshes.forEach(mesh => { mesh.layerMask = layer; mesh.isPickable = false; mesh._resyncLightSources?.(); });
                 loaded.root.setEnabled?.(true);
-                this._setVRPreviewLight(meshes);
+                if (this.mirrorEditing) this._attachMirrorPreview(loaded, meshes);
+                else this._setVRPreviewLight(meshes);
             } else {
                 this.preview = loaded;
                 this.previewBase = appearance.base;
@@ -642,12 +643,13 @@ class AvatarEditor {
         }
     }
 
-    openVR() {
+    openVR({ mirror = false } = {}) {
         if (this._saving) {
             this.club.showErrorMessage?.('Wait for your wardrobe to finish saving.');
             return false;
         }
         this.close(true);
+        this.mirrorEditing = mirror && !!this.club.restroomMirrorTexture && !this.club.isCustomAvatarSelected?.();
         if (this.club?.isCustomAvatarSelected?.()) {
             try {
                 this.vrDraft = window.CustomAvatarAppearance.sanitize(this.club.getCustomAvatarAppearance());
@@ -688,11 +690,16 @@ class AvatarEditor {
         }
         if (!this.vrVisible && !this.openVR()) return;
         this.vrPage = page;
-        if (menuRoot && this.vrAnchor) this.vrAnchor.parent = menuRoot;
+        if (menuRoot && this.vrAnchor && !this.mirrorEditing) this.vrAnchor.parent = menuRoot;
         if (this.vrPreview?.root) this.vrPreview.root.setEnabled?.(true);
     }
 
     closeVR() {
+        this.mirrorEditing = false;
+        if (this._mirrorPreviewObserver) this.club.scene.onAfterAnimationsObservable.remove(this._mirrorPreviewObserver);
+        this._mirrorPreviewObserver = null;
+        this.club._wardrobeMirrorPreview = null;
+        this.club._syncRestroomMirrorRenderList?.();
         this.vrVisible = false;
         this._customVREditing = false;
         this.loadGeneration++;
@@ -711,6 +718,62 @@ class AvatarEditor {
         }
         this.vrDraft = null;
         this._vrStatus = this._vrError = null;
+    }
+
+    _attachMirrorPreview(loaded, meshes) {
+        if (this._mirrorPreviewObserver) this.club.scene.onAfterAnimationsObservable.remove(this._mirrorPreviewObserver);
+        loaded.root.parent = null;
+        for (const group of loaded.entry.animationGroups) group.stop();
+        loaded.root.scaling.setAll(1);
+        loaded.root.position.setAll(0);
+        loaded.root.rotationQuaternion = null;
+        loaded.root.rotation.setAll(0);
+        loaded.root.computeWorldMatrix(true);
+        const bounds = loaded.root.getHierarchyBoundingVectors(true, mesh => !mesh.metadata?.vrclubAdornment);
+        const eye = this.club._characterEyePoint(loaded.root, bounds.min.y);
+        const eyeHeight = eye ? eye.y - bounds.min.y : (bounds.max.y - bounds.min.y) * 0.935;
+        if (!(eyeHeight > 0.3)) throw new Error('The wardrobe body has no measurable eye height.');
+        const scale = this.club._shownBodyEye() / eyeHeight;
+        loaded.root.scaling.setAll(scale);
+        const floorOffset = -bounds.min.y * scale;
+        const pairs = [];
+        const source = this.club._mirrorDouble;
+        const targetBones = loaded.entry.skeletons.flatMap(skeleton => skeleton.bones);
+        for (const skeleton of source?.skeletons || []) {
+            for (const bone of skeleton.bones) {
+                const name = bone.name.replace(/^mirrorSelf_/, '');
+                const target = targetBones.find(candidate => candidate.name.endsWith(name))?.getTransformNode();
+                const node = bone.getTransformNode();
+                if (node && target) pairs.push({ node, target });
+            }
+        }
+        for (const mesh of meshes) {
+            mesh.layerMask = 0x0FFFFFFF;
+            mesh.isVisible = false;
+        }
+        this.club._wardrobeMirrorPreview = { root: loaded.root, meshes };
+        this.club._syncRestroomMirrorRenderList();
+        this._mirrorPreviewObserver = this.club.scene.onAfterAnimationsObservable.add(() => {
+            const body = this.club._mirrorDouble;
+            if (body !== source) {
+                this.closeVR();
+                this.club.showErrorMessage('Your body changed. Reopen Wardrobe to continue editing.');
+                return;
+            }
+            const camera = this.club._playerCamera();
+            if (!camera) return;
+            const playerRoot = body?.root || this.club._localRig?.root;
+            const position = playerRoot?.position || camera.position;
+            loaded.root.position.x = position.x;
+            loaded.root.position.z = position.z;
+            loaded.root.position.y = (playerRoot ? position.y : (this.club._walkLevel || 0)) + floorOffset;
+            loaded.root.rotation.y = playerRoot?.rotation.y || 0;
+            for (const { node, target } of pairs) {
+                if (node.rotationQuaternion && target.rotationQuaternion) target.rotationQuaternion.copyFrom(node.rotationQuaternion);
+                else target.rotation.copyFrom(node.rotation);
+            }
+            for (const skeleton of loaded.entry.skeletons) skeleton.prepare(true);
+        });
     }
 
     _vrCommon() {

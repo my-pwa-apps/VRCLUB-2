@@ -51,12 +51,13 @@ test('the VR menu glass is drawn only as tall as the page\u2019s last button row
     assert.ok(four > 0.855 * 632, 'the glass must cover the last row of buttons');
 });
 
-test('the VR menu says which buttons leave the immersive session before they are pressed', () => {
+test('only local setup warns about leaving VR; native credits and phone transfer do not', () => {
     const VRClubUI = loadMenuClass();
     const menu = Object.create(VRClubUI.prototype);
     menu.isFollowingHost = () => false;
-    for (const action of ['musicSetup', 'credits']) {
-        assert.equal(menu._vrQuickMenuButtonValue({ action, label: 'X' }, false), 'LEAVES VR', action);
+    assert.equal(menu._vrQuickMenuButtonValue({ action: 'musicSetup' }, false), 'LEAVES VR');
+    for (const action of ['credits', 'phoneOpen']) {
+        assert.notEqual(menu._vrQuickMenuButtonValue({ action, label: 'X' }, false), 'LEAVES VR', action);
     }
 });
 

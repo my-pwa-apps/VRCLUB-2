@@ -81,6 +81,75 @@ function welcomed(client, extra = {}) {
     return socket;
 }
 
+test('VJ capability is explicit, acknowledged and lighting authority stays separate from host music', () => {
+    const { mp, club } = spotController();
+    mp.connect({ serverUrl: 'wss://relay.example', room: 'r' });
+    const socket = FakeSocket.instances.at(-1);
+    socket.receive({ type: 'welcome', id: 'me', hostId: 'p1', vjPass: true, vjId: null,
+        peers: [{ id: 'p1', name: 'Host' }, { id: 'p2', name: 'Guest' }] });
+    assert.equal(mp.following, true);
+    assert.equal(mp.canControlLights(), false);
+    socket.receive({ type: 'vj-pass', id: 'me' });
+    assert.equal(mp.isHost(), false);
+    assert.equal(mp.following, true, 'the VJ still follows host music');
+    assert.equal(mp.followingLights, false);
+    assert.equal(mp.canControlLights(), true);
+    assert.equal(club.showDirector.follower, false);
+    assert.equal(mp.client.sendShow({ m: 'manual', fx: { lightsActive: false } }), true);
+    assert.equal(mp.setLocked(true), false);
+    socket.receive({ type: 'vj-pass', id: null });
+    assert.equal(mp.canControlLights(), false);
+    assert.equal(club.showDirector.follower, true);
+    assert.equal(mp.client.sendShow({ m: 'manual' }), false);
+    mp.disconnect();
+});
+
+test('old relays explicitly refuse VJ passes and water without optimistic state', () => {
+    const { NetworkClient } = load();
+    const client = new NetworkClient({ serverUrl: 'wss://relay.example' });
+    const socket = welcomed(client, { peers: [{ id: 'p1', name: 'Peer' }] });
+    const errors = [];
+    client.onError = error => errors.push(error.message);
+    assert.equal(client.setVJPass('p1'), false);
+    assert.equal(client.sendWater('order'), false);
+    assert.equal(client.sendWaterClink('p1'), false);
+    assert.equal(client.vjId, null);
+    assert.equal(socket.last('vj-pass'), undefined);
+    assert.equal(socket.last('water'), undefined);
+    assert.ok(errors[0].includes('does not support'));
+    assert.ok(errors[1].includes('shared water support'));
+    client.disconnect();
+});
+
+test('joining clears offline water; a failed room never enables a local fallback', () => {
+    const { mp, club } = spotController();
+    const snapshots = [];
+    club.setSessionWater = drinks => snapshots.push(drinks);
+    mp.connect({ serverUrl: 'wss://relay.example', room: 'r' });
+    assert.equal(mp._waterOfflineAllowed, false);
+    assert.deepEqual(plain(snapshots.at(-1)), []);
+    FakeSocket.instances.at(-1).receive({ type: 'welcome', id: 'me', hostId: 'me', peers: [] });
+    assert.equal(mp._waterOfflineAllowed, false);
+    mp.disconnect();
+    assert.equal(mp._waterOfflineAllowed, true);
+    assert.deepEqual(plain(snapshots.at(-1)), []);
+});
+
+test('clink events accept only supported, visible parties with finite locations', () => {
+    const { NetworkClient } = load();
+    const client = new NetworkClient({ serverUrl: 'wss://relay.example' });
+    const socket = welcomed(client, { waterClink: true, peers: [{ id: 'p1', name: 'Peer' }] });
+    const sounds = [];
+    client.onWaterClink = event => sounds.push(event);
+    assert.equal(client.sendWaterClink('p1'), true);
+    assert.equal(socket.last('water-clink').target, 'p1');
+    socket.receive({ type: 'water-clink', id: 'me', target: 'p1', x: 9, y: 1.3, z: -7 });
+    socket.receive({ type: 'water-clink', id: 'me', target: 'unknown', x: 9, y: 1.3, z: -7 });
+    socket.receive({ type: 'water-clink', id: 'me', target: 'p1', x: null, y: 1.3, z: -7 });
+    assert.equal(sounds.length, 1);
+    client.disconnect();
+});
+
 test('DEV entry preflights the owner account, keeps the room parameters and cannot open after cancellation', async () => {
     const { window, NetworkClient } = load();
     let resolve;
@@ -737,9 +806,15 @@ test('host mingler music survives the relay for listeners, late joins, silence a
         const guest = connectedController([{ id: 'p1', pid: PID_B, name: 'Bo' }], { hostId: 'p1' });
         fakeRig(guest.club);
         guest.mp.client.musicListening = listening;
+        const beforeApply = Date.now() + (guest.mp.client.serverOffset || 0);
         guest.mp._applyShow(frame);
+        const afterApply = Date.now() + (guest.mp.client.serverOffset || 0);
         assert.equal(guest.club._sharedMinglerMusic.beatPresent, true);
-        assert.ok(Math.abs(guest.club._sharedMinglerMusic.beat - 1.25) < 0.1);
+        const sampleTime = Date.parse(frame.fx.danceAt);
+        const firstBeat = 1.25 + Math.max(0, beforeApply - sampleTime) * 126 / 60000;
+        const lastBeat = 1.25 + Math.max(0, afterApply - sampleTime) * 126 / 60000;
+        assert.ok(guest.club._sharedMinglerMusic.beat >= firstBeat - 1e-6 &&
+            guest.club._sharedMinglerMusic.beat <= lastBeat + 1e-6, 'the shared beat advances by the elapsed server time');
         assert.equal(guest.club._sharedMinglerMusic.bpm, 126);
         guest.mp._applyShow(sanitizeShow({ m: 'show', fx: { ...frame.fx, dancePulse: false, danceBpm: 90 } }));
         assert.equal(guest.club._sharedMinglerMusic.beatPresent, false);
@@ -1005,6 +1080,33 @@ test('room DJ and all nine audio controls travel in automatic and manual frames 
     assert.equal(socket.last('show').m, 'manual');
     assert.equal(socket.last('show').dj, true);
     assert.deepEqual(plain(socket.last('show').audioFx), plain(env.window.VRClubAudioCrowd.DJ_EFFECT_DEFAULTS));
+});
+
+test('a lights-only VJ cannot edit the room character style, music or DJ effects', async () => {
+    const env = spotController(), { mp, club, context, window } = env;
+    const controls = window.VRClubUI.prototype;
+    club.isFollowingHost = controls.isFollowingHost;
+    club.guardHostControl = controls.guardHostControl;
+    club.showErrorMessage = () => {};
+    vm.runInContext(readFileSync(join(ROOT, 'js/characterStyles.js'), 'utf8'), context);
+    attachPerformance(env);
+    club.setCharacterStyle = window.CharacterStyles.setCharacterStyle;
+    club.setDJEffect = window.VRClubAudioCrowd.prototype.setDJEffect;
+    mp.connect({ serverUrl: 'wss://relay.example', room: 'r' });
+    const socket = FakeSocket.instances.at(-1);
+    socket.receive({ type: 'welcome', id: 'me', hostId: 'p1', vjPass: true, vjId: 'me',
+        peers: [{ id: 'p1', name: 'Host' }] });
+    assert.equal(club.guardHostControl('lights'), true);
+    assert.equal(club.guardHostControl('music'), false);
+    assert.equal(await club.setCharacterStyle('diverse'), false);
+    assert.equal(club.setDJEffect('echo', 1), false);
+    assert.notEqual(club.djEffectsSnapshot().echo, 1);
+    club.setPeopleVisible('dj', false);
+    mp._syncShared(1000);
+    const sent = socket.last('show');
+    assert.equal(sent?.dj, false, 'personal DJ preference can still be presented in a VJ frame');
+    assert.equal(mp.isHost(), false, 'the relay, not the client snapshot, retains room DJ authority');
+    mp.disconnect();
 });
 
 test('followers adopt room performance without persisting the host DJ choice, restore on leaving, and keep effects on promotion', () => {
@@ -1855,6 +1957,26 @@ test('the music is lowered while my mic is on or someone talks, held briefly, an
     mp._updateVoiceDuck(6000);
     assert.equal(calls.at(-1), false);
     assert.equal(mp.storage.getItem(mp.constructor.PREFS.duckForVoice), '0');
+});
+
+test('optional nearby clarity uses gentler distance-weighted ducking and leaves standard mode intact', () => {
+    const { mp, club } = connectedController();
+    const calls = [];
+    let mode = 'nearby', strength = 1;
+    club.getVoiceClarityMode = () => mode;
+    club.nearbyVoiceActivity = () => strength;
+    club.setVoiceDuck = (active, level) => calls.push({ active, level });
+    mp._updateVoiceDuck(1000);
+    assert.deepEqual(calls.at(-1), { active: true, level: 0.55 });
+    strength = 0;
+    mp._updateVoiceDuck(1100);
+    assert.deepEqual(calls.at(-1), { active: true, level: 0.55 });
+    mp._updateVoiceDuck(1000 + mp.constructor.DUCK_HOLD_MS + 1);
+    assert.equal(calls.at(-1).active, false);
+    mode = 'standard';
+    mp.client.micEnabled = true;
+    mp._updateVoiceDuck(5000);
+    assert.deepEqual(calls.at(-1), { active: true, level: undefined });
 });
 
 test('leaving the room always brings the music back up', () => {

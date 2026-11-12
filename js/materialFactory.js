@@ -9,10 +9,20 @@ class MaterialFactory {
     // be inferred from substrings in the material NAME ('led', 'beam', ...), so a
     // rename or a new animated material could silently change runtime behaviour.
 
-    constructor(scene, maxLights = 4, logger = null) {
+    constructor(scene, maxLights = 4, logger = null, { specularAA = false } = {}) {
         this.scene = scene;
         this.maxLights = maxLights;
         this.log = logger || console; // Use provided logger or fallback to console
+        this._SpecularAAPlugin = specularAA ? class extends BABYLON.MaterialPluginBase {
+            constructor(material) {
+                super(material, 'VRClubSpecularAA', 200, undefined, true, true);
+                this.doNotSerialize = true;
+            }
+            prepareDefines(defines, scene) {
+                // Babylon 9.28's simple PBR material does not expose the public PBRMaterial switch.
+                defines.SPECULARAA = !!scene.getEngine().getCaps().standardDerivatives;
+            }
+        } : null;
         
         // Cache of shared materials (keyed by material type).
         // Object.create(null): keys are derived from config VALUES, so a key of
@@ -312,6 +322,7 @@ class MaterialFactory {
         }
 
         const mat = new BABYLON.PBRMetallicRoughnessMaterial(name, this.scene);
+        if (this._SpecularAAPlugin) new this._SpecularAAPlugin(mat);
         mat.baseColor = new BABYLON.Color3(...baseColor);
         mat.metallic = metallic;
         mat.roughness = roughness;

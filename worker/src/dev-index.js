@@ -1,5 +1,5 @@
 import relay from './relay.js';
-import { devRoomAccess, DEV_ROOM, DEV_OWNER_COOKIE, DEV_OWNER_SIGN_IN } from './devRoomAccess.js';
+import { devRoomAccess, issueDevOwnerSession, DEV_ROOM, DEV_OWNER_SIGN_IN } from './devRoomAccess.js';
 export { ClubRoom } from './relay.js';
 export { LiveAudioEvent } from './liveEvents.js';
 
@@ -20,11 +20,11 @@ export default {
                 return Response.json({ message: 'Method not allowed.' }, { status: 405, headers });
             }
             try {
-                const denied = await devRoomAccess(request, env);
+                const { denied, cookie } = await issueDevOwnerSession(request, env);
                 if (denied) return Response.json(denied, { status: denied.status, headers });
-                headers['set-cookie'] = `${DEV_OWNER_COOKIE}=${request.headers.get('Cf-Access-Jwt-Assertion')}; Path=/dev-owner/; Secure; HttpOnly; SameSite=None`;
+                headers['set-cookie'] = cookie;
                 headers['content-type'] = 'text/html; charset=utf-8';
-                return new Response('<!doctype html><html lang="en"><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Development owner signed in</title><h1>Development owner signed in</h1><p>Return to your club tab and press Join room for 000032. You can close this tab.</p><p>This login applies only to this browser or headset. It does not change purchases or production access.</p><a href="https://nocturnedev.mitwee.nl/">Open the development club</a></html>', { headers });
+                return new Response('<!doctype html><html lang="en"><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Development owner signed in</title><h1>Development owner signed in</h1><p>Return to your club tab and press Join room for 000032. You can close this tab.</p><p>This login is remembered on this browser or headset for one year across restarts. It does not change purchases or production access.</p><a href="https://nocturnedev.mitwee.nl/">Open the development club</a></html>', { headers });
             } catch (error) {
                 console.error('Development owner sign-in unavailable', error.name);
                 return Response.json({ message: 'Owner verification is temporarily unavailable. Try signing in again shortly.' }, { status: 503, headers });

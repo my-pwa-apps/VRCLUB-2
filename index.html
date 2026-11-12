@@ -254,15 +254,19 @@
                     <button class="vj-button active" id="vjPeopleDJ" type="button" aria-pressed="true" data-people="dj">DJ</button>
                 </div>
                 <button class="vj-button vj-button-wide active" id="vjPeopleAll" type="button" aria-pressed="true" data-people="all">EVERYONE</button>
-                <label class="vj-field-label" for="characterStyle">Character style</label>
+                <label class="vj-field-label" for="characterStyle">Crowd detail</label>
                 <p class="vj-help">Quaternius is lightweight and stays the default. Diverse adults replaces dancers, guests, staff and player bodies with the CC0 MakeHuman cast. The host chooses for the room. Loading the detailed cast may pause the picture briefly and uses more CPU/GPU and memory.</p>
                 <select class="audio-input" id="characterStyle">
-                    <option value="quaternius">Quaternius (lightweight)</option>
-                    <option value="diverse">Diverse adults (more detailed)</option>
+                    <option value="quaternius">Standard (lightweight)</option>
+                    <option value="diverse">Detailed cast</option>
                 </select>
                 <button class="vj-button vj-button-wide" id="lightweightCharacters" type="button" aria-pressed="false">LIGHTWEIGHT CHARACTERS FOR ME</button>
                 <p class="vj-help" id="characterStyleStatus" role="status">Your override never changes the host's room choice.</p>
                 <button class="vj-button vj-button-wide" id="retryCharacterStyle" type="button" hidden>RETRY LOADING CHARACTERS</button>
+            </div>
+            <div class="vj-section" data-vj-tab-panel="club" hidden>
+                <div class="vj-section-title">Wardrobe</div>
+                <p class="vj-help">Choose your body, then edit its outfit. Your saved look follows you into the mirror and supported rooms.</p>
                 <label class="vj-field-label" for="myCharacter">Your character</label>
                 <p class="vj-help">Your body and mirror use this character, and other guests see the same choice in a room. Saved on this device. Default uses your own body offline and a random character online. Choosing a character requires an updated relay; other guests may choose the same look.</p>
                 <select class="audio-input" id="myCharacter">
@@ -278,6 +282,9 @@
                 <label class="vj-field-label" id="customAvatarShareLabel" hidden><input id="customAvatarShare" type="checkbox"> Share uploaded avatar with room guests</label>
                 <p class="vj-help" id="customAvatarShareStatus" role="status" hidden></p>
                 <p class="vj-help" id="customAvatarSharePrivacy" hidden>Sharing uploads the model so room guests can download your customized avatar. Guests can retain a copy. Keep sharing off for private models.</p>
+            </div>
+            <div class="vj-section" data-vj-tab-panel="club" hidden>
+                <div class="vj-section-title">Resident DJ</div>
                 <label class="vj-field-label" for="djStyle">Resident DJ</label>
                 <select class="audio-input" id="djStyle">
                     <option value="male">Male DJ</option>
@@ -1173,6 +1180,8 @@
 
     <!-- The VJ desk at the DJ table: two touch panels (the show, the lights), mixed into VRClub.prototype. -->
     <script src="js/vjDesk.js?v=20261021-5"></script>
+    <script src="js/guestExperience.js?v=20261021-5"></script>
+    <script src="js/sessionExperience.js?v=20261021-5"></script>
     <script src="js/characterCatalog.js?v=20261021-5"></script>
     <script src="js/characterStyles.js?v=20261021-5"></script>
     <script src="js/wardrobeCatalog.js?v=20261021-5"></script>

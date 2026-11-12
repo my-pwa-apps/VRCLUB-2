@@ -12,7 +12,7 @@ catch (error) { if (error.code !== 'ERR_UNKNOWN_BUILTIN_MODULE') throw error; }
 async function setup(t) {
     const sqlite = new DatabaseSync(':memory:');
     t.after(() => sqlite.close());
-    for (const file of ['0001_payments', '0002_vr_invitations', '0003_invitation_admin', '0004_payment_modes', '0005_access_recovery', '0007_device_links', '0008_account_music']) {
+    for (const file of ['0001_payments', '0002_vr_invitations', '0003_invitation_admin', '0004_payment_modes', '0005_access_recovery', '0007_device_links', '0008_account_music', '0010_account_lighting_presets']) {
         sqlite.exec(await readFile(new URL(`../worker/migrations/${file}.sql`, import.meta.url), 'utf8'));
     }
     const DB = {
@@ -165,4 +165,35 @@ test('cleanMusicItems keeps only url and a trimmed name', () => {
     assert.deepEqual(cleanMusicItems([{ url: ' https://audio.example/a.mp3 ', name: ` ${'n'.repeat(80)} `, extra: 'x' }]),
         [{ url: 'https://audio.example/a.mp3', name: 'n'.repeat(60) }]);
     assert.deepEqual(cleanMusicItems([]), []);
+});
+
+test('lighting backup is verified-account scoped, validated, conflict checked and never overwrites corruption', { skip: !DatabaseSync }, async t => {
+    const { call, verify, sqlite } = await setup(t);
+    const text = JSON.stringify({ version: 1, slots: Array(12).fill(null) });
+    assert.equal((await call('lighting')).status, 401);
+    assert.equal((await call('lighting/save', { presets: text, expectedUpdatedAt: 0 })).status, 401);
+    const owner = await verify();
+    assert.deepEqual((await (await call('lighting', undefined, owner)).json()).presets, null);
+    const saved = await call('lighting/save', { presets: text, expectedUpdatedAt: 0 }, owner);
+    assert.equal(saved.status, 200, await saved.clone().text());
+    const { updatedAt } = await saved.json();
+    assert.deepEqual((await (await call('lighting', undefined, owner)).json()).presets, JSON.parse(text));
+    assert.equal((await call('lighting/save', { presets: text, expectedUpdatedAt: 0 }, owner)).status, 409);
+    assert.equal((await call('lighting/save', { presets: '{"version":1,"slots":[]}', expectedUpdatedAt: updatedAt }, owner)).status, 400);
+    const other = await verify('other@example.com');
+    assert.equal((await (await call('lighting', undefined, other)).json()).presets, null);
+    sqlite.prepare('UPDATE account_lighting_presets SET presets = ?').run('{broken');
+    assert.equal((await call('lighting', undefined, owner)).status, 409);
+    assert.equal((await call('lighting/save', { presets: text, expectedUpdatedAt: updatedAt }, owner)).status, 409);
+    assert.equal(sqlite.prepare('SELECT presets FROM account_lighting_presets').get().presets, '{broken');
+});
+
+test('a corrupt account music record is not silently treated as an empty list or overwritten', { skip: !DatabaseSync }, async t => {
+    const { call, verify, sqlite } = await setup(t);
+    const owner = await verify();
+    assert.equal((await call('music/save', { items: [] }, owner)).status, 200);
+    sqlite.prepare('UPDATE account_music SET items = ?').run('{broken');
+    assert.equal((await call('music', undefined, owner)).status, 409);
+    assert.equal((await call('music/save', { items: [] }, owner)).status, 409);
+    assert.equal(sqlite.prepare('SELECT items FROM account_music').get().items, '{broken');
 });

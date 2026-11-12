@@ -2267,30 +2267,34 @@ function initRoomGuestLock(mp) {
         // screen reader announces them as unavailable. The capture listener below stays as a second line.
         const disableable = controls.filter(el => el.tagName === 'INPUT' || el.tagName === 'BUTTON');
 
+        const hostOnly = el => panel.id !== 'vjMenu' || !!el.closest('#characterStyle');
+        const lockedFor = el => hostOnly(el) ? mp.following || (panel.what === 'music' && mp.hasLiveEvent)
+            : !mp.canControlLights();
         const block = (e) => {
-            if (!club.isFollowingHost() && !(panel.what === 'music' && mp.hasLiveEvent)) return;
             const hit = e.target && e.target.closest ? e.target.closest('.host-owned') : null;
-            if (!hit) return;
+            if (!hit || !lockedFor(hit)) return;
             e.preventDefault();
             e.stopImmediatePropagation();
-            if (e.type === 'click') club.guardHostControl(panel.what);
+            if (e.type === 'click') club.guardHostControl(panel.id === 'vjMenu' && !hostOnly(hit) ? 'lights' : 'music');
         };
         for (const type of ['click', 'keydown', 'input', 'change']) root.addEventListener(type, block, true);
         uiTeardowns.push(() => { for (const type of ['click', 'keydown', 'input', 'change']) root.removeEventListener(type, block, true); });
 
         renders.push(() => {
             const eventMusic = panel.what === 'music' && mp.hasLiveEvent;
-            const following = mp.following || eventMusic;
+            const following = panel.id === 'vjMenu' ? !mp.canControlLights() : mp.following || eventMusic;
             note.hidden = !following;
             if (following) {
                 const host = mp.hostName();
                 note.textContent = eventMusic ? 'The live event DJ supplies the music. Personal volume stays yours. Leave the event to play your own set.'
-                    : `${host || 'The host'} is the host: they choose the ${panel.what}, and yours follow. Leave the room to take over.`;
+                    : panel.id === 'vjMenu' && mp.client?.vjId ? 'The room VJ controls the lights. The host can revoke the lights-only pass in People.'
+                        : `${host || 'The host'} is the host: they choose the ${panel.what}, and yours follow. Leave the room to take over.`;
             }
             for (const el of disableable) {
+                const locked = lockedFor(el);
                 // Preserve controls disabled for their own reasons when leaving the room.
-                if (following && !el.dataset.hostLocked) { el.dataset.hostLocked = el.disabled ? 'was' : '1'; el.disabled = true; }
-                else if (!following && el.dataset.hostLocked) { el.disabled = el.dataset.hostLocked === 'was'; delete el.dataset.hostLocked; }
+                if (locked && !el.dataset.hostLocked) { el.dataset.hostLocked = el.disabled ? 'was' : '1'; el.disabled = true; }
+                else if (!locked && el.dataset.hostLocked) { el.disabled = el.dataset.hostLocked === 'was'; delete el.dataset.hostLocked; }
             }
             root.classList.toggle('room-guest-locked', following);
         });
@@ -2690,6 +2694,14 @@ function initNetworkMenu() {
             }, true);
             item.appendChild(reportButton);
             if (host) {
+                if (!person.simulated) {
+                    const pass = rowButton(mp.client.vjId === person.id ? 'Revoke VJ pass' : 'Give VJ pass',
+                        `Lights only for ${person.name}; music and host tools stay with you`,
+                        () => mp.setVJPass(mp.client.vjId === person.id ? null : person.id));
+                    pass.disabled = !mp.client.vjPassSupported;
+                    if (pass.disabled) pass.textContent = 'VJ pass unavailable: update relay';
+                    item.appendChild(pass);
+                }
                 const kickKey = `kick:${person.id}`, banKey = `ban:${person.id}`, hostKey = `host:${person.id}`;
                 const supported = mp.client.hostTransferSupported;
                 const makeHost = rowButton(!supported ? 'Make host (relay update needed)' :

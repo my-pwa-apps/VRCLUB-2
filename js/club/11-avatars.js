@@ -65,7 +65,8 @@ class VRClubAvatars extends window.VRClubAudio {
      * materials, so a single pass covers the whole crowd.
      */
     _prepareAvatarMaterials(materials, garmentColor = null, hairColor = null) {
-        const aniso = this.tierSettings.anisotropy;
+        const aniso = this.isInVRMode && this.isRenderExperimentEnabled('anisotropy')
+            ? this._vrTextureAnisotropy() : this.tierSettings.anisotropy;
 
         materials.forEach(mat => {
             const characterHair = mat._vrclubCharacterHair === true;

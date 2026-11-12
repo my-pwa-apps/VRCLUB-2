@@ -218,6 +218,8 @@ js/venueDressing.js        Entrance stair hall (down from the street door) and b
 js/mezzanine.js            Steel balcony and stair along the left wall, plus the walking-surface follow, mixed into VRClub.prototype
 js/cityDistrict.js         The street outside (baked GLB), its sky and skyline, fence, street door and "outdoors" amount, mixed into VRClub.prototype
 js/vjDesk.js               The VJ desk: Auto show/DJ/presets, fixture/spot-rig/settings pages and a separate player/effects panel
+js/guestExperience.js      Simplified guest menus, mirror wardrobe entry, VR credits, phone transfer and local still postcards
+js/sessionExperience.js    Room-authoritative water glasses and real-guest booth feedback
 js/lightingPresets.js      Twelve local lighting preset slots, validated backups and desktop/phone naming and transfer
 js/characterCatalog.js     Generated CC0 MakeHuman adult cast, measured eyes, NPC assignments and compatible player IDs
 js/characterStyles.js      Shared room style, personal lightweight override and live model replacement preserving NPC/session state

@@ -158,6 +158,8 @@ class VRClubUI extends window.VRClubSocialUI {
             }
             if (typeof this._pressStallDoor === 'function' && this._pressStallDoor(pickResult)) return;
             if (this.restroomInteractions?.press(pickResult)) return;
+            if (this._pressGuestTouchpoint?.(pickResult)) return;
+            if (this.pressSessionExperience?.(pickResult)) return;
             if (this._pressSeat(pickResult)) return;
             if (typeof this.pressVJDesk === 'function') this.pressVJDesk(pickResult);
             this._dragPointer = dragging() ? (evt && evt.pointerId) : undefined;

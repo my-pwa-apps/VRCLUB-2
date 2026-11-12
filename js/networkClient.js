@@ -175,6 +175,10 @@ class NetworkClient {
         this.voiceAudience = null;
         this.targetedChat = false;
         this.hostTransferSupported = false;
+        this.vjPassSupported = false;
+        this.vjId = null;
+        this.sharedWaterSupported = false;
+        this.waterClinkSupported = false;
         this.musicStream = null;
         this.musicState = null;
         this.musicListening = false;
@@ -209,6 +213,9 @@ class NetworkClient {
         this.onDoors = () => {};
         this.onDoor = () => {};
         this.onRestroom = () => {};
+        this.onVJPass = () => {};
+        this.onWater = () => {};
+        this.onWaterClink = () => {};
         this.onChat = () => {};
         this.onModerationReport = () => {};
         this.onRemoteStream = () => {};
@@ -496,6 +503,10 @@ class NetworkClient {
                 }
                 this.targetedChat = msg.targetedChat === true;
                 this.hostTransferSupported = msg.hostTransfer === true;
+                this.vjPassSupported = msg.vjPass === true;
+                this.vjId = this.vjPassSupported && typeof msg.vjId === 'string' ? msg.vjId : null;
+                this.sharedWaterSupported = msg.sharedWater === true;
+                this.waterClinkSupported = msg.waterClink === true;
                 this.locked = !!msg.locked;
                 const skew = Number(msg.serverTime) - Date.now();
                 this.serverOffset = Number.isFinite(skew) ? skew : 0;
@@ -525,6 +536,8 @@ class NetworkClient {
                     this.requestAvatar(this.avatarPool, this.preferredAvatar);
                 }
                 for (const peer of msg.peers || []) this._addPeer(peer);
+                this.onVJPass(this.vjId);
+                this.onWater(this.sharedWaterSupported ? msg.water : []);
                 if (this.liveEvent) this.onLiveEvent(this.liveEvent);
                 if (msg.music) this.onMusic(msg.music);
                 if (msg.show) this.onShow(msg.show);
@@ -671,6 +684,27 @@ class NetworkClient {
 
             case 'show':
                 this.onShow(msg);
+                break;
+
+            case 'vj-pass':
+                if (msg.show) this.onShow({ ...msg.show, authorityTransfer: true });
+                this.vjId = typeof msg.id === 'string' ? msg.id : null;
+                this.onVJPass(this.vjId);
+                break;
+
+            case 'water':
+                if (this.sharedWaterSupported) this.onWater(msg.drinks);
+                break;
+
+            case 'water-clink': {
+                const known = id => id === this.selfId || this.peers.has(id);
+                if (this.waterClinkSupported && known(msg.id) && known(msg.target) && msg.id !== msg.target &&
+                    [msg.x, msg.y, msg.z].every(value => Number.isFinite(value) && Math.abs(value) <= 1000)) this.onWaterClink(msg);
+                break;
+            }
+
+            case 'session-error':
+                this.onError(new Error(typeof msg.message === 'string' ? msg.message.slice(0, 120) : 'The room action was rejected.'));
                 break;
 
             case 'door':
@@ -1011,8 +1045,39 @@ class NetworkClient {
 
     /** Host-only: the light show's current frame. The relay ignores it from anyone else. */
     sendShow(show) {
-        if (!this.isHost() || !show || typeof show !== 'object') return false;
+        if ((!this.isHost() && this.selfId !== this.vjId) || !show || typeof show !== 'object') return false;
         this._send({ ...show, type: 'show' });
+        return true;
+    }
+
+    setVJPass(target) {
+        if (!this.connected || !this.vjPassSupported) {
+            this.onError(new Error('This relay does not support lights-only VJ passes.'));
+            return false;
+        }
+        if (!this.isHost() || (target !== null && (!this.peers.has(target) || this.peers.get(target).simulated))) return false;
+        this._send({ type: 'vj-pass', target });
+        return true;
+    }
+
+    sendWater(action, hand = 'right') {
+        if (!this.connected || !this.sharedWaterSupported) {
+            this.onError(new Error('Join a room with shared water support to use the water station.'));
+            return false;
+        }
+
+        if (!['order', 'pickup', 'putdown'].includes(action) || !['left', 'right'].includes(hand)) return false;
+        this._send({ type: 'water', action, hand });
+        return true;
+    }
+
+    sendWaterClink(target) {
+        if (!this.connected || !this.waterClinkSupported) {
+            this.onError(new Error('This relay does not support shared water clinks.'));
+            return false;
+        }
+        if (!this.peers.has(target) || this.peers.get(target).simulated) return false;
+        this._send({ type: 'water-clink', target });
         return true;
     }
 

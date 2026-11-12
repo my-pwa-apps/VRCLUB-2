@@ -377,7 +377,8 @@ class VRClubLifecycle extends VRClubCore {
 
     _isXRPointerTarget(mesh) {
         if (!mesh) return false;
-        if (mesh.metadata?.vrclubSeats || mesh.metadata?.vrclubDoor !== undefined || mesh.metadata?.vrclubRestroom) return true;
+        if (mesh.metadata?.vrclubSeats || mesh.metadata?.vrclubDoor !== undefined || mesh.metadata?.vrclubRestroom ||
+            mesh.metadata?.vrclubGuestAction || mesh.metadata?.vrclubSession) return true;
         for (let node = mesh; node; node = node.parent) {
             if (node === this._vrQuickMenuRoot) return true;
         }
@@ -461,6 +462,9 @@ class VRClubLifecycle extends VRClubCore {
         this.createDJMonitors(); // Nearfield monitor speakers on the left and right ends of the DJ table
         this.createRestroom(); // Underground club restroom off the front-left hall
         this.createMezzanine(); // Steel balcony and stair along the left wall
+        this.createGuestExperience?.();
+        this.createSessionExperience?.();
+        this._syncRestroomMirrorRenderList?.();
         if (typeof this.createVenueContactShadows === 'function') this.createVenueContactShadows();
     }
 
@@ -987,6 +991,8 @@ class VRClubLifecycle extends VRClubCore {
         this.lightingPresets?.dispose();
         this.avatarEditor?.dispose();
         this.restroomInteractions?.dispose();
+        this.disposeGuestExperience?.();
+        this.disposeSessionExperience?.();
         this._restroomHandleInstances?.forEach(entry => entry.dispose());
         this._restroomHandleSource?.dispose();
         this._appearancePending?.reject('The club has closed.');

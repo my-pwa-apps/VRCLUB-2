@@ -15,7 +15,8 @@
   "d1_databases": [{
     "binding": "DB",
     "database_name": "nocturne-dev-rooms",
-    "database_id": "c9daa987-721e-47c5-beb8-54b3e1e2b0aa"
+    "database_id": "c9daa987-721e-47c5-beb8-54b3e1e2b0aa",
+    "migrations_dir": "dev-migrations"
   }],
   "durable_objects": {
     "bindings": [

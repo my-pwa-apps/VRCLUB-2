@@ -34,6 +34,145 @@ function join(room, name = 'Guest') {
     return { ws, session };
 }
 
+test('lights-only VJ pass is authoritative, revocable and cannot publish host performance or music', t => {
+    const room = new ClubRoom({}, {}), host = join(room, 'Host'), vj = join(room, 'VJ'), guest = join(room, 'Guest');
+    t.after(() => { for (const [ws, session] of [...room.sessions]) room._onClose(ws, session); });
+    const send = (person, frame) => person.ws.message(frame);
+    send(host, { type: 'show', m: 'manual', dj: false, audioFx: { echo: 0.2 }, fx: { characterStyle: 'diverse', lightsActive: true } });
+    send(guest, { type: 'vj-pass', target: guest.session.id });
+    assert.equal(room.vjId, null);
+    send(host, { type: 'vj-pass', target: vj.session.id });
+    assert.equal(room.vjId, vj.session.id);
+    send(vj, { type: 'show', m: 'manual', dj: true, audioFx: { echo: 1 },
+        fx: { lightsActive: false, characterStyle: 'quaternius', dancePulse: true } });
+    assert.equal(room.showState.fx.lightsActive, false);
+    assert.equal(room.showState.fx.characterStyle, 'diverse');
+    assert.equal(room.showState.fx.dancePulse, undefined);
+    assert.equal(room.showState.dj, false);
+    assert.equal(room.showState.audioFx.echo, 0.2);
+    send(vj, { type: 'music', url: 'https://bad.example/song.mp3', playing: true });
+    send(vj, { type: 'lock', locked: true });
+    send(vj, { type: 'host-transfer', target: guest.session.id });
+    assert.equal(room.musicState, null);
+    assert.equal(room.locked, false);
+    assert.equal(room.hostId, host.session.id);
+    send(host, { type: 'show', m: 'manual', dj: true, audioFx: { echo: 0.6 }, fx: { lightsActive: true, characterStyle: 'quaternius' } });
+    assert.equal(room.showState.fx.lightsActive, false, 'host performance publication cannot overwrite active VJ lights');
+    assert.equal(room.showState.audioFx.echo, 0.6);
+    guest.ws.message({ type: 'block', pid: vj.session.pid });
+    send(host, { type: 'show', m: 'manual', dj: false, audioFx: { echo: 0.7 }, fx: { lightsActive: true } });
+    assert.equal(guest.ws.last('show').performanceOnly, true);
+    assert.equal(guest.ws.last('show').audioFx.echo, 0.7, 'blocking a VJ cannot transfer or suppress host FX authority');
+    assert.equal(guest.ws.last('show').fx.lightsActive, undefined);
+    const late = join(room, 'Late');
+    assert.equal(late.ws.last('welcome').vjId, vj.session.id);
+    assert.equal(late.ws.last('welcome').show.fx.lightsActive, false);
+    send(host, { type: 'vj-pass', target: null });
+    send(vj, { type: 'show', m: 'manual', fx: { lightsActive: true } });
+    assert.equal(room.showState.fx.lightsActive, false);
+    assert.equal(room.vjId, null);
+});
+
+test('VJ grants reject simulated/blocked targets and clear on handover, departure and empty room', t => {
+    const room = new ClubRoom({}, {}), host = join(room), vj = join(room), guest = join(room);
+    t.after(() => { for (const [ws, session] of [...room.sessions]) room._onClose(ws, session); });
+    guest.session.simulated = true;
+    host.ws.message({ type: 'vj-pass', target: guest.session.id });
+    assert.equal(room.vjId, null);
+    guest.session.simulated = false;
+    host.ws.message({ type: 'vj-pass', target: vj.session.id });
+    assert.equal(room.vjId, vj.session.id);
+    vj.ws.message({ type: 'block', pid: host.session.pid });
+    assert.equal(room.vjId, null);
+    host.session.buckets['vj-pass'].tokens = 3;
+    host.ws.message({ type: 'vj-pass', target: vj.session.id });
+    assert.equal(room.vjId, null);
+    vj.ws.message({ type: 'unblock', pid: host.session.pid });
+    host.ws.message({ type: 'vj-pass', target: vj.session.id });
+    assert.equal(room.vjId, vj.session.id);
+    host.ws.message({ type: 'host-transfer', target: guest.session.id });
+    assert.equal(room.vjId, null);
+    guest.ws.message({ type: 'vj-pass', target: vj.session.id });
+    room._onClose(vj.ws, vj.session);
+    assert.equal(room.vjId, null);
+    assert.equal(host.ws.last('vj-pass').id, null);
+});
+
+test('water station acknowledges bounded owner-only props, retains late state and cleans up blocks/departure', t => {
+    const room = new ClubRoom({}, {}), owner = join(room), viewer = join(room);
+    t.after(() => { for (const [ws, session] of [...room.sessions]) room._onClose(ws, session); });
+    owner.ws.message({ type: 'water', action: 'order' });
+    assert.equal(room.drinks.size, 0, 'a distant or unpositioned guest cannot order');
+    owner.ws.message({ type: 'state', state: { x: 9, y: 1.7, z: -7.5, rotY: 0 } });
+    owner.ws.message({ type: 'water', action: 'order' });
+    assert.equal(room.drinks.size, 1);
+    assert.equal(owner.ws.last('water').drinks[0].held, false, 'only a relay acknowledgement changes the environment');
+    owner.ws.message({ type: 'water', action: 'pickup', hand: 'left', owner: viewer.session.id });
+    assert.equal(room.drinks.get(owner.session.id).held, true);
+    assert.equal(room.drinks.get(owner.session.id).hand, 'left');
+    const late = join(room);
+    assert.equal(late.ws.last('welcome').sharedWater, true);
+    assert.equal(late.ws.last('welcome').water[0].held, true);
+    viewer.ws.message({ type: 'block', pid: owner.session.pid });
+    assert.equal(viewer.ws.last('water').drinks.length, 0);
+    viewer.ws.message({ type: 'unblock', pid: owner.session.pid });
+    assert.equal(viewer.ws.last('water').drinks.length, 1);
+    owner.session.buckets.water.tokens = 3;
+    owner.ws.message({ type: 'water', action: 'putdown' });
+    assert.equal(room.drinks.get(owner.session.id).held, false);
+    room._onClose(owner.ws, owner.session);
+    assert.equal(room.drinks.size, 0);
+    assert.equal(viewer.ws.last('water').drinks.length, 0);
+});
+
+test('water has four reserved positions and rejects stale positions, hostile actions and bursts', t => {
+    const room = new ClubRoom({}, {}), guests = Array.from({ length: 5 }, () => join(room));
+    t.after(() => { for (const [ws, session] of [...room.sessions]) room._onClose(ws, session); });
+    for (const guest of guests) {
+        guest.ws.message({ type: 'state', state: { x: 9, y: 1.7, z: -7.5, rotY: 0 } });
+        guest.ws.message({ type: 'water', action: 'order' });
+    }
+    assert.equal(room.drinks.size, 4);
+    assert.ok(guests[4].ws.last('session-error').message.includes('in use'));
+    const owner = guests[0];
+    owner.session.lastStateAt = Date.now() - 6000;
+    owner.ws.message({ type: 'water', action: 'pickup' });
+    assert.equal(room.drinks.get(owner.session.id).held, false);
+    owner.session.lastStateAt = Date.now();
+    owner.ws.message({ type: 'water', action: 'pickup', hand: 'extra' });
+    assert.equal(room.drinks.get(owner.session.id).held, false);
+    owner.ws.message({ type: 'water', action: 'pickup' });
+    assert.equal(room.drinks.get(owner.session.id).held, false, 'a fourth immediate action is rate limited');
+    assert.ok(owner.ws.last('session-error').message.includes('Too many'));
+});
+
+test('water clinks require nearby mutually visible real holders, notify only mutually visible listeners and are rate limited', t => {
+    const room = new ClubRoom({}, {}), a = join(room), b = join(room), observer = join(room), blocked = join(room);
+    t.after(() => { for (const [ws, session] of [...room.sessions]) room._onClose(ws, session); });
+    for (const [index, person] of [a, b].entries()) {
+        person.ws.message({ type: 'state', state: { x: 9 + index * 0.4, y: 1.7, z: -7.5, rotY: 0 } });
+        person.ws.message({ type: 'water', action: 'order' });
+        person.ws.message({ type: 'water', action: 'pickup', hand: 'right' });
+    }
+    blocked.ws.message({ type: 'block', pid: b.session.pid });
+    a.ws.message({ type: 'water-clink', target: b.session.id });
+    assert.equal(a.ws.last('water-clink').target, b.session.id);
+    assert.equal(b.ws.last('water-clink').id, a.session.id);
+    assert.equal(observer.ws.last('water-clink').target, b.session.id);
+    assert.equal(blocked.ws.last('water-clink'), undefined);
+    assert.equal(observer.ws.last('water-clink').x, 9.2);
+    const total = observer.ws.sent.filter(frame => frame.type === 'water-clink').length;
+    b.ws.message({ type: 'water-clink', target: a.session.id });
+    assert.equal(observer.ws.sent.filter(frame => frame.type === 'water-clink').length, total);
+    a.session.waterClinkAt = b.session.waterClinkAt = 0;
+    b.session.lastState.x = 20;
+    a.ws.message({ type: 'water-clink', target: b.session.id });
+    assert.equal(observer.ws.sent.filter(frame => frame.type === 'water-clink').length, total);
+    const late = join(room);
+    assert.equal(late.ws.last('welcome').waterClink, true);
+    assert.equal(late.ws.last('water-clink'), undefined, 'clinks are ephemeral');
+});
+
 function devRoom(t) {
     const room = new ClubRoom({}, { ROOM_CAPACITY: '32', MEDIA_TRANSPORT: 'sfu', DEV_ROOM_ENABLED: '1',
         SFU_APP_ID: 'test-app', SFU_APP_SECRET: 'test-secret' });

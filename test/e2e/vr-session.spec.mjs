@@ -7,6 +7,78 @@ useQuestHarness();
 /** The subsequent indoor input/teleport checks use a fixed pose after verifying the street arrival. */
 const SPAWN = { x: 0, y: 1.6, z: -12 };
 
+test('optional headset edge smoothing can be enabled and restored in VR', async ({ page }) => {
+    await enterClub(page);
+    await enterVR(page);
+    const result = await page.evaluate(() => {
+        const club = window.vrClub;
+        const button = club._vrQuickMenuPageDefinitions('comfort').find(item => item.action === 'vrMsaa4x');
+        const before = club.renderPipeline.samples;
+        const max = club.engine.getCaps().maxMSAASamples;
+        club._activateVRQuickMenuButton(button);
+        const after = club.renderPipeline.samples;
+        const stored = localStorage.getItem('vrclub.vrMsaa4x');
+        if (stored === '1') club._activateVRQuickMenuButton(button);
+        return { label: button.label, before, max, after, stored, restored: club.renderPipeline.samples };
+    });
+    expect(result.label).toBe('4X EDGE SMOOTHING');
+    if (result.max >= 4) {
+        expect(result.after).toBe(4);
+        expect(result.stored).toBe('1');
+    } else {
+        expect(result.after).toBe(result.before);
+        expect(result.stored).toBeNull();
+    }
+    expect(result.restored).toBe(result.before);
+    await exitVR(page);
+});
+
+test('experimental precision, procedural specular AA and texture filtering are opt-in', async ({ page }) => {
+    await page.addInitScript(() => {
+        localStorage.setItem('vrclub.highPrecisionShaders', '1');
+        localStorage.setItem('vrclub.proceduralSpecularAA', '1');
+    });
+    await enterClub(page);
+    const material = await page.evaluate(() => {
+        const club = window.vrClub;
+        const truss = club.scene.materials.find(item => item.name === 'trussMat');
+        const mesh = club.scene.meshes.find(item => item.material === truss && item.subMeshes?.some(sub => sub.effect));
+        return {
+            precision: club.engine._shouldUseHighPrecisionShader,
+            supported: club.engine.getCaps().highPrecisionShaderSupported,
+            derivatives: club.engine.getCaps().standardDerivatives,
+            plugin: !!truss?.pluginManager?.getPlugin('VRClubSpecularAA'),
+            defines: mesh?.subMeshes.find(sub => sub.effect)?.effect.defines || '',
+            fragment: mesh?.subMeshes.find(sub => sub.effect)?.effect._fragmentSourceCode || ''
+        };
+    });
+    expect(material.precision).toBe(material.supported);
+    if (material.supported) expect(material.fragment).toMatch(/precision\s+highp\s+float/);
+    expect(material.plugin).toBe(!!material.derivatives);
+    if (material.derivatives) expect(material.defines).toContain('#define SPECULARAA');
+    await enterVR(page);
+    const result = await page.evaluate(() => {
+        const club = window.vrClub;
+        const button = club._vrQuickMenuPageDefinitions('comfort').find(item => item.experiment === 'anisotropy');
+        const texture = club.scene.textures.find(item => !item.isCube && !item.isRenderTarget);
+        const before = texture.anisotropicFilteringLevel;
+        const max = club.engine.getCaps().maxAnisotropy;
+        club._activateVRQuickMenuButton(button);
+        const enabled = localStorage.getItem('vrclub.vrMaxAnisotropy');
+        const after = texture.anisotropicFilteringLevel;
+        if (enabled === '1') club._activateVRQuickMenuButton(button);
+        return { before, max, after, enabled, restored: texture.anisotropicFilteringLevel };
+    });
+    if (result.max > 1) {
+        expect(result.enabled).toBe('1');
+        expect(result.after).toBe(result.max);
+        expect(result.restored).toBe(result.before);
+    } else {
+        expect(result.enabled).toBeNull();
+    }
+    await exitVR(page);
+});
+
 /** XR local-floor space (right-handed, -z forward) -> Babylon world while the user faces -z from SPAWN. */
 const xrToWorld = ([x, y, z]) => [-x, y, z + SPAWN.z];
 const worldToXr = ([x, y, z]) => [-x, y, z - SPAWN.z];

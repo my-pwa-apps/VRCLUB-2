@@ -158,6 +158,7 @@ class VRClubSocialUI extends window.VRClubMenu {
             net('REPORT + BLOCK', 'peerReport', { peer: person.id, danger: true })
         ];
         if (mp.isHost()) {
+            if (!person.simulated) rows.push(net(mp.client.vjId === person.id ? 'REVOKE VJ PASS' : 'GIVE VJ PASS', 'peerVJ', { peer: person.id }));
             rows.push(net(armedFor('host') ? 'SURE? MAKE HOST' : 'MAKE HOST', 'peerHost', { peer: person.id }));
             rows.push(net(armedFor('kick') ? 'SURE? KICK' : 'KICK', 'peerKick', { peer: person.id, danger: true }));
             rows.push(net(armedFor('ban') ? 'SURE? BAN' : 'BAN', 'peerBan', { peer: person.id, danger: true }));
@@ -242,6 +243,7 @@ class VRClubSocialUI extends window.VRClubMenu {
         switch (button.op) {
             case 'joinListedRoom': return button.locked ? 'LOCKED' : button.full ? 'FULL' : button.inactive ? 'START ROOM' : `${button.people}/${button.capacity} HERE`;
             case 'peerHost': return !mp.isHost() ? 'HOST ONLY' : !mp.client.hostTransferSupported ? 'UPDATE RELAY' : 'YOU STAY IN ROOM';
+            case 'peerVJ': return !mp.isHost() ? 'HOST ONLY' : !mp.client.vjPassSupported ? 'UPDATE RELAY' : 'LIGHTS ONLY';
             case 'browseRooms': return mp.roomDirectory.loading ? 'CHECKING...' : 'PUBLIC + SAVED PRIVATE';
             case 'audienceAll': return active ? 'SELECTED' : '';
             case 'audienceClear': return 'SEND TO NOBODY';
@@ -433,6 +435,9 @@ class VRClubSocialUI extends window.VRClubMenu {
                 this._showVRQuickMenuPage('people');
                 return;
             }
+            case 'peerVJ':
+                mp.setVJPass(mp.client.vjId === button.peer ? null : button.peer);
+                break;
             case 'peerKick':
             case 'peerBan':
             case 'peerHost': {

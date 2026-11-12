@@ -60,6 +60,10 @@ window.CLUB_POSITIONS = CLUB_POSITIONS;
 class VRClubCore {
     constructor() {
         this.canvas = document.getElementById('canvas');
+        this._renderExperiments = {
+            precision: VRClubCore.readRenderExperiment('precision'),
+            specular: VRClubCore.readRenderExperiment('specular')
+        };
         this.engine = new BABYLON.Engine(this.canvas, true, {
             // Browser/Playwright screenshots use the compositor and no runtime path
             // reads the previous back buffer. Let the mobile tile renderer discard it.
@@ -68,8 +72,10 @@ class VRClubCore {
             antialias: true,
             // PERFORMANCE: Additional engine optimizations
             doNotHandleContextLost: true, // Skip context lost handling for performance
-            useHighPrecisionFloats: false // Use medium precision for better performance
+            useHighPrecisionFloats: this._renderExperiments.precision
         });
+        this._renderExperiments.precision = this._renderExperiments.precision && this.canUseRenderExperiment('precision');
+        this._renderExperiments.specular = this._renderExperiments.specular && this.canUseRenderExperiment('specular');
         
         // PERFORMANCE: Enable hardware scaling mode (renders at lower resolution, scales up)
         this.engine.setHardwareScalingLevel(1.0); // 1.0 = native, increase for lower res
@@ -305,7 +311,9 @@ class VRClubCore {
         log.info(`🎮 Device detected - Max lights per material: ${this.maxLights}`);
         
         // Initialize material factory for centralized material creation
-        this.materialFactory = new MaterialFactory(null, this.maxLights, log); // Scene set later in init()
+        this.materialFactory = new MaterialFactory(null, this.maxLights, log, {
+            specularAA: this._renderExperiments.specular
+        }); // Scene set later in init()
         
         // Initialize light factory for centralized light creation
         this.lightFactory = null; // Initialized after scene creation
@@ -846,11 +854,7 @@ class VRClubCore {
         });
 
         // Scale texture clarity with the explicitly selected headset tier.
-        const vrAniso = Math.min(this.tierSettings.vrAnisotropy, this.engine.getCaps().maxAnisotropy || 1);
-        this.scene.textures.forEach(tex => {
-            if (!tex || tex.isCube || tex.isRenderTarget) return;
-            tex.anisotropicFilteringLevel = vrAniso;
-        });
+        this._applyVRTextureAnisotropy();
         
         // #8 OPTIMIZED: Reduce particle systems for VR performance
         // Retain enough layered haze to survive the headset's higher bloom threshold.
@@ -1152,13 +1156,10 @@ class VRClubCore {
             this.renderPipeline.bloomKernel = tier.vrBloomKernel;
             this.renderPipeline.samples = VRClubCore.resolveVRMsaaSamples(
                 tier.vrMsaaSamples || vr.msaaSamples,
-                this.engine.getCaps().maxMSAASamples);
+                this.engine.getCaps().maxMSAASamples,
+                Boolean(this.xrMultiviewProbe && this.xrMultiviewProbe.enabled));
         }
-        const anisotropy = Math.min(tier.vrAnisotropy, this.engine.getCaps().maxAnisotropy || 1);
-        this.scene.textures.forEach(texture => {
-            if (!texture || texture.isCube || texture.isRenderTarget) return;
-            texture.anisotropicFilteringLevel = anisotropy;
-        });
+        this._applyVRTextureAnisotropy();
         if (this.haze) this.haze.emitRate = tier.vrHazeEmitRate;
         if (this.dustMotes) this.dustMotes.emitRate = tier.vrDustEmitRate;
 
@@ -1167,9 +1168,127 @@ class VRClubCore {
         if (xrLayer && 'fixedFoveation' in xrLayer) xrLayer.fixedFoveation = tier.vrFoveation;
     }
 
+    _vrTextureAnisotropy() {
+        const max = this.engine.getCaps().maxAnisotropy || 1;
+        return Math.min(this.isRenderExperimentEnabled('anisotropy') ? max : this.tierSettings.vrAnisotropy, max);
+    }
+
+    _applyVRTextureAnisotropy() {
+        const anisotropy = this._vrTextureAnisotropy();
+        this.scene.textures.forEach(texture => {
+            if (!texture || texture.isCube || texture.isRenderTarget) return;
+            texture.anisotropicFilteringLevel = anisotropy;
+        });
+    }
+
     /** Current tier's settings object. */
     get tierSettings() {
         return this.qualityTiers[this.graphicsTier] || this.qualityTiers.high;
+    }
+
+    static get RENDER_EXPERIMENT_KEYS() {
+        return {
+            precision: 'vrclub.highPrecisionShaders',
+            specular: 'vrclub.proceduralSpecularAA',
+            anisotropy: 'vrclub.vrMaxAnisotropy'
+        };
+    }
+
+    static readRenderExperiment(name) {
+        const key = VRClubCore.RENDER_EXPERIMENT_KEYS[name];
+        if (!key) throw new Error(`Unknown rendering experiment: ${name}`);
+        try {
+            return localStorage.getItem(key) === '1';
+        } catch (error) {
+            log.warn(`Could not read rendering preference: ${error.message}`);
+            return false;
+        }
+    }
+
+    isRenderExperimentEnabled(name) {
+        return VRClubCore.readRenderExperiment(name);
+    }
+
+    canUseRenderExperiment(name) {
+        const caps = this.engine.getCaps();
+        if (name === 'precision') return !!caps.highPrecisionShaderSupported;
+        if (name === 'specular') return !!caps.standardDerivatives && typeof BABYLON.MaterialPluginBase === 'function';
+        if (name === 'anisotropy') return Number.isFinite(caps.maxAnisotropy) && caps.maxAnisotropy > 1;
+        throw new Error(`Unknown rendering experiment: ${name}`);
+    }
+
+    toggleRenderExperiment(name) {
+        const key = VRClubCore.RENDER_EXPERIMENT_KEYS[name];
+        if (!key) throw new Error(`Unknown rendering experiment: ${name}`);
+        let enabled;
+        try {
+            enabled = localStorage.getItem(key) !== '1';
+            if (enabled && !this.canUseRenderExperiment(name)) {
+                this.showErrorMessage('This rendering option is not available on this device.');
+                return false;
+            }
+            if (enabled) localStorage.setItem(key, '1');
+            else localStorage.removeItem(key);
+        } catch (error) {
+            log.warn(`Could not save rendering preference: ${error.message}`);
+            this.showErrorMessage('Could not save the rendering option on this device.');
+            return false;
+        }
+        if (name === 'anisotropy' && this.isInVRMode) {
+            try {
+                this._applyVRTextureAnisotropy();
+            } catch (error) {
+                log.warn(`Could not apply VR texture filtering: ${error.message}`);
+                this.showErrorMessage('Texture filtering was saved but could not be applied. Re-enter VR to retry.');
+                return false;
+            }
+            this.showErrorMessage(`Maximum VR texture filtering ${enabled ? 'on' : 'off'}. It may reduce frame rate.`);
+        } else {
+            this.showErrorMessage('Rendering option saved. Reload the app to apply it; it may reduce frame rate.');
+        }
+        return true;
+    }
+
+    isVRMsaa4xEnabled() {
+        return VRClubCore.readVRMsaa4x();
+    }
+
+    canUseVRMsaa4x() {
+        const maxSamples = this.engine.getCaps().maxMSAASamples;
+        return Number.isFinite(maxSamples) && maxSamples >= 4 && !this.xrMultiviewProbe?.enabled;
+    }
+
+    toggleVRMsaa4x() {
+        let enabled;
+        try {
+            enabled = localStorage.getItem('vrclub.vrMsaa4x') !== '1';
+            if (enabled && !this.canUseVRMsaa4x()) {
+                this.showErrorMessage('4x edge smoothing is not available on this device or in multiview.');
+                return false;
+            }
+            if (enabled) localStorage.setItem('vrclub.vrMsaa4x', '1');
+            else localStorage.removeItem('vrclub.vrMsaa4x');
+        } catch (error) {
+            log.warn(`Could not save VR edge smoothing: ${error.message}`);
+            this.showErrorMessage('Could not save VR edge smoothing on this device.');
+            return false;
+        }
+        if (this.isInVRMode && this.renderPipeline) {
+            try {
+                this.renderPipeline.samples = VRClubCore.resolveVRMsaaSamples(
+                    this.tierSettings.vrMsaaSamples || this.vrSettings.vr.msaaSamples,
+                    this.engine.getCaps().maxMSAASamples,
+                    Boolean(this.xrMultiviewProbe && this.xrMultiviewProbe.enabled));
+            } catch (error) {
+                log.warn(`Could not apply VR edge smoothing: ${error.message}`);
+                this.showErrorMessage('Edge smoothing was saved but could not be applied. Re-enter VR to retry.');
+                return false;
+            }
+        }
+        this.showErrorMessage(enabled
+            ? '4x edge smoothing on. It may reduce frame rate.'
+            : '4x edge smoothing off. Your normal quality setting is restored.');
+        return true;
     }
 
     getDesktopRenderScale() {
@@ -1314,11 +1433,20 @@ class VRClubCore {
      * Headset pipeline samples: stored override or tier default, capped by the GPU.
      * The opt-in standard multiview probe bypasses multisampling.
      */
+    static readVRMsaa4x() {
+        try {
+            return localStorage.getItem('vrclub.vrMsaa4x') === '1';
+        } catch (error) {
+            log.warn(`Could not read VR edge smoothing: ${error.message}`);
+            return false;
+        }
+    }
+
     static resolveVRMsaaSamples(configured, maxSupported, forceSingleSample = false) {
         if (forceSingleSample) return 1;
         let stored = NaN;
         try { stored = parseInt(localStorage.getItem('vrclub.vrMsaa'), 10); } catch (_) { /* private browsing */ }
-        const wanted = [1, 2, 4].includes(stored) ? stored : configured;
+        const wanted = VRClubCore.readVRMsaa4x() ? 4 : [1, 2, 4].includes(stored) ? stored : configured;
         const cap = Number.isFinite(maxSupported) ? maxSupported : 1;
         let samples = 1;
         for (const candidate of [2, 4]) if (candidate <= wanted && candidate <= cap) samples = candidate;
