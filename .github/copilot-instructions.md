@@ -2467,6 +2467,13 @@ back to a font, or if the splash's `stroke-width` stops matching `NocturneLogo.S
 
 ## Multiplayer
 
+`moderatorRole` is a separately acknowledged, host-granted room role for one
+visible real guest. `canModerate()` gates kick/ban and report review, never host
+transfer, room locking, role grants, lights or music. The relay protects the
+host and rechecks target visibility. Grants clear on handover, departure,
+host/moderator blocking and empty-room reset; no persistent moderator identity.
+DOM People and VR person pages delegate through `ClubMultiplayer.setModerator`.
+
 ### QuestDev isolated scaling variant
 
 The development deployment uses `worker/wrangler.dev.jsonc` and `src/dev-index.js`,

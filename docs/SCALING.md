@@ -288,10 +288,10 @@ account grant or unsigned browser authorization is created.
 Development databases, SFU and avatars remain separate; no production entitlement,
 invitation or session data is copied or read.
 
-Apply the development D1 migration and deploy both the development Worker and frontend after changes:
+Apply the development D1 schema and deploy both the development Worker and frontend after changes:
 
 ```powershell
-npx --yes wrangler@4.141.0 d1 migrations apply nocturne-dev-rooms --remote --config worker\wrangler.dev.jsonc
+npx --yes wrangler@4.141.0 d1 execute nocturne-dev-rooms --remote --file worker\dev-migrations\0001_dev_owner_sessions.sql --config worker\wrangler.dev.jsonc
 npx --yes wrangler@4.141.0 deploy --config worker\wrangler.dev.jsonc
 npm run build
 npx --yes wrangler@4.141.0 pages deploy dist --project-name nocturne-dev --branch QuestDev --commit-dirty=true
@@ -719,7 +719,17 @@ Official references retrieved for this implementation (10 October 2026):
 * [Negotiation, forced closure, lost responses and teardown](https://developers.cloudflare.com/realtime/sfu/concepts/negotiation/)
 * [Per-track errors and explicit already-closed outcomes](https://developers.cloudflare.com/realtime/sfu/observability/error-codes/)
 
-## Session VJ passes and self-service water
+## Session roles and self-service water
+
+The host can assign one real, mutually visible guest as **moderator** from People
+on desktop or in VR, and revoke or replace them. The relay advertises
+`moderatorRole`; older relays explicitly leave delegation unavailable.
+The moderator receives new safety reports and may kick or ban visible guests,
+but cannot remove the host, delegate roles, lock the room, transfer hosting,
+change music/FX or control lights without a separate VJ pass.
+Reports are transient, not historical or account-level moderation records.
+The role clears on host handover, host/moderator departure, mutual blocking
+or an empty room; reconnecting never restores a stale grant.
 
 The relay advertises `vjPass` and `sharedWater`. An older relay explicitly leaves
 these controls unavailable. Both frontend and Worker updates are required; nothing

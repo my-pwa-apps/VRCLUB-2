@@ -176,6 +176,8 @@ class NetworkClient {
         this.targetedChat = false;
         this.hostTransferSupported = false;
         this.vjPassSupported = false;
+        this.moderatorRoleSupported = false;
+        this.moderatorId = null;
         this.vjId = null;
         this.sharedWaterSupported = false;
         this.waterClinkSupported = false;
@@ -214,6 +216,7 @@ class NetworkClient {
         this.onDoor = () => {};
         this.onRestroom = () => {};
         this.onVJPass = () => {};
+        this.onModerator = () => {};
         this.onWater = () => {};
         this.onWaterClink = () => {};
         this.onChat = () => {};
@@ -228,6 +231,7 @@ class NetworkClient {
     get connected() { return this.status === 'connected'; }
     get peerCount() { return this.peers.size; }
     isHost() { return !!this.selfId && this.selfId === this.hostId; }
+    canModerate() { return this.connected && (this.isHost() || (this.moderatorRoleSupported && this.selfId === this.moderatorId)); }
     get preferredAppearance() { return this._preferredAppearance; }
     set preferredAppearance(value) { this.setPreferredAppearance(value); }
     /** Save a validated preference for the next join, without claiming a room update. */
@@ -504,6 +508,8 @@ class NetworkClient {
                 this.targetedChat = msg.targetedChat === true;
                 this.hostTransferSupported = msg.hostTransfer === true;
                 this.vjPassSupported = msg.vjPass === true;
+                this.moderatorRoleSupported = msg.moderatorRole === true;
+                this.moderatorId = this.moderatorRoleSupported && typeof msg.moderatorId === 'string' ? msg.moderatorId : null;
                 this.vjId = this.vjPassSupported && typeof msg.vjId === 'string' ? msg.vjId : null;
                 this.sharedWaterSupported = msg.sharedWater === true;
                 this.waterClinkSupported = msg.waterClink === true;
@@ -537,6 +543,7 @@ class NetworkClient {
                 }
                 for (const peer of msg.peers || []) this._addPeer(peer);
                 this.onVJPass(this.vjId);
+                this.onModerator(this.moderatorId);
                 this.onWater(this.sharedWaterSupported ? msg.water : []);
                 if (this.liveEvent) this.onLiveEvent(this.liveEvent);
                 if (msg.music) this.onMusic(msg.music);
@@ -632,7 +639,7 @@ class NetworkClient {
                 break;
 
             case 'moderation-report':
-                if (this.isHost() && msg.reporter && msg.target &&
+                if (this.canModerate() && msg.reporter && msg.target &&
                     typeof msg.reporter.name === 'string' && typeof msg.target.name === 'string' &&
                     NetworkClient.REPORT_REASONS.includes(msg.reason)) {
                     this.onModerationReport(msg);
@@ -684,6 +691,12 @@ class NetworkClient {
 
             case 'show':
                 this.onShow(msg);
+                break;
+
+            case 'moderator':
+                if (!this.moderatorRoleSupported) break;
+                this.moderatorId = typeof msg.id === 'string' ? msg.id : null;
+                this.onModerator(this.moderatorId);
                 break;
 
             case 'vj-pass':
@@ -857,6 +870,16 @@ class NetworkClient {
     // Host-only: the relay ignores these from anyone else.
     kickPeer(id) { this._send({ type: 'kick', target: id }); }
     banPeer(id) { this._send({ type: 'ban', target: id }); }
+
+    setModerator(target) {
+        let error = '';
+        if (!this.connected || !this.isHost()) error = 'Only the host can delegate moderation.';
+        else if (!this.moderatorRoleSupported) error = 'This relay needs an update before moderation can be delegated.';
+        else if (target !== null && (!this.peers.has(target) || this.peers.get(target).simulated)) error = 'Choose a connected real guest as moderator.';
+        if (error) { this.onError(new Error(error)); return false; }
+        this._send({ type: 'moderator', target });
+        return true;
+    }
     setRoomLocked(locked) { this._send({ type: 'lock', locked: !!locked }); }
 
     transferHost(id) {

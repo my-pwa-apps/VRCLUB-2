@@ -81,6 +81,31 @@ function welcomed(client, extra = {}) {
     return socket;
 }
 
+test('moderation capability requires acknowledgement and never transfers host or fixture control', () => {
+    const { mp } = spotController();
+    mp.connect({ serverUrl: 'wss://relay.example', room: 'r' });
+    const socket = FakeSocket.instances.at(-1);
+    socket.receive({ type: 'welcome', id: 'me', hostId: 'p1', moderatorRole: true,
+        peers: [{ id: 'p1', name: 'Host' }, { id: 'p2', name: 'Guest' }] });
+    assert.equal(mp.canModerate(), false);
+    socket.receive({ type: 'moderator', id: 'me' });
+    assert.equal(mp.canModerate(), true);
+    assert.equal(mp.canControlLights(), false);
+    assert.equal(mp.isHost(), false);
+    assert.equal(mp.kickPeer('p1'), false);
+    assert.equal(mp.banPeer('p2'), true);
+    assert.equal(mp.setLocked(true), false);
+    assert.equal(mp.setModerator('p2'), false);
+    socket.receive({ type: 'moderation-report', reporter: { name: 'Guest' }, target: { name: 'Other' }, reason: 'harassment' });
+    assert.equal(mp.moderationReports.length, 1);
+    socket.receive({ type: 'moderator', id: null });
+    assert.equal(mp.canModerate(), false);
+    assert.equal(mp.moderationReports.length, 0);
+    assert.equal(mp.kickPeer('p2'), false);
+    socket.receive({ type: 'welcome', id: 'me', hostId: 'me', peers: [{ id: 'p2', name: 'Guest' }] });
+    assert.equal(mp.setModerator('p2'), false, 'old relays report unsupported moderation');
+});
+
 test('VJ capability is explicit, acknowledged and lighting authority stays separate from host music', () => {
     const { mp, club } = spotController();
     mp.connect({ serverUrl: 'wss://relay.example', room: 'r' });

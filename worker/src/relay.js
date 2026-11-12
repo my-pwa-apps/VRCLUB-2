@@ -224,6 +224,7 @@ export const RATE_LIMITS = Object.freeze({
     ban: { rate: 1, burst: 3 },
     lock: { rate: 1, burst: 3 },
     'host-transfer': { rate: 0.5, burst: 2 },
+    moderator: { rate: 0.5, burst: 2 },
     'vj-pass': { rate: 0.5, burst: 3 },
     water: { rate: 1, burst: 3 },
     'water-clink': { rate: 0.5, burst: 2 },
@@ -445,6 +446,7 @@ export class ClubRoom {
         this.doors = new Array(MAX_DOORS).fill(false); // stall doors pushed shut by hand (any guest may)
         this.restroom = createRestroomState();
         this.vjId = null;
+        this.moderatorId = null;
         this.drinks = new Map();
         this.world = null;
         this.locked = false;
@@ -643,6 +645,8 @@ export class ClubRoom {
             targetedChat: true,
             hostTransfer: true,
             vjPass: true,
+            moderatorRole: true,
+            moderatorId: this.moderatorId,
             vjId: this.vjId,
             sharedWater: true,
             waterClink: true,
@@ -817,6 +821,16 @@ export class ClubRoom {
                     target: { id: target.id, name: target.name, pid: target.pid },
                     reason
                 });
+                const moderatorWs = this._findSocketById(this.moderatorId);
+                const moderator = moderatorWs && this.sessions.get(moderatorWs);
+                if (moderator && this._visible(moderator, session) && this._visible(moderator, target)) {
+                    this._send(moderatorWs, {
+                        type: 'moderation-report',
+                        reporter: { id: session.id, name: session.name, pid: session.pid },
+                        target: { id: target.id, name: target.name, pid: target.pid },
+                        reason
+                    });
+                }
                 break;
             }
 
@@ -996,20 +1010,29 @@ export class ClubRoom {
                 break;
             }
 
-            // Moderation: the room's host only. A guest cannot remove the host or themselves.
+            case 'moderator': {
+                if (session.id !== this.hostId) return;
+                if (msg.target === null) { this._changeModerator(null); break; }
+                const target = this.sessions.get(this._findSocketById(msg.target));
+                if (!target || target.simulated || target === session || !this._visible(session, target)) return;
+                this._changeModerator(target.id);
+                break;
+            }
+
             case 'kick':
             case 'ban': {
-                if (session.id !== this.hostId || typeof msg.target !== 'string' || msg.target === session.id) return;
+                if ((session.id !== this.hostId && session.id !== this.moderatorId) ||
+                    typeof msg.target !== 'string' || msg.target === session.id || msg.target === this.hostId) return;
                 const targetWs = this._findSocketById(msg.target);
                 const target = targetWs && this.sessions.get(targetWs);
-                if (!target) return;
+                if (!target || !this._visible(session, target)) return;
                 if (this._liveEvent) this._livePolicy({ denied: target.pid });
                 if (msg.type === 'ban') {
                     if (this.banned.size >= MAX_BANNED) return;
                     this.banned.add(target.pid);
                 }
                 if (target.simulated) this._removedSimulated.add(target.simulatedIndex);
-                else try { targetWs.close(msg.type === 'ban' ? CLOSE_BANNED : CLOSE_KICKED, msg.type === 'ban' ? 'banned by the host' : 'removed by the host'); } catch { /* already closing */ }
+                else try { targetWs.close(msg.type === 'ban' ? CLOSE_BANNED : CLOSE_KICKED, msg.type === 'ban' ? 'banned by room moderation' : 'removed by room moderation'); } catch { /* already closing */ }
                 this._onClose(targetWs, target);
                 break;
             }
@@ -1029,6 +1052,7 @@ export class ClubRoom {
                 if (!target || target.simulated || !this._visible(session, target)) return;
                 this.hostId = target.id;
                 this._clearVJ();
+                this._changeModerator(null);
                 if (this.media) {
                     for (const member of this.media.members.values()) member.listen = false;
                     this.media.reconcile();
@@ -1055,6 +1079,8 @@ export class ClubRoom {
         const host = this.sessions.get(this._findSocketById(this.hostId));
         const vj = this.sessions.get(this._findSocketById(this.vjId));
         if (vj && (!host || !this._visible(host, vj))) this._clearVJ();
+        const moderator = this.sessions.get(this._findSocketById(this.moderatorId));
+        if (moderator && (!host || !this._visible(host, moderator))) this._changeModerator(null);
         if (this._liveEvent) this._liveHeartbeat();
         if (this.media) { this.media.refresh(); this.media.reconcile(); }
         const sessionWs = this._findSocketById(session.id);
@@ -1078,6 +1104,11 @@ export class ClubRoom {
             }
         }
         this._broadcastWater();
+    }
+
+    _changeModerator(id) {
+        this.moderatorId = id;
+        this._broadcast({ type: 'moderator', id });
     }
 
     _clearVJ() {
@@ -1162,6 +1193,7 @@ export class ClubRoom {
             this._liveTask(() => liveEventCall(this.env, eventId, 'leave', { member: session.id }));
         }
         if (session.id === this.vjId || session.id === this.hostId) this._clearVJ();
+        if (session.id === this.moderatorId || session.id === this.hostId) this._changeModerator(null);
         this.sessions.delete(ws);
         if (this.drinks.delete(session.id)) this._broadcastWater();
         if (session.simulated) this._simulation?.remove(session.simulatedIndex);

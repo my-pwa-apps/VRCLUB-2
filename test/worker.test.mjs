@@ -34,6 +34,62 @@ function join(room, name = 'Guest') {
     return { ws, session };
 }
 
+test('delegated moderation is narrow, acknowledged, private and revoked with room authority', t => {
+    const room = new ClubRoom({}, {}), host = join(room), mod = join(room), guest = join(room), target = join(room);
+    t.after(() => { for (const [ws, session] of [...room.sessions]) room._onClose(ws, session); });
+    guest.ws.message({ type: 'moderator', target: guest.session.id });
+    assert.equal(room.moderatorId, null);
+    host.ws.message({ type: 'moderator', target: mod.session.id });
+    assert.equal(room.moderatorId, mod.session.id);
+    const late = join(room);
+    assert.equal(late.ws.last('welcome').moderatorRole, true);
+    assert.equal(late.ws.last('welcome').moderatorId, mod.session.id);
+    guest.ws.message({ type: 'report', target: target.session.id, reason: 'harassment' });
+    assert.equal(mod.ws.last('moderation-report')?.target.id, target.session.id);
+    assert.equal(late.ws.last('moderation-report'), undefined);
+    mod.ws.message({ type: 'kick', target: host.session.id });
+    mod.ws.message({ type: 'lock', locked: true });
+    mod.ws.message({ type: 'host-transfer', target: guest.session.id });
+    mod.ws.message({ type: 'show', m: 'manual', fx: { lightsActive: false } });
+    mod.ws.message({ type: 'music', url: 'https://example.com/song.mp3', playing: true });
+    assert.equal(host.ws.closed, null);
+    assert.equal(room.hostId, host.session.id);
+    assert.equal(room.locked, false);
+    assert.equal(room.showState, null);
+    assert.equal(room.musicState, null);
+    mod.ws.message({ type: 'ban', target: target.session.id });
+    assert.equal(target.ws.closed.code, relay.CLOSE_BANNED);
+    host.ws.message({ type: 'moderator', target: null });
+    mod.ws.message({ type: 'kick', target: guest.session.id });
+    assert.equal(guest.ws.closed, null);
+    assert.equal(mod.ws.last('moderator').id, null);
+});
+
+test('moderator grants reject blocked/simulated guests and clear on handover, blocking and departure', t => {
+    const room = new ClubRoom({}, {}), host = join(room), mod = join(room), guest = join(room);
+    t.after(() => { for (const [ws, session] of [...room.sessions]) room._onClose(ws, session); });
+    const grant = id => {
+        if (host.session.buckets.moderator) host.session.buckets.moderator.tokens = 2;
+        host.ws.message({ type: 'moderator', target: id });
+    };
+    mod.session.simulated = true;
+    grant(mod.session.id);
+    assert.equal(room.moderatorId, null);
+    mod.session.simulated = false;
+    grant(mod.session.id);
+    mod.ws.message({ type: 'block', pid: host.session.pid });
+    assert.equal(room.moderatorId, null);
+    grant(mod.session.id);
+    assert.equal(room.moderatorId, null);
+    mod.ws.message({ type: 'unblock', pid: host.session.pid });
+    grant(mod.session.id);
+    room._onClose(mod.ws, mod.session);
+    assert.equal(room.moderatorId, null);
+    grant(guest.session.id);
+    host.ws.message({ type: 'host-transfer', target: guest.session.id });
+    assert.equal(room.moderatorId, null);
+});
+
 test('lights-only VJ pass is authoritative, revocable and cannot publish host performance or music', t => {
     const room = new ClubRoom({}, {}), host = join(room, 'Host'), vj = join(room, 'VJ'), guest = join(room, 'Guest');
     t.after(() => { for (const [ws, session] of [...room.sessions]) room._onClose(ws, session); });

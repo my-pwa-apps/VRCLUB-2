@@ -91,6 +91,8 @@ class VRClubMenu extends window.VRClubControls {
         if (needsRoom.includes(button.op) && !mp.connected) return true;
         if (button.op === 'lock' && !mp.isHost()) return true;
         if (button.op === 'peerHost' && (!mp.connected || !mp.isHost() || !mp.client.hostTransferSupported || !mp.client.peers.has(button.peer))) return true;
+        if (button.op === 'peerModerator' && (!mp.connected || !mp.isHost() || !mp.client.moderatorRoleSupported || !mp.client.peers.has(button.peer))) return true;
+        if (['peerKick', 'peerBan'].includes(button.op) && (!mp.canModerate() || button.peer === mp.client.hostId || !mp.client.peers.has(button.peer))) return true;
         if (button.op === 'unblockAll' && !mp.blockedList().length) return true;
         return false;
     }

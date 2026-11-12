@@ -72,6 +72,20 @@ test('real room snapshots attach held water to both bodies and delegate only lig
         expect(await page.evaluate(() => window.vrClub.setDJEffect('echo', 1))).toBe(false);
         send(hostSocket, host, { type: 'vj-pass', target: null });
         await expect.poll(() => page.evaluate(() => window.vrClub.multiplayer.canControlLights())).toBe(false);
+        send(hostSocket, host, { type: 'moderator', target: guest.id });
+        await expect.poll(() => page.evaluate(() => window.vrClub.multiplayer.canModerate())).toBe(true);
+        await page.locator('#networkToggle').click();
+        await expect(page.locator('#networkModerationTools')).toBeVisible();
+        await expect(page.locator('#networkHostTools')).toBeHidden();
+        expect(await page.evaluate(() => {
+            const club = window.vrClub;
+            club._vrPerson = club.multiplayer.client.hostId;
+            const buttons = club._vrNetPageDefinitions('person', { back: { action: 'back' }, close: { label: 'CLOSE' } });
+            return buttons.some(button => ['peerKick', 'peerBan', 'peerHost', 'peerModerator'].includes(button.op));
+        })).toBe(false);
+        send(hostSocket, host, { type: 'moderator', target: null });
+        await expect.poll(() => page.evaluate(() => window.vrClub.multiplayer.canModerate())).toBe(false);
+        await expect(page.locator('#networkModerationTools')).toBeHidden();
         room._onClose(hostSocket, host);
         await expect.poll(() => page.evaluate(id => !window.vrClub._sessionExperience.drinks.some(d => d.id === id), host.id)).toBe(true);
         await expect.poll(() => page.evaluate(() => !window.vrClub._sessionExperience.cups[0].isEnabled())).toBe(true);

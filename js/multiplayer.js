@@ -288,6 +288,8 @@ class ClubMultiplayer {
     get connecting() { return !!this.client && this.client.status === 'connecting'; }
     get micEnabled() { return !!this.client && this.client.micEnabled; }
     isHost() { return !!this.client && this.client.isHost(); }
+    canModerate() { return this.connected && (this.isHost() || (this.client.moderatorRoleSupported && this.client.moderatorId === this.client.selfId)); }
+    setModerator(id) { return !!this.client && this.client.setModerator(id); }
     /** In someone else's room: the host owns the music and the lights, and this guest follows them. */
     get following() {
         // Only while the host is someone this guest can see: blocking is two-way, so a guest who blocked the host (or
@@ -777,6 +779,8 @@ class ClubMultiplayer {
                 club.setSharedRestroom?.(null);
                 club.setSessionWater?.([]);
                 client.vjId = null;
+                client.moderatorId = null;
+                this.moderationReports = [];
             }
             if (status === 'error' || status === 'disconnected') {
                 this._stopPing();
@@ -861,6 +865,10 @@ class ClubMultiplayer {
             this._syncRole();
             this._show.dirty = true;
             this._show.force = true;
+            this._emit();
+        };
+        client.onModerator = () => {
+            if (!this.canModerate()) this.moderationReports = [];
             this._emit();
         };
         client.onWater = drinks => club.setSessionWater?.(drinks);
@@ -1155,15 +1163,15 @@ class ClubMultiplayer {
         return list.length;
     }
 
-    // Host-only. The relay enforces it; these refuse early so a guest's UI says why.
+    // The relay is authoritative; a moderator cannot remove the host.
     kickPeer(id) {
-        if (!this.isHost() || !this.client.peers.has(id)) return false;
+        if (!this.canModerate() || id === this.client.hostId || !this.client.peers.has(id)) return false;
         this.client.kickPeer(id);
         return true;
     }
 
     banPeer(id) {
-        if (!this.isHost() || !this.client.peers.has(id)) return false;
+        if (!this.canModerate() || id === this.client.hostId || !this.client.peers.has(id)) return false;
         this.client.banPeer(id);
         return true;
     }

@@ -2701,8 +2701,14 @@ function initNetworkMenu() {
                     pass.disabled = !mp.client.vjPassSupported;
                     if (pass.disabled) pass.textContent = 'VJ pass unavailable: update relay';
                     item.appendChild(pass);
+                    const moderator = rowButton(mp.client.moderatorId === person.id ? 'Revoke moderator' : 'Make moderator',
+                        `Let ${person.name} receive reports, kick and ban; music and host control stay with you`,
+                        () => mp.setModerator(mp.client.moderatorId === person.id ? null : person.id));
+                    moderator.disabled = !mp.client.moderatorRoleSupported;
+                    if (moderator.disabled) moderator.textContent = 'Moderator unavailable: update relay';
+                    item.appendChild(moderator);
                 }
-                const kickKey = `kick:${person.id}`, banKey = `ban:${person.id}`, hostKey = `host:${person.id}`;
+                const hostKey = `host:${person.id}`;
                 const supported = mp.client.hostTransferSupported;
                 const makeHost = rowButton(!supported ? 'Make host (relay update needed)' :
                     armed.has(hostKey) && armed.get(hostKey) > Date.now() ? 'Confirm make host' : 'Make host',
@@ -2710,6 +2716,9 @@ function initNetworkMenu() {
                     () => { if (confirmed(hostKey)) mp.transferHost(person.id); });
                 makeHost.disabled = !supported;
                 item.appendChild(makeHost);
+            }
+            if (mp.canModerate() && person.id !== mp.client.hostId) {
+                const kickKey = `kick:${person.id}`, banKey = `ban:${person.id}`;
                 item.appendChild(rowButton(armed.has(kickKey) && armed.get(kickKey) > Date.now() ? 'Sure?' : 'Kick',
                     `Remove ${person.name} from the room (they can come back)`, () => { if (confirmed(kickKey)) mp.kickPeer(person.id); }, true));
                 item.appendChild(rowButton(armed.has(banKey) && armed.get(banKey) > Date.now() ? 'Sure?' : 'Ban',
@@ -2756,6 +2765,7 @@ function initNetworkMenu() {
         if (roomActions) roomActions.hidden = !connected;
         for (const section of inRoomSections) section.hidden = !connected;
         if (hostTools) hostTools.hidden = !(connected && mp.isHost());
+        if (moderationReports?.parentElement) moderationReports.parentElement.hidden = !mp.canModerate();
         if (live.Event) {
             const active = mp.hasLiveEvent, owner = active && mp.liveEvent.canManage;
             live.Event.hidden = !(connected && mp.client.liveEventsSupported);
@@ -2829,7 +2839,7 @@ function initNetworkMenu() {
                 text.textContent = `${report.reporter?.name || 'Guest'} reported ${report.target?.name || 'guest'}: ${reason}`;
                 item.appendChild(text);
                 const target = mp.people().find(person => person.id === report.target?.id);
-                if (target) {
+                if (target && mp.canModerate() && target.id !== mp.client.hostId) {
                     const kickKey = `report-kick:${report.at}`, banKey = `report-ban:${report.at}`;
                     item.appendChild(rowButton(armed.has(kickKey) && armed.get(kickKey) > Date.now() ? 'Confirm kick' : 'Kick',
                         `Remove ${target.name} from the room`, () => {
