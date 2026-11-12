@@ -19,7 +19,8 @@ box.window = box; box.self = box; box.globalThis = box;
 box.addEventListener = () => {};
 box.removeEventListener = () => {};
 vm.createContext(box);
-for (const file of ['js\\vendor\\babylon.js', 'js\\vendor\\babylonjs.loaders.min.js', 'js\\audioUtils.js', 'js\\restroomInteractions.js', 'js\\networkClient.js']) {
+for (const file of [join('js', 'vendor', 'babylon.js'), join('js', 'vendor', 'babylonjs.loaders.min.js'),
+    join('js', 'audioUtils.js'), join('js', 'restroomInteractions.js'), join('js', 'networkClient.js')]) {
     vm.runInContext(readFileSync(join(root, file), 'utf8'), box, { filename: file });
 }
 const B = box.BABYLON, Fixtures = box.RestroomInteractions;
