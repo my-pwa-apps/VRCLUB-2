@@ -8,26 +8,20 @@
         createSessionExperience() {
             if (this._sessionExperience || !this.scene || !this.materialFactory) return;
             const scene = this.scene;
-            const isGashouder = this.venueId === 'gashouder' && window.GASHOUDER_VENUE;
-            const stage = isGashouder ? window.GASHOUDER_VENUE.stage : null;
-            // Gashouder omits the self-service water station until a dedicated bar is added.
-            const hasWaterStation = !isGashouder;
+            const material = this.materialFactory.createPBRMaterial('sessionWaterMat', {
+                baseColor: [0.55, 0.78, 0.84], metallic: 0.15, roughness: 0.25
+            }, true);
             const cups = [];
-            if (hasWaterStation) {
-                const material = this.materialFactory.createPBRMaterial('sessionWaterMat', {
-                    baseColor: [0.55, 0.78, 0.84], metallic: 0.15, roughness: 0.25
-                }, true);
-                for (let slot = 0; slot < WATER_Z.length; slot++) {
-                    const mesh = BABYLON.MeshBuilder.CreateCylinder(`sessionWater${slot}`, {
-                        diameterTop: 0.075, diameterBottom: 0.055, height: 0.12, tessellation: 12
-                    }, scene);
-                    mesh.material = material;
-                    mesh.isPickable = true;
-                    mesh.metadata = { vrclubSession: 'water' };
-                    mesh.rotationQuaternion = new BABYLON.Quaternion();
-                    mesh.setEnabled(false);
-                    cups.push(mesh);
-                }
+            for (let slot = 0; slot < WATER_Z.length; slot++) {
+                const mesh = BABYLON.MeshBuilder.CreateCylinder(`sessionWater${slot}`, {
+                    diameterTop: 0.075, diameterBottom: 0.055, height: 0.12, tessellation: 12
+                }, scene);
+                mesh.material = material;
+                mesh.isPickable = true;
+                mesh.metadata = { vrclubSession: 'water' };
+                mesh.rotationQuaternion = new BABYLON.Quaternion();
+                mesh.setEnabled(false);
+                cups.push(mesh);
             }
             const makePanel = (name, width, height, x, y, z) => {
                 const mesh = BABYLON.MeshBuilder.CreatePlane(name, { width, height }, scene);
@@ -44,29 +38,18 @@
                 mesh.isPickable = false;
                 return { mesh, texture, material: mat };
             };
-            let station = null;
-            if (hasWaterStation) {
-                station = makePanel('sessionWaterStation', 0.9, 0.3, 9.69, 1.48, -7.45);
-                station.mesh.rotation.y = Math.PI / 2;
-                station.mesh.isPickable = true;
-                station.mesh.metadata = { vrclubSession: 'water' };
-            }
-            const booth = makePanel('sessionBoothFeedback', 0.9, 0.3,
-                0,
-                isGashouder ? stage.consoleTop - 0.22 : 1.35,
-                isGashouder ? stage.consoleZ + 0.61 : -18.85);
-            if (isGashouder && !window.GASHOUDER_PRESETS?.[this.getGashouderPreset?.()]?.stage) {
-                booth.mesh.setEnabled(false);
-            }
+            const station = makePanel('sessionWaterStation', 0.9, 0.3, 9.69, 1.48, -7.45);
+            station.mesh.rotation.y = Math.PI / 2;
+            station.mesh.isPickable = true;
+            station.mesh.metadata = { vrclubSession: 'water' };
+            const booth = makePanel('sessionBoothFeedback', 0.9, 0.3, 0, 1.35, -18.85);
             const state = this._sessionExperience = {
-                cups, station, booth, drinks: hasWaterStation ? (this._pendingSessionWater || []) : [], clock: 0, signature: '',
+                cups, station, booth, drinks: this._pendingSessionWater || [], clock: 0, signature: '',
                 reactions: new Map(), up: new BABYLON.Vector3(), forward: new BABYLON.Vector3(), normal: new BABYLON.Vector3(),
                 hand: {}, sounds: new Set(), disposed: false, observer: null
             };
-            if (hasWaterStation) {
-                state.observer = scene.onBeforeRenderObservable.add(() => this._updateSessionWaterMeshes());
-                this._paintSessionPanel(station.texture, 'SELF-SERVICE WATER', 'ORDER / PICK UP / PUT DOWN', 'Self-service. No bartender handoff.');
-            }
+            state.observer = scene.onBeforeRenderObservable.add(() => this._updateSessionWaterMeshes());
+            this._paintSessionPanel(station.texture, 'SELF-SERVICE WATER', 'ORDER / PICK UP / PUT DOWN', 'Self-service. No bartender handoff.');
             this._paintSessionPanel(booth.texture, 'ROOM FEEDBACK', 'No other guests in a room', 'Presence and reactions, not music analysis');
             this._pendingSessionWater = null;
             state.clock = 0;
@@ -83,7 +66,6 @@
         },
 
         setSessionWater(value) {
-            if (this.venueId === 'gashouder') return;
             const drinks = Array.isArray(value) ? value.filter(item => item && typeof item.id === 'string' &&
                 item.id.length <= 64 && Number.isInteger(item.slot) && item.slot >= 0 && item.slot < 4 &&
                 typeof item.held === 'boolean' && ['left', 'right'].includes(item.hand)).slice(0, 4) : [];
@@ -98,7 +80,6 @@
         },
 
         pressSessionExperience(pickInfo) {
-            if (this.venueId === 'gashouder') return false;
             const mesh = pickInfo?.pickedMesh;
             if (!mesh?.metadata?.vrclubSession) return false;
             const mp = this.multiplayer, state = this._sessionExperience;
@@ -175,11 +156,10 @@
 
         _updateSessionWaterMeshes() {
             const state = this._sessionExperience, client = this.multiplayer?.client;
-            if (!state || state.disposed || state.cups.length === 0) return;
+            if (!state || state.disposed) return;
             let visible = 0;
             for (let i = 0; i < state.drinks.length; i++) {
                 const drink = state.drinks[i], mesh = state.cups[drink.slot];
-                if (!mesh) continue;
                 const self = client?.connected ? drink.id === client.selfId : drink.id === LOCAL_WATER_ID;
                 const peer = !self && client?.peers.get(drink.id);
                 if (!self && !peer) continue;
@@ -244,18 +224,16 @@
             state.signature = signature;
             this._paintSessionPanel(state.booth.texture, 'ROOM FEEDBACK', `${guests} real guests / ${nearby} near the booth`,
                 `${reactions} reacted in 15 s / Lights: ${String(vjName).slice(0, 20)}`);
-            if (state.station) {
-                this._paintSessionPanel(state.station.texture, 'SELF-SERVICE WATER',
-                    !supported ? 'Join a room with water support' : !mine ? 'PRESS TO ORDER WATER' : mine.held ? 'PRESS TO PUT DOWN' : 'PRESS TO PICK UP',
-                    mine?.held ? 'Select another held glass to clink.' : 'Session only. No bartender handoff.');
-            }
+            this._paintSessionPanel(state.station.texture, 'SELF-SERVICE WATER',
+                !supported ? 'Join a room with water support' : !mine ? 'PRESS TO ORDER WATER' : mine.held ? 'PRESS TO PUT DOWN' : 'PRESS TO PICK UP',
+                mine?.held ? 'Select another held glass to clink.' : 'Session only. No bartender handoff.');
         },
 
         disposeSessionExperience() {
             const state = this._sessionExperience;
             if (!state) return;
             state.disposed = true;
-            if (state.observer) this.scene.onBeforeRenderObservable.remove(state.observer);
+            this.scene.onBeforeRenderObservable.remove(state.observer);
             for (const sound of state.sounds) {
                 sound.source.onended = null;
                 try { sound.source.stop(); } catch (_) { /* already stopped */ }
@@ -264,7 +242,6 @@
             state.sounds.clear();
             for (const mesh of state.cups) mesh.dispose();
             for (const panel of [state.station, state.booth]) {
-                if (!panel) continue;
                 panel.mesh.dispose(); panel.texture.dispose(); panel.material.dispose();
             }
             state.reactions.clear();

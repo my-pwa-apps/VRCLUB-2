@@ -5,11 +5,6 @@ match the code. Everything here is supplementary.
 
 ## Current
 
-- [Gashouder Amsterdam venue](GASHOUDER.md) — implementation scope, architectural
-  references, reused assets, inferred dimensions, and headset-performance limits.
-- [Gashouder asset inventory](gashouder/questdev-asset-inventory.md), [reuse and
-  integration plan](gashouder/reuse-and-integration-plan.md), and
-  [architectural reconstruction record](gashouder/architectural-reconstruction.md).
 - [NOCTURNE principal review - 2026-10-06](REVIEW_2026-10-06.md) - current evidence,
   release limitations, experience scorecard and prioritized follow-up.
 - [Performance baseline](PERFORMANCE_BASELINE.md) — measured frame budgets.

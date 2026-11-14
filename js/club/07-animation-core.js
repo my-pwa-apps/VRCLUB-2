@@ -6,13 +6,6 @@ function easeAirLightSample(state, r, g, b, lit, dt, attack, release) {
     state.g += (g - state.g) * amount;
     state.b += (b - state.b) * amount;
     state.lit += (lit - state.lit) * amount;
-    // Flush decayed values to exact zero so 1 / weight never divides by a subnormal float (~3e-323 -> Infinity/NaN -> black HDR bloom boxes).
-    if (!(state.lit >= 1e-6)) {
-        state.r = 0;
-        state.g = 0;
-        state.b = 0;
-        state.lit = 0;
-    }
 }
 
 class VRClubAnimationCore extends VRClubEffects {
@@ -394,10 +387,8 @@ class VRClubAnimationCore extends VRClubEffects {
         const intensity = Number.isFinite(this.fogIntensity) ? Math.min(2, Math.max(0, this.fogIntensity)) : 1;
         const fill = !this.reducedShowSmoke &&
             ((this.vjManualMode && intensity === 2) || this.fogImmersion > 0) ? 1 : 0;
-        const machineScale = this.gashouderLighting && this.fogMachines?.length
-            ? 2 / this.fogMachines.length : 1;
-        const burstRate = 150 * outputScale * machineScale * (1 + fill);
-        const continuousRate = 80 * outputScale * machineScale * (1 + fill);
+        const burstRate = 150 * outputScale * (1 + fill);
+        const continuousRate = 80 * outputScale * (1 + fill);
         const beat = typeof this.spotRigBeat === 'function' ? this.spotRigBeat(time) : time * (this.vjBPM || 120) / 60;
         const burstPhase = ((beat % 16) + 16) % 16;
         const bursting = this.fogBurstMode === 'auto' && burstPhase < 3;
@@ -489,11 +480,7 @@ class VRClubAnimationCore extends VRClubEffects {
         if (typeof designed === 'number') {
             const immersion = this.reducedShowSmoke ? 0 : Math.max(
                 this._smokeImmersion, this.vjManualMode && intensity === 2 ? 1 : 0);
-            const gashouder = this.venueId === 'gashouder';
-            const roomScale = gashouder ? 0.42 : 1;
-            const immersionScale = gashouder ? 1.25 : 2;
-            const target = designed * roomScale * (0.1 + 0.9 * smoke) *
-                (1 + immersionScale * immersion * (1 - outdoors)) * (1 - 0.62 * outdoors);
+            const target = designed * (0.1 + 0.9 * smoke) * (1 + 2 * immersion * (1 - outdoors)) * (1 - 0.62 * outdoors);
             const current = scene.fogDensity;
             if (!(current > 0)) {
                 scene.fogDensity = target;
@@ -781,14 +768,12 @@ class VRClubAnimationCore extends VRClubEffects {
         const rows = this.ledRows || 10;
         if (panels && panels.length >= cols * rows) {
             let any = false;
-            const rowB1 = Math.max(1, Math.floor(rows * 0.3));
-            const rowB2 = Math.max(rowB1 + 1, Math.floor(rows * 0.7));
             for (let gy = 0; gy < 3; gy++) {
-                const r0 = gy === 0 ? 0 : (gy === 1 ? rowB1 : rowB2);
-                const r1 = gy === 0 ? rowB1 : (gy === 1 ? rowB2 : rows);
+                const r0 = gy === 0 ? 0 : (gy === 1 ? 3 : 7);
+                const r1 = gy === 0 ? 3 : (gy === 1 ? 7 : rows);
                 for (let gx = 0; gx < 7; gx++) {
-                    const c0 = Math.floor(gx * cols / 7);
-                    const c1 = Math.max(c0 + 1, Math.floor((gx + 1) * cols / 7));
+                    const c0 = gx * 3;
+                    const c1 = Math.min(cols, c0 + 3);
                     let sr = 0, sg = 0, sb = 0, cnt = 0;
                     for (let r = r0; r < r1; r++) {
                         const rowOff = r * cols;
@@ -829,16 +814,10 @@ class VRClubAnimationCore extends VRClubEffects {
     /** Sample the 7×3 spatial LED-wall grid at a 3D particle position `pos` (writes `out.r/g/b/lit`). */
     _sampleAirLedWall(pos, out) {
         const grid = this._airLedGrid;
-        const gashouder = this.venueId === 'gashouder';
-        const wallZ = gashouder ? -25.6 : -20;
-        const maxDist = gashouder ? 26 : 18;
-        const halfW = gashouder ? 22 : 12;
-        const baseY = gashouder ? 0.6 : 0.5;
-        const spanY = gashouder ? 9.2 : 9;
-        const dz = Math.max(0.6, pos.z - wallZ);
-        if (dz > maxDist) { out.r = out.g = out.b = out.lit = 0; return; }
-        const u = Math.max(0, Math.min(5.999, ((pos.x + halfW) / (halfW * 2)) * 6));
-        const v = Math.max(0, Math.min(1.999, ((pos.y - baseY) / spanY) * 2));
+        const dz = Math.max(0.6, pos.z - (-20));
+        if (dz > 18) { out.r = out.g = out.b = out.lit = 0; return; }
+        const u = Math.max(0, Math.min(5.999, ((pos.x + 12) / 24) * 6));
+        const v = Math.max(0, Math.min(1.999, ((pos.y - 0.5) / 9) * 2));
         const ix = u | 0, iy = v | 0;
         const fx = u - ix, fy = v - iy;
         const i00 = (iy * 7 + ix) * 3;
@@ -1092,19 +1071,15 @@ class VRClubAnimationCore extends VRClubEffects {
                 localLit += ledSample.lit;
             }
             if (dim > 0.01) {
-                // Revolving facet waves from the spinning mirror ball
+                // Revolving facet waves from the spinning mirror ball at (0, 6.5, -12)
                 if (this.mirrorBallActive && this.mirrorBallSpotlightColor) {
                     const mc = this.mirrorBallSpotlightColor;
-                    const mbPos = this.mirrorBall?.position;
-                    const mx = pos.x - (mbPos ? mbPos.x : 0);
-                    const my = pos.y - (mbPos ? mbPos.y : 6.5);
-                    const mz = pos.z - (mbPos ? mbPos.z : -12);
+                    const mx = pos.x, my = pos.y - 6.5, mz = pos.z + 12;
                     const mDistSq = mx * mx + my * my + mz * mz;
                     const angle = Math.atan2(mx, mz);
                     const spin = this.mirrorBallRotation || 0;
                     const sparkle = 0.25 + 0.75 * Math.max(0, Math.sin(angle * 6 - spin * 8) * Math.cos(my * 1.4 + spin * 5));
-                    const falloff = this.venueId === 'gashouder' ? 0.015 : 0.04;
-                    const mw = (0.55 * dim * sparkle) / (1 + mDistSq * falloff);
+                    const mw = (0.55 * dim * sparkle) / (1 + mDistSq * 0.04);
                     localR += mc.r * mw; localG += mc.g * mw; localB += mc.b * mw; localLit += mw;
                 }
                 if (strobeFiring) {
@@ -1123,20 +1098,17 @@ class VRClubAnimationCore extends VRClubEffects {
                 localLit *= 0.4;
             }
             const c = p.color;
-            if (!Number.isFinite(c.r) || !Number.isFinite(c.g) || !Number.isFinite(c.b) || !Number.isFinite(c.a)) {
-                c.r = 0.04; c.g = 0.04; c.b = 0.055; c.a = 0;
-            }
             if (isPlume) {
                 const sheetWeight = sheetLit * 0.45;
                 const totalLit = localLit + lit + sheetWeight;
-                if (!(totalLit > 0.001)) {
+                if (totalLit <= 0.001) {
                     // No light reaching this particle's 3D position: smoke stays dark unlit fog
                     c.r = 0.02;
                     c.g = 0.022;
                     c.b = 0.03;
                     c.a *= 0.08;
                 } else {
-                    const sheetScale = sheetLit > 1e-6 ? sheetWeight / sheetLit : 0;
+                    const sheetScale = sheetLit > 0 ? sheetWeight / sheetLit : 0;
                     const rSum = localR + beamR + airState.sheet.r * sheetScale;
                     const gSum = localG + beamG + airState.sheet.g * sheetScale;
                     const bSum = localB + beamB + airState.sheet.b * sheetScale;
@@ -1153,11 +1125,11 @@ class VRClubAnimationCore extends VRClubEffects {
             if (isDust) {
                 // Dust is only seen where light catches it.
                 c.a = Math.min(0.9, c.a * (0.2 + Math.min(1.5, totalLit) * 1.7));
-            } else if (totalLit > 1e-5) {
+            } else if (totalLit > 0) {
                 c.a *= 1 + Math.min(1.2, totalLit) * 1.8;
             }
-            const weight = lit + localLit;
-            if (weight > 1e-5 && (tint || localLit > 1e-5)) {
+            if ((lit + localLit) > 0 && (tint || localLit > 0)) {
+                const weight = lit + localLit;
                 const m = Math.min(0.78, weight * 0.65);
                 const inv = 1 / weight;
                 const tr = (beamR + localR) * inv;
@@ -1167,7 +1139,7 @@ class VRClubAnimationCore extends VRClubEffects {
                 c.g += (tg * 1.1 - c.g) * m;
                 c.b += (tb * 1.1 - c.b) * m;
             }
-            if (sheetLit > 1e-5 && laserColor) {
+            if (sheetLit > 0 && laserColor) {
                 const sm = Math.min(0.52, sheetLit * 0.48);
                 c.r += (laserColor.r * 0.95 - c.r) * sm;
                 c.g += (laserColor.g * 0.95 - c.g) * sm;

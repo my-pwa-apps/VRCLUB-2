@@ -100,26 +100,22 @@ export async function devRoomAccess(request, env, now = Date.now()) {
         const cookies = (request.headers.get('Cookie') || '').split(';').map(value => value.trim());
         const ownerCookies = cookies.filter(value => value.startsWith(`${DEV_OWNER_COOKIE}=`));
         const token = ownerCookies.length === 1 ? ownerCookies[0].slice(DEV_OWNER_COOKIE.length + 1) : null;
-        if (token && DEV_OWNER_TOKEN.test(token)) {
-            let session = null;
-            try {
-                session = await env.DB.prepare(`
-                    SELECT email FROM dev_owner_sessions
-                    WHERE token_hash = ? AND revoked_at IS NULL AND expires_at > ?
-                `).bind(await devOwnerTokenHash(token), now).first();
-            } catch (error) {
-                if (!/no such table:\s*dev_owner_sessions/i.test(String(error?.message || ''))) throw error;
-            }
-            const email = typeof session?.email === 'string' ? session.email.trim().toLowerCase() : '';
-            if (email && owners.includes(email)) return null;
+        if (!token || !DEV_OWNER_TOKEN.test(token)) {
+            return { status: 401, error: 'dev_room_sign_in', message: SIGN_IN_MESSAGE };
         }
-        // Also accept a verified first-party mitwee.nl owner session (`nocturne_vr_session`) if present on the same headset
-        if (env.ENTITLEMENTS_DB) {
-            const existing = await accessSession(request, { DB: env.ENTITLEMENTS_DB });
-            const existingEmail = typeof existing?.email === 'string' ? existing.email.trim().toLowerCase() : '';
-            if (existingEmail && owners.includes(existingEmail)) return null;
+        let session = null;
+        try {
+            session = await env.DB.prepare(`
+                SELECT email FROM dev_owner_sessions
+                WHERE token_hash = ? AND revoked_at IS NULL AND expires_at > ?
+            `).bind(await devOwnerTokenHash(token), now).first();
+        } catch (error) {
+            if (!/no such table:\s*dev_owner_sessions/i.test(String(error?.message || ''))) throw error;
         }
-        return { status: 401, error: 'dev_room_sign_in', message: SIGN_IN_MESSAGE };
+        const email = typeof session?.email === 'string' ? session.email.trim().toLowerCase() : '';
+        return email && owners.includes(email) ? null : {
+            status: 401, error: 'dev_room_sign_in', message: SIGN_IN_MESSAGE
+        };
     }
     const session = await accessSession(request, env);
     if (!session) {

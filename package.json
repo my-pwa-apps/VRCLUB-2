@@ -1,7 +1,7 @@
 {
   "name": "vrclub",
   "version": "1.1.0",
-  "cacheToken": "20261114-15",
+  "cacheToken": "20261021-5",
   "description": "Hyperrealistic Babylon.js WebXR VR Club with music streaming for Meta Quest 3S",
   "scripts": {
     "start": "node scripts/serve.mjs",
@@ -14,7 +14,6 @@
     "build:quest": "node scripts/build.mjs",
     "deploy:cloudflare": "npm run build && npx --yes wrangler@4.141.0 pages deploy dist --project-name nocturne-vr --branch Quest",
     "deploy:sidequest": "npm run build && npx --yes wrangler@4.141.0 pages deploy dist --project-name nocturne-sidequest --branch SideQuest",
-    "deploy:gashouder": "npm run build && npx --yes wrangler@4.141.0 deploy --config worker/wrangler.gashouder.jsonc && npx --yes wrangler@4.141.0 pages deploy dist --project-name gashouder-vr --branch main --commit-dirty=true",
     "deploy:worker": "npx --yes wrangler@4.141.0 deploy --config worker/wrangler.toml",
     "build:native-poc": "node scripts/build-native-poc.mjs",
     "quest:prepare": "node scripts/prepare-quest.mjs",

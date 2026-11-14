@@ -189,65 +189,109 @@ class LEDPatternMethods {
     // === IMMERSIVE DANCE CLUB PATTERNS ===
 
     /**
-     * patternHypnoticSpiral — Architectural Horizon & Monolith Gates (replaces the old rainbow spiral).
+     * patternHypnoticSpiral — flagship "infinite vortex" visual.
      *
-     * Sweeping symmetric vertical light pillars, receding cathedral chevrons, and a bass-reactive
-     * horizon pulse rendered in the show's active palette (`color` + hot white core) rather than a
-     * multi-colored rainbow wheel. Keeps the method name at slot [0] for saved-preset compatibility.
+     * Two counter-rotating logarithmic spirals layered with a per-radius hue
+     * cycle and a bass-driven breathing zoom. On a 21×10 LED wall this reads
+     * as a deep, rainbow tunnel pulling the viewer in on every kick — the
+     * classic trance/psy visual that disappears the back wall in VR.
+     *
+     * Design choices:
+     *  - Soft sin-band edges (not on/off) so the effect survives bloom and
+     *    the bezel gaps between tiles instead of looking like a strobe grid.
+     *  - 3 outer arms + 5 inner arms counter-rotating → parallax / depth.
+     *  - Hue precomputed once per frame into a 64-slot palette so we do not
+     *    allocate a Color3 per panel per frame (210 panels × 60fps).
+     *  - Aspect-corrected radius (cols/rows ratio) so circles read as circles
+     *    on the wide grid instead of stretched ellipses.
      */
     patternHypnoticSpiral(color, time, audioData) {
         const cols = this.ledCols || 21;
         const rows = this.ledRows || 10;
         const centerX = (cols - 1) / 2;
         const centerY = (rows - 1) / 2;
-        const halfW = Math.max(1, centerX);
-        const halfH = Math.max(1, centerY);
+        const aspect = cols / rows; // ~2.1 — squash Y so polar = circles, not ovals
 
-        const hasAudio = !!(audioData && audioData.hasAudio);
-        const bass = hasAudio ? (audioData.bass || 0) : 0;
-        const mid = hasAudio ? (audioData.mid || 0) : 0;
+        // --- Audio reactivity -------------------------------------------------
+        const hasAudio = audioData && audioData.hasAudio;
+        const bass = hasAudio ? audioData.bass : 0;
+        const mid  = hasAudio ? (audioData.mid || 0) : 0;
 
+        // Smoothed bass envelope → drives the "breathing" zoom of the tunnel.
+        // Fast attack, slow release feels musical and avoids jitter.
         if (this._spiralBassEnv === undefined) this._spiralBassEnv = 0;
-        const k = bass > this._spiralBassEnv ? 0.48 : 0.08;
-        this._spiralBassEnv += (bass - this._spiralBassEnv) * k;
-        const breath = hasAudio ? this._spiralBassEnv : (0.35 + 0.35 * Math.sin(time * 1.4));
+        const target = bass;
+        const k = target > this._spiralBassEnv ? 0.45 : 0.06; // attack / release
+        this._spiralBassEnv += (target - this._spiralBassEnv) * k;
+        const breath = this._spiralBassEnv; // 0..1
 
+        // Without audio, fake a slow musical breath at ~0.5 Hz so the wall
+        // still looks alive in silence.
+        const fakeBreath = hasAudio ? 0 : (0.35 + 0.35 * Math.sin(time * Math.PI));
+        const zoom = 1.0 + breath * 0.9 + fakeBreath * 0.5; // tunnel pumps in on bass
+
+        // --- Per-frame hue palette (64 entries) -------------------------------
+        // Cycle the whole rainbow every ~12s; mids nudge it faster for variety.
+        const PALETTE_N = 64;
+        if (!this._spiralPalette || this._spiralPalette.length !== PALETTE_N) {
+            this._spiralPalette = Array.from({ length: PALETTE_N }, () => new BABYLON.Color3());
+        }
+        const hueBase = (time * 30 + mid * 60) % 360; // deg/sec
+        const hueSpread = 280; // how much of the spectrum is visible at once
+        for (let i = 0; i < PALETTE_N; i++) {
+            const h = (hueBase + (i / PALETTE_N) * hueSpread) % 360;
+            BABYLON.Color3.HSVtoRGBToRef(h, 1.0, 1.0, this._spiralPalette[i]);
+        }
+
+        // --- Spiral parameters ------------------------------------------------
+        const armsOuter   = 3;          // 3-arm outer spiral
+        const armsInner   = 5;          // 5-arm inner spiral, counter-rotating
+        const pitchOuter  = 0.9;        // tightness — higher = tighter coil
+        const pitchInner  = 1.4;
+        const spinOuter   =  0.9 + breath * 1.4;  // rad/sec
+        const spinInner   = -1.6 - breath * 2.0;  // opposite direction
+        const bandSharp   = 1.6;        // >1 sharpens the bright bands
+
+        // Re-use cached black to clear dark panels without alloc
         const BLACK = this.cachedColors.black;
-        const tone = this._ledColor2 || (this._ledColor2 = new BABYLON.Color3());
-        const baseColor = color || this.cachedColors.cyan;
-
-        // Traveling architectural gates expanding symmetrically from the stage center outward along the curve
-        const gateTravel = time * (2.2 + mid * 1.1);
-        const horizonWave = Math.sin(time * 0.9) * 0.22;
 
         for (let p = 0; p < this.ledPanels.length; p++) {
             const panel = this.ledPanels[p];
-            const nx = Math.abs(panel.col - centerX) / halfW; // 0 at center .. 1 at wing tips
-            const ny = (panel.row - centerY) / halfH;         // -1 at bottom .. +1 at top
 
-            // 1. Symmetric receding monolith pillars + angled cathedral chevron ribs
-            const chevronCoord = nx * 5.5 + Math.abs(ny) * 1.35 - gateTravel;
-            const gateBand = Math.pow(Math.max(0, Math.cos(chevronCoord * Math.PI)), 6);
+            // Polar coords from center, aspect corrected, then zoomed by bass
+            const dx = (panel.col - centerX);
+            const dy = (panel.row - centerY) * aspect;
+            const r  = Math.sqrt(dx * dx + dy * dy) / zoom;
+            const theta = Math.atan2(dy, dx);
 
-            // 2. Crisp vertical architectural columns breathing on the kick
-            const pillarScan = Math.pow(Math.max(0, Math.cos((nx * 9.0 - time * 0.65) * Math.PI)), 10) * (0.35 + breath * 0.65);
+            // Two counter-rotating logarithmic spirals.
+            // Using log(r) gives the "infinite tunnel" feel — bands stay
+            // perceptually evenly spaced as you zoom.
+            const logR = Math.log(r + 0.6);
+            const phaseOuter = armsOuter * theta + spinOuter * time - logR * pitchOuter * 6;
+            const phaseInner = armsInner * theta + spinInner * time - logR * pitchInner * 6;
 
-            // 3. Glowing horizon line & bass-driven stage foundation
-            const horizonDist = Math.abs(ny - horizonWave * (1 - nx * 0.5));
-            const horizonGlow = Math.exp(-horizonDist * (5.5 - breath * 2.2)) * (0.45 + breath * 0.55);
+            // Soft band: sin → [0,1], then sharpen for crisp arms with smooth edges
+            const bandO = Math.pow(Math.max(0, Math.sin(phaseOuter) * 0.5 + 0.5), bandSharp);
+            const bandI = Math.pow(Math.max(0, Math.sin(phaseInner) * 0.5 + 0.5), bandSharp);
 
-            const intensity = Math.min(1.0, gateBand * 0.78 + pillarScan * 0.55 + horizonGlow * 0.68);
+            // Combine layers — outer dominates, inner adds shimmer
+            let intensity = bandO * 0.85 + bandI * 0.55;
+
+            // Center hotspot: brighter & whiter near the vortex eye, pulsing on bass
+            const eye = Math.exp(-r * 0.55) * (0.6 + breath * 0.8);
+            intensity = Math.min(1.0, intensity + eye);
+
             if (intensity < 0.04) {
                 panel.material.emissiveColor = BLACK;
                 continue;
             }
 
-            // Monochromatic show palette with crisp white-hot core on peak crests (zero rainbow wheel)
-            const hotCore = Math.max(0, intensity - 0.68) * (0.65 + breath * 0.55);
-            tone.r = Math.min(1, baseColor.r + hotCore);
-            tone.g = Math.min(1, baseColor.g + hotCore);
-            tone.b = Math.min(1, baseColor.b + hotCore);
-            this.updateLEDPanel(panel, tone, intensity);
+            // Hue depends on radius (rainbow rings) + a slow rotation so the
+            // colors themselves spiral through the tunnel.
+            const hueIdx = ((r * 4 + time * 2) | 0) % PALETTE_N;
+            const safeIdx = hueIdx < 0 ? hueIdx + PALETTE_N : hueIdx;
+            this.updateLEDPanel(panel, this._spiralPalette[safeIdx], intensity);
         }
     }
 

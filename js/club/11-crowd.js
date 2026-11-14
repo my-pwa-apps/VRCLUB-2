@@ -7,9 +7,7 @@ class VRClubCrowd extends window.VRClubAvatars {
         // instantiating it per dancer. That gives every dancer its own skeleton and
         // animation group (so nobody moves in lockstep) off a single download and a
         // single set of geometry buffers and materials.
-        const crowdSize = Math.max(0, (this.venueId === 'gashouder'
-            ? this.getGashouderCrowdSize()
-            : this.tierSettings.crowdSize) | 0);
+        const crowdSize = Math.max(0, this.tierSettings.crowdSize | 0);
         const at = id => VRClubAudioCrowd.sourceIndex(id);
 
         // Hand-placed rather than randomised: the list is ordered so that the first
@@ -33,11 +31,7 @@ class VRClubCrowd extends window.VRClubAvatars {
             { x:  7.2, z: -13.6, src: at('m5'), height: 1.82, facing: -0.40 },
             { x: -0.6, z:  -6.4, src: at('m9'), height: 1.76, facing:  0.02 }
         ];
-        if (this.venueId === 'gashouder') {
-            this._crowdSlots = this.gashouderCrowdSlots(at);
-        } else {
-            this._crowdSlots = crowdSlots;
-        }
+        this._crowdSlots = crowdSlots;
 
         // Only the files the active tier shows are fetched and parsed: a balanced headset needs six dancers, not
         // seventeen characters. `undefined` in this list means "not requested yet", `null` means "failed to load".
@@ -48,8 +42,6 @@ class VRClubCrowd extends window.VRClubAvatars {
         await this._loadCrowdSources(required);
         if (this._disposed) return;
         const containers = this._crowdSourceContainers;
-        this._spawnLocalPlayerBody();
-        void this._restoreCustomAvatarGlb();
         if (!this._availableCrowdSources || this._availableCrowdSources.length === 0) {
             log.warn('⚠️ No avatar sources loaded — the club will be empty');
             return;
@@ -63,14 +55,12 @@ class VRClubCrowd extends window.VRClubAvatars {
         // Stands on the 0.5 m riser in the 1 m gap between the LED wall (z=-20) and
         // the deck plinth (z=-19), facing the floor. Playback is dialled well down so
         // they read as working the decks rather than raving in the crowd. The local generic choice owns the look.
-        if (this.venueId !== 'gashouder' || window.GASHOUDER_PRESETS[this.getGashouderPreset()].stage) {
-            await this._applyDJ(this._initialDJId());
-        }
+        await this._applyDJ(this._initialDJId());
 
         // === THE BARTENDER ===
         // Behind the counter, washing the persistent service glass through AvatarRig so her hands can actually reach
         // the counter. She is not a guest slot (no tier removes her) and takes the bar's accent light like the stools.
-        const barCrew = this.venueId === 'gashouder' ? null : containers[at('bartender')];
+        const barCrew = containers[at('bartender')];
         if (barCrew) {
             let bartender = this._spawnWorkingBartender(barCrew);
             if (!bartender) {
@@ -87,6 +77,8 @@ class VRClubCrowd extends window.VRClubAvatars {
             }
         }
 
+        this._spawnLocalPlayerBody();
+        void this._restoreCustomAvatarGlb();
         this._applyCrowdSize();
         this._refreshShadowCasters();
 
@@ -103,9 +95,6 @@ class VRClubCrowd extends window.VRClubAvatars {
      * the DJ, +PI/2 faces +x. Every slot is well clear of the side walls, the truss legs and the DJ riser.
      */
     _guestSlots() {
-        if (this.venueId === 'gashouder') {
-            return this.gashouderGuestSlots(id => VRClubAudioCrowd.sourceIndex(id));
-        }
         const towardDJ = (x, z) => Math.atan2(-x, -18 - z);
         const at = id => VRClubAudioCrowd.sourceIndex(id);
         // The poses a guest can change into at runtime. Only the mingling guest walks; the people he stops at turn
@@ -146,24 +135,11 @@ class VRClubCrowd extends window.VRClubAvatars {
      * guests. A group the visitor has sent home is not fetched at all (see isPeopleVisible); turning it back on
      * tops up the missing files in the background.
      */
-    _requiredCrowdSources(crowdSize = this.isPeopleVisible('dancers')
-        ? (this.venueId === 'gashouder' ? this.getGashouderCrowdSize() : this.tierSettings.crowdSize)
-        : 0,
-    guestSize = this.isPeopleVisible('bystanders')
-        ? (this.venueId === 'gashouder' ? this.getGashouderGuestSize() : this.tierSettings.guestSize)
-        : 0) {
-        const needsDefaultDancers = this.venueId === 'gashouder'
-            ? crowdSize > 0 && this.getCharacterStyle() !== 'diverse'
-            : this.getCharacterStyle() !== 'diverse';
-        const localAvatarSource = VRClubAudioCrowd.sourceIndex(
-            this.getLocalAvatarStyle() === 'male' ? 'dancerM' : 'dancerF'
-        );
-        const need = new Set(localAvatarSource >= 0 ? [localAvatarSource] : []);
-        if (needsDefaultDancers) {
-            need.add(VRClubAudioCrowd.sourceIndex('dancerF'));
-            need.add(VRClubAudioCrowd.sourceIndex('dancerM'));
-        }
-        if (this.venueId !== 'gashouder' && this.isPeopleVisible('bystanders')) need.add(VRClubAudioCrowd.sourceIndex('bartender'));
+    _requiredCrowdSources(crowdSize = this.isPeopleVisible('dancers') ? this.tierSettings.crowdSize : 0,
+        guestSize = this.isPeopleVisible('bystanders') ? this.tierSettings.guestSize : 0) {
+        const need = new Set(this.getCharacterStyle() === 'diverse' ? []
+            : [VRClubAudioCrowd.sourceIndex('dancerF'), VRClubAudioCrowd.sourceIndex('dancerM')]);
+        if (this.isPeopleVisible('bystanders')) need.add(VRClubAudioCrowd.sourceIndex('bartender'));
         (this._crowdSlots || []).slice(0, Math.max(0, crowdSize | 0)).forEach(slot => need.add(slot.src));
         this._guestSlots().slice(0, Math.max(0, guestSize | 0)).forEach(slot => need.add(slot.src));
         return [...need].filter(index => index >= 0);
@@ -485,12 +461,8 @@ class VRClubCrowd extends window.VRClubAvatars {
         // back on restores exactly the crowd this tier would have had.
         const dancersOn = this.isPeopleVisible('dancers');
         const bystandersOn = this.isPeopleVisible('bystanders');
-        const target = dancersOn ? Math.max(0, (this.venueId === 'gashouder'
-            ? this.getGashouderCrowdSize()
-            : this.tierSettings.crowdSize) | 0) : 0;
-        const guestTarget = bystandersOn ? Math.max(0, (this.venueId === 'gashouder'
-            ? this.getGashouderGuestSize()
-            : this.tierSettings.guestSize) | 0) : 0;
+        const target = dancersOn ? Math.max(0, this.tierSettings.crowdSize | 0) : 0;
+        const guestTarget = bystandersOn ? Math.max(0, this.tierSettings.guestSize | 0) : 0;
         this._topUpCrowdSources();
         this._spawnCrowdTo(target);
         this._spawnGuestsTo(guestTarget);

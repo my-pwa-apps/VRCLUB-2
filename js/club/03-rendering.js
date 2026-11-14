@@ -441,10 +441,6 @@ class VRClubRendering extends VRClubLifecycle {
     }
 
     createFloor() {
-        if (this.venueId === 'gashouder') {
-            this.createGashouderFloor();
-            return;
-        }
         // The floor ends at the club's front wall (z 0.25): the street outside is a separate surface (see
         // CityDistrict). It used to be 35 x 45 m centred on z -10, which ran 12 m out past the facade.
         const floor = BABYLON.MeshBuilder.CreateGround("floor", {
@@ -518,9 +514,7 @@ class VRClubRendering extends VRClubLifecycle {
         // Cube map probe at dance floor level. Resolution scales with the graphics tier
         // because it supplies the fallback colour for rays that SSR fails to resolve.
         const probe = new BABYLON.ReflectionProbe("floorReflectionProbe", this.tierSettings.probeResolution, this.scene);
-        probe.position = this.venueId === 'gashouder'
-            ? new BABYLON.Vector3(0, 0.5, 0)
-            : new BABYLON.Vector3(0, 0.5, -12);
+        probe.position = new BABYLON.Vector3(0, 0.5, -12); // Dance floor center, slightly above floor
         
         // CRITICAL: Render only ONCE (frozen probe) - zero runtime cost after first frame
         probe.refreshRate = BABYLON.RenderTargetTexture.REFRESHRATE_RENDER_ONCE;
@@ -531,7 +525,7 @@ class VRClubRendering extends VRClubLifecycle {
         this.scene.meshes.forEach(mesh => {
             if (!mesh.name) return;
             const n = mesh.name.toLowerCase();
-            if (n.includes('ledpanel') || n.includes('gashouderled')) return;
+            if (n.includes('ledpanel')) return; // animated wall cannot live in a render-once probe
             // Include structural and decorative elements (skip floor itself, beams and pools)
             if (n.includes('wall') || n.includes('ceiling') || n.includes('truss') ||
                 n.includes('brace') || n.includes('pillar') || n.includes('speaker') ||

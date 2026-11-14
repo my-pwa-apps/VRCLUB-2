@@ -13,21 +13,6 @@ const uiLog = {
     error: (...args) => console.error('[UI]', ...args)
 };
 
-const venueParams = new URLSearchParams(window.location.search);
-const venueSelect = document.getElementById('venueSelect');
-const presetSelect = document.getElementById('gashouderPresetSelect');
-const venueHost = window.location.hostname;
-const defaultVenue = venueHost === 'gashouder.mitwee.nl' ||
-    venueHost === 'gashouder-vr.pages.dev' || venueHost.endsWith('.gashouder-vr.pages.dev')
-    ? 'gashouder' : 'nocturne';
-const initialVenue = venueParams.get('venue') || defaultVenue;
-if (venueSelect && ['nocturne', 'gashouder'].includes(initialVenue)) {
-    venueSelect.value = initialVenue;
-}
-if (presetSelect && window.GASHOUDER_PRESETS?.[venueParams.get('preset')]) {
-    presetSelect.value = venueParams.get('preset');
-}
-
 function ensureMusicLibrary(club) {
     if (!club.musicLibrary) {
         club.musicLibrary = new window.MusicLibrary(club);

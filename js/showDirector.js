@@ -142,14 +142,14 @@ class ShowDirector {
         this.movements = ShowDirector._buildMovements();
         this.setPieces = ShowDirector._buildSetPieces();
         this.program = 'nocturne';
+
         this._validateLooks();
 
         // Open on ARRIVAL so the room reveals itself rather than starting at peak.
-        if (club.venueId === 'gashouder') this.setProgram('gashouder');
-        else this._enterMovement('arrival');
+        this._enterMovement('arrival');
 
         if (typeof log !== 'undefined') {
-            log.info(`🎭 Show Director online — "${this.program.toUpperCase()}" (beat-locked cue engine)`);
+            log.info('🎭 Show Director online — "NOCTURNE" (beat-locked cue engine)');
         }
     }
 
@@ -163,7 +163,7 @@ class ShowDirector {
     }
 
     setProgram(program) {
-        if (!['nocturne', 'aesthetic', 'gashouder'].includes(program)) throw new TypeError('Unknown light show.');
+        if (!['nocturne', 'aesthetic'].includes(program)) throw new TypeError('Unknown light show.');
         if (program === this.program) return;
         this.program = program;
         this._aestheticImmersionPass = 0;
@@ -230,112 +230,6 @@ class ShowDirector {
                     ledPattern: name.startsWith('aesthetic') ? look.ledPattern : 5,
                     spotlightPattern: name.startsWith('aesthetic') ? look.spotlightPattern : 1,
                     hue: look.hue ?? 0.58 });
-            }
-        }
-        if (program === 'gashouder') {
-            const base = {
-                intensity: 0.90, punch: 0.24, palette: 'analogous', colorLock: false,
-                ledHarmony: 'complement',
-                lightsActive: true, lasersActive: false, laserSheetActive: false,
-                strobesActive: false, spotStrobeActive: false, spotPrismActive: false,
-                mirrorBallActive: false, mirrorBallRaysActive: false,
-                smokeActive: true, fogIntensity: 1.35,
-                fogImmersion: 0.25, fogBurstMode: 'auto', ledWallActive: true,
-                ledPattern: 1, ledLevel: 0.85, ledMonochrome: false,
-                ledMulti: false, spotlightMode: 1, spotlightPattern: 2,
-                spotSequence: 0, spotSequenceRate: 1,
-                spotlightSpeed: 0.85, laserSpeed: 0.75, ledWallSpeed: 0.8,
-                gashouderCeilingMode: 1
-            };
-            const looks = {
-                // Architectural awakening: cathedral dome convergence + radial ceiling shockwaves + deep tunnel backdrop
-                gashouderReveal: {
-                    hue: 0.57, intensity: [0.76, 0.90], punch: 0.20,
-                    ledPattern: 11, ledLevel: 0.78, ledHarmony: 'analogous',
-                    spotlightPattern: 1, spotlightSpeed: 0.55, spotPrismActive: true,
-                    laserSheetActive: true, laserSheetOrigin: 'both', laserSheetMotion: 'lateral',
-                    fogIntensity: 1.25, gashouderCeilingMode: 0
-                },
-                // 360° stadium groove: 24 moving heads sweeping in radial bloom + 4-blade ceiling turbine + architectural horizon gates
-                gashouderOrbit: {
-                    hue: 0.50, intensity: 0.92, punch: 0.26,
-                    ledPattern: 0, ledLevel: 0.88, ledHarmony: 'complement',
-                    spotlightPattern: 5, spotSequence: 2, spotSequenceRate: 1, spotlightSpeed: 0.95,
-                    lasersActive: true, laserSpeed: 0.7,
-                    strobesActive: true, strobePattern: 'circle', strobeSync: 'bar',
-                    fogIntensity: 1.4, gashouderCeilingMode: 2
-                },
-                // Industrial warehouse cut: crossed beams + dual laser sheets + warehouse geometric shapes + ceiling matrix
-                gashouderSweep: {
-                    hue: 0.80, intensity: 0.94, punch: 0.28,
-                    ledPattern: 19, ledLevel: 0.92, ledMulti: true, ledHarmony: 'triad',
-                    spotlightPattern: 3, spotPrismActive: true, spotlightSpeed: 0.9,
-                    laserSheetActive: true, laserSheetOrigin: 'both', laserSheetMotion: 'lateral',
-                    strobesActive: true, strobePattern: 'sides', strobeSync: 'bar',
-                    fogIntensity: 1.5, fogImmersion: 0.45, gashouderCeilingMode: 4
-                },
-                // High-tension ascent: 40-beam laser crown + turbine vortex + accelerating sweeps + stage-to-arena wave
-                gashouderLift: {
-                    hue: 0.06, intensity: [0.88, 1.0], punch: 0.32,
-                    ledPattern: 6, ledLevel: 0.95, ledHarmony: 'complement',
-                    spotlightPattern: 6, spotSequence: 4, spotSequenceRate: 1, spotlightSpeed: [0.85, 1.35],
-                    lasersActive: true, laserSpeed: [0.75, 1.35],
-                    strobesActive: true, strobePattern: 'build', strobeSync: 'beat',
-                    fogIntensity: 1.65, fogImmersion: 0.55, gashouderCeilingMode: 3
-                },
-                // Full Awakenings-scale arena drop: all 24 heads with prism, 8 multi-lasers, 12 strobes, full wrap-around wall & ceiling matrix
-                gashouderPeak: {
-                    hue: 0.95, intensity: 1.0, punch: 0.36, palette: 'complementary',
-                    ledPattern: 19, ledLevel: 1.0, ledMulti: true, ledHarmony: 'complement',
-                    spotlightPattern: 7, spotlightMode: 0, spotStrobeActive: true, spotPrismActive: true,
-                    spotSequence: 0, spotlightSpeed: 1.3,
-                    lasersActive: true, laserSpeed: 1.25,
-                    laserSheetActive: true, laserSheetOrigin: 'both', laserSheetMotion: 'vertical',
-                    strobesActive: true, strobePattern: 'chase', strobeSync: 'bar', strobeSpeed: 1.4,
-                    fogIntensity: 1.85, fogImmersion: 0.8, gashouderCeilingMode: 4
-                },
-                // Cathedral laser & mirror-ball euphoria: wide arena reflections + concentric hub ripples
-                gashouderCathedral: {
-                    hue: 0.62, intensity: 0.88, punch: 0.22, palette: 'triad',
-                    ledPattern: 12, ledLevel: 0.82, ledHarmony: 'analogous',
-                    spotlightPattern: 2, spotPrismActive: true, spotlightSpeed: 0.75,
-                    lasersActive: true, laserSpeed: 0.65,
-                    mirrorBallActive: true, mirrorBallRaysActive: true, mirrorBallSpeed: 0.55,
-                    fogIntensity: 1.6, fogImmersion: 0.5, gashouderCeilingMode: 1
-                },
-                // Warm architectural breather keeping the steel dome and stage sculpted
-                gashouderAfterglow: {
-                    hue: 0.09, intensity: 0.72, punch: 0.14,
-                    ledPattern: 16, ledLevel: 0.65, ledHarmony: 'analogous',
-                    spotlightPattern: 1, spotlightSpeed: 0.45,
-                    mirrorBallActive: true, mirrorBallRaysActive: true, mirrorBallSpeed: 0.35,
-                    lasersActive: false, fogIntensity: 1.2, fogImmersion: 0.2, gashouderCeilingMode: 0
-                }
-            };
-            for (const [name, look] of Object.entries(looks)) {
-                this.looks[name] = Object.freeze({ ...base, ...look });
-            }
-            for (const [name, look] of Object.entries(this.looks)) {
-                if (!name.startsWith('gashouder')) {
-                    this.looks[name] = Object.freeze({
-                        ...look,
-                        ledWallActive: look.ledWallActive !== false,
-                        gashouderCeilingMode: look.ledWallActive === false ? 0 : 4
-                    });
-                }
-            }
-            const phrases = {
-                arrival: [['gashouderReveal', 8], ['gashouderOrbit', 16]],
-                pulse: [['gashouderOrbit', 16], ['gashouderSweep', 16], ['gashouderCathedral', 16], ['gashouderOrbit', 16]],
-                ascent: [['gashouderSweep', 12], ['gashouderLift', 16], ['gashouderPeak', 8]],
-                ignition: [['gashouderPeak', 16], ['gashouderSweep', 12], ['gashouderOrbit', 16], ['gashouderLift', 8]],
-                afterglow: [['gashouderCathedral', 16], ['gashouderAfterglow', 16]]
-            };
-            for (const [name, cues] of Object.entries(phrases)) {
-                this.movements[name] = {
-                    ...this.movements[name],
-                    cues: cues.map(([look, bars]) => ({ look, bars }))
-                };
             }
         }
         this._setPiece = null;
@@ -690,7 +584,7 @@ class ShowDirector {
         const vj = club.vjDirector;
         if (vj) {
             // Aesthetic followers retain the host's colour snapshot through cue and Safe Mode recomposition.
-            if (!(['aesthetic', 'gashouder'].includes(this.program) && this.follower)) {
+            if (!(this.program === 'aesthetic' && this.follower)) {
                 if (look.hue !== undefined && typeof vj.setMasterHue === 'function') {
                     const hue = this.program === 'aesthetic' && look.fogImmersion
                         ? this._aestheticImmersionHue ?? look.hue : look.hue;
@@ -964,8 +858,7 @@ class ShowDirector {
      */
     applyRemote(frame, force = false) {
         if (!this.follower || !frame || frame.m !== 'show') return false;
-        const program = ['aesthetic', 'gashouder'].includes(frame.fx?.showProgram)
-            ? frame.fx.showProgram : 'nocturne';
+        const program = frame.fx?.showProgram === 'aesthetic' ? 'aesthetic' : 'nocturne';
         if (program !== this.program) { this.setProgram(program); force = true; }
         this._alignBeat(frame.bib);
 

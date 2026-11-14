@@ -278,15 +278,7 @@ export function isAllowedOrigin(origin, allowed = DEFAULT_ALLOWED_ORIGINS) {
     try { url = new URL(origin); } catch { return false; }
     if (url.protocol !== 'https:' && url.protocol !== 'http:') return false;
     if (PRIVATE_HOST.test(url.hostname)) return true;
-    if (allowed.includes(url.origin)) return true;
-    if (url.protocol === 'https:') {
-        for (const entry of allowed) {
-            if (entry === 'https://gashouder-vr.pages.dev' && url.hostname.endsWith('.gashouder-vr.pages.dev')) {
-                return true;
-            }
-        }
-    }
-    return false;
+    return allowed.includes(url.origin);
 }
 
 /** Strips control/format characters and truncates by code point, never mid-surrogate. */

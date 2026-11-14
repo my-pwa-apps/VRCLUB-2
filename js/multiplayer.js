@@ -37,13 +37,10 @@ class ClubMultiplayer {
     });
 
     static ONLINE_SAFETY_VERSION = '1';
-    static HOSTED_RELAY = (() => {
-        const host = window.location?.hostname || '';
-        return ['nocturnedev.mitwee.nl', 'nocturne-dev.pages.dev', 'gashouder.mitwee.nl', 'gashouder-vr.pages.dev'].includes(host) ||
-            host.endsWith('.gashouder-vr.pages.dev')
-            ? 'wss://vrclub-network-dev.garfieldapp.workers.dev'
-            : 'wss://vrclub-network.garfieldapp.workers.dev';
-    })();
+    static HOSTED_RELAY = window.location?.hostname === 'nocturnedev.mitwee.nl' ||
+        window.location?.hostname === 'nocturne-dev.pages.dev'
+        ? 'wss://vrclub-network-dev.garfieldapp.workers.dev'
+        : 'wss://vrclub-network.garfieldapp.workers.dev';
     static EMOJI = Object.freeze(['🎉', '🔥', '❤️', '😂', '👋', '🙌', '💃', '🕺']);
     /** What each reaction means, for buttons and screen readers. */
     static EMOJI_NAMES = Object.freeze({ '🎉': 'Party', '🔥': 'Fire', '❤️': 'Love', '😂': 'Laugh', '👋': 'Hi', '🙌': 'Hands up', '💃': 'Dance', '🕺': 'Dance' });
@@ -1563,8 +1560,7 @@ class ClubMultiplayer {
         if (!this.followingLights || frame.performanceOnly === true) return;
         const director = club.showDirector, vj = club.vjDirector;
         if (!director || !vj) return;
-        const program = ['aesthetic', 'gashouder'].includes(frame.fx?.showProgram)
-            ? frame.fx.showProgram : 'nocturne';
+        const program = frame.fx?.showProgram === 'aesthetic' ? 'aesthetic' : 'nocturne';
         const programChanged = director.program !== program;
         if (programChanged) director.setProgram?.(program);
         const now = performance.now();

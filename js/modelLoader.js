@@ -760,13 +760,12 @@ class ModelLoader {
             }
             
             // Add lights for PA speakers for better visibility
-            if (modelKey.startsWith('pa_speaker') && rootMesh) {
-                const isRearDelay = modelKey.includes('rear');
-                // Position light in front of the speaker baffle (-Z for rear speakers facing into the hall, +Z for front speakers)
+            if ((modelKey === 'pa_speaker_left' || modelKey === 'pa_speaker_right') && rootMesh) {
+                // Position light near the speaker (slightly in front for hung speakers)
                 const speakerLight = this._createAccentLight('speakerLight_' + modelKey, new BABYLON.Vector3(
                     focusPoint.x,
                     focusPoint.y + (config.hangFromTruss ? 0 : 2),
-                    focusPoint.z + (config.hangFromTruss ? (isRearDelay ? -1.5 : 1.5) : 0)
+                    focusPoint.z + (config.hangFromTruss ? 1.5 : 0) // In front when flown
                 ), { intensity: 0.8, range: 8, group: 'speakers' });
                 speakerLight.renderPriority = 1;
                 speakerLight.includedOnlyMeshes = result.meshes.slice();

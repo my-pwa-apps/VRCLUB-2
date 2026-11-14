@@ -992,13 +992,8 @@ const VJDesk = {
     _operatorAtVJDesk() {
         const camera = typeof this._playerCamera === 'function' ? this._playerCamera() : (this.scene && this.scene.activeCamera);
         const p = camera && (camera.globalPosition || camera.position);
-        if (!p) return false;
-        if (this.venueId === 'gashouder' && window.GASHOUDER_VENUE) {
-            const stage = window.GASHOUDER_VENUE.stage;
-            return Math.abs(p.x - stage.x) <= 3.4 && p.z >= stage.consoleZ - 2.6 && p.z <= stage.consoleZ + 0.8;
-        }
         const b = VJ_DESK.booth;
-        return p.x >= b.x0 && p.x <= b.x1 && p.z >= b.z0 && p.z <= b.z1;
+        return !!p && p.x >= b.x0 && p.x <= b.x1 && p.z >= b.z0 && p.z <= b.z1;
     },
 
     /**

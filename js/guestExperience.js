@@ -73,8 +73,7 @@ const GuestExperience = {
 
     setShowMood(program) {
         if (!this.guardHostControl('lights')) return false;
-        if (!['nocturne', 'aesthetic', 'gashouder'].includes(program) ||
-            (program === 'gashouder' && this.venueId !== 'gashouder') || !this.showDirector) return false;
+        if (!['nocturne', 'aesthetic'].includes(program) || !this.showDirector) return false;
         this.showDirector.setProgram(program);
         this.vjDirector?.setMasterIntensity(1);
         this.resumeAutoShow();
@@ -178,15 +177,13 @@ const GuestExperience = {
             return mesh;
         };
         const vestibule = window.VenueLayout.vestibule;
-        if (this.venueId !== 'gashouder') {
-            create('tonightBoard', -2.7, vestibule.streetLevel + 1.55, vestibule.farZ - 0.24, 0,
-                'TONIGHT', 'rooms', 'ROOMS AND YOUR LIVE EVENT');
-            const restroom = window.VenueLayout.restroom;
-            const wardrobe = create('mirrorWardrobe', restroom.wallX - 0.3, 1.65,
-                (restroom.sinkZ[0] + restroom.sinkZ[1]) / 2, Math.PI / 2,
-                'WARDROBE', 'wardrobe', 'YOUR BODY AND OUTFIT');
-            this._restroomMeshes?.push(wardrobe);
-        }
+        create('tonightBoard', -2.7, vestibule.streetLevel + 1.55, vestibule.farZ - 0.24, 0,
+            'TONIGHT', 'rooms', 'ROOMS AND YOUR LIVE EVENT');
+        const restroom = window.VenueLayout.restroom;
+        const wardrobe = create('mirrorWardrobe', restroom.wallX - 0.3, 1.65,
+            (restroom.sinkZ[0] + restroom.sinkZ[1]) / 2, Math.PI / 2,
+            'WARDROBE', 'wardrobe', 'YOUR BODY AND OUTFIT');
+        this._restroomMeshes?.push(wardrobe);
         this._guestTouchpointSubscription = this._multiplayer()?.onChange(() => this._drawTonightBoard());
         this._drawTonightBoard();
         this._createPostcardButton();

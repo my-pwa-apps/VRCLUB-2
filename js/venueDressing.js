@@ -248,7 +248,7 @@ const VenueDressing = {
     _blockBassBins() {
         const models = this.modelLoader && this.modelLoader.loadedModels;
         if (!models) return;
-        for (const key of Object.keys(models).filter(k => k.startsWith('bass_bin'))) {
+        for (const key of ['bass_bin_left', 'bass_bin_right']) {
             const record = models[key];
             if (!record || !record.placed) continue;
             const { min, max, center } = record.placed;
@@ -738,7 +738,7 @@ const VenueDressing = {
     _furnishDJMonitors() {
         const record = this.modelLoader?.loadedModels?.dj_monitor;
         if (!record?.rootMesh || !record.placed) return;
-        const M = this._djMonitorLayout();
+        const M = VENUE_MONITORS;
         const { container, rootMesh } = record;
         const leftMeshes = container.meshes.filter(mesh => mesh.getTotalVertices && mesh.getTotalVertices() > 0);
         leftMeshes.forEach(mesh => { mesh.isPickable = false; });
@@ -781,13 +781,9 @@ const VenueDressing = {
      */
     _createDJMonitorCables() {
         if (!this.scene || !BABYLON.Curve3 || !BABYLON.MeshBuilder) return null;
-        const M = this._djMonitorLayout();
+        const M = VENUE_MONITORS;
         const console_ = this.scene.getMeshByName('console_final');
-        let bounds = {
-            minY: M.tableY,
-            maxZ: this.venueId === 'gashouder' ? window.GASHOUDER_VENUE.stage.consoleZ + 0.51 : -18.35,
-            halfX: this.venueId === 'gashouder' ? 0.51 : 0.51
-        };
+        let bounds = { minY: M.tableY, maxZ: -18.35, halfX: 0.51 };
         if (console_) {
             console_.computeWorldMatrix(true);
             const box = console_.getHierarchyBoundingVectors(true);
@@ -835,17 +831,6 @@ const VenueDressing = {
         merged.freezeWorldMatrix();
         merged.doNotSyncBoundingInfo = true;
         return merged;
-    },
-
-    _djMonitorLayout() {
-        if (this.venueId !== 'gashouder') return VENUE_MONITORS;
-        const stage = window.GASHOUDER_VENUE.stage;
-        return {
-            tableY: stage.consoleTop,
-            height: VENUE_MONITORS.height,
-            left: { x: -0.82, z: stage.consoleZ + 0.24, yaw: Math.PI - 0.6 },
-            right: { x: 0.82, z: stage.consoleZ + 0.24, yaw: Math.PI + 0.6 }
-        };
     },
 
     // ------------------------------------------------------------------------------------------

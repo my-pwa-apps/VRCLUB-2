@@ -176,21 +176,14 @@ class VRClubFixtures extends VRClubEnvironment {
 
     // createPAStack REMOVED - 3D models are used instead via ModelLoader
 
-    createLEDWall(options = {}) {
+    createLEDWall() {
         // MASSIVE LED WALL - covers entire back wall from FLOOR TO CEILING
         // Back wall is 25m wide × 10m tall at Z=-27
-        const panelWidth = options.panelWidth ?? 1.2;
-        const panelHeight = options.panelHeight ?? 1.0;
-        const cols = options.cols ?? 21;
-        const rows = options.rows ?? 10;
-        const baseY = options.baseY ?? 0.05;
-        const centerZ = options.centerZ ?? -20;
-        const curveRadius = options.curveRadius ?? 0;
-        const wallName = options.name ?? 'ledPanel_wall';
+        const panelWidth = 1.2;
+        const panelHeight = 1.0; // Slightly smaller for more rows
+        const cols = 21;  // 21 × 1.2 = 25.2m (fills 25m wall completely)
+        const rows = 10;  // 10 × 1.0 = 10m (floor to ceiling)
         const wallWidth = cols * panelWidth;
-        const zAt = x => curveRadius > 0
-            ? centerZ + curveRadius - Math.sqrt(Math.max(0, curveRadius * curveRadius - x * x))
-            : centerZ;
         
         this.ledPanels = [];
 
@@ -198,10 +191,8 @@ class VRClubFixtures extends VRClubEnvironment {
         // 210 draw calls, half of everything drawn in a frame, and twice that in a headset (once per
         // eye). Each quad remains one physical tile with its original position and seam. Each panel
         // samples its own texel from the shared texture, so its live pattern colour fills the panel.
-        const seamW = options.seam ?? 0.12;
-        const seamH = options.seamY ?? seamW;
-        const quadW = Math.max(0.02, (panelWidth - seamW) / 2);
-        const quadH = Math.max(0.02, (panelHeight - seamH) / 2);
+        const quadW = (panelWidth - 0.12) / 2;   // Larger physical gap (was -0.05) so VR bloom can't bridge tiles;
+        const quadH = (panelHeight - 0.12) / 2;  // real walls have a ~6-10 mm bezel per 60 cm tile, so a clear ~6 cm dark seam
         const count = cols * rows;
         const positions = new Float32Array(count * 12);
         const normals = new Float32Array(count * 12);
@@ -211,30 +202,25 @@ class VRClubFixtures extends VRClubEnvironment {
         for (let row = 0; row < rows; row++) {
             for (let col = 0; col < cols; col++) {
                 const x = (col * panelWidth) - (wallWidth / 2) + (panelWidth / 2);
-                const y = (row * panelHeight) + (panelHeight / 2) + baseY;
+                const y = (row * panelHeight) + (panelHeight / 2) + 0.05; // Start just above floor
+                const z = -20; // Behind DJ booth
                 const index = row * cols + col;
                 const v = index * 4;
 
-                // Faces toward the dance floor; curved walls follow local arc tangent and inward normal.
+                // Faces -Z, toward the dance floor.
                 const corners = [[-quadW, -quadH], [quadW, -quadH], [quadW, quadH], [-quadW, quadH]];
                 const uv = [(col + 0.5) / cols, (row + 0.5) / rows];
-                const sinTheta = curveRadius > 0 ? Math.max(-0.98, Math.min(0.98, x / curveRadius)) : 0;
-                const cosTheta = curveRadius > 0 ? Math.sqrt(Math.max(0, 1 - sinTheta * sinTheta)) : 1;
-                const centerTileZ = zAt(x);
                 for (let k = 0; k < 4; k++) {
-                    const dx = corners[k][0];
-                    const px = curveRadius > 0 ? x + dx * cosTheta : x + dx;
-                    const pz = curveRadius > 0 ? centerTileZ + dx * sinTheta : zAt(px);
-                    positions.set([px, y + corners[k][1], pz], (v + k) * 3);
-                    normals.set(curveRadius > 0 ? [-sinTheta, 0, cosTheta] : [0, 0, -1], (v + k) * 3);
+                    positions.set([x + corners[k][0], y + corners[k][1], z], (v + k) * 3);
+                    normals.set([0, 0, -1], (v + k) * 3);
                     uvs.set(uv, (v + k) * 2);
                 }
                 indices.set([v, v + 1, v + 2, v, v + 2, v + 3], index * 6);
 
                 // Remove most backlights - only minimal ambient
-                if (!curveRadius && row === 3 && col === 5) {
+                if (row === 3 && col === 5) {
                     const backLight = new BABYLON.PointLight("ledBack_" + row + "_" + col,
-                        new BABYLON.Vector3(x, y, centerZ - 0.5), this.scene);
+                        new BABYLON.Vector3(x, y, z - 0.5), this.scene);
                     backLight.diffuse = new BABYLON.Color3(0.5, 0, 0);
                     backLight.intensity = 0.5; // Very subtle
                     backLight.range = 3;
@@ -243,7 +229,7 @@ class VRClubFixtures extends VRClubEnvironment {
             }
         }
 
-        const wall = new BABYLON.Mesh(wallName, this.scene);
+        const wall = new BABYLON.Mesh('ledPanel_wall', this.scene);
         const wallData = new BABYLON.VertexData();
         wallData.positions = positions;
         wallData.normals = normals;
@@ -280,41 +266,14 @@ class VRClubFixtures extends VRClubEnvironment {
 
         // The visible wall is tiled geometry with deliberate bezel gaps. A continuous thin backing prevents a
         // camera at the booth from slipping through a seam and falling into the narrow space behind it.
-        const colliderName = options.colliderName ?? 'ledWallCollider';
-        let wallCollider;
-        if (curveRadius > 0) {
-            const colliderPositions = [];
-            const colliderIndices = [];
-            const segments = cols * 2;
-            for (let i = 0; i <= segments; i++) {
-                const x = -wallWidth / 2 + wallWidth * i / segments;
-                const z = zAt(x) - 0.15;
-                colliderPositions.push(x, baseY, z, x, baseY + rows * panelHeight, z);
-                if (i < segments) {
-                    const v = i * 2;
-                    colliderIndices.push(v, v + 1, v + 3, v, v + 3, v + 2);
-                }
-            }
-            wallCollider = new BABYLON.Mesh(colliderName, this.scene);
-            const colliderData = new BABYLON.VertexData();
-            colliderData.positions = colliderPositions;
-            colliderData.indices = colliderIndices;
-            colliderData.normals = [];
-            BABYLON.VertexData.ComputeNormals(colliderPositions, colliderIndices, colliderData.normals);
-            colliderData.applyToMesh(wallCollider);
-            wallCollider._curveMeta = {
-                width: wallWidth,
-                centerZ,
-                curveRadius
-            };
-        } else {
-            wallCollider = BABYLON.MeshBuilder.CreateBox(colliderName, {
-                width: wallWidth + 0.4,
-                height: rows * panelHeight,
-                depth: 0.3
-            }, this.scene);
-            wallCollider.position.set(0, rows * panelHeight / 2 + baseY, centerZ - 0.15);
-        }
+        const wallCollider = BABYLON.MeshBuilder.CreateBox('ledWallCollider', {
+            // Overlap the side-wall collision volumes so the camera cannot squeeze
+            // around an edge into the space behind the LED wall.
+            width: wallWidth + 0.4,
+            height: rows * panelHeight,
+            depth: 0.3
+        }, this.scene);
+        wallCollider.position.set(0, rows * panelHeight / 2 + 0.05, -20.15);
         wallCollider.checkCollisions = true;
         wallCollider.isPickable = false;
         wallCollider.isVisible = false;
@@ -388,8 +347,8 @@ class VRClubFixtures extends VRClubEnvironment {
 
     createHyperrealisticSmoke() {
         // === HYPERREALISTIC FOG MACHINE SYSTEM ===
-        // Distributed, low-output fog machines feed the haze volume without multiplying
-        // the particle budget as the venue footprint grows.
+        // Two fog machines mounted on trusses that blow fog into the room
+        // Based on professional Martin/MDG haze machines used in real clubs
         
         log.info('💨 Creating hyperrealistic fog machine system...');
         
@@ -413,29 +372,12 @@ class VRClubFixtures extends VRClubEnvironment {
         particleTexture.name = "proceduralSmokeTexture";
         this._fogParticleTexture = particleTexture; // Store for reuse
         
-        // NOCTURNE uses two truss-mounted emitters; Gashouder hangs eight units around
-        // the circular overhead truss (and stage bridge) and aims each plume downward and inward.
-        const fogMachinePositions = this.gashouderLighting
-            ? (this.gashouderLighting.fogMachinePositions || Array.from({ length: this.gashouderLighting.fogMachineCount || 8 }, (_, i) => {
-                const count = this.gashouderLighting.fogMachineCount || 8;
-                const angle = Math.PI * 2 * (i + 0.5) / count;
-                const radius = window.GASHOUDER_VENUE?.rig.radius || 15.5;
-                const trussY = (this.gashouderLighting.mountY || 10.3) - 0.1;
-                const directionX = -Math.sin(angle);
-                const directionZ = -Math.cos(angle);
-                return {
-                    x: Math.sin(angle) * radius,
-                    y: trussY,
-                    z: Math.cos(angle) * radius,
-                    rotY: Math.atan2(directionX, directionZ),
-                    directionX,
-                    directionZ
-                };
-            }))
-            : [
-                { x: -6, y: 7.8, z: -8, rotY: Math.PI - 0.3 },
-                { x: 6, y: 7.8, z: -8, rotY: Math.PI + 0.3 }
-            ];
+        // === FOG MACHINE POSITIONS ===
+        // Mounted on front truss (z=-8) on left and right sides, turned inward toward the dance floor (-Z, z=-12)
+        const fogMachinePositions = [
+            { x: -6, y: 7.8, z: -8, rotY: Math.PI - 0.3 },   // Left fog machine, angled inward toward dance floor
+            { x: 6, y: 7.8, z: -8, rotY: Math.PI + 0.3 }     // Right fog machine, angled inward toward dance floor
+        ];
         
         this.fogMachines = [];
         
@@ -523,9 +465,8 @@ class VRClubFixtures extends VRClubEnvironment {
             
             // === FOG PARTICLE EMITTER ===
             // Directional plume from nozzle on the dance-floor side of the front truss (z = -8.15)
-            const machineBudget = 2 / fogMachinePositions.length;
             const fogEmitter = new BABYLON.ParticleSystem(
-                `fogEmitter${i}`, Math.ceil(this.tierSettings.fogParticleCapacity * machineBudget), this.scene);
+                `fogEmitter${i}`, this.tierSettings.fogParticleCapacity, this.scene);
             fogEmitter.particleTexture = particleTexture;
             
             // World position of the angled nozzle mouth (turned toward -Z dance floor)
@@ -559,24 +500,13 @@ class VRClubFixtures extends VRClubEnvironment {
             
             // Emission rate (VJ controlled). Leave manualEmitCount at default (-1) so Babylon uses emitRate;
             // setting manualEmitCount = 0 puts Babylon's ParticleSystem into manual mode with 0 particles!
-            fogEmitter.emitRate = 55 * machineBudget;
+            fogEmitter.emitRate = 55;
             fogEmitter.blendMode = BABYLON.ParticleSystem.BLENDMODE_STANDARD;
             
-            // Direction - angled downward and inward into the dance floor
-            if (Number.isFinite(pos.directionX) && Number.isFinite(pos.directionZ)) {
-                const tangentX = -pos.directionZ;
-                const tangentZ = pos.directionX;
-                const downMin = pos.y > 4 ? -0.82 : 0.3;
-                const downMax = pos.y > 4 ? -0.45 : 0.55;
-                fogEmitter.direction1 = new BABYLON.Vector3(
-                    pos.directionX * 0.65 - tangentX * 0.18, downMin, pos.directionZ * 0.65 - tangentZ * 0.18);
-                fogEmitter.direction2 = new BABYLON.Vector3(
-                    pos.directionX * 0.90 + tangentX * 0.18, downMax, pos.directionZ * 0.90 + tangentZ * 0.18);
-            } else {
-                const centerDir = i === 0 ? 0.4 : -0.4;
-                fogEmitter.direction1 = new BABYLON.Vector3(centerDir - 0.18, -0.75, -0.70);
-                fogEmitter.direction2 = new BABYLON.Vector3(centerDir + 0.18, -0.45, -0.40);
-            }
+            // Direction - angled downward and inward into the dance floor (toward z = -12)
+            const centerDir = i === 0 ? 0.4 : -0.4; // Left machine aims right (+X), right aims left (-X)
+            fogEmitter.direction1 = new BABYLON.Vector3(centerDir - 0.18, -0.75, -0.70);
+            fogEmitter.direction2 = new BABYLON.Vector3(centerDir + 0.18, -0.45, -0.40);
             
             // Velocity — strong jet from the nozzle into the room
             fogEmitter.minEmitPower = 2.6;
@@ -629,16 +559,9 @@ class VRClubFixtures extends VRClubEnvironment {
         this.haze.particleTexture = particleTexture;
         
         // Emitter covers dance floor area
-        const hazeCenter = this.gashouderLighting
-            ? new BABYLON.Vector3(0, 6, 0)
-            : new BABYLON.Vector3(0, 4, -12);
-        this.haze.emitter = hazeCenter;
-        this.haze.minEmitBox = this.gashouderLighting
-            ? new BABYLON.Vector3(-18, -5.5, -18)
-            : new BABYLON.Vector3(-10, -3, -8);
-        this.haze.maxEmitBox = this.gashouderLighting
-            ? new BABYLON.Vector3(18, 6.5, 18)
-            : new BABYLON.Vector3(10, 3, 8);
+        this.haze.emitter = new BABYLON.Vector3(0, 4, -12);
+        this.haze.minEmitBox = new BABYLON.Vector3(-10, -3, -8);
+        this.haze.maxEmitBox = new BABYLON.Vector3(10, 3, 8);
         
         // Visible ambient haze - makes light beams stand out. color1/color2 carry the
         // peak alpha (vrSettings.hazeAlpha, asserted by tests and rewritten on a VR/desktop
@@ -662,8 +585,8 @@ class VRClubFixtures extends VRClubEnvironment {
         
         // Smoke, not glow sprites. STANDARD keeps the asserted alphas from
         // adding a white sheet over the floor; size stays inside the beam volume.
-        this.haze.minSize = this.gashouderLighting ? 1.1 : 0.8;
-        this.haze.maxSize = this.gashouderLighting ? 3.4 : 2.2;
+        this.haze.minSize = 0.8;
+        this.haze.maxSize = 2.2;
         this.haze.minLifeTime = 8.0;
         this.haze.maxLifeTime = 15.0;
         
@@ -693,15 +616,9 @@ class VRClubFixtures extends VRClubEnvironment {
             : this.graphicsTier === 'high' ? 900 : 400;
         this.dustMotes = new BABYLON.ParticleSystem("dustMotes", moteCapacity, this.scene);
         this.dustMotes.particleTexture = particleTexture;
-        this.dustMotes.emitter = this.gashouderLighting
-            ? new BABYLON.Vector3(0, 6, 0)
-            : new BABYLON.Vector3(0, 4, -12);
-        this.dustMotes.minEmitBox = this.gashouderLighting
-            ? new BABYLON.Vector3(-19, -5, -19)
-            : new BABYLON.Vector3(-11, -3.5, -8);
-        this.dustMotes.maxEmitBox = this.gashouderLighting
-            ? new BABYLON.Vector3(19, 6, 19)
-            : new BABYLON.Vector3(11, 3.5, 8);
+        this.dustMotes.emitter = new BABYLON.Vector3(0, 4, -12);
+        this.dustMotes.minEmitBox = new BABYLON.Vector3(-11, -3.5, -8);
+        this.dustMotes.maxEmitBox = new BABYLON.Vector3(11, 3.5, 8);
         this.dustMotes.color1 = new BABYLON.Color4(1, 0.98, 0.92, 0.5);
         this.dustMotes.color2 = new BABYLON.Color4(0.9, 0.94, 1.0, 0.38);
         this.dustMotes.colorDead = new BABYLON.Color4(0, 0, 0, 0);
@@ -736,7 +653,7 @@ class VRClubFixtures extends VRClubEnvironment {
         this.lastFogBurst = 0;
         this.fogBurstInterval = 4; // Seconds between auto bursts (real hazers cycle frequently)
         
-        log.info(`💨 Haze system created (${fogMachinePositions.length} fog machines)`);
+        log.info('💨 Hyperrealistic fog machine system created (2 machines on truss)');
     }
 
     createBoothLighting() {
@@ -771,14 +688,13 @@ class VRClubFixtures extends VRClubEnvironment {
     // Bar area removed - will be replaced with 3D models later
 
     createTrussMountedLights() {
-        // Moving-head fixtures share positions with the animated spotlight rig.
+        // Moving head lights on truss - ONLY for spotlights (6 fixtures to match 6 spotlights)
         const lightFixtureMat = this.materialFactory.getPreset('lightFixture');
         
         // Where the side cross beams (x = ±sideTrussX) cross the three main trusses (z -8, -12, -16).
         // Must match spotPositions in createLights().
         const sideX = CLUB_POSITIONS.sideTrussX;
-        const mountY = this.gashouderLighting?.mountY ?? 7.8;
-        const lightPositions = this.gashouderLighting?.fixturePositions || [
+        const lightPositions = [
             { x: -sideX, z: -8 },   // Left, front truss
             { x: -sideX, z: -12 },  // Left, middle truss
             { x: -sideX, z: -16 },  // Left, rear truss
@@ -802,13 +718,12 @@ class VRClubFixtures extends VRClubEnvironment {
         const staticBaseParts = [];
 
         lightPositions.forEach((pos, i) => {
-            const posMountY = Number.isFinite(pos.y) ? pos.y : mountY;
             // === REALISTIC MOVING HEAD FIXTURE WITH TRUSS MOUNTING ===
             // Hierarchy: Root -> Clamp (on truss) -> Drop Pipe -> Base (Static) -> Yoke (Pan) -> Head (Tilt)
             
             // Root Transform Node (for positioning the whole unit)
             const root = new BABYLON.TransformNode("lightRoot" + i, this.scene);
-            root.position = new BABYLON.Vector3(pos.x, posMountY, pos.z);
+            root.position = new BABYLON.Vector3(pos.x, 7.8, pos.z);
             
             // C-Clamp body (wraps around truss tube at Y=8)
             const clamp = BABYLON.MeshBuilder.CreateTorus("clamp" + i, {
@@ -817,7 +732,7 @@ class VRClubFixtures extends VRClubEnvironment {
                 tessellation: 16,
                 arc: 0.85  // Open C-shape
             }, this.scene);
-            clamp.position.set(pos.x, posMountY + 0.2, pos.z);
+            clamp.position.set(pos.x, 8.0, pos.z);
             clamp.rotation.x = Math.PI / 2;  // Horizontal orientation
             clamp.rotation.z = Math.PI;  // Open side facing outward
             clampParts.push(clamp);
@@ -828,7 +743,7 @@ class VRClubFixtures extends VRClubEnvironment {
                 height: 0.08,
                 tessellation: 8
             }, this.scene);
-            clampBolt.position.set(pos.x + 0.06, posMountY + 0.2, pos.z);
+            clampBolt.position.set(pos.x + 0.06, 8.0, pos.z);
             clampBolt.rotation.z = Math.PI / 2;
             clampParts.push(clampBolt);
             
@@ -838,7 +753,7 @@ class VRClubFixtures extends VRClubEnvironment {
                 height: 0.2,  // 0.2m drop from truss to fixture
                 tessellation: 12
             }, this.scene);
-            dropPipe.position.set(pos.x, posMountY + 0.1, pos.z);
+            dropPipe.position.set(pos.x, 7.9, pos.z);
             staticBaseParts.push(dropPipe);
             
             // Safety cable (realistic safety loop)
@@ -847,7 +762,7 @@ class VRClubFixtures extends VRClubEnvironment {
                 thickness: 0.005,
                 tessellation: 16
             }, this.scene);
-            safetyCable.position.set(pos.x, posMountY + 0.15, pos.z);
+            safetyCable.position.set(pos.x, 7.95, pos.z);
             safetyCable.rotation.x = Math.PI / 2;
             clampParts.push(safetyCable);
 
@@ -857,7 +772,7 @@ class VRClubFixtures extends VRClubEnvironment {
                 height: 0.1,
                 depth: 0.4
             }, this.scene);
-            base.position.set(pos.x, posMountY, pos.z);
+            base.position.set(pos.x, 7.8, pos.z);
             staticBaseParts.push(base);
             
             // 2. YOKE (Pan mechanism - Rotates around Y)
@@ -988,8 +903,7 @@ class VRClubFixtures extends VRClubEnvironment {
     
     createStrobeLights() {
         const sideX = CLUB_POSITIONS.sideTrussX;
-        const mountY = this.gashouderLighting?.mountY ?? 8.0;
-        const strobePositions = this.gashouderLighting?.strobePositions || [
+        const strobePositions = [
             { x: -sideX, z: -9.2 },
             { x: sideX, z: -9.2 },
             { x: -sideX, z: -14.8 },
@@ -1027,7 +941,6 @@ class VRClubFixtures extends VRClubEnvironment {
         const strobeMountParts = [];
         
         strobePositions.forEach((pos, i) => {
-            const posMountY = Number.isFinite(pos.y) ? pos.y : mountY;
             // === STROBE MOUNTING HARDWARE ===
             // Bracket that connects strobe to truss
             const bracket = BABYLON.MeshBuilder.CreateBox("strobeBracket" + i, {
@@ -1035,7 +948,7 @@ class VRClubFixtures extends VRClubEnvironment {
                 height: 0.4,  // Drops from truss (Y=8) to strobe (Y=7.6)
                 depth: 0.1
             }, this.scene);
-            bracket.position = new BABYLON.Vector3(pos.x, posMountY - 0.2, pos.z);
+            bracket.position = new BABYLON.Vector3(pos.x, 7.8, pos.z);
             strobeMountParts.push(bracket);
             
             // Clamp at top (grips truss)
@@ -1045,7 +958,7 @@ class VRClubFixtures extends VRClubEnvironment {
                 tessellation: 12,
                 arc: 0.85
             }, this.scene);
-            clamp.position = new BABYLON.Vector3(pos.x, posMountY, pos.z);
+            clamp.position = new BABYLON.Vector3(pos.x, 8, pos.z);
             clamp.rotation.x = Math.PI / 2;
             strobeMountParts.push(clamp);
             
@@ -1054,12 +967,10 @@ class VRClubFixtures extends VRClubEnvironment {
                 height: 0.36,
                 depth: 0.22
             }, this.scene);
-            const strobeY = posMountY - 0.4;
-            const aimZ = Number.isFinite(pos.aimZ) ? pos.aimZ : (this.venueId === 'gashouder' ? -4 : -12);
-            strobe.position = new BABYLON.Vector3(pos.x, strobeY, pos.z);
+            strobe.position = new BABYLON.Vector3(pos.x, 7.6, pos.z);
             strobe.rotationQuaternion = BABYLON.Quaternion.RotationYawPitchRoll(
-                Math.atan2(-pos.x, aimZ - pos.z),
-                Math.atan2(strobeY - 1.7, Math.hypot(pos.x, aimZ - pos.z)), 0);
+                Math.atan2(-pos.x, -12 - pos.z),
+                Math.atan2(7.6 - 1.7, Math.hypot(pos.x, -12 - pos.z)), 0);
             strobe.isPickable = false;
             if (!i) strobe.material = casingMat;
 
@@ -1189,7 +1100,7 @@ class VRClubFixtures extends VRClubEnvironment {
         // ALL LASERS ARE MULTI-BEAM TYPE (5 rotating beams each)
         // The side units hang from the side cross beams at z -14, between the moving heads.
         const sideX = CLUB_POSITIONS.sideTrussX;
-        const laserPositions = this.gashouderLighting?.laserPositions || [
+        const laserPositions = [
             { x: -sideX, z: -14, trussY: 7.55, type: 'multi' },  // left cross beam
             { x: 0, z: -8, trussY: 7.55, type: 'multi' },        // centre, under the front truss
             { x: sideX, z: -14, trussY: 7.55, type: 'multi' }    // right cross beam
@@ -1206,15 +1117,15 @@ class VRClubFixtures extends VRClubEnvironment {
             // The side cross beams are turned a quarter turn about y, so their local x runs along world -z
             // (local z runs along world x). Offsetting along local z, as this used to, slid the side units
             // 2 m sideways off their beams (x -10 and +6) instead of 2 m along them.
-            if (!this.gashouderLighting && pos.x < -3 && this.sideTrusses && this.sideTrusses.left) {
+            if (pos.x < -3 && this.sideTrusses && this.sideTrusses.left) {
                 parentTruss = this.sideTrusses.left;
                 localX = -(pos.z - (-12));
                 localZ = 0;
-            } else if (!this.gashouderLighting && pos.x > 3 && this.sideTrusses && this.sideTrusses.right) {
+            } else if (pos.x > 3 && this.sideTrusses && this.sideTrusses.right) {
                 parentTruss = this.sideTrusses.right;
                 localX = -(pos.z - (-12));
                 localZ = 0;
-            } else if (!this.gashouderLighting && Math.abs(pos.x) <= 3 && this.horizontalTrusses && this.horizontalTrusses.length > 1) {
+            } else if (Math.abs(pos.x) <= 3 && this.horizontalTrusses && this.horizontalTrusses.length > 1) {
                 // CENTER laser mounts to truss2 (Z=-12, index 1)
                 // Laser is at z=-14, truss2 is at z=-12
                 parentTruss = this.horizontalTrusses[1]; // truss2 at Z=-12

@@ -2,9 +2,7 @@
 
 // All access credentials stay in HttpOnly cookies; only this tab's lease id lives in memory.
 (function installPaymentGate() {
-    const host = window.location?.hostname || '';
-    const development = ['nocturnedev.mitwee.nl', 'nocturne-dev.pages.dev', 'gashouder.mitwee.nl', 'gashouder-vr.pages.dev'].includes(host) ||
-        host.endsWith('.gashouder-vr.pages.dev');
+    const development = ['nocturnedev.mitwee.nl', 'nocturne-dev.pages.dev'].includes(window.location?.hostname);
     if (development) {
         window.VRPayment = Object.freeze({
             apiOrigin: null, phoneCompanionAvailable: false, hasEntitlement: () => true, canEnterVR: () => true,

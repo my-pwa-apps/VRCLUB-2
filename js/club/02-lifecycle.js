@@ -97,9 +97,6 @@ class VRClubLifecycle extends VRClubCore {
             lightFactory: this.lightFactory,
             textureLoader: this.textureLoader
         });
-        if (this.venueId === 'gashouder') {
-            this.modelLoader.modelConfigs = this.configureGashouderModelConfigs(this.modelLoader.modelConfigs);
-        }
         await this.modelLoader.init();
         this._reportInitProgress(0.38, 'Building the club...');
         
@@ -119,7 +116,7 @@ class VRClubLifecycle extends VRClubCore {
             log.warn('⚠️ Some models failed to load, using procedural fallbacks:', error);
         }).then(() => {
             // The street outside loads last and never blocks anything: if it fails the street door stays shut.
-            if (this._disposed || this.venueId === 'gashouder' || typeof this.createCityDistrict !== 'function') return;
+            if (this._disposed || typeof this.createCityDistrict !== 'function') return;
             return this.createCityDistrict();
         });
         
@@ -159,7 +156,7 @@ class VRClubLifecycle extends VRClubCore {
         this._setupXRSession(vrHelper);
         
         this._buildVenue();
-        if (this.venueId !== 'gashouder' && window.VenueBranding?.requested()) {
+        if (window.VenueBranding?.requested()) {
             this._venueBranding = new window.VenueBranding(this);
             const artworkReady = this._venueBranding.mount().catch(error => {
                 this._venueBranding.dispose();
@@ -427,10 +424,6 @@ class VRClubLifecycle extends VRClubCore {
 
     /** Room, booth, speakers, LED wall, lasers, fixtures, haze, mirror ball and signage (after the floor and XR helper). */
     _buildVenue() {
-        if (this.venueId === 'gashouder') {
-            this.createGashouderVenue();
-            return;
-        }
         // Continue building club
         this.createWalls();
         this.createCollisionBoundaries(); // Add invisible collision walls
@@ -690,18 +683,6 @@ class VRClubLifecycle extends VRClubCore {
         if (vrHelper?.baseExperience) this._xrHeadHeight();
         if (vrHelper?.baseExperience) {
             vrHelper.baseExperience.onInitialXRPoseSetObservable.add(camera => {
-                if (this.venueId === 'gashouder') {
-                    this.standFromSeat(false);
-                    camera.position.set(0, 0, 5);
-                    camera.rotationQuaternion.set(0, 1, 0, 0);
-                    camera.cameraDirection.set(0, 0, 0);
-                    camera.cameraRotation.set(0, 0);
-                    camera._deferredUpdated = false;
-                    this._walkLevel = 0;
-                    this._vrFallSpeed = 0;
-                    if (this.jumpState) this.jumpState.active = false;
-                    return;
-                }
                 const street = this._streetDoor?.open ? window.CityLayout : null;
                 this.standFromSeat(false);
                 // Babylon adds the first tracked eye height to this floor offset.
@@ -1074,8 +1055,7 @@ class VRClubLifecycle extends VRClubCore {
         }
         // Per-frame observers registered against the scene during an XR session.
         if (this.scene && this.scene.onBeforeRenderObservable) {
-            for (const key of ['_jumpObserver', 'vrYLockObserver', '_xrPointerVisibilityObserver',
-                '_gashouderLedObserver', '_walkSurfaceObserver']) {
+            for (const key of ['_jumpObserver', 'vrYLockObserver', '_xrPointerVisibilityObserver']) {
                 if (this[key]) {
                     try { this.scene.onBeforeRenderObservable.remove(this[key]); } catch (_) { /* ignore */ }
                     this[key] = null;
