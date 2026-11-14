@@ -6,6 +6,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readClubSource } from './club-sources.mjs';
 import { DevAttendees } from '../worker/src/devAttendees.js';
+import { LIVE_EVENT_LIMITS } from '../worker/src/liveEvents.js';
 
 const relay = await import('../worker/src/relay.js');
 const {
@@ -88,6 +89,26 @@ test('moderator grants reject blocked/simulated guests and clear on handover, bl
     grant(guest.session.id);
     host.ws.message({ type: 'host-transfer', target: guest.session.id });
     assert.equal(room.moderatorId, null);
+});
+
+test('live-event heartbeats are throttled, while block-policy changes force an update', () => {
+    const room = new ClubRoom({}, {}), host = join(room), guest = join(room);
+    room._liveEvent = { id: 'event' };
+    const sent = [];
+    room._liveTask = task => { sent.push(task); };
+
+    const start = 100000;
+    room._lastLiveHeartbeatAt = start;
+    assert.equal(room._liveHeartbeat(false, start + LIVE_EVENT_LIMITS.membershipMs / 3 - 1), false);
+    assert.equal(room._liveHeartbeat(false, start + LIVE_EVENT_LIMITS.membershipMs / 3), true);
+    assert.equal(room._liveHeartbeat(false, start + LIVE_EVENT_LIMITS.membershipMs / 3 + 1), false);
+
+    room._applyBlockChanges(guest.session, new Set());
+    assert.equal(sent.length, 1, 'a redundant blocklist update does not trigger a heartbeat');
+    guest.session.blocked.add(host.session.pid);
+    room._applyBlockChanges(guest.session, new Set());
+    assert.equal(sent.length, 2, 'a changed blocklist bypasses the periodic throttle');
+    for (const [ws, session] of [...room.sessions]) room._onClose(ws, session);
 });
 
 test('lights-only VJ pass is authoritative, revocable and cannot publish host performance or music', t => {

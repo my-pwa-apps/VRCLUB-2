@@ -581,6 +581,7 @@ class ClubMultiplayer {
         this.manager.setMuteAll(this.muteAll);
         this.manager.onSpeakingChange = () => this._emit();
         this.client = client;
+        client.onLocalSpeakingChange = () => this._emit();
         client.setVoiceAudience(this.voiceAudience);
         club.networkManager = client;
         this._wire(client);
@@ -897,6 +898,7 @@ class ClubMultiplayer {
             client.disableVoice();
         } else {
             try {
+                client.setVoiceActivityContext(this.club.audioContext);
                 await client.enableVoice();
             } catch (err) {
                 this.lastError = `Mic error: ${err.message}`;
@@ -1005,7 +1007,9 @@ class ClubMultiplayer {
             club.setVoiceDuck(strength > 0 || now < this._duckHoldUntil, this._nearbyDuckLevel || 1);
             return;
         }
-        const talking = this.micEnabled || (!!this.manager && this.manager.anyoneSpeaking());
+        const client = this.client;
+        const talking = (client?.localVoiceActivityAvailable ? client.localSpeaking : this.micEnabled) ||
+            (!!this.manager && this.manager.anyoneSpeaking());
         if (talking) this._duckHoldUntil = now + ClubMultiplayer.DUCK_HOLD_MS;
         club.setVoiceDuck(talking || now < this._duckHoldUntil);
     }

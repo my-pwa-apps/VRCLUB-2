@@ -128,7 +128,8 @@ class NetworkClient {
      * @param {object|null} [options.appearance] complete v1 wardrobe, paired with its exact base on join/reconnect
      * @param {string[]} [options.blocked] public ids to keep invisible, from the user's saved block list
      */
-    constructor({ serverUrl, room = 'lobby', eventId = null, name = 'Guest', uid = null, blocked = [], avatarPool = 'any', avatar = null, appearance = null } = {}) {
+    constructor({ serverUrl, room = 'lobby', eventId = null, name = 'Guest', uid = null, blocked = [], avatarPool = 'any', avatar = null, appearance = null,
+        voiceActivityContext = null } = {}) {
         this.serverUrl = serverUrl;
         this.eventId = eventId;
         this.liveEventsSupported = false;
@@ -172,6 +173,19 @@ class NetworkClient {
         this.micEnabled = false;
         this._micPending = null;
         this._voiceEpoch = 0;
+        this._voiceActivityContext = voiceActivityContext && voiceActivityContext.state !== 'closed' &&
+            typeof voiceActivityContext.createMediaStreamSource === 'function' &&
+            typeof voiceActivityContext.createAnalyser === 'function' ? voiceActivityContext : null;
+        this._voiceActivityContextOwned = false;
+        this._voiceActivitySource = null;
+        this._voiceActivityAnalyser = null;
+        this._voiceActivitySamples = null;
+        this._voiceActivityBytes = null;
+        this._voiceActivityTimer = null;
+        this._voiceTrackListeners = [];
+        this._localSpeaking = false;
+        this.localVoiceActivity = 0;
+        this.localVoiceActivityAvailable = false;
         this.voiceAudience = null;
         this.targetedChat = false;
         this.hostTransferSupported = false;
@@ -224,16 +238,33 @@ class NetworkClient {
         this.onRemoteStream = () => {};
         this.onMusicBroadcast = () => {};
         this.onRemoteMusic = () => {};
+        this.onLocalSpeakingChange = () => {};
         this.onError = () => {};
         this.onLiveEvent = () => {};
     }
 
     get connected() { return this.status === 'connected'; }
     get peerCount() { return this.peers.size; }
+    /** True when recent samples from this guest's active microphone exceed the speech RMS threshold. */
+    get localSpeaking() { return this._localSpeaking; }
     isHost() { return !!this.selfId && this.selfId === this.hostId; }
     canModerate() { return this.connected && (this.isHost() || (this.moderatorRoleSupported && this.selfId === this.moderatorId)); }
     get preferredAppearance() { return this._preferredAppearance; }
     set preferredAppearance(value) { this.setPreferredAppearance(value); }
+    /** Reuse the club's AudioContext for local mic activity sampling when available. */
+    setVoiceActivityContext(context) {
+        const selected = context && context.state !== 'closed' &&
+            typeof context.createMediaStreamSource === 'function' && typeof context.createAnalyser === 'function'
+            ? context : null;
+        if (this.micStream) {
+            this._stopVoiceActivityMeter();
+            this._voiceActivityContext = selected;
+            this._startVoiceActivityMeter(this.micStream);
+        } else {
+            this._voiceActivityContext = selected;
+        }
+        return !!this._voiceActivityContext;
+    }
     /** Save a validated preference for the next join, without claiming a room update. */
     setPreferredAppearance(value) {
         const appearance = NetworkClient.sanitizeAppearance(value);
@@ -1124,7 +1155,7 @@ class NetworkClient {
         // start a second capture whose tracks were never stopped by disableVoice().
         const epoch = this._voiceEpoch;
         this._micPending = navigator.mediaDevices.getUserMedia({ audio: true, video: false })
-            .then((stream) => {
+            .then(async (stream) => {
                 // Muted, disconnected or disposed while the prompt was open.
                 if (epoch !== this._voiceEpoch || this._closedByUser) {
                     for (const track of stream.getTracks()) track.stop();
@@ -1132,8 +1163,15 @@ class NetworkClient {
                 }
                 this.micStream = stream;
                 this.micEnabled = true;
-                if (this.sfu) return this.sfu.publish('voice', stream);
-                for (const id of this.peers.keys()) this._attachLocalTracks(id);
+                this._watchVoiceTracks(stream);
+                this._startVoiceActivityMeter(stream);
+                try {
+                    if (this.sfu) await this._publishVoice(this.sfu, stream, epoch);
+                    else for (const id of this.peers.keys()) this._attachLocalTracks(id);
+                } catch (error) {
+                    if (epoch === this._voiceEpoch && this.micStream === stream) this.disableVoice();
+                    throw error;
+                }
             })
             .finally(() => { this._micPending = null; });
         return this._micPending;
@@ -1143,6 +1181,9 @@ class NetworkClient {
     disableVoice() {
         this._voiceEpoch++;
         this.micEnabled = false;
+        for (const [track, ended] of this._voiceTrackListeners) track.removeEventListener('ended', ended);
+        this._voiceTrackListeners = [];
+        this._stopVoiceActivityMeter();
         const stream = this.micStream;
         this.micStream = null;
         if (this.sfu) void this.sfu.closeSlot('voicePub');
@@ -1153,6 +1194,138 @@ class NetworkClient {
             }
         }
         if (stream) for (const track of stream.getTracks()) track.stop();
+    }
+
+    async _publishVoice(sfu, stream, epoch) {
+        await sfu.publish('voice', stream);
+        if (this._voiceEpoch !== epoch || this.micStream !== stream || this.sfu !== sfu) return;
+        if (sfu.slots && typeof sfu.slots.get === 'function') {
+            const slot = sfu.slots.get('voicePub');
+            if (!slot?.published || slot.stream !== stream) throw new Error('The microphone could not be published to the room.');
+        }
+    }
+
+    _watchVoiceTracks(stream) {
+        for (const track of stream.getAudioTracks()) {
+            if (typeof track.addEventListener !== 'function') continue;
+            const ended = () => {
+                if (this.micStream !== stream || stream.getAudioTracks().some(item => item.readyState !== 'ended')) return;
+                this.disableVoice();
+                this.onError(new Error('Microphone capture ended. Turn the microphone on again to continue talking.'));
+            };
+            track.addEventListener('ended', ended);
+            this._voiceTrackListeners.push([track, ended]);
+        }
+    }
+
+    _voiceMeterFailure(stage, error) {
+        console.warn(`Local voice activity meter ${stage}:`, error);
+    }
+
+    _startVoiceActivityMeter(stream) {
+        this._stopVoiceActivityMeter();
+        let context = this._voiceActivityContext;
+        if (!context || context.state === 'closed') {
+            const AudioContextCtor = globalThis.AudioContext || globalThis.webkitAudioContext ||
+                globalThis.window?.AudioContext || globalThis.window?.webkitAudioContext;
+            if (typeof AudioContextCtor !== 'function') {
+                this._voiceMeterFailure('unavailable', new Error('AudioContext is not available.'));
+                return;
+            }
+            try {
+                context = new AudioContextCtor();
+                this._voiceActivityContextOwned = true;
+                this._voiceActivityContext = context;
+            } catch (error) {
+                this._voiceMeterFailure('creation failed', error);
+                return;
+            }
+        }
+        if (context.state === 'suspended' && context.resume) {
+            try {
+                void Promise.resolve(context.resume()).catch(error => this._voiceMeterFailure('resume failed', error));
+            } catch (error) {
+                this._voiceMeterFailure('resume failed', error);
+            }
+        }
+        try {
+            const source = context.createMediaStreamSource(stream);
+            this._voiceActivitySource = source;
+            const analyser = context.createAnalyser();
+            this._voiceActivityAnalyser = analyser;
+            analyser.fftSize = 512;
+            source.connect(analyser);
+            this._voiceActivitySamples = new Float32Array(analyser.fftSize);
+            this._voiceActivityBytes = new Uint8Array(analyser.fftSize);
+            this.localVoiceActivityAvailable = true;
+            this._voiceActivityTimer = setInterval(() => this._sampleLocalVoiceActivity(stream), 100);
+        } catch (error) {
+            this._voiceMeterFailure('initialization failed', error);
+            this._stopVoiceActivityMeter();
+        }
+    }
+
+    _sampleLocalVoiceActivity(stream) {
+        if (!this.micEnabled || stream !== this.micStream || !this._voiceActivityAnalyser) return;
+        if (!stream.getAudioTracks().some(track => track.readyState !== 'ended')) {
+            this.disableVoice();
+            this.onError(new Error('Microphone capture ended. Turn the microphone on again to continue talking.'));
+            return;
+        }
+        const analyser = this._voiceActivityAnalyser, samples = this._voiceActivitySamples;
+        let rms = 0;
+        try {
+            if (typeof analyser.getFloatTimeDomainData === 'function') {
+                analyser.getFloatTimeDomainData(samples);
+                for (const sample of samples) rms += sample * sample;
+            } else {
+                const bytes = this._voiceActivityBytes;
+                analyser.getByteTimeDomainData(bytes);
+                for (const sample of bytes) {
+                    const value = (sample - 128) / 128;
+                    rms += value * value;
+                }
+            }
+        } catch (error) {
+            this._voiceMeterFailure('sampling failed', error);
+            this._stopVoiceActivityMeter();
+            return;
+        }
+        rms = Math.sqrt(rms / samples.length);
+        this._setLocalVoiceActivity(Math.max(0, Math.min(1, rms / 0.1)), this._localSpeaking ? rms > 0.012 : rms >= 0.02);
+    }
+
+    _setLocalVoiceActivity(level, speaking) {
+        this.localVoiceActivity = Number.isFinite(level) ? level : 0;
+        if (speaking === this._localSpeaking) return;
+        this._localSpeaking = speaking;
+        try { this.onLocalSpeakingChange(speaking, this.localVoiceActivity); }
+        catch (error) { console.error('Local voice activity callback failed:', error); }
+    }
+
+    _stopVoiceActivityMeter() {
+        if (this._voiceActivityTimer !== null) clearInterval(this._voiceActivityTimer);
+        this._voiceActivityTimer = null;
+        for (const node of [this._voiceActivitySource, this._voiceActivityAnalyser]) {
+            try { node?.disconnect(); }
+            catch (error) { this._voiceMeterFailure('node disconnect failed', error); }
+        }
+        this._voiceActivitySource = null;
+        this._voiceActivityAnalyser = null;
+        this._voiceActivitySamples = null;
+        this._voiceActivityBytes = null;
+        this.localVoiceActivityAvailable = false;
+        const context = this._voiceActivityContextOwned ? this._voiceActivityContext : null;
+        this._voiceActivityContextOwned = false;
+        if (context) this._voiceActivityContext = null;
+        if (context && context.state !== 'closed' && context.close) {
+            try {
+                void Promise.resolve(context.close()).catch(error => this._voiceMeterFailure('close failed', error));
+            } catch (error) {
+                this._voiceMeterFailure('close failed', error);
+            }
+        }
+        this._setLocalVoiceActivity(0, false);
     }
 
     /** Called for every known peer on welcome/join: connect only if there is something to send. */

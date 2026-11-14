@@ -32,6 +32,7 @@ export class RoomMedia {
         this.cleanup = new Set();
         this.retryTimer = null;
         this.reconcileQueued = false;
+        this.reconcileAgain = false;
         if (room.state.storage) {
             void this._enqueue(async () => {
                 for (const slot of await room.state.storage.get('sfuCleanup') || []) {
@@ -45,7 +46,7 @@ export class RoomMedia {
 
     add(session) {
         this.members.set(session.id, { session, audience: null, listen: false, music: null, slots: {},
-            requests: 0, allocations: [] });
+            requests: 0, allocations: [], catalogSignature: null });
         this.refresh();
     }
 
@@ -99,8 +100,12 @@ export class RoomMedia {
             const host = this.members.get(this.room.hostId);
             const music = host && host !== member && this.room._visible(member.session, host.session)
                 ? host.music : null;
-            this.send(member.session.id, { type: 'media-catalog', tracks,
-                music: music || { available: false, playing: false, title: '' } });
+            const catalog = { type: 'media-catalog', tracks,
+                music: music || { available: false, playing: false, title: '' } };
+            const signature = JSON.stringify(catalog);
+            if (signature === member.catalogSignature || !this.room._findSocketById(member.session.id)) continue;
+            member.catalogSignature = signature;
+            this.send(member.session.id, catalog);
         }
     }
 
@@ -283,31 +288,41 @@ export class RoomMedia {
     }
 
     reconcile() {
-        if (this.reconcileQueued) return;
+        if (this.reconcileQueued) {
+            this.reconcileAgain = true;
+            return;
+        }
         this.reconcileQueued = true;
         void this._enqueue(async () => {
-            this.reconcileQueued = false;
-            for (const member of this.members.values()) {
-                if (member.session.id !== this.room.hostId && member.slots.musicPub) {
-                    await this._retire(member, 'musicPub');
-                    member.music = null;
-                }
-                for (const kind of ['voice', 'music']) {
-                    const name = `${kind}Rx`, slot = member.slots[name];
-                    if (!slot) continue;
-                    if (slot.tracks.some(track => {
-                        const publisher = this.members.get(track.owner);
-                        const pub = publisher?.slots[`${kind}Pub`];
-                        return !this.allowed(member, publisher, kind) || !pub?.ready || pub.version !== track.version;
-                    })) {
-                        // Retire the entire receive connection, including pending SDP, rather than
-                        // mutating an abandoned negotiation. Allowed tracks are rebuilt on a new one.
-                        await this._retire(member, name);
-                        this.send(member.session.id, { type: 'media-reset', slot: name });
+            try {
+                do {
+                    this.reconcileAgain = false;
+                    for (const member of this.members.values()) {
+                        if (member.session.id !== this.room.hostId && member.slots.musicPub) {
+                            await this._retire(member, 'musicPub');
+                            member.music = null;
+                        }
+                        for (const kind of ['voice', 'music']) {
+                            const name = `${kind}Rx`, slot = member.slots[name];
+                            if (!slot) continue;
+                            if (slot.tracks.some(track => {
+                                const publisher = this.members.get(track.owner);
+                                const pub = publisher?.slots[`${kind}Pub`];
+                                return !this.allowed(member, publisher, kind) || !pub?.ready || pub.version !== track.version;
+                            })) {
+                                // Retire the entire receive connection, including pending SDP, rather than
+                                // mutating an abandoned negotiation. Allowed tracks are rebuilt on a new one.
+                                await this._retire(member, name);
+                                this.send(member.session.id, { type: 'media-reset', slot: name });
+                            }
+                        }
                     }
-                }
+                    this.refresh();
+                } while (this.reconcileAgain);
+            } finally {
+                this.reconcileQueued = false;
+                if (this.reconcileAgain) this.reconcile();
             }
-            this.refresh();
         });
     }
 

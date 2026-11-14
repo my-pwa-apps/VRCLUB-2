@@ -241,15 +241,24 @@ export class LiveAudioEvent {
             return {};
         }
         if (action === 'heartbeat') {
+            let policyChanged = false;
             for (const member of (body.members || []).slice(0, 32)) {
                 const ticket = this.event.members[member.id];
                 if (!ticket || ticket.room !== body.room || ticket.pid !== member.pid) continue;
                 ticket.expires = Date.now() + LIVE_EVENT_LIMITS.membershipMs;
-                ticket.blocked = member.blocked.slice(0, 64);
-                if (ticket.pid === this.event.owner) this.event.ownerBlocks = ticket.blocked;
+                const blocked = Array.isArray(member.blocked)
+                    ? member.blocked.filter(pid => PID.test(pid)).slice(0, 64) : [];
+                const previous = ticket.blocked || [];
+                if (blocked.length !== previous.length || blocked.some((pid, index) => pid !== previous[index])) {
+                    ticket.blocked = blocked;
+                    if (ticket.pid === this.event.owner) this.event.ownerBlocks = blocked;
+                    policyChanged = true;
+                }
             }
-            this.media.refresh();
-            this.media.reconcile();
+            if (policyChanged) {
+                this.media.refresh();
+                this.media.reconcile();
+            }
             await this._save();
             return {};
         }

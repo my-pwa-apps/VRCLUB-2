@@ -98,7 +98,7 @@ import { handleRoomDirectory, publishRoom, privateRoomName, ROOM_DIRECTORY_REFRE
 import { RoomMedia, mediaTransport } from './sfu.js';
 import { DEV_ROOM, DEV_OWNER_HEADER, devRoomAccess } from './devRoomAccess.js';
 import { DevAttendees } from './devAttendees.js';
-import { LIVE_EVENT_ID, liveEventsEnabled, liveEventCall, liveEventStub, consumeLiveRate } from './liveEvents.js';
+import { LIVE_EVENT_ID, LIVE_EVENT_LIMITS, liveEventsEnabled, liveEventCall, liveEventStub, consumeLiveRate } from './liveEvents.js';
 import { RoomAvatarAssets } from './avatarAssets.js';
 import { createRestroomState, applyRestroomAction } from './restroomState.js';
 import { applyWaterAction, waterSnapshot } from './sessionProps.js';
@@ -123,6 +123,7 @@ export const CLOSE_LOCKED = 4012;
 export const CLOSE_IDLE = 4013;
 export const IDLE_CLOSE_MS = 30000;
 export const SWEEP_INTERVAL_MS = 10000;
+const LIVE_HEARTBEAT_MS = Math.floor(LIVE_EVENT_LIMITS.membershipMs / 3);
 
 export const ALLOWED_EMOJI = Object.freeze(['🎉', '🔥', '❤️', '😂', '👋', '🙌', '💃', '🕺']);
 export const ALLOWED_GESTURES = Object.freeze(['wave', 'nod', 'dance', 'stop']);
@@ -466,6 +467,7 @@ export class ClubRoom {
         this._liveEvent = null;
         this._liveReady = state.storage?.get('liveEvent').then(value => { this._liveEvent = value || null; }) || Promise.resolve();
         this._liveQueue = Promise.resolve();
+        this._lastLiveHeartbeatAt = 0;
         this._lastEventCreated = 0;
     }
 
@@ -1084,13 +1086,15 @@ export class ClubRoom {
 
     /** After `session`'s block list changed: tell both sides whoever became invisible has left, and whoever reappeared has joined. */
     _applyBlockChanges(session, before) {
+        const changed = before.size !== session.blocked.size ||
+            [...before].some(pid => !session.blocked.has(pid));
         const host = this.sessions.get(this._findSocketById(this.hostId));
         const vj = this.sessions.get(this._findSocketById(this.vjId));
         if (vj && (!host || !this._visible(host, vj))) this._clearVJ();
         const moderator = this.sessions.get(this._findSocketById(this.moderatorId));
         if (moderator && (!host || !this._visible(host, moderator))) this._changeModerator(null);
-        if (this._liveEvent) this._liveHeartbeat();
-        if (this.media) { this.media.refresh(); this.media.reconcile(); }
+        if (changed && this._liveEvent) this._liveHeartbeat(true);
+        if (changed && this.media) { this.media.refresh(); this.media.reconcile(); }
         const sessionWs = this._findSocketById(session.id);
         for (const [ws, other] of this.sessions) {
             if (other === session) continue;
@@ -1111,7 +1115,7 @@ export class ClubRoom {
                 if (sessionWs) this._send(sessionWs, { type: 'leave', id: other.id });
             }
         }
-        this._broadcastWater();
+        if (changed) this._broadcastWater();
     }
 
     _changeModerator(id) {
@@ -1177,7 +1181,7 @@ export class ClubRoom {
      * keep talking: after IDLE_CLOSE_MS of silence it is closed, so the next guest becomes host promptly.
      */
     _sweep(now = Date.now()) {
-        if (this._liveEvent) this._liveHeartbeat();
+        if (this._liveEvent) this._liveHeartbeat(false, now);
         for (const [ws, session] of [...this.sessions]) {
             if (!session.pinger || now - session.lastSeen <= IDLE_CLOSE_MS) continue;
             try { ws.close(CLOSE_IDLE, 'no heartbeat'); } catch { /* already closed */ }
@@ -1269,10 +1273,13 @@ export class ClubRoom {
             .map(s => ({ id: s.id, pid: s.pid, blocked: [...s.blocked] }));
     }
 
-    _liveHeartbeat() {
+    _liveHeartbeat(force = false, now = Date.now()) {
+        if (!this._liveEvent || (!force && now - this._lastLiveHeartbeatAt < LIVE_HEARTBEAT_MS)) return false;
         const id = this._liveEvent.id;
         const members = this._liveMembers();
+        this._lastLiveHeartbeatAt = now;
         this._liveTask(() => liveEventCall(this.env, id, 'heartbeat', { room: this._roomName, members }));
+        return true;
     }
 
     _livePolicy(policy) {
