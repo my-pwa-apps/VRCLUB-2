@@ -1,0 +1,16 @@
+{
+  "$schema": "../node_modules/wrangler/config-schema.json",
+  "name": "gashouder-site",
+  "compatibility_date": "2026-11-14",
+  "workers_dev": false,
+  "routes": [
+    {
+      "pattern": "gashouder.mitwee.nl",
+      "custom_domain": true
+    }
+  ],
+  "assets": {
+    "directory": "../dist"
+  },
+  "observability": { "enabled": true }
+}

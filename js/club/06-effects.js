@@ -58,7 +58,7 @@ class VRClubEffects extends VRClubFixtures {
         this.lightFactory.getPreset('ambient', 'ambient');
         
         // Skip inline spotlight creation if using modular system
-        if (this.useModularSystems && this.systems.spotlight) {
+        if (this.useModularSystems && this.systems.spotlight && this.venueId !== 'gashouder') {
             log.info('⏭️ Skipping inline spotlight creation (using modular SpotlightSystem)');
             
             // Initialize color tracking (still needed for VJ controls)
@@ -93,11 +93,11 @@ class VRClubEffects extends VRClubFixtures {
         // === LEGACY INLINE SPOTLIGHT CREATION (when modular systems disabled) ===
         // Spotlights mounted on truss (moving heads)
         this.spotlights = [];
-        // 6 spotlights: 3 on left side, 3 on right side - POSITIONED ON ACTUAL TRUSSES
-        // Main trusses at Z=-8, -12, -16; spotlights at X=±sideTrussX (where they cross the side beams).
-        // Must match lightPositions in createTrussMountedLights().
+        // NOCTURNE's six heads use the three main trusses; venue-specific rigs provide
+        // their own positions and counts through gashouderLighting.
         const sideX = CLUB_POSITIONS.sideTrussX;
-        const spotPositions = [
+        const mountY = this.gashouderLighting?.mountY ?? 7.8;
+        const spotPositions = this.gashouderLighting?.fixturePositions || [
             { x: -sideX, z: -8 },   // Left on truss1 (front)
             { x: -sideX, z: -12 },  // Left on truss2 (middle)
             { x: -sideX, z: -16 },  // Left on truss3 (back)
@@ -154,10 +154,13 @@ class VRClubEffects extends VRClubFixtures {
             const fixtureData = this.trussLights ? this.trussLights[i] : null;
             const head = fixtureData ? fixtureData.head : null;
             const yoke = fixtureData ? fixtureData.yoke : null;
+            const posMountY = Number.isFinite(pos.y) ? pos.y : mountY;
+            const spotRange = this.gashouderLighting ? 46 : 25;
+            const beamFloorDiameter = this.gashouderLighting ? 2.6 : 2.0;
 
             // Spotlight from truss position - MATCH FIXTURE POSITION (y: 7.3)
             const spot = new BABYLON.SpotLight("spot" + i,
-                new BABYLON.Vector3(pos.x, 7.3, pos.z),  // Match fixture lens position
+                new BABYLON.Vector3(pos.x, posMountY - 0.5, pos.z),
                 new BABYLON.Vector3(0, -1, 0),           // Initial direction
                 Math.PI / 6,                              // Narrower cone for focused beams
                 5,                                        // Sharper falloff
@@ -168,7 +171,7 @@ class VRClubEffects extends VRClubFixtures {
             spot.diffuse = this.currentSpotColor.scale(0.40);
             spot.specular = this.currentSpotColor; // Specular for floor reflections
             spot.intensity = 30;
-            spot.range = 25;
+            spot.range = spotRange;
 
             // No shadow generator. With maxSimultaneousLights = 3 (4 on Quest), every lit
             // material takes ambient + spot0 + spot1 from `scene.lights` order, so the
@@ -187,7 +190,7 @@ class VRClubEffects extends VRClubFixtures {
             //     diameterBottom (at -Y local) should be NARROW (at fixture)
             // Higher tessellation creates smoother cone edges for hyperrealistic look
             const beam = BABYLON.MeshBuilder.CreateCylinder("spotBeam" + i, {
-                diameterTop: 2.0,      // Wide end at surface - 2.0m diameter
+                diameterTop: beamFloorDiameter, // Wide end at surface
                 diameterBottom: 0.25,  // Fits the 0.34 m lens even at maximum tilt stretch
                 height: 1,             // Will be scaled to actual beam length
                 tessellation: 12,      // Higher tessellation for smoother cone (was 8)
@@ -446,7 +449,11 @@ class VRClubEffects extends VRClubFixtures {
                 lens: fixtureData ? fixtureData.lens : null,
                 bezel: fixtureData ? fixtureData.bezel : null,
                 lensMat: fixtureData ? fixtureData.lensMat : null,
-                basePos: new BABYLON.Vector3(pos.x, 7.3, pos.z), // Match fixture position
+                basePos: new BABYLON.Vector3(pos.x, posMountY - 0.5, pos.z),
+                beamFloorDiameter,
+                rigRole: pos.role || 'ring',
+                rigAngle: Number.isFinite(pos.angle) ? pos.angle : Math.atan2(pos.x, pos.z),
+                rigGroup: Number.isInteger(pos.group) ? pos.group : (i % 6),
                 phase: i * (Math.PI * 2 / spotPositions.length),
                 speed: 0.8,
                 color: this.currentSpotColor,
@@ -473,11 +480,12 @@ class VRClubEffects extends VRClubFixtures {
         // Hyperrealistic implementation: Triangle fan geometry with smoke texture
         
         // 1. Create the projector housings. The left mesh keeps its historical name.
-        const createMount = (housingName, apertureName, x) => {
+        const createMount = (housingName, apertureName, position) => {
             const housing = BABYLON.MeshBuilder.CreateBox(housingName, {
                 width: 0.5, height: 0.2, depth: 0.4
             }, this.scene);
-            housing.position.set(x, 7.55, -16);
+            housing.position.set(position.x, position.y, position.z);
+            housing.rotation.y = position.yaw || 0;
             housing.material = this.materialFactory.getPreset('cdjBody'); // Dark metal
 
             // Aperture (glowing slit), dark while this projector is idle
@@ -493,9 +501,13 @@ class VRClubEffects extends VRClubFixtures {
             aperture.material = apertureMat;
             return { housing, aperture };
         };
+        const mountPositions = this.gashouderLighting?.laserSheetPositions || [
+            { x: -6, y: 7.55, z: -16 },
+            { x: 6, y: 7.55, z: -16 }
+        ];
         this._laserSheetMounts = {
-            ceilingLeft: createMount('laserSheetSource', 'laserSheetAperture', -6),
-            ceilingRight: createMount('laserSheetSourceRight', 'laserSheetApertureRight', 6)
+            ceilingLeft: createMount('laserSheetSource', 'laserSheetAperture', mountPositions[0]),
+            ceilingRight: createMount('laserSheetSourceRight', 'laserSheetApertureRight', mountPositions[1])
         };
         this._laserApertureOff = new BABYLON.Color3(0, 0, 0);
         this.laserSheetSource = this._laserSheetMounts.ceilingLeft.housing;
@@ -719,7 +731,9 @@ class VRClubEffects extends VRClubFixtures {
         // and a smaller phase trail make the crossing a slow drift (~0.4 m/s, under 1 m/s)
         // that stays just above head height (2.0-3.6 m at mid-room). test/sheet.test.mjs
         // measures it on the real Babylon maths; retune against that, not by eye.
-        const restYaw = mountSide => (mountSide === 'ceilingRight' ? -0.20 : 0.20);
+        const restYaw = mountSide => this.gashouderLighting?.laserSheetPositions
+            ? this.gashouderLighting.laserSheetPositions[mountSide === 'ceilingRight' ? 1 : 0].yaw
+            : (mountSide === 'ceilingRight' ? -0.20 : 0.20);
         this._laserSheetBasePitch = 0.53;
         this._laserSheetBaseYaw = restYaw(leadSide);
         this._laserSheetPitchRange = 0.06;
@@ -761,8 +775,9 @@ class VRClubEffects extends VRClubFixtures {
         // === DRAMATIC MIRROR/DISCO BALL EFFECT ===
         // Professional mirror ball suspended from center truss with dedicated spotlight
         
-        // Position: Center of middle truss (x:0, y:8, z:-12)
-        const ballPosition = new BABYLON.Vector3(0, 6.5, -12); // Hanging 1.5m below truss
+        const ballY = this.gashouderLighting ? this.gashouderLighting.mountY - 1.5 : 6.5;
+        const ballZ = this.gashouderLighting ? 0 : -12;
+        const ballPosition = new BABYLON.Vector3(0, ballY, ballZ);
         
         // === MIRROR BALL SPHERE ===
         const mirrorBall = BABYLON.MeshBuilder.CreateSphere("mirrorBall", {
@@ -806,7 +821,7 @@ class VRClubEffects extends VRClubFixtures {
             height: 1.5, // Distance from truss to ball
             tessellation: 8
         }, this.scene);
-        cable.position = new BABYLON.Vector3(0, 7.25, -12); // Midpoint between truss and ball
+        cable.position = new BABYLON.Vector3(0, ballY + 0.75, ballZ);
         
         const cableMat = this.materialFactory.createPBRMaterial("cableMat", {
             baseColor: [0.1, 0.1, 0.1],
@@ -892,7 +907,19 @@ class VRClubEffects extends VRClubFixtures {
             detailScale: 4
         }, true);
         
-        const spotlightConfigs = [
+        const spotlightConfigs = this.gashouderLighting
+            ? [0, 1, 2, 3].map(index => {
+                const angle = Math.PI / 4 + Math.PI * index / 2;
+                return {
+                    pos: new BABYLON.Vector3(
+                        Math.sin(angle) * 15.5,
+                        this.gashouderLighting.mountY - 0.35,
+                        Math.cos(angle) * 15.5
+                    ),
+                    name: `Ring-${index + 1}`
+                };
+            })
+            : [
             { pos: new BABYLON.Vector3(4, 7.5, -8), name: "Front-Right" },
             { pos: new BABYLON.Vector3(-4, 7.5, -8), name: "Front-Left" },
             { pos: new BABYLON.Vector3(4, 7.5, -16), name: "Back-Right" },
@@ -925,14 +952,15 @@ class VRClubEffects extends VRClubFixtures {
             const discQuat = BABYLON.Quaternion.RotationAxis(discAxis, discAngle);
             const panYaw = Math.atan2(direction.x, direction.z);
 
-            // Truss C-clamp on the lower chord at y = 8.0 and safety cable loop
+            const trussChordY = config.pos.y + 0.5;
+            // Truss C-clamp on the lower chord and safety cable loop
             const clamp = BABYLON.MeshBuilder.CreateTorus(`mirrorClamp${index}`, {
                 diameter: 0.12,
                 thickness: 0.02,
                 tessellation: 14,
                 arc: 0.85
             }, this.scene);
-            clamp.position.set(config.pos.x, 8.0, config.pos.z);
+            clamp.position.set(config.pos.x, trussChordY, config.pos.z);
             clamp.rotation.x = Math.PI / 2;
             clamp.rotation.z = Math.PI;
             riggingClampParts.push(clamp);
@@ -942,7 +970,7 @@ class VRClubEffects extends VRClubFixtures {
                 height: 0.075,
                 tessellation: 8
             }, this.scene);
-            clampBolt.position.set(config.pos.x + (config.pos.x >= 0 ? 0.055 : -0.055), 8.0, config.pos.z);
+            clampBolt.position.set(config.pos.x + (config.pos.x >= 0 ? 0.055 : -0.055), trussChordY, config.pos.z);
             clampBolt.rotation.z = Math.PI / 2;
             riggingClampParts.push(clampBolt);
 
@@ -951,17 +979,17 @@ class VRClubEffects extends VRClubFixtures {
                 thickness: 0.005,
                 tessellation: 14
             }, this.scene);
-            safetyCable.position.set(config.pos.x, 7.95, config.pos.z);
+            safetyCable.position.set(config.pos.x, trussChordY - 0.05, config.pos.z);
             safetyCable.rotation.x = Math.PI / 2;
             riggingClampParts.push(safetyCable);
 
-            // Vertical drop pipe from truss (y = 8.0) down to the horizontal fixture base (y = 7.72)
+            // Vertical drop pipe from truss down to the horizontal fixture base
             const dropPipe = BABYLON.MeshBuilder.CreateCylinder(`mirrorDropPipe${index}`, {
                 diameter: 0.04,
                 height: 0.28,
                 tessellation: 12
             }, this.scene);
-            dropPipe.position.set(config.pos.x, 7.86, config.pos.z);
+            dropPipe.position.set(config.pos.x, config.pos.y + 0.36, config.pos.z);
             riggingMountParts.push(dropPipe);
             
             // Base mount (hangs level under the truss drop pipe, panned toward the mirror ball)
@@ -970,17 +998,17 @@ class VRClubEffects extends VRClubFixtures {
                 height: 0.09,
                 depth: 0.36
             }, this.scene);
-            base.position.set(config.pos.x, 7.70, config.pos.z);
+            base.position.set(config.pos.x, config.pos.y + 0.20, config.pos.z);
             base.rotation.y = panYaw;
             riggingMountParts.push(base);
 
-            // U-bracket yoke arms connecting the level base to the tilted barrel pivot at config.pos (y = 7.5)
+            // U-bracket yoke arms connecting the level base to the tilted barrel pivot at config.pos
             const yokeCross = BABYLON.MeshBuilder.CreateBox(`mirrorYokeCross${index}`, {
                 width: 0.42,
                 height: 0.045,
                 depth: 0.12
             }, this.scene);
-            yokeCross.position.set(config.pos.x, 7.64, config.pos.z);
+            yokeCross.position.set(config.pos.x, config.pos.y + 0.14, config.pos.z);
             yokeCross.rotation.y = panYaw;
             riggingMountParts.push(yokeCross);
 
@@ -991,7 +1019,7 @@ class VRClubEffects extends VRClubFixtures {
                     height: 0.20,
                     depth: 0.11
                 }, this.scene);
-                arm.position.set(config.pos.x + side * cosYaw, 7.55, config.pos.z - side * sinYaw);
+                arm.position.set(config.pos.x + side * cosYaw, config.pos.y + 0.05, config.pos.z - side * sinYaw);
                 arm.rotation.y = panYaw;
                 riggingMountParts.push(arm);
             }
@@ -1394,6 +1422,94 @@ class VRClubEffects extends VRClubFixtures {
      * ceiling lasers. Writes distance, hit point and the inward surface normal into `out`; allocates nothing.
      */
     _intersectRoomInterior(ox, oy, oz, dx, dy, dz, out) {
+        if (this.venueId === 'gashouder') {
+            const { dimensions } = window.GASHOUDER_VENUE;
+            const radius = dimensions.innerRadius - 0.02;
+            let t = Infinity, nx = 0, ny = 0, nz = 0;
+            const horizontalLength = dx * dx + dz * dz;
+            if (horizontalLength > 1e-8) {
+                const b = 2 * (ox * dx + oz * dz);
+                const c = ox * ox + oz * oz - radius * radius;
+                const discriminant = b * b - 4 * horizontalLength * c;
+                if (discriminant >= 0) {
+                    const root = Math.sqrt(discriminant);
+                    for (let i = 0; i < 2; i++) {
+                        const candidate = (-b + (i ? root : -root)) / (2 * horizontalLength);
+                        if (candidate <= 0 || candidate >= t) continue;
+                        const x = ox + dx * candidate;
+                        const y = oy + dy * candidate;
+                        const z = oz + dz * candidate;
+                        const isDoor = Math.abs(x) < 1.5 && Math.abs(y) < 4
+                            && (z < 0 ? z < -radius + 0.2 : z > radius - 0.2);
+                        if (!isDoor) {
+                            t = candidate;
+                            nx = -x / radius; ny = 0; nz = -z / radius;
+                        }
+                    }
+                }
+            }
+
+            if (dy < -1e-8) {
+                const stage = window.GASHOUDER_VENUE.stage;
+                if (oy > stage.height) {
+                    const st = (stage.height - oy) / dy;
+                    const sx = ox + dx * st;
+                    const sz = oz + dz * st;
+                    if (st > 0 && st < t &&
+                        sx >= stage.x - stage.width / 2 && sx <= stage.x + stage.width / 2 &&
+                        sz >= stage.z - stage.depth / 2 && sz <= stage.z + stage.depth / 2) {
+                        t = st;
+                        nx = 0; ny = 1; nz = 0;
+                    }
+                }
+                const candidate = -oy / dy;
+                const x = ox + dx * candidate;
+                const z = oz + dz * candidate;
+                if (candidate > 0 && candidate < t && x * x + z * z <= radius * radius) {
+                    t = candidate;
+                    nx = 0; ny = 1; nz = 0;
+                }
+            }
+
+            const slope = (dimensions.centreHeight - dimensions.outerWallHeight) / dimensions.innerRadius;
+            const apexOffset = dimensions.centreHeight - oy;
+            const qa = dy * dy - slope * slope * horizontalLength;
+            const qb = -2 * apexOffset * dy - 2 * slope * slope * (ox * dx + oz * dz);
+            const qc = apexOffset * apexOffset - slope * slope * (ox * ox + oz * oz);
+            let rootA = NaN, rootB = NaN;
+            if (Math.abs(qa) < 1e-8) {
+                if (Math.abs(qb) > 1e-8) rootA = -qc / qb;
+            } else {
+                const discriminant = qb * qb - 4 * qa * qc;
+                if (discriminant >= 0) {
+                    const root = Math.sqrt(discriminant);
+                    rootA = (-qb - root) / (2 * qa);
+                    rootB = (-qb + root) / (2 * qa);
+                }
+            }
+            for (let i = 0; i < 2; i++) {
+                const candidate = i ? rootB : rootA;
+                if (candidate <= 0 || candidate >= t || apexOffset - dy * candidate < 0) continue;
+                const x = ox + dx * candidate;
+                const y = oy + dy * candidate;
+                const z = oz + dz * candidate;
+                const radial = Math.hypot(x, z);
+                const roofY = dimensions.centreHeight
+                    - (dimensions.centreHeight - dimensions.outerWallHeight) * radial / dimensions.innerRadius;
+                if (radial > radius || Math.abs(y - roofY) > 0.05) continue;
+                const normalLength = Math.hypot(slope * x / Math.max(radial, 1e-8), 1, slope * z / Math.max(radial, 1e-8));
+                t = candidate;
+                nx = -slope * x / Math.max(radial, 1e-8) / normalLength;
+                ny = -1 / normalLength;
+                nz = -slope * z / Math.max(radial, 1e-8) / normalLength;
+            }
+
+            if (!Number.isFinite(t)) return false;
+            out.t = t;
+            out.px = ox + dx * t; out.py = oy + dy * t; out.pz = oz + dz * t;
+            out.nx = nx; out.ny = ny; out.nz = nz;
+            return out;
+        }
         const inset = 0.02;
         let t = Infinity;
         let nx = 0, ny = 0, nz = 0;
@@ -1491,6 +1607,7 @@ class VRClubEffects extends VRClubFixtures {
         const ox = this.mirrorBall.position.x;
         const oy = this.mirrorBall.position.y;
         const oz = this.mirrorBall.position.z;
+        const spotScale = this.venueId === 'gashouder' ? 1.85 : 1.0;
         for (let i = 0; i < spotCount; i++) {
             const theta = batch.directions[i * 2] - this.mirrorBallRotation;
             const phi = batch.directions[i * 2 + 1];
@@ -1498,10 +1615,10 @@ class VRClubEffects extends VRClubFixtures {
             const dx = sinPhi * Math.cos(theta);
             const dy = Math.cos(phi);
             const dz = sinPhi * Math.sin(theta);
-            const hit = this._intersectRoomInterior(ox, oy, oz, dx, dy, dz, batch.hit);
-            this._writeMirrorSpotMatrix(batch.spotMatrices, i * 16, hit, dx, dy, dz, 0.24 + (i % 7) * 0.025);
+            const hit = this._intersectRoomInterior(ox, oy, oz, dx, dy, dz, batch.hit) || batch.hit;
+            this._writeMirrorSpotMatrix(batch.spotMatrices, i * 16, hit, dx, dy, dz, (0.24 + (i % 7) * 0.025) * spotScale);
             if (i < rayCount) {
-                this._writeMirrorRayMatrix(batch.rayMatrices, i * 16, ox, oy, oz, dx, dy, dz, hit.t);
+                this._writeMirrorRayMatrix(batch.rayMatrices, i * 16, ox, oy, oz, dx, dy, dz, hit.t || 0);
             }
         }
         batch.spots.thinInstanceCount = spotCount;
@@ -1514,11 +1631,12 @@ class VRClubEffects extends VRClubFixtures {
     _updateMirrorReflectionColors() {
         const batch = this.mirrorReflectionBatch;
         const master = this.masterIntensity == null ? 1 : Math.min(1, Math.max(0, this.masterIntensity));
-        this.mirrorBallSpotlightColor.scaleToRef(1.2 * master * (1 + (this.kickPulse || 0) * 0.35), batch.spotMat.emissiveColor);
+        const spotBoost = this.venueId === 'gashouder' ? 1.55 : 1.2;
+        this.mirrorBallSpotlightColor.scaleToRef(spotBoost * master * (1 + (this.kickPulse || 0) * 0.35), batch.spotMat.emissiveColor);
         this.mirrorBallSpotlightColor.scaleToRef(master, batch.rayMat.emissiveColor);
         const haze = this.smokeActive ? Math.min(1, (this.fogIntensity || 0) / 1.5) : 0;
         // Reflected shafts are the mirror ball's signature; they need to hold their own against the room.
-        batch.rayMat.alpha = 0.14 + 0.26 * haze;
+        batch.rayMat.alpha = (this.venueId === 'gashouder' ? 0.22 : 0.14) + 0.26 * haze;
     }
     
     /**

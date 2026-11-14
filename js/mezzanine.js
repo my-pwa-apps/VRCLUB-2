@@ -257,6 +257,22 @@ const Mezzanine = {
      * straight into the stage at floor level and being inside it until a jump landed on top.
      */
     _walkSurfaceLevel(x, z, level) {
+        if (this.venueId === 'gashouder') {
+            const stage = window.GASHOUDER_VENUE.stage;
+            const frontEdge = stage.z + stage.depth / 2;
+            if (Math.abs(x - stage.x) <= stage.stairWidth / 2 + 0.2 &&
+                z > frontEdge && z <= stage.stairStartZ) {
+                    const step = Math.min(stage.stairSteps - 1,
+                        Math.max(0, Math.floor((stage.stairStartZ - z) / stage.stairDepth)));
+                    return stage.height * (step + 1) / stage.stairSteps;
+            }
+            if (level >= stage.height - 0.45 &&
+                x >= stage.x - stage.width / 2 && x <= stage.x + stage.width / 2 &&
+                z >= stage.z - stage.depth / 2 && z <= frontEdge) {
+                return stage.height;
+            }
+            return 0;
+        }
         const layout = typeof window !== 'undefined' && window.VenueLayout && window.VenueLayout.vestibule;
         const entrance = layout && layout.walkLevel ? layout.walkLevel(x, z) : null;
         if (entrance !== null) return entrance;
@@ -271,6 +287,7 @@ const Mezzanine = {
      * land at once. `current` and `target` are feet levels.
      */
     _easeRiserLevel(x, z, current, target, dt) {
+        if (this.venueId === 'gashouder') return target;
         const R = DJ_RISER;
         const near = x > R.x0 - 0.8 && x < R.x1 + 0.8 && z > R.z0 - 0.8 && z < R.z1 + 0.8;
         if (!near || current < -1e-6 || current > R.top + 1e-6 || target < -1e-6 || target > R.top + 1e-6) return target;
@@ -300,8 +317,31 @@ const Mezzanine = {
     _containLEDWall(camera) {
         const wall = this._ledWallCollider;
         if (!wall || !wall.isEnabled()) return;
-        const box = wall.getBoundingInfo().boundingBox;
         const radius = Math.max(0.25, camera.ellipsoid?.z || 0);
+        const curve = wall._curveMeta;
+        if (curve && curve.curveRadius > 0) {
+            const halfW = curve.width / 2 + radius;
+            const zFrontAt = x => curve.centerZ + curve.curveRadius -
+                Math.sqrt(Math.max(0, curve.curveRadius * curve.curveRadius - Math.min(curve.curveRadius * 0.98, Math.abs(x)) ** 2)) +
+                radius + 0.05;
+            const pos = camera.position;
+            if (Math.abs(pos.x) <= halfW) {
+                const front = zFrontAt(pos.x);
+                if (pos.z < front) {
+                    pos.z = front;
+                    if (camera.cameraDirection?.z < 0) camera.cameraDirection.z = 0;
+                }
+            }
+            if (camera._deferOnly && camera._deferredUpdated) {
+                const queued = camera._deferredPositionUpdate;
+                if (Math.abs(queued.x) <= halfW) {
+                    const front = zFrontAt(queued.x);
+                    if (queued.z < front) queued.z = front;
+                }
+            }
+            return;
+        }
+        const box = wall.getBoundingInfo().boundingBox;
         const front = box.maximumWorld.z + radius + 0.01;
         const position = camera.position;
         if (position.x >= box.minimumWorld.x - radius && position.x <= box.maximumWorld.x + radius &&

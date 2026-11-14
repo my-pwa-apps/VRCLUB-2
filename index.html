@@ -92,14 +92,14 @@
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
     
     <!-- Performance Hints: the Babylon runtime is the critical path and is same-origin. -->
-    <link rel="preload" href="js/vendor/babylon.js?v=20261021-5" as="script">
+    <link rel="preload" href="js/vendor/babylon.js?v=20261114-15" as="script">
     
     <title>WebXR Virtual Nightclub for VR Headsets &amp; Desktop | NOCTURNE</title>
     
-    <link rel="manifest" href="manifest.json?v=20261021-5">
-    <link rel="icon" type="image/png" sizes="192x192" href="icons/icon-192.png?v=20261021-5">
-    <link rel="apple-touch-icon" sizes="180x180" href="icons/icon-180.png?v=20261021-5">
-    <link rel="stylesheet" href="css/styles.css?v=20261021-5">
+    <link rel="manifest" href="manifest.json?v=20261114-15">
+    <link rel="icon" type="image/png" sizes="192x192" href="icons/icon-192.png?v=20261114-15">
+    <link rel="apple-touch-icon" sizes="180x180" href="icons/icon-180.png?v=20261114-15">
+    <link rel="stylesheet" href="css/styles.css?v=20261114-15">
 </head>
 <body>
     <!-- Splash Screen -->
@@ -132,6 +132,20 @@
             <button class="splash-toggle" id="splashVRComfortBtn" type="button" aria-pressed="false">
                 VR Comfort — Teleport &amp; Snap Turn: <span id="splashVRComfortState">OFF</span>
             </button>
+
+            <label class="splash-room-field" for="venueSelect">Venue</label>
+            <select class="audio-input splash-venue-select" id="venueSelect">
+                <option value="nocturne">NOCTURNE</option>
+                <option value="gashouder">Gashouder Amsterdam</option>
+            </select>
+            <label class="splash-room-field" for="gashouderPresetSelect">Gashouder setup</label>
+            <select class="audio-input splash-venue-select" id="gashouderPresetSelect">
+                <option value="architectural">Architectural</option>
+                <option value="soundcheck">Soundcheck</option>
+                <option value="techno" selected>Techno Club</option>
+                <option value="awakenings">Awakenings Inspired</option>
+                <option value="custom">Custom</option>
+            </select>
 
             <div class="splash-room-invite" id="splashRoomInvite" hidden>
                 <div class="splash-room-title" id="splashRoomLabel">Joining room</div>
@@ -1121,125 +1135,126 @@
          scripts/vendor.manifest.json. `npm run check:sri` re-verifies these bytes
          against the recorded hashes and against the upstream CDN.
          Refresh with: npm run vendor:babylon -- --force -->
-    <script src="js/vendor/babylon.js?v=20261021-5"></script>
-    <script src="js/vendor/babylonjs.proceduralTextures.min.js?v=20261021-5"></script>
+    <script src="js/vendor/babylon.js?v=20261114-15"></script>
+    <script src="js/vendor/babylonjs.proceduralTextures.min.js?v=20261114-15"></script>
 
     <!-- glTF Loader Plugin (REQUIRED for loading .glb 3D models) -->
-    <script src="js/vendor/babylonjs.loaders.min.js?v=20261021-5"></script>
+    <script src="js/vendor/babylonjs.loaders.min.js?v=20261114-15"></script>
     
     <!-- Shared asset cache primitives (IndexedDB + fetch timeout + in-flight dedup).
          MUST load before textureLoader.js and modelLoader.js, which depend on it. -->
-    <script src="js/assetCache.js?v=20261021-5"></script>
-    <script src="js/audioUtils.js?v=20261021-5"></script>
+    <script src="js/assetCache.js?v=20261114-15"></script>
+    <script src="js/audioUtils.js?v=20261114-15"></script>
     <!-- Saved music links and Colourizon relay resolution (needs audioUtils + assetCache). -->
-    <script src="js/musicLibrary.js?v=20261021-5"></script>
+    <script src="js/musicLibrary.js?v=20261114-15"></script>
 
     <!-- Texture Loader (loads before club script) -->
-    <script src="js/textureLoader.js?v=20261021-5"></script>
+    <script src="js/textureLoader.js?v=20261114-15"></script>
     
     <!-- Model Loader (CDJs, Mixer, PA Speakers) -->
-    <script src="js/modelLoader.js?v=20261021-5"></script>
+    <script src="js/modelLoader.js?v=20261114-15"></script>
     
     <!-- Material Factory (centralized material creation) -->
-    <script src="js/materialFactory.js?v=20261021-5"></script>
+    <script src="js/materialFactory.js?v=20261114-15"></script>
     
     <!-- Light Factory (centralized light creation) -->
-    <script src="js/lightFactory.js?v=20261021-5"></script>
+    <script src="js/lightFactory.js?v=20261114-15"></script>
 
     <!-- VJ Director (beat-locked palette + macros). MUST load before club script. -->
-    <script src="js/vjDirector.js?v=20261021-5"></script>
+    <script src="js/vjDirector.js?v=20261114-15"></script>
 
     <!-- Show Director ("NOCTURNE" beat-locked cue engine). Depends on the beat
          clock published by VJDirector, so it MUST load after it and before the
          club script that instantiates both. -->
-    <script src="js/showDirector.js?v=20261021-5"></script>
+    <script src="js/showDirector.js?v=20261114-15"></script>
 
     <!-- LED wall pattern library. Mixed into VRClub.prototype by the club script. -->
-    <script src="js/ledPatterns.js?v=20261021-5"></script>
+    <script src="js/ledPatterns.js?v=20261114-15"></script>
 
     <!-- Bar dressing: bottle shapes, shelf stocking and the label atlas (pure data, no club dependency). -->
-    <script src="js/barProps.js?v=20261021-5"></script>
+    <script src="js/barProps.js?v=20261114-15"></script>
 
     <!-- The NOCTURNE wordmark as path geometry. Pure data; the club's signage strokes it onto canvas
          and the splash <svg> above carries the same `d` (a unit test fails if the two drift apart). -->
-    <script src="js/nocturneLogo.js?v=20261021-5"></script>
-    <script src="js/venueBranding.js?v=20261021-5"></script>
+    <script src="js/nocturneLogo.js?v=20261114-15"></script>
+    <script src="js/venueBranding.js?v=20261114-15"></script>
 
     <!-- The restroom's posters, stickers, tags and light box, painted into one atlas at runtime (pure data + Canvas 2D
          painters; uses the wordmark above). -->
-    <script src="js/restroomArt.js?v=20261021-5"></script>
-    <script src="js/restroomInteractions.js?v=20261021-5"></script>
+    <script src="js/restroomArt.js?v=20261114-15"></script>
+    <script src="js/restroomInteractions.js?v=20261114-15"></script>
 
     <!-- Entrance vestibule and bar, mixed into VRClub.prototype by club_hyperrealistic.js (needs barProps). -->
-    <script src="js/venueDressing.js?v=20261021-5"></script>
+    <script src="js/venueDressing.js?v=20261114-15"></script>
 
     <!-- Steel mezzanine and stair along the left wall, mixed into VRClub.prototype (borrows venueDressing's builder). -->
-    <script src="js/mezzanine.js?v=20261021-5"></script>
+    <script src="js/mezzanine.js?v=20261114-15"></script>
 
     <!-- The street outside the club (a baked GLB from three CC0 Quaternius packs), its sky and skyline, and the audio/fog
          "outdoors" amount, mixed into VRClub.prototype (borrows venueDressing's builder). -->
-    <script src="js/cityDistrict.js?v=20261021-5"></script>
+    <script src="js/cityDistrict.js?v=20261114-15"></script>
 
     <!-- The VJ desk at the DJ table: two touch panels (the show, the lights), mixed into VRClub.prototype. -->
-    <script src="js/vjDesk.js?v=20261021-5"></script>
-    <script src="js/guestExperience.js?v=20261021-5"></script>
-    <script src="js/sessionExperience.js?v=20261021-5"></script>
-    <script src="js/characterCatalog.js?v=20261021-5"></script>
-    <script src="js/characterStyles.js?v=20261021-5"></script>
-    <script src="js/wardrobeCatalog.js?v=20261021-5"></script>
-    <script src="js/avatarAccessoryAssets.js?v=20261021-5"></script>
-    <script src="js/avatarDetails.js?v=20261021-5"></script>
-    <script src="js/customAvatarAppearance.js?v=20261021-5"></script>
-    <script src="js/uploadedAvatarSharing.js?v=20261021-5"></script>
-    <script src="js/avatarAppearance.js?v=20261021-5"></script>
-    <script src="js/avatarEditor.js?v=20261021-5"></script>
+    <script src="js/vjDesk.js?v=20261114-15"></script>
+    <script src="js/guestExperience.js?v=20261114-15"></script>
+    <script src="js/sessionExperience.js?v=20261114-15"></script>
+    <script src="js/characterCatalog.js?v=20261114-15"></script>
+    <script src="js/characterStyles.js?v=20261114-15"></script>
+    <script src="js/wardrobeCatalog.js?v=20261114-15"></script>
+    <script src="js/avatarAccessoryAssets.js?v=20261114-15"></script>
+    <script src="js/avatarDetails.js?v=20261114-15"></script>
+    <script src="js/customAvatarAppearance.js?v=20261114-15"></script>
+    <script src="js/uploadedAvatarSharing.js?v=20261114-15"></script>
+    <script src="js/avatarAppearance.js?v=20261114-15"></script>
+    <script src="js/avatarEditor.js?v=20261114-15"></script>
 
     <!-- Procedural player body: the shared dancer skeleton posed from where a guest is,
          looks and (in VR) holds their hands. Used for the local guest and remote guests. -->
-    <script src="js/frameStats.js?v=20261021-5"></script>
-    <script src="js/playerHeight.js?v=20261021-5"></script>
-    <script src="js/avatarRig.js?v=20261021-5"></script>
-    <script src="js/djPerformer.js?v=20261021-5"></script>
-    <script src="js/crowdDance.js?v=20261021-5"></script>
-    <script src="js/minglerClock.js?v=20261021-5"></script>
+    <script src="js/frameStats.js?v=20261114-15"></script>
+    <script src="js/playerHeight.js?v=20261114-15"></script>
+    <script src="js/avatarRig.js?v=20261114-15"></script>
+    <script src="js/djPerformer.js?v=20261114-15"></script>
+    <script src="js/crowdDance.js?v=20261114-15"></script>
+    <script src="js/minglerClock.js?v=20261114-15"></script>
 
     <!-- Multiplayer: WebSocket/WebRTC client (no Babylon dependency) and the
          Babylon-side remote-avatar/voice/emoji renderer it drives. Both are opt-in -
          VRClub only creates instances once a guest connects from the Multiplayer panel. -->
-    <script src="js/sfuClient.js?v=20261021-5"></script>
-    <script src="js/liveAudioClient.js?v=20261021-5"></script>
-    <script src="js/liveInput.js?v=20261021-5"></script>
-    <script src="js/networkClient.js?v=20261021-5"></script>
-    <script src="js/avatarManager.js?v=20261021-5"></script>
-    <script src="js/multiplayer.js?v=20261021-5"></script>
-    <script src="js/lightingPresets.js?v=20261021-5"></script>
+    <script src="js/sfuClient.js?v=20261114-15"></script>
+    <script src="js/liveAudioClient.js?v=20261114-15"></script>
+    <script src="js/liveInput.js?v=20261114-15"></script>
+    <script src="js/networkClient.js?v=20261114-15"></script>
+    <script src="js/avatarManager.js?v=20261114-15"></script>
+    <script src="js/multiplayer.js?v=20261114-15"></script>
+    <script src="js/lightingPresets.js?v=20261114-15"></script>
+    <script src="js/gashouderVenue.js?v=20261114-15"></script>
 
     <!-- VRClub implementation layers. Each extends the previous class; keep this order. -->
-    <script src="js/club/01-core.js?v=20261021-5"></script>
-    <script src="js/club/02-lifecycle.js?v=20261021-5"></script>
-    <script src="js/club/03-rendering.js?v=20261021-5"></script>
-    <script src="js/club/04-environment.js?v=20261021-5"></script>
-    <script src="js/club/05-fixtures.js?v=20261021-5"></script>
-    <script src="js/club/06-effects.js?v=20261021-5"></script>
-    <script src="js/club/07-animation-core.js?v=20261021-5"></script>
-    <script src="js/club/08-animation-fixtures.js?v=20261021-5"></script>
-    <script src="js/club/09-animation-finish.js?v=20261021-5"></script>
-    <script src="js/club/10-ui-controls.js?v=20261021-5"></script>
-    <script src="js/club/10-ui-menu.js?v=20261021-5"></script>
-    <script src="js/club/10-ui-social.js?v=20261021-5"></script>
-    <script src="js/club/10-ui.js?v=20261021-5"></script>
-    <script src="js/club/11-audio.js?v=20261021-5"></script>
-    <script src="js/club/11-avatars.js?v=20261021-5"></script>
-    <script src="js/club/11-crowd.js?v=20261021-5"></script>
-    <script src="js/club/11-audio-crowd.js?v=20261021-5"></script>
+    <script src="js/club/01-core.js?v=20261114-15"></script>
+    <script src="js/club/02-lifecycle.js?v=20261114-15"></script>
+    <script src="js/club/03-rendering.js?v=20261114-15"></script>
+    <script src="js/club/04-environment.js?v=20261114-15"></script>
+    <script src="js/club/05-fixtures.js?v=20261114-15"></script>
+    <script src="js/club/06-effects.js?v=20261114-15"></script>
+    <script src="js/club/07-animation-core.js?v=20261114-15"></script>
+    <script src="js/club/08-animation-fixtures.js?v=20261114-15"></script>
+    <script src="js/club/09-animation-finish.js?v=20261114-15"></script>
+    <script src="js/club/10-ui-controls.js?v=20261114-15"></script>
+    <script src="js/club/10-ui-menu.js?v=20261114-15"></script>
+    <script src="js/club/10-ui-social.js?v=20261114-15"></script>
+    <script src="js/club/10-ui.js?v=20261114-15"></script>
+    <script src="js/club/11-audio.js?v=20261114-15"></script>
+    <script src="js/club/11-avatars.js?v=20261114-15"></script>
+    <script src="js/club/11-crowd.js?v=20261114-15"></script>
+    <script src="js/club/11-audio-crowd.js?v=20261114-15"></script>
 
     <!-- VR Club Main Application -->
-    <script src="js/club_hyperrealistic.js?v=20261021-5"></script>
-    <script src="js/paymentGate.js?v=20261021-5"></script>
+    <script src="js/club_hyperrealistic.js?v=20261114-15"></script>
+    <script src="js/paymentGate.js?v=20261114-15"></script>
     <!-- Opt-in (?immersive=1) in-headset launch: safe-mode choice, access and pairing without a 2D page -->
-    <script src="js/immersiveLaunch.js?v=20261021-5"></script>
+    <script src="js/immersiveLaunch.js?v=20261114-15"></script>
     
     <!-- UI Initialization (splash screen, VJ controls, audio, multiplayer) -->
-    <script src="js/ui-init.js?v=20261021-5"></script>
+    <script src="js/ui-init.js?v=20261114-15"></script>
 </body>
 </html>

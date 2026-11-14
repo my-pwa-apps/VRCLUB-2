@@ -128,6 +128,7 @@ class VRClubMenu extends window.VRClubControls {
         if (['cycleSpotTarget', 'toggleReducedShowSmoke'].includes(button.control)) return false;
         if (button.action === 'characterStyle') return true;
         if (this.multiplayer?.canControlLights?.() && !VR_MUSIC_ACTIONS.has(button.action)) return false;
+        if (button.action === 'showMood' && button.value === 'gashouder' && this.venueId !== 'gashouder') return false;
         if (VR_MUSIC_ACTIONS.has(button.action) ||
             ['autoShow', 'holdLook', 'reset', 'cycle', 'nextSection', 'showDrop', 'showPeak', 'showSection', 'showMood', 'showBlackout'].includes(button.action)) return true;
         return !!button.control && !button.action && !['vrComfortMode', 'vrSeatedMode', 'autoQuality', 'photosensitiveSafeMode'].includes(button.control);
@@ -458,14 +459,17 @@ class VRClubMenu extends window.VRClubControls {
                 { label: 'ENTRANCE', control: 'arrival', action: 'travel' },
                 { label: 'DANCE FLOOR', control: 'danceFloor', action: 'travel' },
                 { label: 'DJ BOOTH', control: 'djBooth', action: 'travel' },
-                { label: 'BALCONY', control: 'balcony', action: 'travel' },
-                { label: 'STREET', control: 'street', action: 'travel' },
+                { label: this.venueId === 'gashouder' ? 'HALL PERIMETER' : 'BALCONY', control: 'balcony', action: 'travel' },
+                { label: this.venueId === 'gashouder' ? 'LOADING ENTRANCE' : 'STREET', control: 'street', action: 'travel' },
                 common.back,
                 common.close
             ],
             show: [
                 { label: 'AUTO NOCTURNE', action: 'showMood', value: 'nocturne' },
                 { label: 'AUTO AESTHETIC', action: 'showMood', value: 'aesthetic' },
+                ...(this.venueId === 'gashouder'
+                    ? [{ label: 'GASHOUDER NIGHT', action: 'showMood', value: 'gashouder' }]
+                    : []),
                 { label: 'DROP NOW', action: 'showPeak' },
                 { label: 'BLACKOUT', action: 'showBlackout' },
                 { label: 'GO TO VJ BOOTH', control: 'djBooth', action: 'travel' },

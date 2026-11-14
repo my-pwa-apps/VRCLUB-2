@@ -1,7 +1,13 @@
-import relay from './relay.js';
+import relay, { isAllowedOrigin } from './relay.js';
 import { devRoomAccess, issueDevOwnerSession, DEV_ROOM, DEV_OWNER_SIGN_IN } from './devRoomAccess.js';
 export { ClubRoom } from './relay.js';
 export { LiveAudioEvent } from './liveEvents.js';
+
+function isOriginAllowedWithPreviews(origin, allowed) {
+    if (!origin) return false;
+    if (allowed.includes(origin)) return true;
+    return isAllowedOrigin(origin, allowed);
+}
 
 export default {
     async fetch(request, env, ctx) {
@@ -24,7 +30,7 @@ export default {
                 if (denied) return Response.json(denied, { status: denied.status, headers });
                 headers['set-cookie'] = cookie;
                 headers['content-type'] = 'text/html; charset=utf-8';
-                return new Response('<!doctype html><html lang="en"><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Development owner signed in</title><h1>Development owner signed in</h1><p>Return to your club tab and press Join room for 000032. You can close this tab.</p><p>This login is remembered on this browser or headset for one year across restarts. It does not change purchases or production access.</p><a href="https://nocturnedev.mitwee.nl/">Open the development club</a></html>', { headers });
+                return new Response('<!doctype html><html lang="en"><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Development owner signed in</title><h1>Development owner signed in</h1><p>Return to your club tab and press Join room for 000032. You can close this tab.</p><p>This login is remembered on this browser or headset for one year across restarts and works on both nocturnedev.mitwee.nl and gashouder.mitwee.nl. It does not change purchases or production access.</p><p><a href="https://nocturnedev.mitwee.nl/">Open the development club</a> · <a href="https://gashouder.mitwee.nl/">Open Gashouder</a></p></html>', { headers });
             } catch (error) {
                 console.error('Development owner sign-in unavailable', error.name);
                 return Response.json({ message: 'Owner verification is temporarily unavailable. Try signing in again shortly.' }, { status: 503, headers });
@@ -34,7 +40,7 @@ export default {
             const origin = request.headers.get('Origin');
             const allowed = (env.ALLOWED_ORIGINS || '').split(',').map(value => value.trim());
             const headers = { 'cache-control': 'no-store', 'vary': 'Origin' };
-            if (url.origin !== env.DEV_OWNER_ORIGIN || !allowed.includes(origin)) {
+            if (url.origin !== env.DEV_OWNER_ORIGIN || !isOriginAllowedWithPreviews(origin, allowed)) {
                 return Response.json({ message: 'Development owner connection origin is not allowed.' }, { status: 403, headers });
             }
             Object.assign(headers, {

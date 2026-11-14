@@ -821,7 +821,12 @@ class VRClubUI extends window.VRClubSocialUI {
 
     /** Surfaces the VR teleport arc may land on: the club floor, the balcony deck and stair, the entrance's floors and stair, the restroom floor, and the street. */
     _teleportFloorMeshes() {
-        return [this.floorMesh, this._mezzDeck, this._vestibuleFloor, this._vestibuleStair, this._restroomFloor, ...(this._cityGround || [])].filter(Boolean);
+        const venueFloors = this.venueId === 'gashouder'
+            ? [this.scene?.getMeshByName('gashouderStageTop'),
+                ...Array.from({ length: window.GASHOUDER_VENUE.stage.stairSteps },
+                    (_, index) => this.scene?.getMeshByName(`gashouderStageStair${index}`))]
+            : [this._mezzDeck, this._vestibuleFloor, this._vestibuleStair, this._restroomFloor, ...(this._cityGround || [])];
+        return [this.floorMesh, ...venueFloors].filter(Boolean);
     }
 
     _teleportBlockerMeshes() {
@@ -945,7 +950,7 @@ class VRClubUI extends window.VRClubSocialUI {
     moveCameraToPreset(preset) {
         // The club is a basement: the street and the top of the entrance stair are at street level.
         const street = (window.VenueLayout && window.VenueLayout.vestibule.streetLevel) || 0;
-        const presets = {
+        const nocturnePresets = {
             // At the top of the entrance stair (the street-level landing), looking down it into the club.
             arrival: { label: 'Arrival', pos: new BABYLON.Vector3(0, street + 1.7, 5.5), target: new BABYLON.Vector3(0, 1.2, -12), level: street },
             danceFloor: { label: 'Dance Floor', pos: new BABYLON.Vector3(-2.8, 1.7, -9.2), target: new BABYLON.Vector3(0, 2.6, -18.5) },
@@ -958,9 +963,22 @@ class VRClubUI extends window.VRClubSocialUI {
             // On the pavement outside the street door, looking across the avenue at the far row of buildings.
             street: { label: 'Street', pos: new BABYLON.Vector3(0, street + 1.7, 8.2), target: new BABYLON.Vector3(0, street + 8, 30), level: street }
         };
+        const presets = this.venueId === 'gashouder' ? {
+            arrival: { label: 'Arrival', pos: new BABYLON.Vector3(0, 1.7, 21), target: new BABYLON.Vector3(0, 4, -19), level: 0 },
+            danceFloor: { label: 'Dance Floor', pos: new BABYLON.Vector3(0, 1.7, 5), target: new BABYLON.Vector3(0, 4, -19), level: 0 },
+            djBooth: {
+                label: 'DJ Booth',
+                pos: new BABYLON.Vector3(0, 3.5, window.GASHOUDER_VENUE.stage.consoleZ - 1.4),
+                target: new BABYLON.Vector3(0, 2.7, -12),
+                level: 1.8
+            },
+            lightingGallery: { label: 'Rig View', pos: new BABYLON.Vector3(17, 1.7, 2), target: new BABYLON.Vector3(0, 9.5, 0), level: 0 },
+            balcony: { label: 'Hall Perimeter', pos: new BABYLON.Vector3(20, 1.7, 0), target: new BABYLON.Vector3(0, 3.5, -19), level: 0 },
+            street: { label: 'Loading Entrance', pos: new BABYLON.Vector3(0, 1.7, 23), target: new BABYLON.Vector3(0, 4, 0), level: 0 }
+        } : nocturnePresets;
         
         const p = presets[preset];
-        if (preset === 'street' && !(this._streetDoor && this._streetDoor.open)) {
+        if (this.venueId !== 'gashouder' && preset === 'street' && !(this._streetDoor && this._streetDoor.open)) {
             this.showErrorMessage('The street is not available yet.', 'info');
             return;
         }
@@ -974,7 +992,7 @@ class VRClubUI extends window.VRClubSocialUI {
                 }
                 xrCamera.position.x = p.pos.x;
                 xrCamera.position.z = p.pos.z;
-                xrCamera.position.y = height + (preset === 'djBooth' ? 0.5 : (p.level || 0));
+                xrCamera.position.y = height + (p.level || 0);
                 if (xrCamera._deferOnly && xrCamera._deferredUpdated) xrCamera._deferredPositionUpdate.copyFrom(xrCamera.position);
                 if (this.jumpState) this.jumpState.active = false;
             } else {

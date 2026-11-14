@@ -8,12 +8,20 @@ class MusicLibrary {
     static DEFAULT_SET = Object.freeze({ path: 'audio/nocturne-house.mp3', name: 'NOCTURNE (club set)' });
     static COLOURIZON_FEED_PATH = '/podcast/colourizon/feed.xml';
     static SOUNDCLOUD_RESOLVE_PATH = '/soundcloud/resolve';
-    static DEFAULT_NAMES = new Set(['SoundCloud set', 'Resident by Hernan Cattaneo']);
+    static DEFAULT_NAMES = new Set(['SoundCloud set', 'Resident by Hernan Cattaneo', 'Colourizon by Miss Melera']);
     static RESIDENT_FEED = 'https://podcast.hernancattaneo.com/feed.xml';
+    static MELERA_FEED_URL = 'https://soundcloud.com/missmelera/latest';
     static DEV_HOSTS = new Set(['nocturnedev.mitwee.nl', 'nocturne-dev.pages.dev']);
+    static GASHOUDER_HOSTS = new Set(['gashouder.mitwee.nl', 'gashouder-vr.pages.dev']);
     static EPISODE_TTL_MS = 10 * 60 * 1000;
     static MAX_EPISODES = 2000;
     static SOUNDCLOUD_RESERVED = new Set(['sets', 'tracks', 'albums', 'reposts', 'likes', 'following', 'followers', 'popular-tracks', 'comments']);
+
+    static isGashouderHost(hostname = window.location?.hostname) {
+        return typeof hostname === 'string' && (
+            MusicLibrary.GASHOUDER_HOSTS.has(hostname) || hostname.endsWith('.gashouder-vr.pages.dev')
+        );
+    }
 
     static isDevHost(hostname = window.location?.hostname) {
         return typeof hostname === 'string' && MusicLibrary.DEV_HOSTS.has(hostname);
@@ -58,9 +66,17 @@ class MusicLibrary {
         }
         try {
             if (raw === null) {
-                this.items = MusicLibrary.isDevHost()
-                    ? [this._item(MusicLibrary.RESIDENT_FEED, 'Resident by Hernan Cattaneo')]
-                    : [];
+                const isGashouder = this.club?.venueId === 'gashouder' || MusicLibrary.isGashouderHost();
+                if (isGashouder) {
+                    this.items = [
+                        this._item(MusicLibrary.RESIDENT_FEED, 'Resident by Hernan Cattaneo'),
+                        this._item(MusicLibrary.MELERA_FEED_URL, 'Colourizon by Miss Melera')
+                    ];
+                } else {
+                    this.items = MusicLibrary.isDevHost()
+                        ? [this._item(MusicLibrary.RESIDENT_FEED, 'Resident by Hernan Cattaneo')]
+                        : [];
+                }
                 this.selected = 0;
                 this.readError = null;
                 this._unreadableRaw = null;
@@ -175,7 +191,8 @@ class MusicLibrary {
         }
         const feed = !soundcloud && MusicLibrary.isFeedUrl(parsed);
         const fallbackName = feed && MusicLibrary.isResidentUrl(parsed) ? 'Resident by Hernan Cattaneo'
-            : (soundcloud ? 'SoundCloud set' : parsed.hostname);
+            : (soundcloud && parsed.pathname.toLowerCase() === '/missmelera/latest' ? 'Colourizon by Miss Melera'
+                : (soundcloud ? 'SoundCloud set' : parsed.hostname));
         const item = {
             url: parsed.href,
             name: String(name || fallbackName).trim().slice(0, 60) || parsed.hostname,
@@ -291,7 +308,7 @@ class MusicLibrary {
         return relay.href.replace(/\/$/, '');
     }
 
-    /** The relay feed's episode for a Miss Melera page, or null when the feed does not list it. */
+    /** The relay feed's episode for a Miss Melera page (or newest when slug is 'latest'), or null when the feed does not list it. */
     async _resolveMelera(item) {
         const slug = this._meleraSlug(new URL(item.url));
         if (!slug) return null;
@@ -301,12 +318,14 @@ class MusicLibrary {
             timeoutMs: 30000,
             cache: 'no-cache'
         }));
+        const episodes = window.AudioUtils.parsePodcastEpisodes(xml);
+        if (slug === 'latest') return episodes[0] || null;
         // The feed's files are `<id>-missmelera-<permalink>.mp3`. A page may use the full permalink or just
         // `colourizon-168`, so the Colourizon number is also accepted.
         const number = /colourizon-(\d+)/.exec(slug);
         const wanted = [`-${slug}.mp3`];
         if (number) wanted.push(`-colourizon-${number[1]}.mp3`);
-        return window.AudioUtils.parsePodcastEpisodes(xml).find(candidate => {
+        return episodes.find(candidate => {
             try {
                 const file = decodeURIComponent(new URL(candidate.url).pathname).split('/').pop().toLowerCase();
                 return wanted.some(suffix => file.endsWith(suffix));

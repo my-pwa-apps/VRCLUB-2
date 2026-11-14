@@ -391,6 +391,7 @@ test('no first-party code fetches from a third-party origin', () => {
     // never startup dependencies.
     const filtered = offenders.filter(o => !o.includes('stream.sunshine-live.de') &&
         !o.includes('https://podcast.hernancattaneo.com/feed.xml') &&
+        !o.includes('https://soundcloud.com/missmelera/latest') &&
         !o.includes('https://w.soundcloud.com/player/') &&
         !(o.startsWith('js/paymentGate.js:') && [
             'https://api.mitwee.nl/admin/dev-owner/sign-in', 'https://api.mitwee.nl/dev-owner/check'

@@ -12,8 +12,8 @@
 // `caches.match()` compares the FULL URL including the query string, so an
 // unversioned precache entry could never satisfy a versioned request and the
 // whole precache was previously dead weight (every asset downloaded twice).
-const VERSION = 'vrclub-v20261021-5';
-const CACHE_TOKEN = '20261021-5';
+const VERSION = 'vrclub-v20261114-15';
+const CACHE_TOKEN = '20261114-15';
 const VENDOR_QUERY = `?v=${CACHE_TOKEN}`;
 const CACHE_NAME = `vrclub-cache-${VERSION}`;
 // Vendor URLs change with CACHE_TOKEN, not with every first-party bundle hash. Keep

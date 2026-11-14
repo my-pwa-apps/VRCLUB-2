@@ -13,10 +13,11 @@ const _paZoneScratch = { cover: 0, onDeck: 0, shelf: 0 };
  * Height acoustics for one ear. Missing layouts (unit stubs, an old page) leave every term at 0,
  * which is exactly the old x/z listener. The scratch object is reused every frame.
  */
-function _paListenerZones(x, y, z) {
+function _paListenerZones(x, y, z, venueId) {
     _paZoneScratch.cover = 0;
     _paZoneScratch.onDeck = 0;
     _paZoneScratch.shelf = 0;
+    if (venueId === 'gashouder') return _paZoneScratch;
     const mezz = typeof window !== 'undefined' ? window.MezzanineLayout : null;
     if (mezz && mezz.paZones) mezz.paZones(x, y, z, _paZoneScratch);
     const bar = typeof window !== 'undefined' && window.VenueLayout && window.VenueLayout.bar;
@@ -80,17 +81,23 @@ class VRClubAudio extends VRClubUI {
             // flown from the truss, coupled with physical sub-bass in the room
             // and distance-dependent air absorption.
             try {
+                const paPositions = this.venueId === 'gashouder'
+                    ? {
+                        left: { x: -10, y: window.GASHOUDER_VENUE.rig.centreY, z: -11.85 },
+                        right: { x: 10, y: window.GASHOUDER_VENUE.rig.centreY, z: -11.85 }
+                    }
+                    : CLUB_POSITIONS.paSpeakers;
                 // 1. Left Flown PA Speaker Panner
                 this.pannerLeft = this.audioContext.createPanner();
                 this.pannerLeft.panningModel = 'HRTF';
                 this.pannerLeft.distanceModel = 'inverse';
                 this.pannerLeft.refDistance = 4;
-                this.pannerLeft.maxDistance = 45;
+                this.pannerLeft.maxDistance = this.venueId === 'gashouder' ? 60 : 45;
                 this.pannerLeft.rolloffFactor = 0.65;
                 this.pannerLeft.coneInnerAngle = 120;
                 this.pannerLeft.coneOuterAngle = 240;
                 this.pannerLeft.coneOuterGain = 0.35;
-                AudioUtils.setPannerPosition(this.pannerLeft, CLUB_POSITIONS.paSpeakers.left.x, CLUB_POSITIONS.paSpeakers.left.y, CLUB_POSITIONS.paSpeakers.left.z);
+                AudioUtils.setPannerPosition(this.pannerLeft, paPositions.left.x, paPositions.left.y, paPositions.left.z);
                 AudioUtils.setPannerOrientation(this.pannerLeft, 0.2, -0.5, 1.0);
 
                 // 2. Right Flown PA Speaker Panner
@@ -98,19 +105,47 @@ class VRClubAudio extends VRClubUI {
                 this.pannerRight.panningModel = 'HRTF';
                 this.pannerRight.distanceModel = 'inverse';
                 this.pannerRight.refDistance = 4;
-                this.pannerRight.maxDistance = 45;
+                this.pannerRight.maxDistance = this.venueId === 'gashouder' ? 60 : 45;
                 this.pannerRight.rolloffFactor = 0.65;
                 this.pannerRight.coneInnerAngle = 120;
                 this.pannerRight.coneOuterAngle = 240;
                 this.pannerRight.coneOuterGain = 0.35;
-                AudioUtils.setPannerPosition(this.pannerRight, CLUB_POSITIONS.paSpeakers.right.x, CLUB_POSITIONS.paSpeakers.right.y, CLUB_POSITIONS.paSpeakers.right.z);
+                AudioUtils.setPannerPosition(this.pannerRight, paPositions.right.x, paPositions.right.y, paPositions.right.z);
                 AudioUtils.setPannerOrientation(this.pannerRight, -0.2, -0.5, 1.0);
 
+                // 2a. Rear Arena PA Ring (Gashouder): flown on the opposite (+Z) side of the 15.5m circular truss,
+                // aimed inward/downward (-Z) across the rear and central floor for 360° arena sound coverage.
+                if (this.venueId === 'gashouder') {
+                    const rearY = window.GASHOUDER_VENUE.rig.centreY;
+                    const makeRearPanner = (x, z, toeX) => {
+                        const p = this.audioContext.createPanner();
+                        p.panningModel = 'HRTF';
+                        p.distanceModel = 'inverse';
+                        p.refDistance = 4.5;
+                        p.maxDistance = 60;
+                        p.rolloffFactor = 0.6;
+                        p.coneInnerAngle = 150;
+                        p.coneOuterAngle = 290;
+                        p.coneOuterGain = 0.52;
+                        AudioUtils.setPannerPosition(p, x, rearY, z);
+                        // Aim inward (-Z) and downward (-Y) toward the dancefloor & rear perimeter
+                        AudioUtils.setPannerOrientation(p, toeX, -0.5, -0.86);
+                        return p;
+                    };
+                    this.rearDelayNode = this.audioContext.createDelay(0.15);
+                    this.rearDelayNode.delayTime.value = 0.028; // Tight Haas alignment for seamless 360° arena blend
+                    this.rearDelayGain = this.audioContext.createGain();
+                    this.rearDelayGain.gain.value = 0.92;
+                    this.pannerRearLeft = makeRearPanner(-10, 11.85, 0.35);
+                    this.pannerRearRight = makeRearPanner(10, 11.85, -0.35);
+                }
+
                 // 2b. Nearfield DJ Booth Studio Monitors (Yamaha HS8 pair behind the mixer, aimed at the DJ)
-                // The main PA arrays sit at z = -16 aimed out at the dance floor (+z), so a DJ at z = -19.2 is behind
-                // their cones. Nearfield monitors at (-0.62, 1.62, -18.22) and (+0.62, 1.62, -18.22) aimed at the
-                // booth operator (-z, inward) provide tight, crisp direct sound on the riser and roll off outside it.
-                const monLayout = (typeof window !== 'undefined' && window.VenueLayout && window.VenueLayout.monitors) || {
+                // The main PA arrays sit out on the truss aimed at the dance floor (+z), so a DJ on the booth riser
+                // is behind their cones. Nearfield monitors aimed back at the operator (-z, inward) provide tight,
+                // punchy direct sound on stage and roll off cleanly outside the booth.
+                const isGashouderAudio = this.venueId === 'gashouder';
+                const monLayout = this._djMonitorLayout?.() || (typeof window !== 'undefined' && window.VenueLayout && window.VenueLayout.monitors) || {
                     tableY: 1.42, height: 0.3,
                     left: { x: -0.72, z: -18.22, yaw: Math.PI - 0.6 },
                     right: { x: 0.72, z: -18.22, yaw: Math.PI + 0.6 }
@@ -120,15 +155,15 @@ class VRClubAudio extends VRClubUI {
                     const p = this.audioContext.createPanner();
                     p.panningModel = 'HRTF';
                     p.distanceModel = 'inverse';
-                    p.refDistance = 0.85;
-                    p.maxDistance = 8;
-                    p.rolloffFactor = 2.2;
-                    p.coneInnerAngle = 75;
-                    p.coneOuterAngle = 150;
-                    p.coneOuterGain = 0.18;
+                    p.refDistance = isGashouderAudio ? 1.35 : 0.85;
+                    p.maxDistance = isGashouderAudio ? 12 : 8;
+                    p.rolloffFactor = isGashouderAudio ? 1.55 : 2.2;
+                    p.coneInnerAngle = isGashouderAudio ? 95 : 75;
+                    p.coneOuterAngle = isGashouderAudio ? 190 : 150;
+                    p.coneOuterGain = isGashouderAudio ? 0.28 : 0.18;
                     AudioUtils.setPannerPosition(p, side.x, monAcousticY, side.z);
                     // The model faces (sin yaw, 0, cos yaw): the woofer baffle points back at the DJ behind the decks.
-                    AudioUtils.setPannerOrientation(p, Math.sin(side.yaw), 0.08, Math.cos(side.yaw));
+                    AudioUtils.setPannerOrientation(p, Math.sin(side.yaw), isGashouderAudio ? 0.22 : 0.08, Math.cos(side.yaw));
                     return p;
                 };
                 this.monitorPannerLeft = makeMonitorPanner(monLayout.left);
@@ -561,7 +596,7 @@ class VRClubAudio extends VRClubUI {
             panner.refDistance = 6;
             panner.maxDistance = 40;
             panner.rolloffFactor = 0.8;
-            const floor = CLUB_POSITIONS.danceFloor;
+            const floor = this.cachedVectors?.danceFloor || CLUB_POSITIONS.danceFloor;
             AudioUtils.setPannerPosition(panner, floor.x, 1.6, floor.z);
 
             source.connect(voiceBand);
@@ -630,6 +665,14 @@ class VRClubAudio extends VRClubUI {
                 const busIn = this.occlusionFilter || this.audioCompressor;
                 this.pannerLeft.connect(busIn);
                 this.pannerRight.connect(busIn);
+                if (this.rearDelayNode && this.rearDelayGain && this.pannerRearLeft && this.pannerRearRight) {
+                    this.airAbsorptionFilter.connect(this.rearDelayNode);
+                    this.rearDelayNode.connect(this.rearDelayGain);
+                    this.rearDelayGain.connect(this.pannerRearLeft);
+                    this.rearDelayGain.connect(this.pannerRearRight);
+                    this.pannerRearLeft.connect(busIn);
+                    this.pannerRearRight.connect(busIn);
+                }
                 if (this.monitorPannerLeft && this.monitorPannerRight && this.monitorGain) {
                     this.monitorPannerLeft.connect(this.monitorGain);
                     this.monitorPannerRight.connect(this.monitorGain);
@@ -793,20 +836,25 @@ class VRClubAudio extends VRClubUI {
         }
 
         // Real-world acoustic zone attenuation:
-        // Dance floor center is at (0, 0, -12); PA speakers flown at z = -16; entrance is at z = 0.
-        const distToStage = Math.sqrt(pos.x * pos.x + Math.pow(pos.z - (-14), 2));
+        // In NOCTURNE, PA is at z = -16; in Gashouder, front & rear truss PA arrays cover both halves of the arena.
+        const isGashouder = this.venueId === 'gashouder';
+        const frontStageDist = Math.sqrt(pos.x * pos.x + Math.pow(pos.z - (-14), 2));
+        const distToStage = isGashouder
+            ? Math.min(frontStageDist, Math.sqrt(pos.x * pos.x + Math.pow(pos.z - 11.85, 2)))
+            : frontStageDist;
         // Height is a second acoustic, not a change to the floor's 2D distance (the stair sweep and the
         // sub channel depend on that). The balcony ear is near the flown boxes; the deck soffit is not.
-        const zones = _paListenerZones(pos.x, pos.y, pos.z);
+        const zones = _paListenerZones(pos.x, pos.y, pos.z, this.venueId);
 
         // How far outdoors the listener is (0 in the club and vestibule, 1 on the street) and how far from the door.
-        const city = typeof window !== 'undefined' ? window.CityLayout : null;
+        // Gashouder is a sealed 54 m circular indoor hall with no street vestibule: never apply NOCTURNE's street/stair muffling.
+        const city = !isGashouder && typeof window !== 'undefined' ? window.CityLayout : null;
         const exterior = city ? city.exteriorAmount(pos.x, pos.z) : 0;
         const doorDistance = city ? city.doorDistance(pos.x, pos.z) : 0;
         // How enclosed in the room the listener is: 1 on the dance floor, easing to 0 at the top of the entrance
         // stair. Everything the room itself produces — the direct PA, its tail, its early reflection and the chatter
         // — follows this one curve, so walking down the stair opens the club up gradually instead of all at once.
-        const venue = typeof window !== 'undefined' ? window.VenueLayout : null;
+        const venue = !isGashouder && typeof window !== 'undefined' ? window.VenueLayout : null;
         const enclosure = venue && venue.vestibule ? venue.vestibule.enclosure(pos.z) : 1;
 
         // Listener-local PA presence for character performance only. Beat/BPM/show analysis remains on the
@@ -818,10 +866,21 @@ class VRClubAudio extends VRClubUI {
         // Nearfield DJ booth studio monitors: crisp direct sound in the booth behind the main PA line,
         // fading smoothly to zero out on the dance floor so they never compete with the flown PA arrays.
         if (this.monitorGain && this.monitorGain.gain) {
-            const boothDist = Math.hypot(pos.x / 2.2, pos.z - (-18.9));
-            const boothProximity = Math.max(0, Math.min(1, 1 - Math.max(0, boothDist - 0.6) / 3.2));
-            const monLevel = 0.58 * boothProximity * boothProximity * (3 - 2 * boothProximity) * enclosure * (1 - exterior);
-            this.monitorGain.gain.setTargetAtTime(monLevel, now, 0.05);
+            if (isGashouder) {
+                const stage = window.GASHOUDER_VENUE?.stage || { consoleZ: -19.2, height: 1.8 };
+                // Operator sweet spot behind the Gashouder DJ table (z ≈ -20.1, x = 0, elevated stage y >= 1.8)
+                const boothCenterZ = stage.consoleZ - 0.85;
+                const boothDist = Math.hypot(pos.x / 2.8, pos.z - boothCenterZ);
+                const onStage = Math.max(0, Math.min(1, (pos.y - (stage.height - 0.6)) / 1.2));
+                const boothProximity = Math.max(0, Math.min(1, 1 - Math.max(0, boothDist - 1.1) / 4.8)) * (0.35 + 0.65 * onStage);
+                const monLevel = 0.92 * boothProximity * boothProximity * (3 - 2 * boothProximity);
+                this.monitorGain.gain.setTargetAtTime(monLevel, now, 0.05);
+            } else {
+                const boothDist = Math.hypot(pos.x / 2.2, pos.z - (-18.9));
+                const boothProximity = Math.max(0, Math.min(1, 1 - Math.max(0, boothDist - 0.6) / 3.2));
+                const monLevel = 0.58 * boothProximity * boothProximity * (3 - 2 * boothProximity) * enclosure * (1 - exterior);
+                this.monitorGain.gain.setTargetAtTime(monLevel, now, 0.05);
+            }
         }
 
         // Sub-bass intensity: peak punch on dance floor (0-8m from stage), rolling off gently near entrance

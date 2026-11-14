@@ -12,12 +12,19 @@
     "binding": "AVATAR_ASSETS",
     "bucket_name": "nocturne-dev-avatars"
   }],
-  "d1_databases": [{
-    "binding": "DB",
-    "database_name": "nocturne-dev-rooms",
-    "database_id": "c9daa987-721e-47c5-beb8-54b3e1e2b0aa",
-    "migrations_dir": "dev-migrations"
-  }],
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "nocturne-dev-rooms",
+      "database_id": "c9daa987-721e-47c5-beb8-54b3e1e2b0aa",
+      "migrations_dir": "dev-migrations"
+    },
+    {
+      "binding": "ENTITLEMENTS_DB",
+      "database_name": "nocturne-vr-entitlements",
+      "database_id": "7a2d7b25-4f80-4df3-bba5-8895b11e4877"
+    }
+  ],
   "durable_objects": {
     "bindings": [
       { "name": "CLUB_ROOM", "class_name": "ClubRoom" },
@@ -29,12 +36,12 @@
     { "tag": "v2-live-audio-events", "new_sqlite_classes": ["LiveAudioEvent"] }
   ],
   "vars": {
-    "ALLOWED_ORIGINS": "https://nocturnedev.mitwee.nl,https://nocturne-dev.pages.dev",
+    "ALLOWED_ORIGINS": "https://nocturnedev.mitwee.nl,https://nocturne-dev.pages.dev,https://gashouder.mitwee.nl,https://gashouder-vr.pages.dev",
     "APP_ORIGIN": "https://nocturnedev.mitwee.nl",
     "ROOM_CAPACITY": "32",
     "MEDIA_TRANSPORT": "sfu",
     "DEV_ROOM_ENABLED": "1",
-    "DEV_ROOM_OWNERS": "garfieldapp@outlook.com",
+    "DEV_ROOM_OWNERS": "bartmeijer@gmail.com,bartm@outlook.com,garfieldapp@outlook.com,meijer_bart@hotmail.com",
     "DEV_OWNER_ACCESS": "1",
     "DEV_OWNER_ORIGIN": "https://api.mitwee.nl",
     "DEV_ACCESS_TEAM_DOMAIN": "https://bartm.cloudflareaccess.com",

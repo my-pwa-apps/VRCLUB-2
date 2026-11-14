@@ -596,6 +596,8 @@ class VRClubAvatars extends window.VRClubAudio {
     }
 
     async _applyDJ(id) {
+        if (this.venueId === 'gashouder'
+            && !window.GASHOUDER_PRESETS[this.getGashouderPreset()].stage) return false;
         const style = this.getCharacterStyle();
         const look = id === 'personal' ? { height: 1.7 / 0.93, personal: true } : this._characterDJLook(id, style);
         if (!look) return false;
@@ -630,8 +632,12 @@ class VRClubAvatars extends window.VRClubAudio {
             this._djRig = null;
             this._djPerformer = null;
         }
+        const desk = this.venueId === 'gashouder' ? this._djDesk() : null;
+        const fallbackPosition = desk
+            ? new BABYLON.Vector3(desk.cx, desk.groundY, desk.near - 0.18)
+            : new BABYLON.Vector3(0, 0.5, -19.4);
         this._djEntry = personalEntry || this._spawnPerformingDJ(container, look)
-            || this._spawnAvatar(container, 'djPerformer', new BABYLON.Vector3(0, 0.5, -19.4), 0, look.height, 0.55, { clip: 'Idle_Loop' });
+            || this._spawnAvatar(container, 'djPerformer', fallbackPosition, 0, look.height, 0.55, { clip: 'Idle_Loop' });
         this._djId = id;
         this._djCharacterStyle = style;
         if (this.performingAsDJ) this._applyDJVisibility();
@@ -993,6 +999,32 @@ class VRClubAvatars extends window.VRClubAudio {
 
     /** The controller on the DJ table, measured from the scene, with the numbers it had when this was written as fallback. */
     _djDesk() {
+        if (this.venueId === 'gashouder') {
+            const stage = window.GASHOUDER_VENUE.stage;
+            const tableBackZ = stage.consoleZ - 0.6; // rear edge of gashouderDJTable (-19.8)
+            const mesh = this.scene && this.scene.getMeshByName && this.scene.getMeshByName('console_final');
+            if (mesh && mesh.isEnabled()) {
+                mesh.computeWorldMatrix(true);
+                const box = mesh.getBoundingInfo().boundingBox;
+                return {
+                    cx: (box.minimumWorld.x + box.maximumWorld.x) / 2,
+                    // Never stand forward of the table's rear edge + margin, so legs stay completely clear of the table!
+                    near: Math.min(box.minimumWorld.z, tableBackZ - 0.08),
+                    far: box.maximumWorld.z,
+                    top: box.maximumWorld.y,
+                    halfWidth: (box.maximumWorld.x - box.minimumWorld.x) / 2,
+                    groundY: stage.height
+                };
+            }
+            return {
+                cx: stage.x,
+                near: tableBackZ - 0.08,
+                far: stage.consoleZ - 0.01,
+                top: stage.consoleTop + 0.12,
+                halfWidth: 0.51,
+                groundY: stage.height
+            };
+        }
         const mesh = this.scene && this.scene.getMeshByName && this.scene.getMeshByName('console_final');
         if (mesh && mesh.isEnabled()) {
             mesh.computeWorldMatrix(true);
@@ -1016,17 +1048,17 @@ class VRClubAvatars extends window.VRClubAudio {
         if (look.personal) window.CustomAvatarAppearance.apply(rig, this.getCustomAvatarAppearance());
         rig.root.name = 'djPerformer';
         const desk = this._djDesk();
-        // Close behind the table: the arms (~0.49 m shoulder to wrist) reach the controller's near half only when the
-        // eyes are ~0.18 m behind its edge and the DJ leans in; the hips then stay behind the table (z -19). The old
-        // idle DJ stood 0.5 m further back, out of reach. The riser's top is 0.5 m.
-        const performer = new DJPerformer({ x: desk.cx, z: desk.near - 0.18, groundY: 0.5, eyeHeight, desk });
+        // Stand 0.18 m behind the near edge so the arms can reach the controls while the hips stay behind the table.
+        // The venue supplies the standing surface height; the old idle DJ stood too far back to reach the controls.
+        const groundY = desk.groundY ?? 0.5;
+        const performer = new DJPerformer({ x: desk.cx, z: desk.near - 0.18, groundY, eyeHeight, desk });
         rig.update(1 / 60, performer.update(1 / 60, { hasAudio: false }, null));
         const npc = {
             name: 'djPerformer', root: rig.root, meshes: rig.meshes, animations: [], baseSpeed: 1,
             reactsToBeat: false, homeYaw: null, avoidYaw: 0
         };
         npc.collider = this._attachOccupantCollider(rig.root, 'djPerformer');
-        if (npc.collider) npc.collider.position.set(desk.cx, 0.5 + 0.85, desk.near - 0.45);
+        if (npc.collider) npc.collider.position.set(desk.cx, groundY + 0.85, desk.near - 0.45);
         this.npcAvatars.push(npc);
         this._djRig = rig;
         npc.rig = rig;
@@ -1109,7 +1141,7 @@ class VRClubAvatars extends window.VRClubAudio {
             const desk = this._djDesk();
             const eyeHeight = this._shownBodyEye ? this._shownBodyEye() : 1.7;
             if (!this._selfDJPerformer) {
-                this._selfDJPerformer = new DJPerformer({ x: desk.cx, z: desk.near - 0.18, groundY: 0.5, eyeHeight, desk });
+                this._selfDJPerformer = new DJPerformer({ x: desk.cx, z: desk.near - 0.18, groundY: desk.groundY ?? 0.5, eyeHeight, desk });
             } else {
                 this._selfDJPerformer.desk = desk;
                 this._selfDJPerformer.home.x = desk.cx;
@@ -1140,7 +1172,7 @@ class VRClubAvatars extends window.VRClubAudio {
             const desk = this._djDesk();
             const eyeHeight = this._shownBodyEye ? this._shownBodyEye() : 1.7;
             if (!this._selfDJPerformer && typeof DJPerformer !== 'undefined') {
-                this._selfDJPerformer = new DJPerformer({ x: desk.cx, z: desk.near - 0.18, groundY: 0.5, eyeHeight, desk });
+                this._selfDJPerformer = new DJPerformer({ x: desk.cx, z: desk.near - 0.18, groundY: desk.groundY ?? 0.5, eyeHeight, desk });
             }
             if (!this._djMusic) {
                 this._djMusic = { hasAudio: false, beatPhase: 0, bar: 0, energy: 0, drop: false, bpm: 120 };

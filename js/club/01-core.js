@@ -59,6 +59,37 @@ window.CLUB_POSITIONS = CLUB_POSITIONS;
 
 class VRClubCore {
     constructor() {
+        const params = new URLSearchParams(window.location.search);
+        const venueSelect = document.getElementById('venueSelect');
+        const presetSelect = document.getElementById('gashouderPresetSelect');
+        const requestedVenue = params.get('venue');
+        this.venueId = venueSelect
+            ? venueSelect.value === 'gashouder' ? 'gashouder' : 'nocturne'
+            : ['nocturne', 'gashouder'].includes(requestedVenue) ? requestedVenue : 'nocturne';
+        this.gashouderPreset = presetSelect?.value || params.get('preset') || 'techno';
+        if (venueSelect) venueSelect.value = this.venueId;
+        if (presetSelect && window.GASHOUDER_PRESETS?.[this.gashouderPreset]) {
+            presetSelect.value = this.gashouderPreset;
+        }
+        this.venueConfig = this.venueId === 'gashouder' ? window.GASHOUDER_VENUE : null;
+        const radius = this.venueConfig?.dimensions.innerRadius;
+        this.roomBounds = this.venueConfig
+            ? {
+                x: { min: -radius, max: radius, width: radius * 2 },
+                y: { min: 0, max: this.venueConfig.dimensions.centreHeight, height: this.venueConfig.dimensions.centreHeight },
+                z: { min: -radius, max: radius, depth: radius * 2 }
+            }
+            : ROOM_BOUNDS;
+        this.roomInterior = this.venueConfig
+            ? {
+                x: { min: -radius, max: radius },
+                y: { min: 0, max: this.venueConfig.dimensions.centreHeight },
+                z: { min: -radius, max: radius },
+                entrance: { halfWidth: 1.5, height: 4 },
+                columns: { z: [], halfWidth: 0.3, faceX: radius },
+                restroomDoor: { z0: Infinity, z1: Infinity, height: 0, frame: 0 }
+            }
+            : ROOM_INTERIOR;
         this.canvas = document.getElementById('canvas');
         this._renderExperiments = {
             precision: VRClubCore.readRenderExperiment('precision'),
@@ -525,9 +556,15 @@ class VRClubCore {
             up: BABYLON.Vector3.Up(),
             down: BABYLON.Vector3.Down(),
             gravity: new BABYLON.Vector3(0, -9.81, 0),
-            danceFloor: new BABYLON.Vector3(0, 0, -12),
-            djBooth: new BABYLON.Vector3(CLUB_POSITIONS.djBooth.x, CLUB_POSITIONS.djBooth.y, CLUB_POSITIONS.djBooth.z),
-            mirrorBall: new BABYLON.Vector3(0, 6.5, -12)
+            danceFloor: this.venueConfig
+                ? new BABYLON.Vector3(0, 0, -2)
+                : new BABYLON.Vector3(0, 0, -12),
+            djBooth: this.venueConfig
+                ? new BABYLON.Vector3(this.venueConfig.stage.x, this.venueConfig.stage.height, this.venueConfig.stage.consoleZ - 0.78)
+                : new BABYLON.Vector3(CLUB_POSITIONS.djBooth.x, CLUB_POSITIONS.djBooth.y, CLUB_POSITIONS.djBooth.z),
+            mirrorBall: this.venueConfig
+                ? new BABYLON.Vector3(0, this.venueConfig.rig.mountY - 1.5, 0)
+                : new BABYLON.Vector3(0, 6.5, -12)
         };
         
         // Initialize spotlight color list - reference cached colors to avoid duplicates
@@ -580,6 +617,7 @@ class VRClubCore {
         this.laserSheetSpeed = 1;
         this.laserSheetBrightness = 1;
         this.fogImmersion = 0;
+        this.gashouderCeilingMode = -1; // -1 = follow LED wall pattern; 0..4 = architectural ceiling choreography
         this.colorLockActive = false; // ShowDirector can align every active color system
         
         // Spotlight pattern and speed controls

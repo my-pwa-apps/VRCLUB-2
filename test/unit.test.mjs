@@ -2965,6 +2965,71 @@ test('aesthetic show holds single colours, long phrases and one-beat row sequenc
     assert.equal(club.fogImmersion, 0);
 });
 
+test('Gashouder opens on its own arena-scale show and synchronizes that program to followers', async () => {
+    const { sanitizeShow } = await import('../worker/src/relay.js');
+    const ShowDirector = loadClassic('js/showDirector.js').window.ShowDirector;
+    const club = {
+        venueId: 'gashouder',
+        vjManualMode: false,
+        photosensitiveSafeMode: false,
+        vjDirector: { paletteMode: 'analogous', setMasterHue() {}, setLedHarmony() {} }
+    };
+    const show = new ShowDirector(club);
+
+    assert.equal(show.program, 'gashouder');
+    assert.equal(show._cue.look, 'gashouderReveal');
+    for (const movement of Object.values(show.movements)) {
+        for (const cue of movement.cues) {
+            assert.ok(show.looks[cue.look], `${cue.look} is a defined Gashouder look`);
+            assert.ok(cue.bars >= 8, `${cue.look} lasts long enough to read across the hall`);
+        }
+    }
+    assert.equal(show.looks.gashouderPeak.strobeSync, 'bar');
+    assert.equal(show.looks.gashouderPeak.ledWallActive, true);
+    club.photosensitiveSafeMode = true;
+    show._applyLook(show.looks.gashouderPeak);
+    assert.equal(club.strobesActive, false);
+
+    const follower = new ShowDirector({
+        vjManualMode: false,
+        photosensitiveSafeMode: false,
+        vjDirector: { paletteMode: 'analogous', setMasterHue() {}, setLedHarmony() {} }
+    });
+    follower.setFollower(true);
+    const frame = sanitizeShow({
+        m: 'show', mv: 'ignition', cue: 0, cb: 0, bib: 0,
+        fx: { showProgram: 'gashouder' }
+    });
+    assert.equal(frame.fx.showProgram, 'gashouder');
+    assert.equal(follower.applyRemote(frame, true), true);
+    assert.equal(follower.program, 'gashouder');
+    assert.equal(follower._cue.look, 'gashouderPeak');
+});
+
+test('Gashouder automatic show is a third cycle option only in its venue', () => {
+    const { window } = loadClassic('js/club/10-ui-controls.js', { VRClubAnimationFinish: class {} });
+    const cycle = venue => Object.assign(Object.create(window.VRClubControls.prototype), {
+        venueId: venue,
+        showDirector: { program: venue === 'gashouder' ? 'gashouder' : 'nocturne',
+            setProgram(program) { this.program = program; } },
+        guardHostControl: () => true,
+        resumeAutoShow() {}
+    });
+    const gashouder = cycle('gashouder');
+    assert.equal(gashouder.cycleShowProgram(), true);
+    assert.equal(gashouder.showDirector.program, 'nocturne');
+    assert.equal(gashouder.cycleShowProgram(), true);
+    assert.equal(gashouder.showDirector.program, 'aesthetic');
+    assert.equal(gashouder.cycleShowProgram(), true);
+    assert.equal(gashouder.showDirector.program, 'gashouder');
+
+    const nocturne = cycle('nocturne');
+    assert.equal(nocturne.cycleShowProgram(), true);
+    assert.equal(nocturne.showDirector.program, 'aesthetic');
+    assert.equal(nocturne.cycleShowProgram(), true);
+    assert.equal(nocturne.showDirector.program, 'nocturne');
+});
+
 test('aesthetic smoke passages keep fixtures powered and replace automatic blackouts without changing NOCTURNE', () => {
     const ShowDirector = loadClassic('js/showDirector.js').window.ShowDirector;
     for (const safe of [false, true]) {

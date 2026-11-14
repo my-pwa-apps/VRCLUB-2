@@ -14,6 +14,19 @@ class VRClubControls extends VRClubAnimationFinish {
         const cameraControls = document.getElementById('cameraControls');
         const cameraPresetToggle = document.getElementById('cameraPresetToggle');
         const cameraPresetGrid = document.getElementById('cameraPresetGrid');
+        if (this.venueId === 'gashouder' && cameraPresetGrid) {
+            const labels = {
+                lightingGallery: ['Rig view', 'Look across the hall beneath the lighting rig'],
+                balcony: ['Hall perimeter', 'View across the hall from its outer edge'],
+                street: ['Loading entrance', 'Stand outside the loading entrance']
+            };
+            for (const [preset, [label, title]] of Object.entries(labels)) {
+                const button = cameraPresetGrid.querySelector(`[data-camera-preset="${preset}"]`);
+                if (!button) continue;
+                button.textContent = label;
+                button.title = title;
+            }
+        }
         const setCameraPresetsOpen = (open) => {
             if (!cameraPresetToggle || !cameraPresetGrid) return;
             cameraPresetGrid.hidden = !open;
@@ -607,7 +620,10 @@ class VRClubControls extends VRClubAnimationFinish {
     }
 
     aestheticControlValue(control) {
-        if (control === 'cycleShowProgram') return this.showDirector?.program === 'aesthetic' ? 'AESTHETIC' : 'NOCTURNE';
+        if (control === 'cycleShowProgram') {
+            const labels = { nocturne: 'NOCTURNE', aesthetic: 'AESTHETIC', gashouder: 'GASHOUDER' };
+            return labels[this.showDirector?.program] || 'NOCTURNE';
+        }
         if (control === 'toggleReducedShowSmoke') return this.reducedShowSmoke ? 'NORMAL HAZE ONLY' : 'DENSE PASSAGES ALLOWED';
         if (control === 'cycleSheetSpeed') return `${Math.round((this.laserSheetSpeed ?? 1) * 100)}%`;
         const spec = VRClubUI.FIXTURE_BRIGHTNESS_CONTROLS[control];
@@ -623,7 +639,11 @@ class VRClubControls extends VRClubAnimationFinish {
 
     cycleShowProgram() {
         if (!this.guardHostControl('lights')) return false;
-        const program = this.showDirector.program === 'aesthetic' ? 'nocturne' : 'aesthetic';
+        const programs = this.venueId === 'gashouder'
+            ? ['gashouder', 'nocturne', 'aesthetic']
+            : ['nocturne', 'aesthetic'];
+        const index = programs.indexOf(this.showDirector.program);
+        const program = programs[(index + 1 + programs.length) % programs.length];
         this.showDirector.setProgram(program);
         this.resumeAutoShow();
         return true;

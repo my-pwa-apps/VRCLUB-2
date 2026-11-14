@@ -235,6 +235,7 @@ js/liveInput.js            Private mixer testing, input meters, optional monitor
 js/networkClient.js        Multiplayer WebSocket/WebRTC client (presence, mesh/SFU voice, emoji, shared music)
 js/avatarManager.js        Remote guests as clip-driven Quaternius people: idle/walk/run, wave, nod, dance; name tags, spatial voice, mute and the personal-space bubble
 js/multiplayer.js          One multiplayer session for the whole club (DOM panel and VR menu): connect, mic, gestures, block, mute, kick/ban/lock, shared music
+js/gashouderVenue.js       Separate Gashouder shell, roof, stage, event rig, presets, and placements
 js/club/01-core.js         VRClub constructor, shared state, and device settings
 js/club/02-lifecycle.js    Scene initialization and disposal
 js/club/03-rendering.js    Pipelines, materials, shadows, floor, and walls
