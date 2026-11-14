@@ -1920,7 +1920,10 @@ test('microphone tracks follow recipients before capture, through late joins and
     }
     context.RTCPeerConnection = VoiceConnection;
     const track = { stop() {} };
-    context.navigator = { mediaDevices: { getUserMedia: async () => ({ getTracks: () => [track] }) } };
+    context.navigator = { mediaDevices: { getUserMedia: async () => ({
+        getTracks: () => [track],
+        getAudioTracks: () => [track]
+    }) } };
     const client = new NetworkClient({ serverUrl: 'wss://relay.example' });
     const socket = welcomed(client, { peers: [{ id: 'p1', name: 'Bo' }, { id: 'p2', name: 'Cy' }] });
     client.setVoiceAudience(['p1']);

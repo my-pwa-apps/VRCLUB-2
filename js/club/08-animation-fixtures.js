@@ -134,6 +134,21 @@ class VRClubAnimationFixtures extends VRClubAnimationCore {
         }
     }
 
+    _stepSpotServo(spot, diff, velocityKey, maxSpeed, acceleration, dtScale) {
+        const dt = Math.max(0.25, Math.min(4, Number.isFinite(dtScale) ? dtScale : 1)) / 60;
+        const velocity = spot[velocityKey] || 0;
+        const desiredSpeed = Math.max(-maxSpeed, Math.min(maxSpeed, diff / dt));
+        const nextVelocity = velocity + Math.max(-acceleration * dt,
+            Math.min(acceleration * dt, desiredSpeed - velocity));
+        const step = nextVelocity * dt;
+        if (Math.abs(step) >= Math.abs(diff)) {
+            spot[velocityKey] = 0;
+            return diff;
+        }
+        spot[velocityKey] = nextVelocity;
+        return step;
+    }
+
     /**
      * Ceiling laser projectors. Every beam is aimed, clipped against the room's interior faces and written
      * into the shared ribbon batch (see _createLaserBeamBatch), without a separate surface-hit dot.
@@ -580,9 +595,10 @@ class VRClubAnimationFixtures extends VRClubAnimationCore {
                 spot.light.direction.copyFrom(direction);
                 
                 // Dynamic beam angle (simulates zoom adjustment) - subtle variation
-                const baseAngle = Math.PI / 6; // 30 degrees base
-                const angleVariation = Math.sin(time * 0.3 + i * 0.5) * 0.1; // ±6 degrees
-                spot.light.angle = baseAngle + angleVariation;
+                const baseAngle = spot.baseAngle || Math.PI / 6;
+                spot.light.angle = this.venueId === 'gashouder'
+                    ? baseAngle
+                    : baseAngle + Math.sin(time * 0.3 + i * 0.5) * 0.1;
                 
                 // === HYPERREALISTIC MOVING HEAD ANIMATION ===
                 // Professional moving heads have pan (Y-axis) and tilt (X/Z-axis) motors
@@ -1066,36 +1082,28 @@ class VRClubAnimationFixtures extends VRClubAnimationCore {
             const targetPanAngle = limited && Math.hypot(direction.x, direction.z) < 0.03
                 ? spot.yoke.rotation.y : Math.atan2(direction.x, direction.z);
             
-            // SMOOTH INTERPOLATION: Simulate realistic servo motor speed (~60°/s)
-            // This prevents jarring instant movements and adds mechanical realism.
-            // FRAME-RATE INDEPENDENCE: a bare `+= diff * 0.15` converges 2x faster
-            // at 120 Hz than at 60 Hz, so the heads visibly snapped on a Quest and
-            // lagged under thermal throttling. Compounding the per-60fps-frame
-            // retention rate over dtScale frames keeps the settling time constant.
-            const panLerpSpeed = 1 - Math.pow(1 - 0.15, dtScale);
-            
             // Handle angle wrapping for smooth pan rotation
             let panDiff = targetPanAngle - spot.yoke.rotation.y;
             if (panDiff > Math.PI) panDiff -= Math.PI * 2;
             if (panDiff < -Math.PI) panDiff += Math.PI * 2;
-            
-            const panStep = panDiff * panLerpSpeed;
-            const panLimit = 0.75 * dtScale / 60;
-            spot.yoke.rotation.y += limited ? Math.max(-panLimit, Math.min(panLimit, panStep)) : panStep;
+            const panStep = limited
+                ? this._stepSpotServo(spot, panDiff, '_panVelocity', 1.4, 4, dtScale)
+                : panDiff * (1 - Math.pow(1 - 0.15, dtScale));
+            if (!limited) spot._panVelocity = 0;
+            spot.yoke.rotation.y += panStep;
 
             // 2. TILT (Head Rotation around X)
             // Calculate target angle from vertical (down).
             // acos(-direction.y) gives 0 when pointing down (-1), PI/2 when horizontal (0).
             // We use negative angle because positive rotation moves -Y to -Z (Back),
             // but we want to move -Y to +Z (Forward) relative to the Yoke.
-            const targetTiltAngle = -Math.acos(-direction.y);
-            
-            // SMOOTH INTERPOLATION for tilt (same realistic servo simulation),
-            // likewise compounded over dtScale so tilt speed is device-independent.
-            const tiltLerpSpeed = 1 - Math.pow(1 - 0.12, dtScale);
-            const tiltStep = (targetTiltAngle - spot.head.rotation.x) * tiltLerpSpeed;
-            const tiltLimit = 0.5 * dtScale / 60;
-            spot.head.rotation.x += limited ? Math.max(-tiltLimit, Math.min(tiltLimit, tiltStep)) : tiltStep;
+            const targetTiltAngle = -Math.acos(Math.max(-1, Math.min(1, -direction.y)));
+            const tiltDiff = targetTiltAngle - spot.head.rotation.x;
+            const tiltStep = limited
+                ? this._stepSpotServo(spot, tiltDiff, '_tiltVelocity', 1, 3, dtScale)
+                : tiltDiff * (1 - Math.pow(1 - 0.12, dtScale));
+            if (!limited) spot._tiltVelocity = 0;
+            spot.head.rotation.x += tiltStep;
             
             // Lens and bezel are children of the head and move automatically.
         } else if (spot.fixture) {
@@ -1369,8 +1377,14 @@ class VRClubAnimationFixtures extends VRClubAnimationCore {
         const sinTheta = Math.sqrt(1 - cosTheta * cosTheta);
         const tanTheta = cosTheta > 0.1 ? sinTheta / cosTheta : 0;
         
-        // The beam mesh's wide end is 2 m across (or custom per-venue diameter).
-        const coneRadius = (spot.beamFloorDiameter || 2.0) * 0.5;
+        // Gashouder derives its footprint from the 12-degree optic; other venues keep their authored diameter.
+        const beamFloorDiameter = spot.beamFloorDiameter || 2.0;
+        const coneRadius = this.venueId === 'gashouder'
+            ? centerBeamLength * Math.tan((spot.baseAngle || Math.PI / 15) * 0.5)
+            : beamFloorDiameter * 0.5;
+        const baseScale = this.venueId === 'gashouder'
+            ? (2 * coneRadius) / beamFloorDiameter
+            : 1;
         
         // Extension needed for uphill edge to reach surface: r * tan(θ)
         // For floor: extends cone past floor so edges touch
@@ -1508,7 +1522,6 @@ class VRClubAnimationFixtures extends VRClubAnimationCore {
         // Beam is positioned at beamMidpoint with quaternion rotation above
         
         // Scale beam: X/Z control diameter, Y controls length
-        const baseScale = 1.0;
         spot.beam.scaling.x = baseScale;
         spot.beam.scaling.z = baseScale;
         
@@ -1517,6 +1530,7 @@ class VRClubAnimationFixtures extends VRClubAnimationCore {
         g.beamMidpoint = beamMidpoint;
         g.beamLength = beamLength;
         g.baseScale = baseScale;
+        g.surfaceDiameter = beamFloorDiameter * baseScale;
         g.centerBeamLength = centerBeamLength;
         g.hitSurface = hitSurface;
         g.surfaceIntersection = surfaceIntersection;
@@ -1649,9 +1663,8 @@ class VRClubAnimationFixtures extends VRClubAnimationCore {
                 //   - height = beamLength (scaled dynamically)
                 // The pool should match the beam's floor intersection exactly
                 
-                // Only the length scales in Y; the wide end remains 2 m across (or custom venue diameter).
-                const meshFloorDiameter = spot.beamFloorDiameter || 2.0;
-                const beamDiameterAtFloor = meshFloorDiameter; // Fixed for mesh consistency
+                // Match the projected pool to the beam's scaled surface footprint.
+                const beamDiameterAtFloor = g.surfaceDiameter || spot.beamFloorDiameter || 2.0;
                 
                 // === ELLIPSE GEOMETRY ===
                 // When beam hits floor at angle θ from vertical:

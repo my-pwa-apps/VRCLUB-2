@@ -79,9 +79,12 @@ class VRClubAnimationCore extends VRClubEffects {
         if (!cam) return;
         let rotY = cam.rotation ? cam.rotation.y : 0;
         if (cam.rotationQuaternion) {
-            const rotation = this._networkRotation || (this._networkRotation = new BABYLON.Vector3());
-            cam.rotationQuaternion.toEulerAnglesToRef(rotation);
-            rotY = rotation.y;
+            const q = cam.rotationQuaternion;
+            const twistLength = Math.hypot(q.y, q.w);
+            if (twistLength > 1e-8) {
+                rotY = 2 * Math.atan2(q.y / twistLength, q.w / twistLength);
+                rotY = ((rotY + Math.PI) % (Math.PI * 2) + Math.PI * 2) % (Math.PI * 2) - Math.PI;
+            }
         }
         const position = cam.globalPosition || cam.position;
         const state = this._networkPose || (this._networkPose = {

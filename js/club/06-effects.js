@@ -157,12 +157,13 @@ class VRClubEffects extends VRClubFixtures {
             const posMountY = Number.isFinite(pos.y) ? pos.y : mountY;
             const spotRange = this.gashouderLighting ? 46 : 25;
             const beamFloorDiameter = this.gashouderLighting ? 2.6 : 2.0;
+            const beamAngle = this.gashouderLighting ? Math.PI / 15 : Math.PI / 6;
 
             // Spotlight from truss position - MATCH FIXTURE POSITION (y: 7.3)
             const spot = new BABYLON.SpotLight("spot" + i,
                 new BABYLON.Vector3(pos.x, posMountY - 0.5, pos.z),
                 new BABYLON.Vector3(0, -1, 0),           // Initial direction
-                Math.PI / 6,                              // Narrower cone for focused beams
+                beamAngle,                               // Gashouder uses a narrow 12-degree concert beam
                 5,                                        // Sharper falloff
                 this.scene
             );
@@ -451,6 +452,7 @@ class VRClubEffects extends VRClubFixtures {
                 lensMat: fixtureData ? fixtureData.lensMat : null,
                 basePos: new BABYLON.Vector3(pos.x, posMountY - 0.5, pos.z),
                 beamFloorDiameter,
+                baseAngle: beamAngle,
                 rigRole: pos.role || 'ring',
                 rigAngle: Number.isFinite(pos.angle) ? pos.angle : Math.atan2(pos.x, pos.z),
                 rigGroup: Number.isInteger(pos.group) ? pos.group : (i % 6),

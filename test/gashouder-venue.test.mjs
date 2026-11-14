@@ -379,6 +379,11 @@ test('the architectural shell, roof panels, stage, and event truss build with Ba
         assert.equal(window.GASHOUDER_VENUE.stage.stairSteps,
             scene.meshes.filter(mesh => mesh.name.startsWith('gashouderStageStair')).length);
         assert.ok(scene.getMeshByName('gashouderCircularEventTruss'));
+        assert.ok(scene.getMeshByName('gashouderEventTrussBracing')?.getTotalVertices() > 0);
+        assert.ok(scene.getMeshByName('gashouderRigHoistMotors')?.getTotalVertices() > 0,
+            'the circular and stage trusses carry merged motor housings');
+        assert.equal(scene.getMeshByName('gashouderHoistHousing_0'), null,
+            'individual hoist parts are merged instead of adding draw calls');
 
         const doorwayRay = new BABYLON.Ray(new BABYLON.Vector3(0, 2, 0), BABYLON.Vector3.Forward(), 40);
         assert.equal(doorwayRay.intersectsMesh(wall, false).hit, false, 'the main doorway remains open at walking height');

@@ -684,7 +684,7 @@ function createMultiplayerHarness() {
     }
     const navigatorStub = { mediaDevices: { getUserMedia: async () => {
         const track = { stop() { this.stopped = true; } };
-        return { getTracks: () => [track] };
+        return { getTracks: () => [track], getAudioTracks: () => [track] };
     } } };
     const { window } = loadClassic('js/networkClient.js', {
         WebSocket: FakeSocket,
@@ -798,7 +798,7 @@ test('a terminal relay close releases the mic and a double click never leaks a c
     const second = client.enableVoice();
     assert.equal(gum.length, 1, 'a second click opened a second capture');
     const t1 = track();
-    resolveMic({ getTracks: () => [t1] });
+    resolveMic({ getTracks: () => [t1], getAudioTracks: () => [t1] });
     await Promise.all([first, second]);
     assert.equal(client.micEnabled, true);
 
@@ -811,7 +811,7 @@ test('a terminal relay close releases the mic and a double click never leaks a c
     const late = client.enableVoice();
     client.disableVoice();
     const t2 = track();
-    resolveMic({ getTracks: () => [t2] });
+    resolveMic({ getTracks: () => [t2], getAudioTracks: () => [t2] });
     await late;
     assert.equal(client.micEnabled, false);
     assert.ok(stops.includes(t2), 'a stream granted after mute kept capturing');
@@ -1339,13 +1339,13 @@ test('network presence sends both eye-relative controllers only in VR and retain
     assert.equal(samples[0].hands.left.fz, 1);
     assert.equal(samples[0].y, 4.7);
     assert.ok(Math.abs(samples[0].rotY - 0.8) < 1e-8);
-    const rotationBuffer = club._networkRotation;
     assert.equal(samples[0].seated, false);
     club.updateNetworkPresence({ time: 1.02, dt: 1 / 60 });
     assert.equal(samples.length, 1);
     club._handPose = side => side === 'left' ? left : null;
+    camera.rotationQuaternion = B.Quaternion.RotationYawPitchRoll(0.8, Math.PI / 2 - 1e-5, 0);
     club.updateNetworkPresence({ time: 1.06, dt: 1 / 60 });
-    assert.equal(club._networkRotation, rotationBuffer, 'network rotation must reuse its scratch vector');
+    assert.ok(Math.abs(samples[1].rotY - 0.8) < 1e-8, 'network yaw remains stable near vertical head pitch');
     assert.equal(samples[1].hands.right, null);
     club.isInVRMode = false;
     club.updateNetworkPresence({ time: 1.12, dt: 1 / 60 });
@@ -16145,6 +16145,61 @@ test('moving-head beams clip and place pools on elevated venue surfaces (mezzani
     const backHit = club._resolveSpotSurfaceHit(backSpot, backDir);
     assert.equal(backHit.hitSurface, 'backWall');
     assert.ok(Math.abs(backHit.surfaceIntersection.z - (-20)) < 1e-6, `expected backWall at z=-20, got ${backHit.surfaceIntersection.z}`);
+});
+
+test('Gashouder spot beams keep a 12-degree footprint that scales with throw and servo acceleration', () => {
+    const BABYLON = require('../js/vendor/babylon.js');
+    const { window } = loadClassic('js/club/08-animation-fixtures.js', {
+        BABYLON, VRClubAnimationCore: class {}
+    });
+    window.GASHOUDER_VENUE = { dimensions: { diameter: 53.8, centreHeight: 14.5 } };
+    const fixtures = window.VRClubAnimationFixtures.prototype;
+    const bounds = { x: { min: -26.4, max: 26.4 }, y: { min: 0, max: 14.5 }, z: { min: -26.4, max: 26.4 } };
+    const club = Object.assign(Object.create(fixtures), {
+        venueId: 'gashouder',
+        roomInterior: bounds,
+        _quatIdentity: BABYLON.Quaternion.Identity(),
+        _quatFlipX: BABYLON.Quaternion.RotationAxis(BABYLON.Axis.X, Math.PI),
+        vecPool: { up: new BABYLON.Vector3(), spotAxis: new BABYLON.Vector3() },
+        _resolveSpotSurfaceHit(spot) {
+            return {
+                centerDistanceToSurface: 30,
+                hitSurface: 'curvedWall',
+                emissionPoint: new BABYLON.Vector3(0, 10, 0),
+                surfaceIntersection: new BABYLON.Vector3(0, 5, -25),
+                surfaceBounds: null
+            };
+        }
+    });
+    const spot = {
+        baseAngle: Math.PI / 15,
+        beamFloorDiameter: 2.6,
+        beam: {
+            position: new BABYLON.Vector3(),
+            scaling: new BABYLON.Vector3(1, 1, 1),
+            rotationQuaternion: BABYLON.Quaternion.Identity()
+        },
+        _beamMidpoint: new BABYLON.Vector3()
+    };
+    const direction = new BABYLON.Vector3(0, -0.8, -0.6);
+    const geometry = club._updateSpotBeamGeometry(spot, 0, direction, 0, 1, 1);
+    const expectedDiameter = 2 * 30 * Math.tan(Math.PI / 30);
+    assert.ok(Math.abs(geometry.surfaceDiameter - expectedDiameter) < 1e-9);
+    assert.ok(Math.abs(spot.beam.scaling.x - expectedDiameter / 2.6) < 1e-9);
+    assert.equal(spot.beam.scaling.x, spot.beam.scaling.z);
+
+    const movingSpot = {
+        yoke: { rotation: { y: 0 } },
+        head: { rotation: { x: 0 } }
+    };
+    const target = new BABYLON.Vector3(1, -1, 0).normalize();
+    club._animateMovingHead(movingSpot, target, 1, true);
+    assert.ok(Math.abs(movingSpot._panVelocity) <= 4 / 60 + 1e-9);
+    assert.ok(Math.abs(movingSpot.yoke.rotation.y) <= 4 / (60 * 60) + 1e-9,
+        'the yoke starts within its acceleration limit');
+    const priorPan = movingSpot.yoke.rotation.y;
+    club._animateMovingHead(movingSpot, new BABYLON.Vector3(-1, -1, 0).normalize(), 1, true);
+    assert.ok(movingSpot.yoke.rotation.y >= priorPan, 'a direction reversal brakes before moving the other way');
 });
 
 test('Unity-ported fog machines face inward into the dance floor, wrap plume beam-scatter and record stream buffering diagnostics', () => {

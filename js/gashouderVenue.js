@@ -528,6 +528,7 @@ const GashouderVenue = {
         const braceMaterial = this.materialFactory.getPreset('brace');
         const chords = [];
         const bracing = [];
+        const hoistParts = [];
         const angleAt = i => Math.PI * 2 * i / rig.segments;
         const ringPoint = (i, radial, vertical) => {
             const angle = angleAt(i);
@@ -565,8 +566,7 @@ const GashouderVenue = {
             const radius = rig.radius;
             const roofPoint = new BABYLON.Vector3(Math.sin(angle) * radius, roofHeight(radius) - 0.25, Math.cos(angle) * radius);
             const trussPoint = new BABYLON.Vector3(Math.sin(angle) * radius, rig.centreY + 0.18, Math.cos(angle) * radius);
-            const support = beamBetween(this.scene, `gashouderEventHoist${i}`, roofPoint, trussPoint, 0.035, 6);
-            if (support) bracing.push(support);
+            this._addGashouderHoist(i, roofPoint, trussPoint, angle, hoistParts, bracing);
         }
 
         // Front-of-stage lighting bridge framing the DJ and curved LED backdrop
@@ -603,12 +603,39 @@ const GashouderVenue = {
             const r = Math.hypot(x, bridgeZ);
             const roofPoint = new BABYLON.Vector3(x, roofHeight(r) - 0.25, bridgeZ);
             const bridgeTop = new BABYLON.Vector3(x, bridgeY + 0.16, bridgeZ);
-            const hoist = beamBetween(this.scene, `gashouderStageHoist_${x}`, roofPoint, bridgeTop, 0.034, 6);
-            if (hoist) bracing.push(hoist);
+            this._addGashouderHoist(`stage_${x}`, roofPoint, bridgeTop, 0, hoistParts, bracing);
         }
 
         mergeStatic(chords, 'gashouderCircularEventTruss', material);
         mergeStatic(bracing, 'gashouderEventTrussBracing', braceMaterial);
+        mergeStatic(hoistParts, 'gashouderRigHoistMotors', material);
+    },
+
+    _addGashouderHoist(id, roofPoint, loadPoint, angle, motorParts, chainParts) {
+        const centre = roofPoint.clone();
+        centre.y -= 0.24;
+        const housing = BABYLON.MeshBuilder.CreateBox(`gashouderHoistHousing_${id}`, {
+            width: 0.46, height: 0.36, depth: 0.38
+        }, this.scene);
+        housing.rotation.y = angle;
+        housing.position.copyFrom(centre);
+        motorParts.push(housing);
+
+        const drum = BABYLON.MeshBuilder.CreateCylinder(`gashouderHoistDrum_${id}`, {
+            diameter: 0.19, height: 0.5, tessellation: 8
+        }, this.scene);
+        drum.rotation.z = Math.PI / 2;
+        drum.position.set(centre.x, centre.y - 0.06, centre.z);
+        motorParts.push(drum);
+
+        const motorTop = centre.clone();
+        motorTop.y += 0.18;
+        const motorBottom = centre.clone();
+        motorBottom.y -= 0.18;
+        const hanger = beamBetween(this.scene, `gashouderHoistHanger_${id}`, roofPoint, motorTop, 0.025, 6);
+        const chain = beamBetween(this.scene, `gashouderHoistChain_${id}`, motorBottom, loadPoint, 0.025, 6);
+        if (hanger) chainParts.push(hanger);
+        if (chain) chainParts.push(chain);
     },
 
     createGashouderLEDInstallation() {
