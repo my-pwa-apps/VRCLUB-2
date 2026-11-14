@@ -114,12 +114,12 @@ const GuestExperience = {
 
     nearbyVoiceActivity() {
         const camera = this._playerCamera();
-        if (!camera || !this.avatarManager?.remotes) return 0;
+        let activity = this.multiplayer?.client?.localSpeaking ? 1 : 0;
+        if (!camera || !this.avatarManager?.remotes) return activity;
         const position = camera.globalPosition || camera.position;
-        let activity = 0;
         for (const peer of this.avatarManager.remotes.values()) {
             if (!peer.hasState || peer.hidden || peer.culled || peer.muted || peer.simulated ||
-                (!peer.speaking && !this.multiplayer?.micEnabled)) continue;
+                !peer.speaking) continue;
             const root = peer.root.position;
             const distance = Math.hypot(position.x - root.x, position.y - peer.eyeY, position.z - root.z);
             activity = Math.max(activity, Math.max(0, Math.min(1, (1.8 - distance) / 0.7)));
@@ -186,7 +186,6 @@ const GuestExperience = {
         this._restroomMeshes?.push(wardrobe);
         this._guestTouchpointSubscription = this._multiplayer()?.onChange(() => this._drawTonightBoard());
         this._drawTonightBoard();
-        this._createPostcardButton();
         const duck = document.getElementById('networkDuck');
         if (duck) {
             const button = document.createElement('button');
@@ -253,116 +252,6 @@ const GuestExperience = {
         return true;
     },
 
-    _createPostcardButton() {
-        const button = document.createElement('button');
-        button.type = 'button';
-        button.textContent = 'Photo';
-        button.setAttribute('aria-label', 'Take a local NOCTURNE postcard');
-        button.className = 'postcard-toggle';
-        button.addEventListener('click', () => void this.capturePostcard());
-        document.getElementById('bottomControls')?.appendChild(button);
-        this._postcardButton = button;
-    },
-
-    async capturePostcard() {
-        if (this._postcardCapturing) return false;
-        if (this._immersive?.needsAccess?.() && this._immersive.mode === 'locked') {
-            this.showErrorMessage('Link your account before taking a club postcard.');
-            return false;
-        }
-        this._postcardCapturing = true;
-        const hidden = [];
-        let camera;
-        try {
-            if (typeof BABYLON.Tools.CreateScreenshotUsingRenderTargetAsync !== 'function') {
-                throw new Error('Photo capture is unavailable in this browser.');
-            }
-            const player = this._playerCamera();
-            camera = new BABYLON.FreeCamera('postcardCamera', (player.globalPosition || player.position).clone(), this.scene);
-            camera.rotationQuaternion = player.absoluteRotation?.clone() || player.rotationQuaternion?.clone() ||
-                BABYLON.Quaternion.FromEulerAngles(player.rotation.x, player.rotation.y, player.rotation.z);
-            camera.fov = player.fov;
-            camera.minZ = player.minZ;
-            camera.maxZ = player.maxZ;
-            camera.layerMask = 0x0FFFFFFF;
-            if (this._vrQuickMenuRoot?.isEnabled()) {
-                hidden.push(this._vrQuickMenuRoot);
-                this._vrQuickMenuRoot.setEnabled(false);
-            }
-            for (const peer of this.avatarManager?.remotes?.values() || []) {
-                for (const mesh of [peer.nameplate, peer.chatPlane, peer.emojiPlane]) {
-                    if (mesh?.isEnabled()) { hidden.push(mesh); mesh.setEnabled(false); }
-                }
-            }
-            const image = await BABYLON.Tools.CreateScreenshotUsingRenderTargetAsync(
-                this.engine, camera, { width: 1280, height: 720 }, 'image/png', 1, true);
-            if (this._disposed) return false;
-            const prefix = 'data:image/png;base64,';
-            if (!image.startsWith(prefix)) throw new Error('Photo capture returned an unsupported image.');
-            const pixels = Uint8Array.from(window.atob(image.slice(prefix.length)), char => char.charCodeAt(0));
-            const bitmap = await window.createImageBitmap(new Blob([pixels], { type: 'image/png' }));
-            try {
-                const canvas = document.createElement('canvas');
-                canvas.width = 1280; canvas.height = 800;
-                const context = canvas.getContext('2d');
-                context.drawImage(bitmap, 0, 0, 1280, 720);
-                context.fillStyle = '#101418'; context.fillRect(0, 720, 1280, 80);
-                context.fillStyle = '#b7eee2'; context.font = 'bold 28px sans-serif';
-                context.fillText('NOCTURNE', 30, 770);
-                context.fillStyle = '#ffffff'; context.font = '22px sans-serif';
-                context.fillText(this.getPlaybackInfo()?.title || 'A night at NOCTURNE', 250, 770, 990);
-                const blob = await new Promise((resolve, reject) => canvas.toBlob(
-                    value => value ? resolve(value) : reject(new Error('The photo could not be encoded.')), 'image/png'));
-                if (this._disposed) return false;
-                if (this._postcardUrl) URL.revokeObjectURL(this._postcardUrl);
-                this._postcardUrl = URL.createObjectURL(blob);
-            } finally { bitmap.close(); }
-            this.showErrorMessage('Photo ready. Save it locally from Camera. Names and chat are excluded; nothing was uploaded.');
-            if (this.isInVRMode) this._showVRQuickMenuPage('camera');
-            else this.savePostcard();
-            return true;
-        } catch (error) {
-            console.warn('Postcard capture failed:', error);
-            this.showErrorMessage(`Could not take photo: ${error.message}`);
-            return false;
-        } finally {
-            camera?.dispose();
-            for (const mesh of hidden) if (!mesh.isDisposed()) mesh.setEnabled(true);
-            this._postcardCapturing = false;
-        }
-    },
-
-    savePostcard() {
-        if (!this._postcardUrl) { this.showErrorMessage('Take a photo first.'); return false; }
-        const link = document.createElement('a');
-        link.href = this._postcardUrl;
-        link.download = 'nocturne-postcard.png';
-        document.body.appendChild(link);
-        link.click();
-        link.remove();
-        return true;
-    },
-
-    copyPostcardInvite() {
-        if (!this.multiplayer?.connected) {
-            this.showErrorMessage('Join a room before copying an invitation.');
-            return;
-        }
-        if (!this._postcardInviteArmed || performance.now() > this._postcardInviteArmed) {
-            this._postcardInviteArmed = performance.now() + 4000;
-            this.showErrorMessage('Press COPY ROOM INVITE again to include a room invitation. Anyone you send it to may join an unlocked room.');
-            return;
-        }
-        this._postcardInviteArmed = 0;
-        if (!navigator.clipboard?.writeText) {
-            this.showErrorMessage('Clipboard access is unavailable. Use the Online panel to share your room.');
-            return;
-        }
-        navigator.clipboard.writeText(this.multiplayer.inviteUrl()).then(
-            () => this.showErrorMessage('Room invite copied separately. The photo contains no private room code.'),
-            error => this.showErrorMessage(`Could not copy invitation: ${error.message}`));
-    },
-
     disposeGuestExperience() {
         this.syncPhoneCompanion(null, false);
         this._guestTouchpointSubscription?.();
@@ -372,10 +261,7 @@ const GuestExperience = {
             entry.texture.dispose();
         }
         this._guestTouchpoints = null;
-        this._postcardButton?.remove();
         this._voiceClarityButton?.remove();
-        if (this._postcardUrl) URL.revokeObjectURL(this._postcardUrl);
-        this._postcardUrl = null;
     }
 };
 

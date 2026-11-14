@@ -166,6 +166,7 @@ test('browser broadcaster delivers real stereo audio into the club analyser, cro
         await page.goto(`/?event=${id}`);
         await page.locator('#enterClubBtn').click();
         await page.waitForFunction(() => window.vrClub?.ready, null, { timeout: 180000 });
+        await page.locator('#networkSafetyContinue').click();
         await page.evaluate(() => {
             const club = window.vrClub;
             club.engine.stopRenderLoop();

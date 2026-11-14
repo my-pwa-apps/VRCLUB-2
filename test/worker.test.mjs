@@ -28,9 +28,9 @@ class FakeSocket {
     last(type) { return this.sent.filter(m => m.type === type).at(-1); }
 }
 
-function join(room, name = 'Guest') {
+function join(room, name = 'Guest', roleViews = false) {
     const ws = new FakeSocket();
-    const session = room._acceptSession(ws, name);
+    const session = room._acceptSession(ws, name, null, 'any', false, null, null, null, null, roleViews);
     return { ws, session };
 }
 
@@ -44,6 +44,7 @@ test('delegated moderation is narrow, acknowledged, private and revoked with roo
     const late = join(room);
     assert.equal(late.ws.last('welcome').moderatorRole, true);
     assert.equal(late.ws.last('welcome').moderatorId, mod.session.id);
+    assert.equal(late.ws.last('welcome').roleStatePending, undefined);
     guest.ws.message({ type: 'report', target: target.session.id, reason: 'harassment' });
     assert.equal(mod.ws.last('moderation-report')?.target.id, target.session.id);
     assert.equal(late.ws.last('moderation-report'), undefined);
@@ -122,6 +123,7 @@ test('lights-only VJ pass is authoritative, revocable and cannot publish host pe
     assert.equal(guest.ws.last('show').fx.lightsActive, undefined);
     const late = join(room, 'Late');
     assert.equal(late.ws.last('welcome').vjId, vj.session.id);
+    assert.equal(late.ws.last('welcome').roleStatePending, undefined);
     assert.equal(late.ws.last('welcome').show.fx.lightsActive, false);
     send(host, { type: 'vj-pass', target: null });
     send(vj, { type: 'show', m: 'manual', fx: { lightsActive: true } });
@@ -152,6 +154,139 @@ test('VJ grants reject simulated/blocked targets and clear on handover, departur
     room._onClose(vj.ws, vj.session);
     assert.equal(room.vjId, null);
     assert.equal(host.ws.last('vj-pass').id, null);
+});
+
+test('legacy welcome retains immediate show/role state using the relay-known visibility', t => {
+    const room = new ClubRoom({}, {}), host = join(room), vj = join(room), moderator = join(room);
+    t.after(() => { for (const [ws, session] of [...room.sessions]) room._onClose(ws, session); });
+    host.ws.message({ type: 'vj-pass', target: vj.session.id });
+    host.ws.message({ type: 'moderator', target: moderator.session.id });
+    host.ws.message({ type: 'show', m: 'manual', dj: false, audioFx: { echo: 0.4 }, fx: { lightsActive: true } });
+    const viewer = join(room, 'Legacy');
+    assert.equal(viewer.ws.last('welcome').vjId, vj.session.id);
+    assert.equal(viewer.ws.last('welcome').moderatorId, moderator.session.id);
+    assert.equal(viewer.ws.last('welcome').roleStatePending, undefined);
+    assert.equal(viewer.ws.last('welcome').show.fx.lightsActive, true);
+
+    const pid = '3333333333333333';
+    vj.session.blocked.add(pid);
+    moderator.session.blocked.add(pid);
+    const reconnect = new FakeSocket();
+    const filtered = room._acceptSession(reconnect, 'Filtered', pid);
+    const welcome = reconnect.last('welcome');
+    assert.equal(welcome.vjId, null);
+    assert.equal(welcome.vjHidden, true);
+    assert.equal(welcome.moderatorId, null);
+    assert.equal(welcome.show.performanceOnly, true);
+    room._onClose(reconnect, filtered);
+});
+
+test('negotiated role views wait for empty or nonempty blocklist before sending role state', t => {
+    const room = new ClubRoom({}, {}), host = join(room), vj = join(room), moderator = join(room);
+    t.after(() => { for (const [ws, session] of [...room.sessions]) room._onClose(ws, session); });
+    const empty = join(room, 'Empty sync', true);
+    host.ws.message({ type: 'vj-pass', target: vj.session.id });
+    host.ws.message({ type: 'moderator', target: moderator.session.id });
+    host.ws.message({ type: 'show', m: 'manual', dj: false, audioFx: { echo: 0.4 }, fx: { lightsActive: true } });
+
+    assert.equal(empty.ws.last('welcome').vjId, null);
+    assert.equal(empty.ws.last('welcome').moderatorId, null);
+    assert.equal(empty.ws.last('welcome').roleStatePending, true);
+    assert.equal(empty.ws.last('welcome').show, null);
+    assert.equal(empty.ws.last('vj-pass'), undefined);
+    assert.equal(empty.ws.last('moderator'), undefined);
+    assert.equal(empty.ws.last('show'), undefined);
+    empty.ws.message({ type: 'blocklist', pids: [] });
+    assert.equal(empty.ws.last('moderator').id, moderator.session.id);
+    assert.equal(empty.ws.last('vj-pass').id, vj.session.id);
+    assert.equal(empty.ws.last('vj-pass').show.fx.lightsActive, true);
+    assert.equal(empty.session.roleStatePending, false);
+
+    const blocked = join(room, 'Blocked sync', true);
+    blocked.ws.message({ type: 'blocklist', pids: [vj.session.pid, moderator.session.pid] });
+    assert.equal(blocked.ws.last('welcome').roleStatePending, true);
+    assert.equal(blocked.ws.last('moderator').id, null);
+    assert.equal(blocked.ws.last('vj-pass').id, null);
+    assert.equal(blocked.ws.last('vj-pass').hidden, true);
+    assert.equal(blocked.ws.last('vj-pass').show.performanceOnly, true);
+    assert.equal(blocked.session.roleStatePending, false);
+    blocked.ws.message({ type: 'unblock', pid: vj.session.pid });
+    assert.equal(blocked.ws.last('vj-pass').id, vj.session.id);
+    assert.equal(blocked.ws.last('vj-pass').hidden, false);
+    assert.equal(blocked.ws.last('moderator').id, null);
+});
+
+test('roleViews query opts into the deferred handshake while legacy upgrades remain immediate', async t => {
+    const oldPair = globalThis.WebSocketPair, oldResponse = globalThis.Response;
+    const sockets = [];
+    globalThis.WebSocketPair = class {
+        constructor() {
+            this[0] = {};
+            this[1] = new FakeSocket();
+            sockets.push(this[1]);
+        }
+    };
+    globalThis.Response = class {
+        constructor(body, init) { this.body = body; this.status = init.status; this.webSocket = init.webSocket; }
+    };
+    t.after(() => {
+        globalThis.WebSocketPair = oldPair;
+        globalThis.Response = oldResponse;
+    });
+
+    const room = new ClubRoom({}, {}), host = join(room), vj = join(room);
+    t.after(() => { for (const [ws, session] of [...room.sessions]) room._onClose(ws, session); });
+    host.ws.message({ type: 'vj-pass', target: vj.session.id });
+    host.ws.message({ type: 'show', m: 'manual', fx: { lightsActive: true } });
+    await room.fetch(new Request('https://relay.example/?room=role-query&roleViews=1', {
+        headers: { Upgrade: 'websocket' }
+    }));
+    assert.equal(sockets[0].last('welcome').roleStatePending, true);
+    assert.equal(sockets[0].last('welcome').vjId, null);
+
+    await room.fetch(new Request('https://relay.example/?room=role-query', {
+        headers: { Upgrade: 'websocket' }
+    }));
+    assert.equal(sockets[1].last('welcome').roleStatePending, undefined);
+    assert.equal(sockets[1].last('welcome').vjId, vj.session.id);
+    assert.equal(sockets[1].last('welcome').show.fx.lightsActive, true);
+});
+
+test('relay session lookup index tracks admitted, simulated and closed sessions', t => {
+    const room = new ClubRoom({}, {});
+    room._roomName = 'private-000032';
+    const admittedSocket = new FakeSocket();
+    const admitted = room._acceptSession(admittedSocket, 'Admitted', '1111111111111111', 'any', false,
+        null, null, null, { id: 'admitted-id', event: { id: 'event' } });
+    const simulatedSocket = new FakeSocket();
+    const simulated = room._acceptSession(simulatedSocket, 'Simulated', '2222222222222222', 'any', false,
+        { index: 4, state: { x: 1, y: 1.7, z: 2, rotY: 0 } });
+    t.after(() => { for (const [ws, session] of [...room.sessions]) room._onClose(ws, session); });
+    assert.equal(room._findSocketById(admitted.id), admittedSocket);
+    assert.equal(room._findSocketById(simulated.id), simulatedSocket);
+    room._onClose(simulatedSocket, simulated);
+    assert.equal(room._findSocketById(simulated.id), null);
+    room._onClose(admittedSocket, admitted);
+    assert.equal(room._findSocketById(admitted.id), null);
+});
+
+test('live-event membership renewal is throttled but immediate policy heartbeats bypass the interval', t => {
+    const room = new ClubRoom({}, {});
+    room._roomName = 'lobby';
+    room._liveEvent = { id: '00000000-0000-4000-8000-000000000001' };
+    join(room);
+    t.after(() => { for (const [ws, session] of [...room.sessions]) room._onClose(ws, session); });
+    let heartbeats = 0;
+    room._liveTask = () => { heartbeats++; return Promise.resolve(); };
+    const now = Date.now();
+    room._sweep(now);
+    room._sweep(now + 10000);
+    assert.equal(heartbeats, 1, 'a sweep must not renew again before the 15 second cadence');
+    room._sweep(now + 15000);
+    assert.equal(heartbeats, 2, 'renew before the persisted 45 second membership expires');
+    assert.equal(room._liveHeartbeat(true, now + 15001), true, 'policy updates bypass renewal throttling');
+    assert.equal(heartbeats, 3);
+    assert.equal(room._liveHeartbeat(false, now + 20000), false);
 });
 
 test('water station acknowledges bounded owner-only props, retains late state and cleans up blocks/departure', t => {
@@ -1373,8 +1508,8 @@ test('only the host can drive the lights, guests receive the frame, and a late j
     host.ws.message({ type: 'show', m: 'show', mv: 'ignition', cue: 2, cb: 1.5, bib: 3, hue: 0.25, hl: true, pal: 'triad', mbi: 4 });
     assert.deepEqual({ ...guest.ws.last('show'), type: undefined }, { type: undefined, m: 'show', mv: 'ignition', cue: 2, cb: 1.5, bib: 3, hue: 0.25, hl: true, pal: 'triad', mbi: 4 });
     const late = join(room);
-    assert.equal(late.ws.sent[0].show.mv, 'ignition');
-    assert.equal(late.ws.sent[0].show.cue, 2);
+    assert.equal(late.ws.last('welcome').show.mv, 'ignition');
+    assert.equal(late.ws.last('welcome').show.cue, 2);
 });
 
 test('room character style uses the existing host-only shared map in every mode, survives handover and reaches late joiners', () => {
@@ -1392,7 +1527,7 @@ test('room character style uses the existing host-only shared map in every mode,
         host.ws.emit('close');
         assert.equal(room.hostId, guest.session.id);
         late = join(room);
-        assert.equal(late.ws.sent[0].show.fx.characterStyle, 'diverse', 'promotion must retain the room choice');
+        assert.equal(late.ws.last('welcome').show.fx.characterStyle, 'diverse', 'promotion must retain the room choice');
     } finally {
         guest.ws.emit('close');
         if (late) late.ws.emit('close');

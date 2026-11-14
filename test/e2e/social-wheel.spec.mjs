@@ -10,7 +10,7 @@ test('right stick opens and drives the social wheel without turning; left click 
     await enterVR(page);
     await page.evaluate(() => {
         const mp = window.vrClub.multiplayer;
-        mp.client = new window.NetworkClient();
+        mp.client = new window.NetworkClient({ room: 'private-482913' });
         mp.client.status = 'connected';
         mp.client.selfId = 'local';
         mp.client.hostId = 'local';

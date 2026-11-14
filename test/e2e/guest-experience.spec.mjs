@@ -3,9 +3,10 @@ import { enterClub, enterVR, useQuestHarness } from './support.mjs';
 
 useQuestHarness();
 
-test('guest menus, mirror wardrobe draft and private local postcard work inside XR', async ({ page }) => {
+test('guest menus and mirror wardrobe draft work inside XR without photo controls', async ({ page }) => {
     test.setTimeout(600_000);
     await enterClub(page);
+    await expect(page.getByRole('button', { name: /photo|postcard/i })).toHaveCount(0);
     await page.evaluate(() => window.vrClub.modelLoadPromise);
     await page.evaluate(() => window.vrClub.setLocalCharacter('m1'));
     await page.waitForFunction(() => !!window.vrClub._mirrorDouble);
@@ -21,6 +22,8 @@ test('guest menus, mirror wardrobe draft and private local postcard work inside 
     });
     expect(menus.home).toContain('WARDROBE');
     expect(menus.home).not.toContain('LIGHTS');
+    expect(menus.home).not.toContain('CAMERA');
+    expect(menus.comfort).not.toContain('CAMERA');
     expect(menus.comfort).not.toContain('HIGH PRECISION SHADERS');
     expect(menus.graphics).toContain('HIGH PRECISION SHADERS');
     expect(menus.credits).toContain('https://');
@@ -47,16 +50,8 @@ test('guest menus, mirror wardrobe draft and private local postcard work inside 
         hiddenInWorld: true, includedInMirror: true, saving: null });
     await page.evaluate(() => window.vrClub.avatarEditor.cancelVR());
     expect(await page.evaluate(() => window.vrClub._wardrobeMirrorPreview)).toBeNull();
-    const photo = await page.evaluate(async () => {
-        const club = window.vrClub, notices = [];
-        const original = club.showErrorMessage;
-        club.showErrorMessage = message => notices.push(message);
-        try { return { ok: await club.capturePostcard(), notices }; }
-        finally { club.showErrorMessage = original; }
-    });
-    expect(photo.ok, photo.notices.join('\n')).toBe(true);
     expect(await page.evaluate(() => ({
-        xr: window.vrClub.isInVRMode, photo: window.vrClub._postcardUrl?.startsWith('blob:'),
+        xr: window.vrClub.isInVRMode,
         menuEnabled: window.vrClub._vrQuickMenuRoot.isEnabled()
-    }))).toEqual({ xr: true, photo: true, menuEnabled: true });
+    }))).toEqual({ xr: true, menuEnabled: true });
 });

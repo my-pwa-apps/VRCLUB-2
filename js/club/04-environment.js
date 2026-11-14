@@ -269,6 +269,9 @@ class VRClubEnvironment extends VRClubRendering {
         // Alpha just under 1 is what makes Babylon use blending at all.
         glowMat.alpha = 0.999;
         glowMat.alphaMode = BABYLON.Constants.ALPHA_ADD;
+        // Fog would add its colour even to the atlas's black, revealing each sign's quad.
+        glowMat.fogEnabled = false;
+        glowMat.disableDepthWrite = true;
         glowMat.backFaceCulling = false;
         atlas.level = 1.6; // neon should read as a light source in a dark room
         glowMat.freeze();

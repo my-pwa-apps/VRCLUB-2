@@ -145,12 +145,15 @@ test('an unpaired headset previews, then shows only a pairing code until the pho
     expect(browserFailures.get(page)).toEqual([]);
 });
 
-test('an invite link opened in the immersive launch joins that room and leaves the music to the host', async ({ page }) => {
+test('an immersive invitation waits for online safety, then joins and leaves music to the host', async ({ page }) => {
     await fakeAccess(page, { registered: true });
     const sockets = [];
     await page.routeWebSocket(/^wss?:/, ws => { sockets.push(ws.url()); });
     await page.goto('/?immersive=1&room=482913');
     await page.waitForFunction(() => window.vrClub?.isInVRMode === true, null, { timeout: 240_000 });
+    expect(sockets).toHaveLength(0);
+    await page.waitForFunction(() => window.vrClub?._vrQuickMenuPage === 'onlineSafety');
+    await page.evaluate(() => window.vrClub._runVRNetworkAction({ op: 'safetyAccept' }));
     await expect.poll(() => sockets.length, { timeout: 30_000 }).toBeGreaterThan(0);
     expect(sockets[0]).toMatch(/room=private-482913/);
 

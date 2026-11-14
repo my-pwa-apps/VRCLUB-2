@@ -47,7 +47,9 @@ function makeSheets(sb, { motion, speed }) {
     const mount = x => {
         const housing = new B.TransformNode(`housing${x}`, scene);
         housing.position.set(x, 7.55, -16);
-        return { housing, aperture: { material: { emissiveColor: null } } };
+        const scanner = new B.TransformNode(`scanner${x}`, scene);
+        scanner.parent = housing;
+        return { housing, scanner, aperture: { material: { emissiveColor: null } } };
     };
     const effects = sb.window.VRClubEffects.prototype;
     const core = sb.window.VRClubAnimationCore.prototype;
@@ -60,7 +62,7 @@ function makeSheets(sb, { motion, speed }) {
         laserSheet: fan(), laserSheetHaze: fan(), _laserSheetFanB: { sheet: fan(), haze: fan() },
         _poseLaserSheet: core._poseLaserSheet
     });
-    club.laserSheetSource = club._laserSheetMounts.ceilingLeft.housing;
+    club.laserSheetSource = club._laserSheetMounts.ceilingLeft.scanner;
     club.laserAperture = club._laserSheetMounts.ceilingLeft.aperture;
     club.configureLaserSheetVariant();
     return club;
@@ -70,12 +72,13 @@ function makeSheets(sb, { motion, speed }) {
 function crossingAt(club, zq) {
     const B = club._B;
     const plane = housing => {
-        housing.computeWorldMatrix(true);
-        const n = B.Vector3.TransformNormal(new B.Vector3(0, 1, 0), housing.getWorldMatrix());
-        const o = housing.getAbsolutePosition();
+        const scanner = housing.scanner || housing.housing;
+        scanner.computeWorldMatrix(true);
+        const n = B.Vector3.TransformNormal(new B.Vector3(0, 1, 0), scanner.getWorldMatrix());
+        const o = scanner.getAbsolutePosition();
         return { n, o };
     };
-    const A = plane(club._laserSheetMounts.ceilingLeft.housing), C = plane(club._laserSheetMounts.ceilingRight.housing);
+    const A = plane(club._laserSheetMounts.ceilingLeft), C = plane(club._laserSheetMounts.ceilingRight);
     const d = P => P.n.x * P.o.x + P.n.y * P.o.y + P.n.z * (P.o.z - zq);
     const det = A.n.x * C.n.y - C.n.x * A.n.y;
     if (Math.abs(det) < 1e-6) return null;
@@ -150,6 +153,20 @@ test('the crossing of the two laser sheets drifts slowly and stays just above he
         assert.ok(m.minHeight >= 1.9, `${label}: the crossing dips to ${m.minHeight.toFixed(2)} m, into the crowd's heads`);
         assert.ok(m.maxHeight <= 3.9, `${label}: the crossing rises to ${m.maxHeight.toFixed(2)} m, far above the crowd`);
     }
+});
+
+test('sheet scanning moves the internal optic without moving the fixed projector casing', () => {
+    const sb = load();
+    const club = makeSheets(sb, { motion: 'vertical', speed: 1 });
+    const left = club._laserSheetMounts.ceilingLeft;
+    const right = club._laserSheetMounts.ceilingRight;
+    const leftRest = left.housing.rotation.clone();
+    const rightRest = right.housing.rotation.clone();
+    club._poseLaserSheet(12);
+    assert.ok(left.scanner.rotation.x !== 0 || left.scanner.rotation.y !== 0);
+    assert.ok(right.scanner.rotation.x !== 0 || right.scanner.rotation.y !== 0);
+    assert.ok(left.housing.rotation.equals(leftRest), 'the lead casing moved with its scanner');
+    assert.ok(right.housing.rotation.equals(rightRest), 'the follower casing moved with its scanner');
 });
 
 test('a sheet cannot be sped up past the cap by the laser speed slider or a legacy phase', () => {

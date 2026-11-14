@@ -133,23 +133,36 @@ class VRClubEffects extends VRClubFixtures {
             gradCanvas.height = gradH;
             const gCtx = gradCanvas.getContext('2d');
             
-            const beamGrad = gCtx.createLinearGradient(0, 0, 0, gradH);
-            beamGrad.addColorStop(0.0, 'rgba(255,255,255,0.35)');
-            beamGrad.addColorStop(0.18, 'rgba(255,255,255,0.25)');
-            beamGrad.addColorStop(0.55, 'rgba(255,255,255,0.42)');
-            beamGrad.addColorStop(1.0, 'rgba(255,255,255,1)');
-            
-            gCtx.fillStyle = beamGrad;
-            gCtx.fillRect(0, 0, gradCanvas.width, gradH);
-            
+            const noiseTexture = this._createLaserSheetNoiseTexture('beamOpacityNoise', 256, 1, 1, 73);
+            const noisePixels = noiseTexture.getContext().getImageData(0, 0, 256, 256).data;
+            const beamPixels = gCtx.createImageData(gradCanvas.width, gradH);
+            for (let y = 0; y < gradH; y++) {
+                const t = y / (gradH - 1);
+                const axial = 0.88 - 0.48 * t;
+                for (let x = 0; x < gradCanvas.width; x++) {
+                    const nx = Math.floor(x / gradCanvas.width * 256);
+                    const ny = Math.floor(y / gradH * 256);
+                    const noise = noisePixels[(ny * 256 + nx) * 4] / 255;
+                    const density = Math.max(0, Math.min(1, axial * (0.78 + noise * 0.28)));
+                    const index = (y * gradCanvas.width + x) * 4;
+                    beamPixels.data[index] = 255;
+                    beamPixels.data[index + 1] = 255;
+                    beamPixels.data[index + 2] = 255;
+                    beamPixels.data[index + 3] = Math.round(density * 255);
+                }
+            }
+            gCtx.putImageData(beamPixels, 0, 0);
+            noiseTexture.dispose();
+
             this._beamGradientTexture = new BABYLON.DynamicTexture("beamGradient", gradCanvas, this.scene, false);
             this._beamGradientTexture.hasAlpha = true;
-            this._beamGradientTexture.wrapU = BABYLON.Texture.CLAMP_ADDRESSMODE;
+            this._beamGradientTexture.wrapU = BABYLON.Texture.WRAP_ADDRESSMODE;
             this._beamGradientTexture.wrapV = BABYLON.Texture.CLAMP_ADDRESSMODE;
             this._beamGradientTexture.update();
         }
         
         spotPositions.forEach((pos, i) => {
+            const texturePhase = i / spotPositions.length;
             // Get fixture data if available
             const fixtureData = this.trussLights ? this.trussLights[i] : null;
             const head = fixtureData ? fixtureData.head : null;
@@ -159,8 +172,8 @@ class VRClubEffects extends VRClubFixtures {
             const spot = new BABYLON.SpotLight("spot" + i,
                 new BABYLON.Vector3(pos.x, 7.3, pos.z),  // Match fixture lens position
                 new BABYLON.Vector3(0, -1, 0),           // Initial direction
-                Math.PI / 6,                              // Narrower cone for focused beams
-                5,                                        // Sharper falloff
+                Math.PI / 15,                             // Tight 12° club moving-head beam (vs old 30° wash)
+                7.5,                                      // Crisp optical falloff
                 this.scene
             );
             // Keep enough chroma in the real light to illuminate materials, not only the
@@ -187,12 +200,17 @@ class VRClubEffects extends VRClubFixtures {
             //     diameterBottom (at -Y local) should be NARROW (at fixture)
             // Higher tessellation creates smoother cone edges for hyperrealistic look
             const beam = BABYLON.MeshBuilder.CreateCylinder("spotBeam" + i, {
-                diameterTop: 2.0,      // Wide end at surface - 2.0m diameter
-                diameterBottom: 0.25,  // Fits the 0.34 m lens even at maximum tilt stretch
+                diameterTop: 2.0,      // Wide end at surface - 2.0m unit diameter scaled by baseScale
+                diameterBottom: 0.637, // Matches the 0.34 m lens aperture at the tight 12° cone scale
                 height: 1,             // Will be scaled to actual beam length
                 tessellation: 12,      // Higher tessellation for smoother cone (was 8)
                 cap: BABYLON.Mesh.NO_CAP
             }, this.scene);
+            const beamUvs = beam.getVerticesData(BABYLON.VertexBuffer.UVKind);
+            if (beamUvs) {
+                for (let uv = 0; uv < beamUvs.length; uv += 2) beamUvs[uv] += texturePhase;
+                beam.setVerticesData(BABYLON.VertexBuffer.UVKind, beamUvs, true);
+            }
             
             // HYPERREALISTIC: Beam positioned in WORLD SPACE (not parented to head)
             // This ensures beam visually connects from fixture lens to floor pool
@@ -219,14 +237,15 @@ class VRClubEffects extends VRClubFixtures {
             beamMat.disableLighting = true; // Self-illuminated
             beamMat.useAlphaFromDiffuseTexture = false;
             beamMat.emissiveFresnelParameters = new BABYLON.FresnelParameters();
-            beamMat.emissiveFresnelParameters.leftColor = BABYLON.Color3.Black();
-            beamMat.emissiveFresnelParameters.rightColor = BABYLON.Color3.White();
+            beamMat.emissiveFresnelParameters.leftColor = new BABYLON.Color3(0.28, 0.28, 0.28);
+            beamMat.emissiveFresnelParameters.rightColor = new BABYLON.Color3(0.58, 0.58, 0.58);
             beamMat.emissiveFresnelParameters.bias = 0;
-            beamMat.emissiveFresnelParameters.power = 2;
+            beamMat.emissiveFresnelParameters.power = 1.4;
             
             // CRITICAL: Beam must respect depth buffer to NOT render through NPCs
             // ALPHA_COMBINE properly discards fragments behind opaque geometry
             beamMat.disableDepthWrite = true; // Don't write to depth (transparent object)
+            beamMat.fogEnabled = false; // Additive light shafts cut brightly through dense smoke rather than dimming into fog
             beamMat.separateCullingPass = false;
             beamMat.needDepthPrePass = false;
             beamMat.zOffset = 0; // Preserve physically correct stereo depth and occlusion
@@ -316,6 +335,7 @@ class VRClubEffects extends VRClubFixtures {
             poolMat.backFaceCulling = false;
             // Transparent mesh settings
             poolMat.disableDepthWrite = true;
+            poolMat.fogEnabled = false;
             poolMat.depthFunction = BABYLON.Constants.LEQUAL;
             lightPool.material = poolMat;
             // Use default rendering group (0) so pool renders with floor
@@ -340,6 +360,7 @@ class VRClubEffects extends VRClubFixtures {
             poolGlowMat.alpha = 0.25; // Very subtle ambient glow
             poolGlowMat.alphaMode = BABYLON.Engine.ALPHA_ADD;
             poolGlowMat.disableLighting = true;
+            poolGlowMat.fogEnabled = false;
             poolGlowMat.backFaceCulling = false;
             lightPoolGlow.material = poolGlowMat;
             lightPoolGlow.renderingGroupId = 1;
@@ -361,10 +382,11 @@ class VRClubEffects extends VRClubFixtures {
                     const wx = plane === 0 ? 0.045 : 0;
                     const wz = plane === 1 ? 0.045 : 0;
                     const base = positions.length / 3;
-                    positions.push(x * 0.14 - wx * 0.33, -0.5, z * 0.14 - wz * 0.33,
-                        x * 0.14 + wx * 0.33, -0.5, z * 0.14 + wz * 0.33,
+                    positions.push(x * 0.212 - wx * 0.306, -0.5, z * 0.212 - wz * 0.306,
+                        x * 0.212 + wx * 0.306, -0.5, z * 0.212 + wz * 0.306,
                         x + wx, 0.5, z + wz, x - wx, 0.5, z - wz);
-                    uvs.push(0, 0, 1, 0, 1, 1, 0, 1);
+                    uvs.push(texturePhase, 0, 1 + texturePhase, 0,
+                        1 + texturePhase, 1, texturePhase, 1);
                     for (let vertex = 0; vertex < 4; vertex++) colors.push(1, 1, 1, 1);
                     indices.push(base, base + 1, base + 2, base, base + 2, base + 3);
                 }
@@ -377,10 +399,10 @@ class VRClubEffects extends VRClubFixtures {
                         const across = (column - 2) / 2;
                         const dx = plane === 0 ? across * 0.45 : 0;
                         const dz = plane === 1 ? across * 0.45 : 0;
-                        const alpha = 0.6 * (1 - Math.abs(across));
-                        positions.push(x * 0.14 + dx * 0.035, -0.5, z * 0.14 + dz * 0.035,
+                        const alpha = 0.3 * (1 - Math.abs(across));
+                        positions.push(x * 0.191 + dx * 0.089, -0.5, z * 0.191 + dz * 0.089,
                             x + dx, 0.5, z + dz);
-                        uvs.push(column / 4, 0, column / 4, 1);
+                        uvs.push(column / 4 + texturePhase, 0, column / 4 + texturePhase, 1);
                         colors.push(1, 1, 1, alpha, 1, 1, 1, alpha);
                     }
                     for (let column = 0; column < 4; column++) {
@@ -408,6 +430,7 @@ class VRClubEffects extends VRClubFixtures {
             prismMat.backFaceCulling = false;
             prismMat.disableLighting = true;
             prismMat.disableDepthWrite = true;
+            prismMat.fogEnabled = false;
             prismMat.clipPlane4 = beamMat.clipPlane4;
             prism.material = prismMat;
             prism.rotationQuaternion = BABYLON.Quaternion.Identity();
@@ -472,7 +495,7 @@ class VRClubEffects extends VRClubFixtures {
         // a fan together (see configureLaserSheetVariant()); a look may select one.
         // Hyperrealistic implementation: Triangle fan geometry with smoke texture
         
-        // 1. Create the projector housings. The left mesh keeps its historical name.
+        // 1. Fixed outer housings carry a small internal scanner pivot; only the optic moves.
         const createMount = (housingName, apertureName, x) => {
             const housing = BABYLON.MeshBuilder.CreateBox(housingName, {
                 width: 0.5, height: 0.2, depth: 0.4
@@ -480,25 +503,35 @@ class VRClubEffects extends VRClubFixtures {
             housing.position.set(x, 7.55, -16);
             housing.material = this.materialFactory.getPreset('cdjBody'); // Dark metal
 
+            const bracket = BABYLON.MeshBuilder.CreateBox(`${housingName}Bracket`, {
+                width: 0.56, height: 0.22, depth: 0.44
+            }, this.scene);
+            bracket.position.set(x, 7.79, -16);
+            bracket.material = this.materialFactory.getPreset('truss');
+            bracket.isPickable = false;
+
+            const scanner = new BABYLON.TransformNode(`${housingName}Scanner`, this.scene);
+            scanner.parent = housing;
+
             // Aperture (glowing slit), dark while this projector is idle
             const aperture = BABYLON.MeshBuilder.CreateBox(apertureName, {
                 width: 0.4, height: 0.05, depth: 0.02
             }, this.scene);
-            aperture.parent = housing;
+            aperture.parent = scanner;
             aperture.position.z = 0.21; // Front face
 
             const apertureMat = new BABYLON.StandardMaterial(`${apertureName}Mat`, this.scene);
             apertureMat.emissiveColor = new BABYLON.Color3(0, 0, 0);
             apertureMat.disableLighting = true;
             aperture.material = apertureMat;
-            return { housing, aperture };
+            return { housing, scanner, bracket, aperture };
         };
         this._laserSheetMounts = {
             ceilingLeft: createMount('laserSheetSource', 'laserSheetAperture', -6),
             ceilingRight: createMount('laserSheetSourceRight', 'laserSheetApertureRight', 6)
         };
         this._laserApertureOff = new BABYLON.Color3(0, 0, 0);
-        this.laserSheetSource = this._laserSheetMounts.ceilingLeft.housing;
+        this.laserSheetSource = this._laserSheetMounts.ceilingLeft.scanner;
         this.laserAperture = this._laserSheetMounts.ceilingLeft.aperture;
         
         // 2. The fan. A light sheet is one beam swept by a galvo, so it is subdivided to carry two real
@@ -524,9 +557,11 @@ class VRClubEffects extends VRClubFixtures {
             for (let j = 0; j <= COLS; j++) {
                 const u = j / COLS;
                 const edge = (0.7 + 0.9 * Math.pow(Math.abs(2 * u - 1), 8)) / 1.6;
-                positions.push((u - 0.5) * widthEnd * t, 0, r);
+                const lateral = (u - 0.5) * widthEnd * t;
+                positions.push(lateral, 0, r);
                 normals.push(0, 1, 0);
-                uvs.push(u, t);
+                // Map haze in metres rather than stretching one UV across a widening fan.
+                uvs.push(0.5 + lateral / 8, r / length);
                 colors.push(1, 1, 1, falloff * edge);
             }
         }
@@ -601,12 +636,25 @@ class VRClubEffects extends VRClubFixtures {
         // materials: colour, alpha and smoke flow stay in lockstep with the first fan and
         // the pair costs two more draw calls, not two more noise textures.
         const sheetB = sheet.clone("laserSheetRight");
-        sheetB.parent = this._laserSheetMounts.ceilingRight.housing;
+        sheetB.parent = this._laserSheetMounts.ceilingRight.scanner;
         sheetB.position.set(0, 0, 0.25);
         const hazeB = hazeSheet.clone("laserSheetHazeRight");
-        hazeB.parent = this._laserSheetMounts.ceilingRight.housing;
+        hazeB.parent = this._laserSheetMounts.ceilingRight.scanner;
         hazeB.position.set(0, 0.012, 0.25);
         hazeB.scaling.set(0.985, 1, 0.985);
+        const decorrelateHaze = mesh => {
+            if (typeof mesh.makeGeometryUnique !== 'function') return;
+            mesh.makeGeometryUnique();
+            const uv = mesh.getVerticesData(BABYLON.VertexBuffer.UVKind);
+            if (!uv) return;
+            for (let i = 0; i < uv.length; i += 2) {
+                uv[i] = 1 - uv[i];
+                uv[i + 1] += 0.37;
+            }
+            mesh.updateVerticesData(BABYLON.VertexBuffer.UVKind, uv);
+        };
+        decorrelateHaze(sheetB);
+        decorrelateHaze(hazeB);
         sheetB.isVisible = false;
         hazeB.isVisible = false;
         this._laserSheetFanB = { sheet: sheetB, haze: hazeB };
@@ -730,10 +778,10 @@ class VRClubEffects extends VRClubFixtures {
         this._laserSheetFollower = null;
         if (mounts && mounts[leadSide]) {
             const lead = mounts[leadSide];
-            this.laserSheetSource = lead.housing;
+            this.laserSheetSource = lead.scanner || lead.housing;
             this.laserAperture = lead.aperture;
-            if (this.laserSheet) this.laserSheet.parent = lead.housing;
-            if (this.laserSheetHaze) this.laserSheetHaze.parent = lead.housing;
+            if (this.laserSheet) this.laserSheet.parent = this.laserSheetSource;
+            if (this.laserSheetHaze) this.laserSheetHaze.parent = this.laserSheetSource;
 
             const fanB = this._laserSheetFanB;
             const followerSide = both ? 'ceilingRight' : null;
@@ -743,13 +791,15 @@ class VRClubEffects extends VRClubFixtures {
             // A projector that is not emitting parks at its rest aim with a dark slit.
             for (const [mountSide, mount] of Object.entries(mounts)) {
                 if (mountSide === leadSide || mountSide === followerSide) continue;
-                mount.housing.rotation.x = this._laserSheetBasePitch;
-                mount.housing.rotation.y = restYaw(mountSide);
+                const scanner = mount.scanner || mount.housing;
+                scanner.rotation.x = this._laserSheetBasePitch;
+                scanner.rotation.y = restYaw(mountSide);
                 mount.aperture.material.emissiveColor = this._laserApertureOff;
             }
             if (followerSide) {
-                mounts[followerSide].housing.rotation.x = this._laserSheetBasePitch;
-                mounts[followerSide].housing.rotation.y = restYaw(followerSide);
+                const scanner = mounts[followerSide].scanner || mounts[followerSide].housing;
+                scanner.rotation.x = this._laserSheetBasePitch;
+                scanner.rotation.y = restYaw(followerSide);
             }
         }
 
@@ -757,13 +807,80 @@ class VRClubEffects extends VRClubFixtures {
         this.laserSheetSource.rotation.y = this._laserSheetBaseYaw;
     }
 
+    _buildMirrorReflectionFacets(radius) {
+        const facetCount = 512;
+        const facetNormals = new Float32Array(facetCount * 3);
+        const facetCenters = new Float32Array(facetCount * 3);
+        const goldenAngle = Math.PI * (3 - Math.sqrt(5));
+        for (let facet = 0; facet < facetCount; facet++) {
+            let latitude = 0.5 / facetCount, weight = 0.5;
+            for (let index = facet; index > 0; index = Math.floor(index / 2)) {
+                latitude += (index % 2) * weight;
+                weight *= 0.5;
+            }
+            const ny = 1 - 2 * latitude;
+            const horizontal = Math.sqrt(Math.max(0, 1 - ny * ny));
+            const theta = goldenAngle * facet;
+            const nx = horizontal * Math.cos(theta), nz = horizontal * Math.sin(theta);
+            const no = facet * 3;
+            facetNormals[no] = nx;
+            facetNormals[no + 1] = ny;
+            facetNormals[no + 2] = nz;
+            facetCenters[no] = nx * radius;
+            facetCenters[no + 1] = ny * radius;
+            facetCenters[no + 2] = nz * radius;
+        }
+        return { facetNormals, facetCenters, facetCount };
+    }
+
+    _buildMirrorRayGeometry() {
+        const positions = [], normals = [], colors = [], indices = [];
+        const bands = [-1, -0.5, 0, 0.5, 1];
+        const feather = [0, 0.45, 1, 0.45, 0];
+        const rings = [0, 0.04, 0.25, 0.6, 1];
+        const levels = [0, 1, 0.72, 0.42, 0.16];
+        // Crossed, edge-feathered ribbons have no opaque polygon silhouette or hollow tube edge.
+        for (let plane = 0; plane < 3; plane++) {
+            const angle = plane * Math.PI / 3;
+            const cx = Math.cos(angle), cz = Math.sin(angle);
+            const base = positions.length / 3;
+            for (let row = 0; row < rings.length; row++) {
+                const along = rings[row];
+                const radius = 0.025 + along * 0.095;
+                for (let col = 0; col < bands.length; col++) {
+                    positions.push(cx * radius * bands[col], along - 0.5, cz * radius * bands[col]);
+                    normals.push(-cz, 0, cx);
+                    colors.push(1, 1, 1, feather[col] * levels[row]);
+                    if (row === 0 || col === 0) continue;
+                    const v = base + row * bands.length + col;
+                    indices.push(v - 6, v - 5, v, v - 6, v, v - 1);
+                }
+            }
+        }
+        const data = new BABYLON.VertexData();
+        data.positions = positions;
+        data.normals = normals;
+        data.colors = colors;
+        data.indices = indices;
+        return data;
+    }
+
+    _mirrorSmokeAmount() {
+        if (Number.isFinite(this._smokeLevel)) return Math.max(0, Math.min(1, this._smokeLevel));
+        if (!this.smokeActive) return 0;
+        return Math.max(0, Math.min(1, (this.fogIntensity || 1) / 2));
+    }
+
     createMirrorBall() {
         // === DRAMATIC MIRROR/DISCO BALL EFFECT ===
         // Professional mirror ball suspended from center truss with dedicated spotlight
         
-        // Position: Center of middle truss (x:0, y:8, z:-12)
-        const ballPosition = new BABYLON.Vector3(0, 6.5, -12); // Hanging 1.5m below truss
-        
+        const ballPosition = new BABYLON.Vector3(0, 6.5, -12);
+        const facets = this._buildMirrorReflectionFacets(0.6);
+        this.mirrorBallFacetNormals = facets.facetNormals;
+        this.mirrorBallFacetCenters = facets.facetCenters;
+        this.mirrorBallFacetCount = facets.facetCount;
+
         // === MIRROR BALL SPHERE ===
         const mirrorBall = BABYLON.MeshBuilder.CreateSphere("mirrorBall", {
             diameter: 1.2, // Professional club-size mirror ball
@@ -775,28 +892,15 @@ class VRClubEffects extends VRClubFixtures {
         const mirrorBallMat = new BABYLON.PBRMetallicRoughnessMaterial("mirrorBallMat", this.scene);
         mirrorBallMat.baseColor = new BABYLON.Color3(0.95, 0.95, 0.95); // Bright silver
         mirrorBallMat.metallic = 1.0;  // Fully metallic
-        mirrorBallMat.roughness = 0.15; // Increased roughness for faceted mirror appearance (was 0.05)
+        mirrorBallMat.roughness = 0.15; // Faceted mirror appearance
         mirrorBallMat.reflectivityColor = new BABYLON.Color3(1, 1, 1);
         mirrorBallMat.maxSimultaneousLights = this.maxLights;
-
-        // VR FIX: a pure-metallic surface only renders via environment reflection,
-        // and VR drops scene.environmentIntensity to 0.15 (vs 0.5 desktop), making
-        // the ball nearly invisible. We give it a faint silver emissive floor so
-        // the geometry always has presence, plus we boost the material-level env
-        // intensity to compensate for the dimmer scene-level multiplier.
         mirrorBallMat.emissiveColor = new BABYLON.Color3(0.12, 0.12, 0.14);
-        mirrorBallMat.environmentIntensity = 6.0; // was 1.8 — compensates for VR's dim scene env
-
-        // Use environment reflection for realistic mirror effect
+        mirrorBallMat.environmentIntensity = 6.0;
         if (this.scene.environmentTexture) {
-            // (intensity already set above; kept for clarity if env texture loads later)
             mirrorBallMat.environmentIntensity = 6.0;
         }
-        
-        // Add bump map for faceted appearance (using vertex normals)
-        // This makes it look like many small square mirrors instead of one smooth sphere
-        mirrorBall.convertToFlatShadedMesh(); // Creates hard edges between faces = disco ball facets!
-        
+        mirrorBall.convertToFlatShadedMesh();
         mirrorBall.material = mirrorBallMat;
         mirrorBall.isPickable = false;
         
@@ -1163,6 +1267,7 @@ class VRClubEffects extends VRClubFixtures {
             beamMat.backFaceCulling = false;
             beamMat.disableLighting = true;
             beamMat.unlit = true;
+            beamMat.fogEnabled = false;
             
             beam.material = beamMat;
             beam.isPickable = false;
@@ -1219,13 +1324,17 @@ class VRClubEffects extends VRClubFixtures {
             false
         );
         const spotContext = spotTexture.getContext();
-        const spotGradient = spotContext.createRadialGradient(32, 32, 0, 32, 32, 32);
-        spotGradient.addColorStop(0, 'rgba(255,255,255,1)');
-        spotGradient.addColorStop(0.35, 'rgba(255,255,255,0.9)');
-        spotGradient.addColorStop(0.75, 'rgba(255,255,255,0.25)');
-        spotGradient.addColorStop(1, 'rgba(255,255,255,0)');
-        spotContext.fillStyle = spotGradient;
-        spotContext.fillRect(0, 0, 64, 64);
+        const spotImage = spotContext.createImageData(64, 64);
+        for (let y = 0; y < 64; y++) for (let x = 0; x < 64; x++) {
+            const u = (x + 0.5) / 32 - 1, v = (y + 0.5) / 32 - 1;
+            const r2 = u * u + v * v;
+            const edge = Math.max(0, Math.min(1, (1 - r2) * 5));
+            const core = 0.65 * Math.exp(-6 * r2) + 0.35 * Math.exp(-12 * (u ** 4 + v ** 4));
+            const o = (y * 64 + x) * 4;
+            spotImage.data[o] = spotImage.data[o + 1] = spotImage.data[o + 2] = 255;
+            spotImage.data[o + 3] = Math.round(255 * core * edge * edge * (3 - 2 * edge));
+        }
+        spotContext.putImageData(spotImage, 0, 0);
         spotTexture.hasAlpha = true;
         spotTexture.update();
         this._mirrorSpotFalloffTexture = spotTexture;
@@ -1238,6 +1347,8 @@ class VRClubEffects extends VRClubFixtures {
         spotMat.alphaMode = BABYLON.Engine.ALPHA_ADD;
         spotMat.opacityTexture = spotTexture;
         spotMat.disableLighting = true;
+        spotMat.disableDepthWrite = true;
+        spotMat.fogEnabled = false;
         spotMat.backFaceCulling = false;
         const spots = BABYLON.MeshBuilder.CreatePlane('mirrorReflectionSpots', { size: 1 }, this.scene);
         spots.material = spotMat;
@@ -1251,18 +1362,17 @@ class VRClubEffects extends VRClubFixtures {
         rayMat.diffuseColor = new BABYLON.Color3(0, 0, 0);
         rayMat.specularColor = new BABYLON.Color3(0, 0, 0);
         rayMat.emissiveColor = this.mirrorBallSpotlightColor.clone();
-        rayMat.alpha = 0.18;
+        rayMat.alpha = 0.12;
         rayMat.alphaMode = BABYLON.Engine.ALPHA_ADD;
-        rayMat.opacityTexture = this._mirrorBeamGradientTexture;
         rayMat.disableLighting = true;
+        rayMat.disableDepthWrite = true;
+        rayMat.fogEnabled = false;
         rayMat.backFaceCulling = false;
-        const rays = BABYLON.MeshBuilder.CreateCylinder('mirrorOutgoingRays', {
-            diameterTop: 0.03,
-            diameterBottom: 0.25,
-            height: 1,
-            tessellation: 4,
-            cap: BABYLON.Mesh.NO_CAP
-        }, this.scene);
+        rayMat.useVertexColor = true;
+        rayMat.useVertexAlpha = true;
+        const rays = new BABYLON.Mesh('mirrorOutgoingRays', this.scene);
+        this._buildMirrorRayGeometry().applyToMesh(rays);
+        rays.hasVertexAlpha = true;
         rays.material = rayMat;
         rays.isPickable = false;
         rays.alwaysSelectAsActiveMesh = true;
@@ -1270,32 +1380,46 @@ class VRClubEffects extends VRClubFixtures {
         const rayMatrices = new Float32Array(maxRays * 16);
         rays.thinInstanceSetBuffer('matrix', rayMatrices, 16, false);
 
-        const goldenAngle = Math.PI * (3 - Math.sqrt(5));
-        const directions = new Float32Array(maxSpots * 2);
-        for (let i = 0; i < maxSpots; i++) {
-            directions[i * 2] = goldenAngle * i;
-            let latitude = 0.5 / maxSpots;
-            let weight = 0.5;
-            for (let index = i; index > 0; index = Math.floor(index / 2)) {
-                latitude += (index % 2) * weight;
-                weight *= 0.5;
+        spotMat.useVertexColor = true;
+        spotMat.useVertexAlpha = true;
+        const spotColors = new Float32Array(maxSpots * 4);
+        const rayColors = new Float32Array(maxRays * 4);
+        for (const colors of [spotColors, rayColors]) {
+            for (let i = 0; i < colors.length; i += 4) {
+                colors[i] = colors[i + 1] = colors[i + 2] = 1;
             }
-            directions[i * 2 + 1] = Math.acos(1 - 2 * latitude);
         }
+        spots.thinInstanceSetBuffer('color', spotColors, 4, false);
+        rays.thinInstanceSetBuffer('color', rayColors, 4, false);
+        const facetIndices = new Uint16Array(maxSpots);
+        // Every prefix is equal-area and spans both hemispheres, like the earlier room-wide scatter.
+        for (let i = 0; i < maxSpots; i++) facetIndices[i] = i;
         this.mirrorReflectionBatch = {
             spots,
             spotMat,
             spotMatrices,
+            spotColors,
             rays,
             rayMat,
             rayMatrices,
-            directions,
-            hit: { t: 0, px: 0, py: 0, pz: 0, nx: 0, ny: 0, nz: 0 }
+            rayColors,
+            rayOrigins: new Float32Array(maxRays * 3),
+            rayDirections: new Float32Array(maxRays * 3),
+            rayLengths: new Float32Array(maxRays),
+            rayStrengths: new Float32Array(maxRays),
+            rayFacetIndices: new Uint16Array(maxRays),
+            raySources: new Uint8Array(maxRays),
+            facetIndices,
+            facetNormals: facets.facetNormals,
+            facetCenters: facets.facetCenters,
+            hit: { t: 0, px: 0, py: 0, pz: 0, nx: 0, ny: 0, nz: 0 },
+            trace: { source: -1, strength: 0, px: 0, py: 0, pz: 0, nx: 0, ny: 0, nz: 0, dx: 0, dy: 0, dz: 0 }
         };
         
         // Store references for animation and color updates
         this.mirrorBall = mirrorBall;
         this.mirrorBallRotation = 0; // Track rotation for animation
+        this._mirrorMotorAngularSpeed = 0;
         this.mirrorBallCachedColors = {
             housingGlow: new BABYLON.Color3(),
             lensBright: new BABYLON.Color3(),
@@ -1477,10 +1601,55 @@ class VRClubEffects extends VRClubFixtures {
         const zx = xy * dz - xz * dy;
         const zy = xz * dx - xx * dz;
         const zz = xx * dy - xy * dx;
-        buf[o] = xx; buf[o + 1] = xy; buf[o + 2] = xz; buf[o + 3] = 0;
+        const width = Math.min(0.42, 0.18 + length * 0.012) / 0.24;
+        buf[o] = xx * width; buf[o + 1] = xy * width; buf[o + 2] = xz * width; buf[o + 3] = 0;
         buf[o + 4] = dx * length; buf[o + 5] = dy * length; buf[o + 6] = dz * length; buf[o + 7] = 0;
-        buf[o + 8] = zx; buf[o + 9] = zy; buf[o + 10] = zz; buf[o + 11] = 0;
+        buf[o + 8] = zx * width; buf[o + 9] = zy * width; buf[o + 10] = zz * width; buf[o + 11] = 0;
         buf[o + 12] = ax + dx * length * 0.5; buf[o + 13] = ay + dy * length * 0.5; buf[o + 14] = az + dz * length * 0.5; buf[o + 15] = 1;
+    }
+
+    _traceMirrorFacet(px, py, pz, nx, ny, nz, out) {
+        const beams = this.mirrorBallBeams;
+        out.source = -1;
+        out.strength = 0;
+        if (!beams) return false;
+        let best = 0;
+        for (let i = 0; i < beams.length; i++) {
+            const beam = beams[i];
+            const ox = beam.origin.x, oy = beam.origin.y, oz = beam.origin.z;
+            const vx = px - ox, vy = py - oy, vz = pz - oz;
+            const distanceSq = vx * vx + vy * vy + vz * vz;
+            const distance = Math.sqrt(distanceSq) || 1;
+            const ix = vx / distance, iy = vy / distance, iz = vz / distance;
+            const facing = -(ix * nx + iy * ny + iz * nz);
+            if (facing <= 0.015) continue;
+
+            const along = vx * beam.direction.x + vy * beam.direction.y + vz * beam.direction.z;
+            if (along <= 0 || along > beam.length * 1.12) continue;
+            const radialSq = Math.max(0, distanceSq - along * along);
+            const beamRadius = 0.15 + 0.50 * Math.min(1, along / beam.length);
+            const q = radialSq / (beamRadius * beamRadius);
+            if (q >= 1.2) continue;
+            const edge = Math.max(0, Math.min(1, (1.2 - q) / 0.45));
+            const coverage = edge * edge * (3 - 2 * edge);
+            const strength = coverage * Math.pow(facing, 1.35) / (1 + distanceSq * 0.015);
+            if (strength <= best) continue;
+            best = strength;
+            const dot = ix * nx + iy * ny + iz * nz;
+            out.source = i;
+            out.strength = strength;
+            out.px = px; out.py = py; out.pz = pz;
+            out.nx = nx; out.ny = ny; out.nz = nz;
+            out.dx = ix - 2 * dot * nx;
+            out.dy = iy - 2 * dot * ny;
+            out.dz = iz - 2 * dot * nz;
+        }
+        if (out.source < 0) return false;
+        const reflectedLength = Math.hypot(out.dx, out.dy, out.dz) || 1;
+        out.dx /= reflectedLength;
+        out.dy /= reflectedLength;
+        out.dz /= reflectedLength;
+        return true;
     }
 
     _updateMirrorReflectionBatch() {
@@ -1488,37 +1657,89 @@ class VRClubEffects extends VRClubFixtures {
         if (!batch || !this.mirrorBall) return;
         const spotCount = this.tierSettings.mirrorSpots;
         const rayCount = this.tierSettings.mirrorRays;
-        const ox = this.mirrorBall.position.x;
-        const oy = this.mirrorBall.position.y;
-        const oz = this.mirrorBall.position.z;
+        const yaw = this.mirrorBallRotation || 0;
+        const cosYaw = Math.cos(yaw), sinYaw = Math.sin(yaw);
+        const bx = this.mirrorBall.position.x, by = this.mirrorBall.position.y, bz = this.mirrorBall.position.z;
+        const trace = batch.trace;
         for (let i = 0; i < spotCount; i++) {
-            const theta = batch.directions[i * 2] - this.mirrorBallRotation;
-            const phi = batch.directions[i * 2 + 1];
-            const sinPhi = Math.sin(phi);
-            const dx = sinPhi * Math.cos(theta);
-            const dy = Math.cos(phi);
-            const dz = sinPhi * Math.sin(theta);
-            const hit = this._intersectRoomInterior(ox, oy, oz, dx, dy, dz, batch.hit);
-            this._writeMirrorSpotMatrix(batch.spotMatrices, i * 16, hit, dx, dy, dz, 0.24 + (i % 7) * 0.025);
+            const facet = batch.facetIndices[i];
+            const o = facet * 3;
+            const nx0 = batch.facetNormals[o], ny = batch.facetNormals[o + 1], nz0 = batch.facetNormals[o + 2];
+            const cx0 = batch.facetCenters[o], cy = batch.facetCenters[o + 1], cz0 = batch.facetCenters[o + 2];
+            const nx = nx0 * cosYaw + nz0 * sinYaw;
+            const nz = -nx0 * sinYaw + nz0 * cosYaw;
+            const px = bx + cx0 * cosYaw + cz0 * sinYaw;
+            const py = by + cy;
+            const pz = bz - cx0 * sinYaw + cz0 * cosYaw;
+            let valid = this._traceMirrorFacet(px, py, pz, nx, ny, nz, trace);
+            let hit = batch.hit;
+            if (valid) {
+                const sx = px + nx * 0.008, sy = py + ny * 0.008, sz = pz + nz * 0.008;
+                this._intersectRoomInterior(sx, sy, sz, trace.dx, trace.dy, trace.dz, hit);
+                valid = hit.t > 0;
+            }
+
+            const colorOffset = i * 4;
+            if (valid) {
+                const size = Math.min(0.42, 0.18 + hit.t * 0.012);
+                const incidence = Math.abs(trace.dx * hit.nx + trace.dy * hit.ny + trace.dz * hit.nz);
+                const stretch = Math.min(2.5, 1 / Math.max(0.4, incidence));
+                const attenuation = 1 / (1 + (hit.t / 16) ** 2);
+                if (batch.spotColors) batch.spotColors[colorOffset + 3] =
+                    Math.min(1, trace.strength * 2.4) * attenuation / stretch;
+                this._writeMirrorSpotMatrix(batch.spotMatrices, i * 16, hit,
+                    trace.dx, trace.dy, trace.dz, size);
+            } else {
+                if (batch.spotColors) batch.spotColors[colorOffset + 3] = 0;
+                batch.spotMatrices.fill(0, i * 16, i * 16 + 16);
+            }
+
             if (i < rayCount) {
-                this._writeMirrorRayMatrix(batch.rayMatrices, i * 16, ox, oy, oz, dx, dy, dz, hit.t);
+                const rayOffset = i * 3;
+                const rayColorOffset = i * 4;
+                if (valid) {
+                    const sx = px + nx * 0.008, sy = py + ny * 0.008, sz = pz + nz * 0.008;
+                    const rayStrength = trace.strength;
+                    this._writeMirrorRayMatrix(batch.rayMatrices, i * 16,
+                        sx, sy, sz, trace.dx, trace.dy, trace.dz, hit.t);
+                    batch.rayOrigins[rayOffset] = sx;
+                    batch.rayOrigins[rayOffset + 1] = sy;
+                    batch.rayOrigins[rayOffset + 2] = sz;
+                    batch.rayDirections[rayOffset] = trace.dx;
+                    batch.rayDirections[rayOffset + 1] = trace.dy;
+                    batch.rayDirections[rayOffset + 2] = trace.dz;
+                    batch.rayLengths[i] = hit.t;
+                    batch.rayStrengths[i] = rayStrength;
+                    batch.rayFacetIndices[i] = facet;
+                    batch.raySources[i] = trace.source;
+                    batch.rayColors[rayColorOffset + 3] = rayStrength;
+                } else {
+                    batch.rayMatrices.fill(0, i * 16, i * 16 + 16);
+                    batch.rayOrigins.fill(0, rayOffset, rayOffset + 3);
+                    batch.rayDirections.fill(0, rayOffset, rayOffset + 3);
+                    batch.rayLengths[i] = 0;
+                    batch.rayStrengths[i] = 0;
+                    batch.rayColors[rayColorOffset + 3] = 0;
+                }
             }
         }
+        batch.rayCount = rayCount;
         batch.spots.thinInstanceCount = spotCount;
         batch.rays.thinInstanceCount = rayCount;
         batch.spots.thinInstanceBufferUpdated('matrix');
+        batch.spots.thinInstanceBufferUpdated('color');
         batch.rays.thinInstanceBufferUpdated('matrix');
+        batch.rays.thinInstanceBufferUpdated('color');
         this._updateMirrorReflectionColors();
     }
 
     _updateMirrorReflectionColors() {
         const batch = this.mirrorReflectionBatch;
         const master = this.masterIntensity == null ? 1 : Math.min(1, Math.max(0, this.masterIntensity));
-        this.mirrorBallSpotlightColor.scaleToRef(1.2 * master * (1 + (this.kickPulse || 0) * 0.35), batch.spotMat.emissiveColor);
+        this.mirrorBallSpotlightColor.scaleToRef(1.2 * master, batch.spotMat.emissiveColor);
         this.mirrorBallSpotlightColor.scaleToRef(master, batch.rayMat.emissiveColor);
-        const haze = this.smokeActive ? Math.min(1, (this.fogIntensity || 0) / 1.5) : 0;
-        // Reflected shafts are the mirror ball's signature; they need to hold their own against the room.
-        batch.rayMat.alpha = 0.14 + 0.26 * haze;
+        const haze = this._mirrorSmokeAmount();
+        batch.rayMat.alpha = 0.025 + 0.145 * haze;
     }
     
     /**

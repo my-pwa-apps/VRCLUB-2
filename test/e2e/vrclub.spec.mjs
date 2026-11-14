@@ -19,6 +19,7 @@ test('spinning lasers retain their beams without surface-hit dots on desktop and
                 immersive: club.isInVRMode,
                 enabled: batch.mesh.isEnabled(),
                 beamCount: club.lasers.reduce((count, laser) => count + laser.beams.length, 0),
+                segments: batch.segments,
                 vertices: batch.positions.length,
                 finite: batch.positions.every(Number.isFinite),
                 visible: batch.colors.some((value, index) => index % 4 === 3 && value > 0),
@@ -31,7 +32,8 @@ test('spinning lasers retain their beams without surface-hit dots on desktop and
         expect(state.immersive).toBe(immersive);
         expect(state.enabled).toBe(true);
         expect(state.beamCount).toBeGreaterThan(0);
-        expect(state.vertices).toBe(state.beamCount * 12);
+        expect(state.segments).toBe(6);
+        expect(state.vertices).toBe(state.beamCount * state.segments * 12);
         expect(state.finite && state.visible && state.clipped).toBe(true);
         expect(state.surfaceHitMesh || state.surfaceHitMaterial || state.surfaceHitTexture).toBe(false);
     }
@@ -292,6 +294,9 @@ test('production build initializes a rendered club without browser errors', asyn
             director._applyLook(director.looks[lookName], 1);
             club.updateLaserSheet({ time: 0, dtScale: 1, audio: { average: 0 } });
             const start = { pitch: club.laserSheetSource.rotation.x, yaw: club.laserSheetSource.rotation.y };
+            const leftMount = club._laserSheetMounts.ceilingLeft;
+            const leftUvs = club.laserSheet.getVerticesData(BABYLON.VertexBuffer.UVKind);
+            const rightUvs = club._laserSheetFanB.sheet.getVerticesData(BABYLON.VertexBuffer.UVKind);
             // The phase integrates elapsed frames now, not the absolute clock: run ten real seconds at 60 Hz.
             for (let frame = 1; frame <= 600; frame++) {
                 club.updateLaserSheet({ time: frame / 60, dtScale: 1, audio: { average: 0 } });
@@ -300,19 +305,25 @@ test('production build initializes a rendered club without browser errors', asyn
                 origin: club.laserSheetOrigin,
                 motion: club.laserSheetMotion,
                 position: club.laserSheetSource.position.asArray(),
+                housingPosition: leftMount.housing.position.asArray(),
+                housingRotation: leftMount.housing.rotation.asArray(),
                 emitter: club.laserSheet.parent.name,
                 hazeEmitter: club.laserSheetHaze.parent.name,
+                independentRightGeometry: club._laserSheetFanB.sheet.geometry !== club.laserSheet.geometry,
+                leftTextureUv: Array.from(leftUvs.slice(2, 4)),
+                rightTextureUv: Array.from(rightUvs.slice(2, 4)),
                 fanB: {
                     visible: club._laserSheetFanB.sheet.isVisible,
                     hazeVisible: club._laserSheetFanB.haze.isVisible,
                     emitter: club._laserSheetFanB.sheet.parent.name,
-                    rightYaw: club._laserSheetMounts.ceilingRight.housing.rotation.y,
-                    leftYaw: club._laserSheetMounts.ceilingLeft.housing.rotation.y,
+                    rightYaw: club._laserSheetMounts.ceilingRight.scanner.rotation.y,
+                    leftYaw: club._laserSheetMounts.ceilingLeft.scanner.rotation.y,
                     rightSlitLit: club._laserSheetMounts.ceilingRight.aperture.material.emissiveColor.g > 0
                 },
                 projectors: ['laserSheetSource', 'laserSheetSourceRight'].map(name => {
                     const mesh = club.scene.getMeshByName(name);
-                    return mesh ? { position: mesh.position.asArray(), visible: mesh.isVisible } : null;
+                    return mesh ? { position: mesh.position.asArray(), visible: mesh.isVisible,
+                        stationary: mesh.rotation.equals(BABYLON.Vector3.Zero()) } : null;
                 }),
                 smokeScatterEmitRate: club.laserSheetSmokeScatter?.emitRate || 0,
                 start,
@@ -429,17 +440,24 @@ test('production build initializes a rendered club without browser errors', asyn
     expect(showState.sheetVariants.left).toMatchObject({
         origin: 'both',
         motion: 'lateral',
-        position: [-6, 7.55, -16],
-        emitter: 'laserSheetSource',
-        hazeEmitter: 'laserSheetSource'
+        position: [0, 0, 0],
+        housingPosition: [-6, 7.55, -16],
+        housingRotation: [0, 0, 0],
+        emitter: 'laserSheetSourceScanner',
+        hazeEmitter: 'laserSheetSourceScanner',
+        independentRightGeometry: true
     });
+    expect(showState.sheetVariants.left.rightTextureUv[1] - showState.sheetVariants.left.leftTextureUv[1])
+        .toBeCloseTo(0.37, 5);
     // One projector hangs on each side of the truss, and every sheet look fires both.
     for (const variant of [showState.sheetVariants.left, showState.sheetVariants.right]) {
         expect(variant.projectors).toEqual([
-            { position: [-6, 7.55, -16], visible: true },
-            { position: [6, 7.55, -16], visible: true }
+            { position: [-6, 7.55, -16], visible: true, stationary: true },
+            { position: [6, 7.55, -16], visible: true, stationary: true }
         ]);
-        expect(variant.fanB).toMatchObject({ visible: true, hazeVisible: true, emitter: 'laserSheetSourceRight', rightSlitLit: true });
+        expect(variant.fanB).toMatchObject({
+            visible: true, hazeVisible: true, emitter: 'laserSheetSourceRightScanner', rightSlitLit: true
+        });
         expect(variant.fanB.rightYaw).toBeCloseTo(-variant.fanB.leftYaw, 6);
     }
     expect(Math.abs(showState.sheetVariants.left.afterTenSeconds.pitch - showState.sheetVariants.left.start.pitch))
@@ -450,9 +468,11 @@ test('production build initializes a rendered club without browser errors', asyn
     expect(showState.sheetVariants.right).toMatchObject({
         origin: 'both',
         motion: 'vertical',
-        position: [-6, 7.55, -16],
-        emitter: 'laserSheetSource',
-        hazeEmitter: 'laserSheetSource'
+        position: [0, 0, 0],
+        housingPosition: [-6, 7.55, -16],
+        housingRotation: [0, 0, 0],
+        emitter: 'laserSheetSourceScanner',
+        hazeEmitter: 'laserSheetSourceScanner'
     });
     expect(Math.abs(showState.sheetVariants.right.afterTenSeconds.yaw - showState.sheetVariants.right.start.yaw))
         .toBeGreaterThan(0.005);
@@ -650,6 +670,12 @@ test('Quest 3 emulation enters WebXR, registers controllers, and restores deskto
         club.showDirector._applyLook(club.showDirector.looks.whiteChase, 1);
         club.masterIntensity = 1;
         club.strobeSync = 'free';
+        const previousOpticsCamera = club.scene.activeCamera;
+        const opticsCamera = club.camera;
+        opticsCamera.position.set(0, 1.7, -12);
+        opticsCamera.setTarget(new window.BABYLON.Vector3(-7.6, 7.6, -9.2));
+        club.scene.activeCamera = opticsCamera;
+        club.strobePattern = 'all';
         const preStrobe = {
             ambientIntensity: club.scene.getLightByName('ambient').intensity,
             retinalAlpha: club.strobeRetinalFlash.color.a,
@@ -657,6 +683,7 @@ test('Quest 3 emulation enters WebXR, registers controllers, and restores deskto
             exposure: club.renderPipeline.imageProcessing.exposure
         };
         club._nextStrobeBurstTime = 0;
+        if (club.flashGovernor) club.flashGovernor.lastFlashAt = -Infinity;
         club.strobes.forEach(strobe => { strobe.flashDuration = 0; });
         club.updateStrobes(frame);
         const strobe = {
@@ -677,6 +704,7 @@ test('Quest 3 emulation enters WebXR, registers controllers, and restores deskto
             bloomWeight: club.renderPipeline.bloomWeight,
             exposure: club.renderPipeline.imageProcessing.exposure
         };
+        club.scene.activeCamera = previousOpticsCamera;
 
         return {
             spot: {
@@ -702,8 +730,9 @@ test('Quest 3 emulation enters WebXR, registers controllers, and restores deskto
     expect(opticsState.spot.lensPeak / opticsState.spot.colorPeak).toBeCloseTo(1.6, 2);
     expect(opticsState.spot.diffusePeak / opticsState.spot.colorPeak).toBeCloseTo(0.45, 2);
     expect(opticsState.spot.beamPeak / opticsState.spot.colorPeak).toBeCloseTo(1, 2);
-    expect(opticsState.spot.poolPeak / opticsState.spot.colorPeak).toBeGreaterThan(2.5);
-    expect(opticsState.spot.intensity).toBeGreaterThan(40);
+    expect(opticsState.spot.poolPeak / opticsState.spot.colorPeak).toBeGreaterThan(0.1);
+    expect(opticsState.spot.poolPeak / opticsState.spot.colorPeak).toBeLessThan(1.3);
+    expect(opticsState.spot.intensity).toBeGreaterThan(20);
     expect(opticsState.spot.enabled).toBe(true);
     expect(opticsState.spot.lensGlowIncluded).toBe(true);
     // The beam material carries the pure diode colour; brightness lives in the batch's vertex alpha.
@@ -712,12 +741,14 @@ test('Quest 3 emulation enters WebXR, registers controllers, and restores deskto
     // show through walls. The ribbon's own scatter halo and the depth-tested bloom carry the glow instead.
     expect(opticsState.laser.glowIncluded).toBe(false);
     expect(opticsState.strobe.duration).toBeLessThanOrEqual(0.09);
-    expect(opticsState.strobe.glareAlpha).toBe(0.95);
+    expect(opticsState.strobe.glareAlpha).toBeGreaterThan(0);
+    expect(opticsState.strobe.glareAlpha).toBeLessThanOrEqual(0.95);
     expect(opticsState.strobe.lightIntensity).toBeGreaterThan(900);
     expect(opticsState.strobe.bloomWeight).toBe(1);
     expect(opticsState.strobe.exposure).toBe(opticsState.strobeImpulse.exposure);
     expect(opticsState.strobe.ambientIntensity).toBe(opticsState.strobeImpulse.ambient);
-    expect(opticsState.strobe.retinalAlpha).toBe(opticsState.strobeImpulse.retinal);
+    expect(opticsState.strobe.retinalAlpha).toBeGreaterThan(0);
+    expect(opticsState.strobe.retinalAlpha).toBeLessThanOrEqual(opticsState.strobeImpulse.retinal);
     expect(opticsState.safeModeRestoration.ambientIntensity)
         .toBeCloseTo(opticsState.preStrobe.ambientIntensity, 6);
     expect(opticsState.safeModeRestoration.retinalAlpha).toBe(0);

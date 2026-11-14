@@ -12,7 +12,7 @@ class VRClubSocialUI extends window.VRClubMenu {
         return typeof ClubMultiplayer !== 'undefined' ? new ClubMultiplayer(this) : null;
     }
 
-    static get VR_NET_PAGES() { return ['onlineSafety', 'online', 'liveEvent', 'rooms', 'gestures', 'chat', 'people', 'person', 'report', 'safety', 'room', 'look', 'voiceAudience', 'chatAudience']; }
+    static get VR_NET_PAGES() { return ['onlineSafety', 'online', 'liveEvent', 'rooms', 'gestures', 'chat', 'chatHistory', 'reports', 'people', 'person', 'report', 'safety', 'room', 'look', 'voiceAudience', 'chatAudience']; }
 
     /** Babylon's default layer mask plus one extra bit: the quick menu is on both, the world only on the first. */
     static get MENU_LAYER_MASK() { return 0x1FFFFFFF; }
@@ -29,9 +29,10 @@ class VRClubSocialUI extends window.VRClubMenu {
                 net('KEEP DETAILS PRIVATE', 'safetyInfo', { info: 'NO LOCATION / CONTACT ACCOUNTS' }),
                 net('LEAVE IF PRESSURED', 'safetyInfo', { info: 'DO NOT MOVE CHAT ELSEWHERE' }),
                 net('REPORT + BLOCK ABUSE', 'safetyInfo', { info: 'CONTACT STOPS BOTH WAYS' }),
+                net('ROOM MUSIC FOLLOWS HOST', 'safetyInfo', { info: 'AUDIO HOSTS RECEIVE YOUR IP' }),
                 net('START PRIVATE ROOM', 'safetyPrivate', { info: 'RECOMMENDED' }),
-                net(accepted ? 'RETURN TO ONLINE' : 'SHOW ONLINE OPTIONS', 'safetyAccept', { info: accepted ? 'GUIDE ACCEPTED' : 'I UNDERSTAND' }),
-                net('STAY OFFLINE', 'safetyOffline'),
+                net(mp.pendingSafetyJoin ? 'JOIN INVITATION' : accepted ? 'RETURN TO ONLINE' : 'SHOW ONLINE OPTIONS', 'safetyAccept', { info: accepted ? 'GUIDE ACCEPTED' : 'I UNDERSTAND' }),
+                net(mp.connected ? 'RETURN TO ROOM' : 'STAY OFFLINE', 'safetyOffline'),
                 common.close
             ];
         }
@@ -108,13 +109,45 @@ class VRClubSocialUI extends window.VRClubMenu {
         if (page === 'chat') {
             // No keyboard in a headset: one tap sends a ready-made message, shown in a bubble over your head.
             const phrases = ClubMultiplayer.QUICK_PHRASES.map(text => net(text.toUpperCase(), 'phrase', { phrase: text }));
-            return [{ label: 'CHAT RECIPIENTS', action: 'page', target: 'chatAudience' }, ...phrases, back('home'), common.close];
+            return [{ label: 'CHAT RECIPIENTS', action: 'page', target: 'chatAudience' },
+                { label: 'RECENT MESSAGES', action: 'page', target: 'chatHistory' }, ...phrases, back('home'), common.close];
+        }
+        if (page === 'chatHistory') {
+            const index = Math.min(this._vrChatOffset || 0, Math.max(0, mp.chat.length - 1));
+            const entry = mp.chat[mp.chat.length - 1 - index];
+            const text = entry ? `${entry.self ? 'You' : entry.name}${entry.restricted ? ' (selected)' : ''}: ${entry.text}` : 'No messages yet.';
+            const lines = text.match(/.{1,42}(?:\s|$)|.{1,42}/gu) || [text];
+            return [...lines.map(line => ({ label: line.trim(), action: 'creditText', detail: '' })),
+                ...(mp.chat.length > 1 ? [net('OLDER MESSAGE', 'chatHistoryPage', { delta: 1 }),
+                    net('NEWER MESSAGE', 'chatHistoryPage', { delta: -1 })] : []),
+                back('chat'), common.close];
+        }
+        if (page === 'reports') {
+            if (!mp.canModerate()) return [back('safety'), common.close];
+            const index = Math.min(this._vrReportOffset || 0, Math.max(0, mp.moderationReports.length - 1));
+            const report = mp.moderationReports[index];
+            if (!report) return [{ label: 'NO SAFETY REPORTS', action: 'creditText', detail: '' }, back('safety'), common.close];
+            const person = mp.people().find(item => item.id === report.target?.id);
+            return [
+                { label: `FROM: ${this._vrShortName(report.reporter?.name)}`, action: 'creditText', detail: '' },
+                { label: `ABOUT: ${this._vrShortName(report.target?.name)}`, action: 'creditText', detail: '' },
+                { label: (ClubMultiplayer.REPORT_REASONS[report.reason] || 'Safety concern').toUpperCase(), action: 'creditText', detail: '' },
+                ...(person ? [net('REVIEW PERSON', 'select', { peer: person.id })] : []),
+                net('DISMISS REPORT', 'dismissReport', { value: report.at }),
+                ...(mp.moderationReports.length > 1 ? [net('NEXT REPORT', 'reportsPage')] : []),
+                back('safety'), common.close
+            ];
         }
         if (page === 'voiceAudience' || page === 'chatAudience') {
             const scope = page === 'voiceAudience' ? 'voice' : 'chat';
+            const people = mp.people(), per = people.length > 7 ? 6 : 7;
+            const pages = Math.max(1, Math.ceil(people.length / per));
+            const indices = this._vrAudiencePages || (this._vrAudiencePages = {});
+            const index = indices[scope] = Math.min(indices[scope] || 0, pages - 1);
             return [...(scope === 'voice' ? [net('MIC', 'mic')] : []), net('EVERYONE', 'audienceAll', { scope }),
                 net('CLEAR SELECTION', 'audienceClear', { scope }),
-                ...mp.people().map(person => net(this._vrShortName(person.name), 'audiencePeer', { scope, peer: person.id })),
+                ...people.slice(index * per, index * per + per).map(person => net(this._vrShortName(person.name), 'audiencePeer', { scope, peer: person.id })),
+                ...(pages > 1 ? [net('NEXT RECIPIENTS', 'audiencePage', { scope })] : []),
                 back(scope === 'voice' ? 'online' : 'chat'), common.close];
         }
         if (page === 'safety') {
@@ -127,6 +160,7 @@ class VRClubSocialUI extends window.VRClubMenu {
                 net('NOD TO NOD', 'autoNod'),
                 net('UNBLOCK ALL', 'unblockAll'),
                 net('REVIEW SAFETY GUIDE', 'reviewSafety'),
+                ...(mp.canModerate?.() ? [{ label: 'SAFETY REPORTS', action: 'page', target: 'reports' }] : []),
                 net('LEAVE ROOM', 'leave', { danger: true }),
                 back('online'),
                 common.close
@@ -256,11 +290,11 @@ class VRClubSocialUI extends window.VRClubMenu {
             case 'safetyPrivate': return 'RECOMMENDED';
             case 'safetyAccept': return 'I UNDERSTAND';
             case 'connection': return mp.connected ? 'CONNECTED' : mp.connecting ? 'CONNECTING' : 'OFFLINE';
-            case 'mic': return !mp.connected ? 'JOIN A ROOM FIRST' : active ? (mp.voiceAudience === null ? 'ON: EVERYONE' : 'ON: SELECTED') : 'MIC OFF';
+            case 'mic': return !mp.connected ? 'JOIN A ROOM FIRST' : active ? (mp.client?.localSpeaking ? 'YOU ARE SPEAKING' : mp.voiceAudience === null ? 'ON: EVERYONE' : 'ON: SELECTED') : 'MIC OFF';
             case 'chatUnread': return mp.chatUnread ? ` NEW` : '';
             case 'duck': return active ? 'WHILE TALKING' : 'OFF';
             case 'phrase': return !mp.connected ? 'JOIN A ROOM FIRST' : '';
-            case 'avatar': return mp.selfAvatar ? (ClubMultiplayer.AVATAR_LABELS[mp.selfAvatar] || '').split(',')[0].toUpperCase() : '';
+            case 'avatar': return mp.selfAvatar ? (this.characterLabel?.(mp.selfAvatar) || ClubMultiplayer.AVATAR_LABELS[mp.selfAvatar] || '').split(',')[0].toUpperCase() : '';
             case 'peopleCount': return mp.connected ? `${mp.client.peerCount} HERE` : '';
             case 'personalSpace': case 'muteAll': case 'autoNod': case 'nameTags': return active ? 'ON' : 'OFF';
             case 'lock': return !mp.isHost() ? 'HOST ONLY' : active ? 'LOCKED' : 'OPEN';
@@ -319,6 +353,7 @@ class VRClubSocialUI extends window.VRClubMenu {
                 this._showVRQuickMenuPage('online');
                 return;
             case 'safetyPrivate':
+                mp.cancelPendingSafetyJoin();
                 mp.acceptOnlineSafety();
                 mp.joinNewPrivateRoom();
                 this.showErrorMessage(`Private room ${mp.currentRoom.replace('private-', '')}: share this code only with people you trust`);
@@ -328,8 +363,27 @@ class VRClubSocialUI extends window.VRClubMenu {
                 this._showVRQuickMenuPage('onlineSafety');
                 return;
             case 'safetyOffline':
+                mp.cancelPendingSafetyJoin();
                 this._showVRQuickMenuPage('home');
                 return;
+            case 'chatHistoryPage':
+                this._vrChatOffset = Math.min(Math.max(0, mp.chat.length - 1), Math.max(0, (this._vrChatOffset || 0) + button.delta));
+                this._showVRQuickMenuPage('chatHistory');
+                return;
+            case 'reportsPage':
+                this._vrReportOffset = ((this._vrReportOffset || 0) + 1) % Math.max(1, mp.moderationReports.length);
+                this._showVRQuickMenuPage('reports');
+                return;
+            case 'dismissReport':
+                mp.dismissModerationReport(button.value);
+                this._showVRQuickMenuPage('reports');
+                return;
+            case 'audiencePage': {
+                const pages = Math.max(1, Math.ceil(mp.people().length / 6));
+                this._vrAudiencePages[button.scope] = ((this._vrAudiencePages[button.scope] || 0) + 1) % pages;
+                this._showVRQuickMenuPage(`${button.scope}Audience`);
+                return;
+            }
             case 'browseRooms':
             case 'moreRooms':
                 this._showVRQuickMenuPage('rooms');

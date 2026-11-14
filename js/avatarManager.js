@@ -102,7 +102,7 @@ class AvatarManager {
             root, body, nameplate: null, person: null, detailLoading: false, detailRetryAt: 0, loadErrorShown: false,
             muted: false, speaking: false, isHost: false, hidden: false, culled: false, animPaused: false, seated: false,
             eyeHeight: AvatarManager.EYE_HEIGHT, wantedEye: AvatarManager.EYE_HEIGHT, eyeEasing: false, eyeY: 0, floorY: null,
-            emojiPlane: null, emojiTimer: 0, lastEmojiAt: -Infinity,
+            emojiPlane: null, emojiTexture: null, emojiTimer: 0, lastEmojiAt: -Infinity,
             chatPlane: null, chatTimer: 0,
             gesture: { until: 0, last: -Infinity, dancing: false },
             speed: 0, prevX: NaN, prevZ: NaN,
@@ -581,41 +581,46 @@ class AvatarManager {
     showEmoji(id, emoji) {
         const peer = this.remotes.get(id);
         if (!peer || !AvatarManager.ALLOWED_EMOJI.has(emoji)) return;
-        // Each reaction allocates a mesh, material and DynamicTexture, so a flooding
-        // peer must not be able to churn GPU resources on every other guest.
         const now = (typeof performance !== 'undefined' ? performance.now() : Date.now()) / 1000;
         if (now - peer.lastEmojiAt < AvatarManager.EMOJI_MIN_INTERVAL) return;
         peer.lastEmojiAt = now;
-        this._clearEmoji(peer);
-
-        const scene = this.scene;
-        const plane = BABYLON.MeshBuilder.CreatePlane(`remoteEmoji_${id}`, { size: AvatarManager.EMOJI_SIZE }, scene);
-        plane.parent = peer.root;
-        plane.position.y = AvatarManager.EMOJI_Y;
-        plane.billboardMode = BABYLON.Mesh.BILLBOARDMODE_ALL;
-        plane.isPickable = false;
-
-        const dt = new BABYLON.DynamicTexture(`remoteEmojiTex_${id}`, { width: 128, height: 128 }, scene, false);
-        dt.hasAlpha = true;
-        const ctx = dt.getContext();
+        let plane = peer.emojiPlane;
+        if (!plane) {
+            plane = BABYLON.MeshBuilder.CreatePlane(`remoteEmoji_${id}`, { size: AvatarManager.EMOJI_SIZE }, this.scene);
+            plane.parent = peer.root;
+            plane.position.y = AvatarManager.EMOJI_Y;
+            plane.billboardMode = BABYLON.Mesh.BILLBOARDMODE_ALL;
+            plane.isPickable = false;
+            const texture = new BABYLON.DynamicTexture(`remoteEmojiTex_${id}`, { width: 128, height: 128 }, this.scene, false);
+            texture.hasAlpha = true;
+            plane.material = this._labelMaterial(`remoteEmojiMat_${id}`, texture);
+            peer.emojiPlane = plane;
+            peer.emojiTexture = texture;
+        }
+        const ctx = peer.emojiTexture.getContext();
+        ctx.clearRect(0, 0, 128, 128);
         ctx.font = '96px sans-serif';
         ctx.textAlign = 'center';
         ctx.textBaseline = 'middle';
         ctx.fillText(emoji, 64, 68);
-        dt.update();
-
-        plane.material = this._labelMaterial(`remoteEmojiMat_${id}`, dt);
-
-        peer.emojiPlane = plane;
+        peer.emojiTexture.update();
+        plane.setEnabled(true);
         peer.emojiTimer = 2.2;
     }
 
     _clearEmoji(peer) {
         if (!peer.emojiPlane) return;
-        peer.emojiPlane.material.diffuseTexture.dispose();
+        peer.emojiPlane.setEnabled(false);
+        peer.emojiTimer = 0;
+    }
+
+    _disposeEmoji(peer) {
+        if (!peer.emojiPlane) return;
+        peer.emojiTexture?.dispose();
         peer.emojiPlane.material.dispose();
         peer.emojiPlane.dispose();
         peer.emojiPlane = null;
+        peer.emojiTexture = null;
     }
 
     // ───────────────────────── voice ─────────────────────────
@@ -771,7 +776,7 @@ class AvatarManager {
         const peer = this.remotes.get(id);
         if (!peer) return;
         this.detachVoice(id);
-        this._clearEmoji(peer);
+        this._disposeEmoji(peer);
         if (peer.chatPlane) {
             peer.chatPlane.material.diffuseTexture.dispose();
             peer.chatPlane.material.dispose();
@@ -844,7 +849,7 @@ class AvatarManager {
                 if (this._frame % 6 === 0) this._updateSpeaking(peer);
             }
 
-            if (peer.emojiPlane) {
+            if (peer.emojiTimer > 0) {
                 peer.emojiTimer -= step;
                 if (peer.emojiTimer <= 0) this._clearEmoji(peer);
             }

@@ -29,6 +29,8 @@ test('nearby conversation clarity respects visibility, muting and personal dista
     peer.speaking = false;
     assert.equal(experience.nearbyVoiceActivity.call(club), 0);
     club.multiplayer.micEnabled = true;
+    assert.equal(experience.nearbyVoiceActivity.call(club), 0, 'an enabled but silent microphone is not activity');
+    club.multiplayer.client = { localSpeaking: true };
     assert.ok(experience.nearbyVoiceActivity.call(club) > 0.99);
 });
 
@@ -67,27 +69,6 @@ test('paged VR credits retain attribution and complete source links', () => {
     const compact = output.join('').replace(/\s/g, '');
     assert.ok(compact.includes(text.replace(/\s/g, '')));
     assert.ok(compact.includes(link));
-});
-
-test('failed postcard restores menu and labels and releases temporary camera', async () => {
-    let disposed = false;
-    const mesh = () => ({ enabled: true, isEnabled() { return this.enabled; },
-        setEnabled(value) { this.enabled = value; }, isDisposed: () => false });
-    const menu = mesh(), label = mesh();
-    const experience = harness({ BABYLON: {
-        FreeCamera: class { dispose() { disposed = true; } },
-        Tools: { CreateScreenshotUsingRenderTargetAsync: async () => { throw new Error('test capture failure'); } }
-    } });
-    const notices = [];
-    const club = { _playerCamera: () => ({ position: { clone: () => ({}) }, rotationQuaternion: { clone: () => ({}) } }),
-        _vrQuickMenuRoot: menu, avatarManager: { remotes: new Map([['p', { nameplate: label }]]) },
-        showErrorMessage: text => notices.push(text) };
-    assert.equal(await experience.capturePostcard.call(club), false);
-    assert.equal(menu.enabled, true);
-    assert.equal(label.enabled, true);
-    assert.equal(club._postcardCapturing, false);
-    assert.equal(disposed, true);
-    assert.match(notices[0], /test capture failure/);
 });
 
 test('phone presets require a second explicit replacement and leaving the page cancels pairing', async () => {

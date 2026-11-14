@@ -146,5 +146,6 @@ test('scaled rooms coalesce stationary poses but send hand motion and a heartbea
     const legacyStart = sent.length;
     club.networkManager.capacity = 8;
     for (let i = 1; i <= 10; i++) club.updateNetworkPresence({ time: 2 + i / 10, dt: 0.1 });
-    assert.equal(sent.length, legacyStart + 10, 'legacy network cadence remains unchanged');
+    assert.ok(sent.length >= legacyStart + 2 && sent.length <= legacyStart + 3,
+        'small rooms use the same stationary heartbeat without suppressing changes');
 });

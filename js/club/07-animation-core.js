@@ -1,11 +1,19 @@
 'use strict';
 function easeAirLightSample(state, r, g, b, lit, dt, attack, release) {
-    const timeConstant = lit >= state.lit ? attack : release;
-    const amount = 1 - Math.exp(-dt / timeConstant);
-    state.r += (r - state.r) * amount;
-    state.g += (g - state.g) * amount;
-    state.b += (b - state.b) * amount;
-    state.lit += (lit - state.lit) * amount;
+    if (!Number.isFinite(state.r) || !Number.isFinite(state.g) || !Number.isFinite(state.b) || !Number.isFinite(state.lit)) {
+        state.r = state.g = state.b = state.lit = 0;
+    }
+    const safeR = Number.isFinite(r) ? Math.max(0, r) : 0;
+    const safeG = Number.isFinite(g) ? Math.max(0, g) : 0;
+    const safeB = Number.isFinite(b) ? Math.max(0, b) : 0;
+    const safeLit = Number.isFinite(lit) ? Math.max(0, lit) : 0;
+    const timeConstant = safeLit >= state.lit ? attack : release;
+    const step = Number.isFinite(dt) && dt > 0 ? dt : 1 / 60;
+    const amount = 1 - Math.exp(-step / Math.max(1e-3, timeConstant));
+    state.r = Math.max(0, state.r + (safeR - state.r) * amount);
+    state.g = Math.max(0, state.g + (safeG - state.g) * amount);
+    state.b = Math.max(0, state.b + (safeB - state.b) * amount);
+    state.lit = Math.max(0, state.lit + (safeLit - state.lit) * amount);
 }
 
 class VRClubAnimationCore extends VRClubEffects {
@@ -72,9 +80,13 @@ class VRClubAnimationCore extends VRClubEffects {
         if (!cam) return;
         let rotY = cam.rotation ? cam.rotation.y : 0;
         if (cam.rotationQuaternion) {
-            const rotation = this._networkRotation || (this._networkRotation = new BABYLON.Vector3());
-            cam.rotationQuaternion.toEulerAnglesToRef(rotation);
-            rotY = rotation.y;
+            const q = cam.rotationQuaternion;
+            // The yaw twist stays continuous across a vertical gaze, unlike Euler's pitch branch.
+            if (q.w * q.w + q.y * q.y > 1e-8) {
+                const twist = 2 * Math.atan2(q.y, q.w);
+                rotY = Math.atan2(Math.sin(twist), Math.cos(twist));
+                this._networkHeading = rotY;
+            } else rotY = this._networkHeading || 0;
         }
         const position = cam.globalPosition || cam.position;
         const state = this._networkPose || (this._networkPose = {
@@ -109,10 +121,10 @@ class VRClubAnimationCore extends VRClubEffects {
             }
             state.hands = hands;
         }
-        if (net.capacity > 8) {
-            const previous = this._lastNetworkPose;
+        {
+            const previous = this._lastNetworkPoseClient === net ? this._lastNetworkPose : null;
             let changed = !previous || Math.hypot(state.x - previous.x, state.y - previous.y, state.z - previous.z) > 0.01 ||
-                Math.abs(state.rotY - previous.rotY) > 0.01 || state.seated !== previous.seated ||
+                Math.abs(Math.atan2(Math.sin(state.rotY - previous.rotY), Math.cos(state.rotY - previous.rotY))) > 0.01 || state.seated !== previous.seated ||
                 state.seatH !== previous.seatH || state.floorY !== previous.floorY || state.eh !== previous.eh;
             if (!changed) {
                 for (let i = 0; i < 2; i++) {
@@ -125,6 +137,8 @@ class VRClubAnimationCore extends VRClubEffects {
                 }
             }
             if (!changed && ctx.time - (this._lastNetworkPoseAt || 0) < 0.5) return;
+            if (net.sendState(state) === false) return;
+            this._lastNetworkPoseClient = net;
             const saved = previous || (this._lastNetworkPose = {
                 x: 0, y: 0, z: 0, rotY: 0, hands: { left: null, right: null },
                 left: {}, right: {}
@@ -138,7 +152,6 @@ class VRClubAnimationCore extends VRClubEffects {
             }
             this._lastNetworkPoseAt = ctx.time;
         }
-        net.sendState(state);
     }
 
     /**
@@ -202,7 +215,13 @@ class VRClubAnimationCore extends VRClubEffects {
         if (this.lasersActive) brightness += 0.10 * master;
         if (this.laserSheetActive) brightness += 0.12 * master;
         if (this.mirrorBallActive) brightness += 0.08 * master;
-        if (this.strobesActive && !this.photosensitiveSafeMode) brightness += 0.12 * master;
+        if (this.photosensitiveSafeMode) {
+            this._strobeAdaptation = 0;
+        } else if (this._strobeAdaptation > 0) {
+            brightness += this._strobeAdaptation;
+            this._strobeAdaptation *= Math.exp(-ctx.dt / 1.2);
+            if (this._strobeAdaptation < 0.001) this._strobeAdaptation = 0;
+        }
         brightness += (ctx.beat || 0) * 0.10;
 
         // Stopping down is capped harder than opening up so a blackout never blows out. In the headset the
@@ -247,9 +266,16 @@ class VRClubAnimationCore extends VRClubEffects {
 
         const settings = this.isInVRMode ? this.vrSettings.vr : this.vrSettings.desktop;
         const master = Math.max(0, this.masterIntensity != null ? this.masterIntensity : 1);
+        const wallLevel = this.ledWallLevel == null ? 1 : Math.max(0, Math.min(1, this.ledWallLevel));
+        const wallBright = Number.isFinite(this.ledWallBrightness)
+            ? Math.min(this.photosensitiveSafeMode ? 1 : 2, Math.max(0, this.ledWallBrightness)) : 1;
+        const wallDrive = wallLevel * wallBright;
+        const wallOut = (this.ledPanels && this._airLedHasMean)
+            ? Math.min(1.5, this._airLedMeanLit || 0)
+            : wallDrive * (0.20 + 0.80 * Math.min(1, wallDrive));
         let reflectedEnergy = 0;
         if (this.lightsActive) reflectedEnergy += 0.120;
-        if (this.ledWallActive) reflectedEnergy += 0.060;
+        if (this.ledWallActive) reflectedEnergy += 0.060 * wallOut;
         if (this.lasersActive) reflectedEnergy += 0.070;
         if (this.laserSheetActive) reflectedEnergy += 0.090;
         if (this.mirrorBallActive) reflectedEnergy += 0.080;
@@ -264,8 +290,22 @@ class VRClubAnimationCore extends VRClubEffects {
         let r = 0, g = 0, b = 0, weight = 0;
         let color = this.lightsActive && this.currentSpotColor;
         if (color) { r += color.r * 0.120; g += color.g * 0.120; b += color.b * 0.120; weight += 0.120; }
-        color = this.ledWallActive && (this.ledShowColor || this.currentSpotColor);
-        if (color) { r += color.r * 0.060; g += color.g * 0.060; b += color.b * 0.060; weight += 0.060; }
+        if (this.ledWallActive && wallOut > 0.001) {
+            if (this.ledPanels && this._airLedHasMean && (this._airLedMeanLit || 0) > 0.001) {
+                const invMean = 1 / this._airLedMeanLit;
+                const w = 0.060 * wallOut;
+                r += (this._airLedMeanR * invMean) * w;
+                g += (this._airLedMeanG * invMean) * w;
+                b += (this._airLedMeanB * invMean) * w;
+                weight += w;
+            } else {
+                color = this.ledShowColor || this.currentSpotColor;
+                if (color) {
+                    const w = 0.060 * wallOut;
+                    r += color.r * w; g += color.g * w; b += color.b * w; weight += w;
+                }
+            }
+        }
         color = (this.lasersActive || this.laserSheetActive) && typeof this._laserColor === 'function'
             ? this._laserColor() : null;
         if (color) {
@@ -477,10 +517,10 @@ class VRClubAnimationCore extends VRClubEffects {
         const retention = source > this._smokeImmersion ? 1.6 : 18;
         this._smokeImmersion += (source - this._smokeImmersion) * (1 - Math.exp(-step60 / retention));
         if (this.reducedShowSmoke || this.smokeActive === false) this._smokeImmersion = 0;
+        const activeImmersion = (this.reducedShowSmoke || this.smokeActive === false) ? 0 : Math.max(
+            this._smokeImmersion, this.vjManualMode && intensity === 2 ? smoke : 0);
         if (typeof designed === 'number') {
-            const immersion = this.reducedShowSmoke ? 0 : Math.max(
-                this._smokeImmersion, this.vjManualMode && intensity === 2 ? 1 : 0);
-            const target = designed * (0.1 + 0.9 * smoke) * (1 + 2 * immersion * (1 - outdoors)) * (1 - 0.62 * outdoors);
+            const target = designed * (0.1 + 0.9 * smoke) * (1 + 2 * activeImmersion * (1 - outdoors)) * (1 - 0.62 * outdoors);
             const current = scene.fogDensity;
             if (!(current > 0)) {
                 scene.fogDensity = target;
@@ -492,57 +532,100 @@ class VRClubAnimationCore extends VRClubEffects {
         }
         const dim = this.masterIntensity == null ? 1 : Math.max(0, Math.min(1, this.masterIntensity));
         const fog = scene.fogColor;
-        const spot = this.currentSpotColor;
         const safeBrightnessMax = this.photosensitiveSafeMode ? 1 : 3;
-        const spotLevel = Number.isFinite(this.spotBrightness)
-            ? Math.min(this.photosensitiveSafeMode ? 1 : 2, Math.max(0, this.spotBrightness)) : 1;
         const laserLevel = Number.isFinite(this.laserBrightness)
-            ? Math.min(safeBrightnessMax, Math.max(0, this.laserBrightness)) : 1;
+            ? Math.min(this.photosensitiveSafeMode ? 1 : 2, Math.max(0, this.laserBrightness)) : 1;
         const sheetLevel = Number.isFinite(this.laserSheetBrightness)
             ? Math.min(safeBrightnessMax, Math.max(0, this.laserSheetBrightness)) : 1;
         const wallLevel = this.ledWallLevel == null ? 1 : Math.max(0, Math.min(1, this.ledWallLevel));
-        let activeColor = null;
-        let tintMix = 0;
-        if (this.lightsActive && spot && spotLevel > 0) {
-            activeColor = spot;
-            tintMix = 0.07 * Math.min(1, spotLevel);
+        let tintR = 0, tintG = 0, tintB = 0, tintWeight = 0;
+        if (this.lightsActive && this.spotlights && dim > 0 && this.spotBrightness !== 0) {
+            const reference = (this.isInVRMode ? 48 : 30) * dim * (1 + (this.kickPulse || 0) * 0.9);
+            for (const head of this.spotlights) {
+                if (head.beamVisible === false || head._rigLevel === 0) continue;
+                const color = head._renderColor || head._rigColor;
+                const output = Math.max(0, head._photoIntensity || 0);
+                if (!color || output === 0) continue;
+                const weight = 0.07 * Math.min(2, output / reference) / this.spotlights.length;
+                tintR += color.r * weight;
+                tintG += color.g * weight;
+                tintB += color.b * weight;
+                tintWeight += weight;
+            }
         }
-        if (this.mirrorBallActive && this.mirrorBallSpotlightColor && tintMix < 0.018) {
-            activeColor = this.mirrorBallSpotlightColor;
-            tintMix = 0.018;
+        if (this.mirrorBallActive && this.mirrorBallSpotlightColor) {
+            const color = this.mirrorBallSpotlightColor, weight = 0.018;
+            tintR += color.r * weight;
+            tintG += color.g * weight;
+            tintB += color.b * weight;
+            tintWeight += weight;
         }
         if ((this.lasersActive || this.laserSheetActive) && typeof this._laserColor === 'function') {
             const level = Math.max(this.lasersActive ? laserLevel : 0, this.laserSheetActive ? sheetLevel : 0);
-            if (level * 0.012 > tintMix) {
-                activeColor = this._laserColor();
-                tintMix = Math.min(0.03, level * 0.012);
+            if (level > 0) {
+                const color = this._laserColor(), weight = Math.min(0.03, level * 0.012);
+                tintR += color.r * weight;
+                tintG += color.g * weight;
+                tintB += color.b * weight;
+                tintWeight += weight;
             }
         }
-        if (this.ledWallActive && this.ledShowColor && wallLevel * 0.014 > tintMix) {
-            activeColor = this.ledShowColor;
-            tintMix = wallLevel * 0.014;
+        if (this.ledWallActive && wallLevel > 0) {
+            (this._gatherAirLedWall || VRClubAnimationCore.prototype._gatherAirLedWall).call(this);
+            const wallBright = Number.isFinite(this.ledWallBrightness)
+                ? Math.min(this.photosensitiveSafeMode ? 1 : 2, Math.max(0, this.ledWallBrightness)) : 1;
+            if (this.ledPanels && this._airLedHasMean) {
+                const meanLit = Math.min(1.5, this._airLedMeanLit || 0);
+                if (meanLit > 0.001) {
+                    const weight = Math.min(0.024, meanLit * 0.014);
+                    const invMean = 1 / meanLit;
+                    tintR += (this._airLedMeanR * invMean) * weight;
+                    tintG += (this._airLedMeanG * invMean) * weight;
+                    tintB += (this._airLedMeanB * invMean) * weight;
+                    tintWeight += weight;
+                }
+            } else if (this.ledShowColor && wallBright > 0) {
+                const wallDrive = wallLevel * wallBright;
+                const wallRadiant = wallDrive * (0.20 + 0.80 * Math.min(1, wallDrive));
+                const color = this.ledShowColor, weight = Math.min(0.024, wallRadiant * 0.014);
+                tintR += color.r * weight;
+                tintG += color.g * weight;
+                tintB += color.b * weight;
+                tintWeight += weight;
+            }
         }
-        const scatter = this.reducedShowSmoke ? 0 : this._smokeImmersion * 0.1;
-        const mix = tintMix * dim;
+        const airR = tintWeight > 0 ? tintR / tintWeight : 0;
+        const airG = tintWeight > 0 ? tintG / tintWeight : 0;
+        const airB = tintWeight > 0 ? tintB / tintWeight : 0;
+        // Both automatic fogImmersion and manual Maximum scatter active club light as glowing misty haze rather than darkening the room.
+        const scatter = activeImmersion * 0.16 * Math.min(1, tintWeight / 0.07);
+        const mistNeutral = (tintWeight > 0 ? Math.min(1, tintWeight / 0.04) : 0) * activeImmersion * 0.036 * dim;
+        const mix = Math.min(0.08, tintWeight) * dim;
         if (fog) {
             // The club tints its air with the show; the street's is a cool night blue.
             const indoors = 1 - outdoors;
-            fog.r = (0.015 + (activeColor ? activeColor.r * mix : 0) + (activeColor ? activeColor.r * scatter * dim : 0)) * indoors + 0.024 * outdoors;
-            fog.g = (0.012 + (activeColor ? activeColor.g * mix : 0) + (activeColor ? activeColor.g * scatter * dim : 0)) * indoors + 0.032 * outdoors;
-            fog.b = (0.018 + (activeColor ? activeColor.b * mix : 0) + (activeColor ? activeColor.b * scatter * dim : 0)) * indoors + 0.07 * outdoors;
+            fog.r = (0.015 + mistNeutral + airR * (mix + scatter * dim)) * indoors + 0.024 * outdoors;
+            fog.g = (0.012 + mistNeutral + airG * (mix + scatter * dim)) * indoors + 0.032 * outdoors;
+            fog.b = (0.018 + mistNeutral * 1.08 + airB * (mix + scatter * dim)) * indoors + 0.07 * outdoors;
         }
+        // Store indirect room bounce so 3D nozzle smoke plumes remain visibly lit across the dance floor
+        // whenever club fixtures are active, while still going completely dark on blackout.
+        const roomFlux = Math.min(1, (tintWeight / 0.055) * dim);
+        this._airBounceLit = roomFlux * 0.34;
+        this._airBounceR = (0.38 + airR * 0.62) * this._airBounceLit;
+        this._airBounceG = (0.38 + airG * 0.62) * this._airBounceLit;
+        this._airBounceB = (0.42 + airB * 0.62) * this._airBounceLit;
         const haze = this.haze;
         if (!haze || !haze.color1) return;
-        const anyLit = !!(this.lightsActive || this.lasersActive || this.laserSheetActive || this.mirrorBallActive || this.ledWallActive);
-        const lightScale = anyLit ? dim : 0.08;
-        if (activeColor && anyLit) {
-            haze.color1.r = (0.42 + activeColor.r * 0.22) * lightScale;
-            haze.color1.g = (0.40 + activeColor.g * 0.22) * lightScale;
-            haze.color1.b = (0.46 + activeColor.b * 0.22) * lightScale;
+        if (roomFlux > 0.001) {
+            const darkMix = 1 - roomFlux;
+            haze.color1.r = 0.04 * darkMix + (0.18 + airR * 0.14) * roomFlux;
+            haze.color1.g = 0.04 * darkMix + (0.17 + airG * 0.14) * roomFlux;
+            haze.color1.b = 0.055 * darkMix + (0.21 + airB * 0.14) * roomFlux;
             if (haze.color2) {
-                haze.color2.r = (0.48 + activeColor.r * 0.18) * lightScale;
-                haze.color2.g = (0.46 + activeColor.g * 0.18) * lightScale;
-                haze.color2.b = (0.52 + activeColor.b * 0.18) * lightScale;
+                haze.color2.r = 0.045 * darkMix + (0.22 + airR * 0.12) * roomFlux;
+                haze.color2.g = 0.045 * darkMix + (0.21 + airG * 0.12) * roomFlux;
+                haze.color2.b = 0.06 * darkMix + (0.25 + airB * 0.12) * roomFlux;
             }
         } else {
             haze.color1.r = 0.04;
@@ -605,8 +688,9 @@ class VRClubAnimationCore extends VRClubEffects {
         const dt = Number.isFinite(frameMs) && frameMs > 0
             ? Math.min(4 / 60, frameMs / 1000) : 1 / 60;
         const plume = mode === 'plume';
-        const amplitude = plume ? 0.08 : 0.045;
-        const frequency = plume ? 0.55 : 0.34;
+        const kick = this.photosensitiveSafeMode ? 0 : Math.min(1, Math.max(0, (this.kickPulse || 0) * 0.4));
+        const amplitude = (plume ? 0.08 : 0.045) * (1 + kick * 0.12);
+        const frequency = (plume ? 0.55 : 0.34) * (1 + kick * 0.12);
         const tau = Math.PI * 2;
 
         for (let i = 0; i < particles.length; i++) {
@@ -640,6 +724,42 @@ class VRClubAnimationCore extends VRClubEffects {
             pos.x += x - particle._airDriftX;
             pos.y += y - particle._airDriftY;
             pos.z += z - particle._airDriftZ;
+            if (plume) {
+                let surfaceY = 0;
+                const stage = Math.abs(pos.x) <= 3 && pos.z >= -20 && pos.z <= -16 ? 0.5 : -Infinity;
+                const mezz = window.MezzanineLayout && window.MezzanineLayout.deck;
+                const deck = mezz && pos.x >= mezz.x0 && pos.x <= mezz.x1 && pos.z >= mezz.z0 && pos.z <= mezz.z1
+                    ? mezz.top : -Infinity;
+                const counter = window.VenueLayout && window.VenueLayout.bar && window.VenueLayout.bar.counter;
+                const bar = counter && pos.x >= counter.xFront && pos.x <= counter.xBack &&
+                    pos.z >= counter.z0 && pos.z <= counter.z1 ? counter.top : -Infinity;
+                surfaceY = Math.max(surfaceY, stage, deck, bar);
+                if (pos.y < surfaceY + 0.12) {
+                    pos.y = surfaceY + 0.12;
+                    if (particle.direction && particle.direction.y < 0) {
+                        const impinge = -particle.direction.y;
+                        particle.direction.y *= 0.18;
+                        // Cooled fog impinging on the dance floor or stage spreads forward toward the DJ booth and outward
+                        const hasHorizontal = Math.abs(particle.direction.x) > 1e-4 || Math.abs(particle.direction.z) > 1e-4;
+                        if (hasHorizontal) {
+                            const redirect = impinge * 0.48;
+                            particle.direction.z -= redirect * 0.80;
+                            const spreadSign = Math.abs(particle.direction.x) > 1e-4
+                                ? Math.sign(particle.direction.x) : (pos.x < 0 ? 1 : (pos.x > 0 ? -1 : 0));
+                            particle.direction.x += spreadSign * redirect * 0.28;
+                        }
+                    }
+                }
+                if (pos.z < -19.65) {
+                    pos.z = -19.65;
+                    if (particle.direction && particle.direction.z < 0) {
+                        particle.direction.z *= -0.15;
+                    }
+                }
+                if (particle.direction && particle.direction.y > 0) {
+                    particle.direction.y = Math.min(particle.direction.y, 0.5);
+                }
+            }
             particle._airDriftPhase = phase;
             particle._airDriftAge = Number.isFinite(particle.age) ? particle.age : null;
             particle._airDriftX = x;
@@ -657,22 +777,24 @@ class VRClubAnimationCore extends VRClubEffects {
         let n = 0;
         const spots = this.spotlights;
         const dim = this.masterIntensity == null ? 1 : Math.max(0, Math.min(1, this.masterIntensity));
-        if (this.lightsActive && spots) {
+        if (this.lightsActive && spots && dim > 0.01 && this.spotBrightness !== 0) {
             for (let i = 0; i < spots.length; i++) {
                 const spot = spots[i];
+                if (spot.beamVisible === false || spot._rigLevel === 0) continue;
                 const hit = spot._surfaceHit;
                 const kickGain = 1 + (this.kickPulse || 0) * 0.9;
-                const unpulsedIntensity = (spot._photoIntensity ?? 40) / kickGain;
-                const gain = (unpulsedIntensity / 40) * dim;
+                const unpulsedIntensity = (spot._photoIntensity || 0) / kickGain;
+                const gain = unpulsedIntensity / 40;
                 if (gain <= 0.02) continue;
                 const pos = spot._photoPos || spot.basePos || spot.position;
                 if (!pos) continue;
                 const dir = spot._photoDir || spot.direction || { x: 0, y: -1, z: 0 };
+                const dirLen = Math.hypot(dir.x, dir.y, dir.z) || 1;
                 const b = beams[n] || (beams[n] = {});
                 b.spot = spot;
                 b.color = spot._renderColor || this.currentSpotColor;
                 b.ox = pos.x; b.oy = pos.y; b.oz = pos.z;
-                b.dx = dir.x; b.dy = dir.y; b.dz = dir.z;
+                b.dx = dir.x / dirLen; b.dy = dir.y / dirLen; b.dz = dir.z / dirLen;
                 b.tan = Math.tan((spot._photoAngle || 0.52) * 0.5);
                 b.len = hit ? hit.centerDistanceToSurface : 14;
                 b.gain = Math.min(1.8, gain);
@@ -686,11 +808,12 @@ class VRClubAnimationCore extends VRClubEffects {
             if (mbBeams && mbBeams.length > 0 && mbBeams[0].origin && mbBeams[0].direction) {
                 for (let m = 0; m < mbBeams.length; m++) {
                     const mb = mbBeams[m];
+                    const dLen = Math.hypot(mb.direction.x, mb.direction.y, mb.direction.z) || 1;
                     const b = beams[n] || (beams[n] = {});
                     b.spot = null;
                     b.color = this.mirrorBallSpotlightColor;
                     b.ox = mb.origin.x; b.oy = mb.origin.y; b.oz = mb.origin.z;
-                    b.dx = mb.direction.x; b.dy = mb.direction.y; b.dz = mb.direction.z;
+                    b.dx = mb.direction.x / dLen; b.dy = mb.direction.y / dLen; b.dz = mb.direction.z / dLen;
                     b.tan = 0.145;
                     b.len = (mb.length || 5.3) + 1.0;
                     b.gain = 0.95 * dim;
@@ -721,6 +844,8 @@ class VRClubAnimationCore extends VRClubEffects {
         }
         // Rotating ceiling laser beams (3 projectors × 5 beams) cut moving coloured streaks through the smoke
         if (this.lasersActive && this.lasers && dim > 0.02 && typeof this._aimLaserBeam === 'function') {
+            const brightness = Number.isFinite(this.laserBrightness)
+                ? Math.min(this.photosensitiveSafeMode ? 1 : 2, Math.max(0, this.laserBrightness)) : 1;
             const lCol = typeof this._laserColor === 'function' ? this._laserColor() : this.currentSpotColor;
             const scratch = this._airLaserDir || (this._airLaserDir = { x: 0, y: -1, z: 0, set(x, y, z) { this.x = x; this.y = y; this.z = z; } });
             for (let li = 0; li < this.lasers.length; li++) {
@@ -730,14 +855,16 @@ class VRClubAnimationCore extends VRClubEffects {
                 for (let bi = 0; bi < laser.beams.length; bi++) {
                     const beam = laser.beams[bi];
                     this._aimLaserBeam(laser, beam, li, scratch);
+                    const sLen = Math.hypot(scratch.x, scratch.y, scratch.z) || 1;
                     const b = beams[n] || (beams[n] = {});
                     b.spot = null;
+                    b.mediumBeam = beam;
                     b.color = lCol;
                     b.ox = o.x; b.oy = o.y; b.oz = o.z;
-                    b.dx = scratch.x; b.dy = scratch.y; b.dz = scratch.z;
-                    b.tan = 0.055;
+                    b.dx = scratch.x / sLen; b.dy = scratch.y / sLen; b.dz = scratch.z / sLen;
+                    b.tan = 0.008;
                     b.len = beam.length || 14;
-                    b.gain = 1.15 * dim;
+                    b.gain = 1.15 * dim * brightness;
                     b.acc = 0;
                     n++;
                 }
@@ -753,12 +880,17 @@ class VRClubAnimationCore extends VRClubEffects {
      * across the smoke particles in 3D space. Allocates nothing per frame.
      */
     _gatherAirLedWall() {
-        const frame = this.scene ? this.scene.getFrameId() : 0;
+        const frame = typeof this.scene?.getFrameId === 'function' ? this.scene.getFrameId() : 0;
         if (this._airLedFrame === frame) return this._airLedActive;
         this._airLedFrame = frame;
-        const dim = (this.masterIntensity == null ? 1 : Math.max(0, Math.min(1, this.masterIntensity))) *
-            (this.ledWallLevel == null ? 1 : Math.max(0, Math.min(1, this.ledWallLevel)));
-        if (!this.ledWallActive || dim <= 0.01) {
+        const master = this.masterIntensity == null ? 1 : Math.max(0, Math.min(1, this.masterIntensity));
+        const wallLevel = this.ledWallLevel == null ? 1 : Math.max(0, Math.min(1, this.ledWallLevel));
+        const brightness = Number.isFinite(this.ledWallBrightness)
+            ? Math.min(this.photosensitiveSafeMode ? 1 : 2, Math.max(0, this.ledWallBrightness)) : 1;
+        const dim = master * wallLevel * brightness;
+        if (!this.ledWallActive || dim <= 0.002) {
+            this._airLedMeanR = this._airLedMeanG = this._airLedMeanB = this._airLedMeanLit = 0;
+            this._airLedHasMean = true;
             this._airLedActive = false;
             return false;
         }
@@ -767,7 +899,10 @@ class VRClubAnimationCore extends VRClubEffects {
         const cols = this.ledCols || 21;
         const rows = this.ledRows || 10;
         if (panels && panels.length >= cols * rows) {
+            // Cadence-held panels still carry the last applied master/level/brightness.
+            const panelScale = Number.isFinite(this._ledAppliedLevel) ? 1 : dim;
             let any = false;
+            let totalR = 0, totalG = 0, totalB = 0, totalCnt = 0;
             for (let gy = 0; gy < 3; gy++) {
                 const r0 = gy === 0 ? 0 : (gy === 1 ? 3 : 7);
                 const r1 = gy === 0 ? 3 : (gy === 1 ? 7 : rows);
@@ -780,42 +915,74 @@ class VRClubAnimationCore extends VRClubEffects {
                         for (let c = c0; c < c1; c++) {
                             const ec = panels[rowOff + c]?.material?.emissiveColor;
                             if (ec) {
-                                sr += ec.r; sg += ec.g; sb += ec.b;
+                                const pr = Math.max(0, ec.r * panelScale);
+                                const pg = Math.max(0, ec.g * panelScale);
+                                const pb = Math.max(0, ec.b * panelScale);
+                                // Display-space panel emission to linear radiometric flux: dim accompaniment
+                                // patterns emit far less light into the room than full-drive panels.
+                                const peak = Math.max(pr, pg, pb);
+                                const transfer = 0.12 + 0.88 * Math.min(1, peak);
+                                sr += pr * transfer;
+                                sg += pg * transfer;
+                                sb += pb * transfer;
                                 cnt++;
                             }
                         }
                     }
-                    const inv = cnt > 0 ? dim / cnt : 0;
+                    const inv = cnt > 0 ? 1 / cnt : 0;
                     const idx = (gy * 7 + gx) * 3;
-                    grid[idx] = sr * inv;
-                    grid[idx + 1] = sg * inv;
-                    grid[idx + 2] = sb * inv;
-                    if (grid[idx] + grid[idx + 1] + grid[idx + 2] > 0.005) any = true;
+                    const cr = sr * inv, cg = sg * inv, cb = sb * inv;
+                    grid[idx] = cr;
+                    grid[idx + 1] = cg;
+                    grid[idx + 2] = cb;
+                    totalR += sr;
+                    totalG += sg;
+                    totalB += sb;
+                    totalCnt += cnt;
+                    if (cr + cg + cb > 0.003) any = true;
                 }
             }
+            const invTotal = totalCnt > 0 ? 1 / totalCnt : 0;
+            this._airLedMeanR = totalR * invTotal;
+            this._airLedMeanG = totalG * invTotal;
+            this._airLedMeanB = totalB * invTotal;
+            this._airLedMeanLit = Math.max(this._airLedMeanR, this._airLedMeanG, this._airLedMeanB);
+            this._airLedHasMean = true;
             this._airLedActive = any;
             return any;
         }
-        const fallback = this.ledShowColor || this.currentSpotColor;
+        const fallback = this.ledShowColor;
         if (!fallback) {
+            this._airLedMeanR = this._airLedMeanG = this._airLedMeanB = this._airLedMeanLit = 0;
+            this._airLedHasMean = false;
             this._airLedActive = false;
             return false;
         }
+        const fPeak = Math.max(0, fallback.r, fallback.g, fallback.b) * dim;
+        const fScale = dim * (0.12 + 0.88 * Math.min(1, fPeak));
+        const fr = Math.max(0, fallback.r * fScale);
+        const fg = Math.max(0, fallback.g * fScale);
+        const fb = Math.max(0, fallback.b * fScale);
         for (let i = 0; i < 21; i++) {
             const idx = i * 3;
-            grid[idx] = fallback.r * dim;
-            grid[idx + 1] = fallback.g * dim;
-            grid[idx + 2] = fallback.b * dim;
+            grid[idx] = fr;
+            grid[idx + 1] = fg;
+            grid[idx + 2] = fb;
         }
-        this._airLedActive = true;
-        return true;
+        this._airLedMeanR = fr;
+        this._airLedMeanG = fg;
+        this._airLedMeanB = fb;
+        this._airLedMeanLit = Math.max(fr, fg, fb);
+        this._airLedHasMean = true;
+        this._airLedActive = fr + fg + fb > 0.003;
+        return this._airLedActive;
     }
 
     /** Sample the 7×3 spatial LED-wall grid at a 3D particle position `pos` (writes `out.r/g/b/lit`). */
-    _sampleAirLedWall(pos, out) {
+    _sampleAirLedWall(pos, out, cp) {
         const grid = this._airLedGrid;
         const dz = Math.max(0.6, pos.z - (-20));
-        if (dz > 18) { out.r = out.g = out.b = out.lit = 0; return; }
+        if (!grid || dz > 18) { out.r = out.g = out.b = out.lit = 0; return; }
         const u = Math.max(0, Math.min(5.999, ((pos.x + 12) / 24) * 6));
         const v = Math.max(0, Math.min(1.999, ((pos.y - 0.5) / 9) * 2));
         const ix = u | 0, iy = v | 0;
@@ -837,7 +1004,18 @@ class VRClubAnimationCore extends VRClubEffects {
             g = g * (1 - spread) + (grid[leftIdx + 1] + grid[rightIdx + 1]) * 0.5 * spread;
             b = b * (1 - spread) + (grid[leftIdx + 2] + grid[rightIdx + 2]) * 0.5 * spread;
         }
-        const atten = 0.58 / (1 + dz * 0.10 + dz * dz * 0.006);
+        // Finite-aperture Lambertian emitter falloff + lateral cosine obliquity + Mie forward scatter
+        const offX = Math.max(0, Math.abs(pos.x) - 10.5);
+        const offY = Math.max(0, Math.abs(pos.y - 5.0) - 4.5);
+        const obliquity = 1 / Math.sqrt(1 + (offX * offX + offY * offY) / (dz * dz + 12));
+        let phase = 1.0;
+        if (cp) {
+            const cx = cp.x - pos.x, cy = cp.y - pos.y, cz = cp.z - pos.z;
+            const cl = Math.sqrt(cx * cx + cy * cy + cz * cz) || 1;
+            const cosView = Math.max(-1, Math.min(1, cz / cl));
+            phase = 0.85 + 0.30 * Math.max(0, cosView);
+        }
+        const atten = (0.62 * obliquity * phase) / (1 + dz * 0.26 + dz * dz * 0.042);
         out.r = r * atten;
         out.g = g * atten;
         out.b = b * atten;
@@ -852,14 +1030,17 @@ class VRClubAnimationCore extends VRClubEffects {
         const sheets = this._airSheets || (this._airSheets = []);
         let n = 0;
         if (this.laserSheetActive && this.laserSheetSource && (this.masterIntensity == null || this.masterIntensity > 0.02)) {
-            const addSource = (housing) => {
-                if (!housing || !housing.position || !housing.rotation) return;
-                const pitch = housing.rotation.x || 0;
-                const yaw = housing.rotation.y || 0;
+            const addSource = (scanner) => {
+                if (!scanner || !scanner.position || !scanner.rotation) return;
+                const matrix = scanner.computeWorldMatrix ? scanner.computeWorldMatrix(true).m : null;
+                const pitch = scanner.rotation.x || 0;
+                const yaw = scanner.rotation.y || 0;
                 const cp = Math.cos(pitch), sp = Math.sin(pitch);
                 const cy = Math.cos(yaw), sy = Math.sin(yaw);
                 const s = sheets[n] || (sheets[n] = {});
-                s.ox = housing.position.x; s.oy = housing.position.y; s.oz = housing.position.z;
+                s.ox = matrix ? matrix[12] : scanner.position.x;
+                s.oy = matrix ? matrix[13] : scanner.position.y;
+                s.oz = matrix ? matrix[14] : scanner.position.z;
                 // Orthonormal basis of the projector under Euler YXZ(yaw, pitch, 0):
                 // forward (local +Z), plane normal (local +Y), and lateral fan axis (local +X)
                 s.fx = sy * cp; s.fy = -sp; s.fz = cy * cp;
@@ -870,7 +1051,7 @@ class VRClubAnimationCore extends VRClubEffects {
             };
             addSource(this.laserSheetSource);
             if (this._laserSheetFollower && this._laserSheetFollower.mount) {
-                addSource(this._laserSheetFollower.mount.housing);
+                addSource(this._laserSheetFollower.mount.scanner || this._laserSheetFollower.mount.housing);
             }
         }
         this._airSheetCount = n;
@@ -885,6 +1066,8 @@ class VRClubAnimationCore extends VRClubEffects {
      */
     _sampleAirSheets(pos, size, isPlume, dim, cp, sheets, nSheets) {
         let sheetLit = 0;
+        const brightness = Number.isFinite(this.laserSheetBrightness)
+            ? Math.min(this.photosensitiveSafeMode ? 1 : 3, Math.max(0, this.laserSheetBrightness)) : 1;
         const t = this._airSheetTime || 0;
         for (let s = 0; s < nSheets; s++) {
             const sh = sheets[s];
@@ -907,11 +1090,11 @@ class VRClubAnimationCore extends VRClubEffects {
             if (cp) {
                 const cx = cp.x - pos.x, cy = cp.y - pos.y, cz = cp.z - pos.z;
                 const cl = Math.sqrt(cx * cx + cy * cy + cz * cz) || 1;
-                const cosT = (cx * sh.fx + cy * sh.fy + cz * sh.fz) / cl;
+                const cosT = Math.max(-1, Math.min(1, (cx * sh.fx + cy * sh.fy + cz * sh.fz) / cl));
                 phase = 0.65 + Math.min(0.65, 0.24 / Math.pow(1.25 - cosT * 0.75, 1.5));
             }
             // Subtle, delicate sheet slice: the laser sheet is a thin low-alpha veil, not a spotlight
-            const contrib = (0.22 * veil * veil + 0.38 * core) * edgeBoost * falloff * wisp * phase * dim;
+            const contrib = (0.22 * veil * veil + 0.38 * core) * edgeBoost * falloff * wisp * phase * dim * brightness;
             sheetLit += contrib;
             sh.acc += contrib;
         }
@@ -943,7 +1126,7 @@ class VRClubAnimationCore extends VRClubEffects {
             if (cp) {
                 const cx = cp.x - pos.x, cy = cp.y - pos.y, cz = cp.z - pos.z;
                 const cl = Math.sqrt(cx * cx + cy * cy + cz * cz) || 1;
-                const cosView = (cx * vx + cy * vy + cz * vz) / (cl * d);
+                const cosView = Math.max(-1, Math.min(1, (cx * vx + cy * vy + cz * vz) / (cl * d)));
                 phase = 0.45 + Math.min(1.4, 0.28 / Math.pow(1.38 - cosView * 0.85, 1.5));
             }
             const pulse = Math.min(1.2, Math.max(0.45, st.flashDuration / 0.032)) * ((st.currentIntensity || 80) / 80);
@@ -956,20 +1139,59 @@ class VRClubAnimationCore extends VRClubEffects {
         }
     }
 
+    _sampleAirMirrorRays(pos, size, cp, dim, isDust, out) {
+        out.r = out.g = out.b = out.lit = 0;
+        const batch = this.mirrorReflectionBatch;
+        const color = this.mirrorBallSpotlightColor;
+        if (!this.mirrorBallActive || this.mirrorBallRaysActive === false || !batch ||
+            !batch.rayCount || !batch.rayOrigins || !color) return;
+
+        const smoke = typeof this._mirrorSmokeAmount === 'function' ? this._mirrorSmokeAmount() :
+            (this.smokeActive === false ? 0 : 1);
+        const medium = isDust ? 0.25 + 0.75 * smoke : smoke;
+        if (medium <= 0.001) return;
+        const count = Math.min(8, batch.rayCount);
+        const stride = Math.max(1, Math.ceil(batch.rayCount / count));
+        for (let i = 0; i < batch.rayCount; i += stride) {
+            const length = batch.rayLengths[i];
+            const strength = batch.rayStrengths[i];
+            if (!(length > 0) || !(strength > 0)) continue;
+            const o = i * 3;
+            const dx = batch.rayDirections[o], dy = batch.rayDirections[o + 1], dz = batch.rayDirections[o + 2];
+            const vx = pos.x - batch.rayOrigins[o];
+            const vy = pos.y - batch.rayOrigins[o + 1];
+            const vz = pos.z - batch.rayOrigins[o + 2];
+            const t = vx * dx + vy * dy + vz * dz;
+            if (t <= 0 || t >= length) continue;
+            const radialSq = Math.max(0, vx * vx + vy * vy + vz * vz - t * t);
+            const width = Math.min(0.42, 0.18 + length * 0.012) / 0.24;
+            const radius = (0.025 + 0.095 * t / length) * width + (size || 0) * 0.1;
+            const q = radialSq / (radius * radius);
+            if (q >= 2.5) continue;
+            const radial = q < 1 ? (1 - q) * (1 - q) : 0.08 * (2.5 - q) / 1.5;
+            let phase = 0.65;
+            if (cp) {
+                const cx = cp.x - pos.x, cy = cp.y - pos.y, cz = cp.z - pos.z;
+                const cameraLength = Math.sqrt(cx * cx + cy * cy + cz * cz) || 1;
+                const cosine = Math.max(-1, Math.min(1, (dx * cx + dy * cy + dz * cz) / cameraLength));
+                phase = Math.min(1.8, 0.65 + 0.35 / Math.pow(1.2025 - 0.9 * cosine, 1.5));
+            }
+            const contribution = strength * medium * dim * 1.8 * radial * phase / (1 + t * 0.035);
+            out.r += color.r * contribution;
+            out.g += color.g * contribution;
+            out.b += color.b * contribution;
+            out.lit += contribution;
+        }
+    }
+
     _lightAirParticles(particles, mode) {
         if (!this.scene || !particles) return;
         const isPlume = mode === 'plume';
         const frameId = typeof this.scene.getFrameId === 'function' ? this.scene.getFrameId() : 0;
         const frameMs = this.engine && typeof this.engine.getDeltaTime === 'function' ? this.engine.getDeltaTime() : 0;
         const dt = Number.isFinite(frameMs) && frameMs > 0 ? Math.min(4 / 60, frameMs / 1000) : 1 / 60;
-        const stride = this.isInVRMode && !isPlume ? 3 : 1;
-        const start = stride > 1 ? (frameId + (mode === 'dust' ? 1 : 0)) % stride : 0;
-        if (stride > 1 && this._airMediumClearFrame !== frameId) {
-            this._airMediumClearFrame = frameId;
-            if (this.spotlights) {
-                for (const spot of this.spotlights) spot._mediumDensity = null;
-            }
-        }
+        const stride = this.isInVRMode ? 3 : 1;
+        const start = stride > 1 ? (frameId + (isPlume ? 2 : (mode === 'dust' ? 1 : 0))) % stride : 0;
         const beams = this._gatherAirBeams();
         const nBeams = this._airBeamCount || 0;
         const sheets = this._gatherAirSheets ? this._gatherAirSheets() : null;
@@ -993,9 +1215,20 @@ class VRClubAnimationCore extends VRClubEffects {
             }
         }
 
-        for (let i = start; i < particles.length; i += stride) {
+        for (let i = 0; i < particles.length; i++) {
             const p = particles[i];
             const pos = p.position;
+            if (!pos || !p.color) continue;
+            const sampled = stride === 1 || i % stride === start;
+            let airState = p._airLightState;
+            if (!sampled && !airState) continue;
+            if (!airState) {
+                airState = p._airLightState = {
+                    beam: { r: 0, g: 0, b: 0, lit: 0 },
+                    sheet: { r: 0, g: 0, b: 0, lit: 0 },
+                    local: { r: 0, g: 0, b: 0, lit: 0 }
+                };
+            }
             const hasBeamCamera = !!(cp && nBeams);
             const cx = hasBeamCamera ? cp.x - pos.x : 0;
             const cy = hasBeamCamera ? cp.y - pos.y : 0;
@@ -1003,104 +1236,126 @@ class VRClubAnimationCore extends VRClubEffects {
             const cameraDistance = hasBeamCamera ? (Math.sqrt(cx * cx + cy * cy + cz * cz) || 1) : 1;
             let lit = 0;
             let beamR = 0, beamG = 0, beamB = 0;
-            for (let k = 0; k < nBeams; k++) {
-                const b = beams[k];
-                const vx = pos.x - b.ox, vy = pos.y - b.oy, vz = pos.z - b.oz;
-                const t = vx * b.dx + vy * b.dy + vz * b.dz;
-                if (t < 0.25 || t > b.len) continue;
-                const rad = t * b.tan + p.size * 0.35;
-                const q = (vx * vx + vy * vy + vz * vz - t * t) / (rad * rad);
-                if (q >= maxQ) continue;
-                let w;
-                if (q < 1) {
-                    const edge = 1 - q;
-                    w = edge * edge * (3 - 2 * edge) * b.gain;
-                    if (!isDust && b.spot) b.acc += w;
-                } else {
-                    // Anisotropic Mie aureole around the moving beam so sweeping beams visibly travel across adjacent puffs
-                    const halo = (maxQ - q) / (maxQ - 1);
-                    w = 0.34 * halo * halo * b.gain / (1 + t * 0.05);
-                }
-                let phase = 0.5;
-                if (cp) {
-                    const cosT = (cx * b.dx + cy * b.dy + cz * b.dz) / cameraDistance;
-                    // Henyey-Greenstein g = 0.5, normalised to 1 at cosT = 1
-                    phase = Math.min(1, 0.35 / Math.pow(1.25 - cosT, 1.5));
-                }
-                const contrib = w * (0.35 + 0.65 * phase);
-                lit += contrib;
-                const bc = b.color || tint;
-                if (bc) {
-                    beamR += bc.r * contrib;
-                    beamG += bc.g * contrib;
-                    beamB += bc.b * contrib;
-                }
-            }
-            const airState = p._airLightState || (p._airLightState = {
-                beam: { r: 0, g: 0, b: 0, lit: 0 },
-                sheet: { r: 0, g: 0, b: 0, lit: 0 }
-            });
-            if (dim <= 0.01) {
-                airState.beam.r = airState.beam.g = airState.beam.b = airState.beam.lit = 0;
-                airState.sheet.r = airState.sheet.g = airState.sheet.b = airState.sheet.lit = 0;
-            } else {
-                easeAirLightSample(airState.beam, beamR, beamG, beamB, lit, dt, 0.12, 0.32);
-                beamR = airState.beam.r;
-                beamG = airState.beam.g;
-                beamB = airState.beam.b;
-                lit = airState.beam.lit;
-            }
-            const rawSheetLit = nSheets > 0
-                ? (this._sampleAirSheets || VRClubAnimationCore.prototype._sampleAirSheets).call(this, pos, p.size || 1, isPlume, dim, cp, sheets, nSheets)
-                : 0;
-            const sheetColor = laserColor || tint;
-            if (dim > 0.01) {
-                easeAirLightSample(airState.sheet,
-                    sheetColor ? sheetColor.r * rawSheetLit : 0,
-                    sheetColor ? sheetColor.g * rawSheetLit : 0,
-                    sheetColor ? sheetColor.b * rawSheetLit : 0,
-                    rawSheetLit, dt, 0.18, 0.42);
-            }
-            const sheetLit = dim > 0.01 ? airState.sheet.lit : 0;
+            let rawSheetLit = 0;
             let localR = 0, localG = 0, localB = 0, localLit = 0;
-            if (ledActive) {
-                (this._sampleAirLedWall || VRClubAnimationCore.prototype._sampleAirLedWall).call(this, pos, ledSample);
-                localR += ledSample.r;
-                localG += ledSample.g;
-                localB += ledSample.b;
-                localLit += ledSample.lit;
-            }
-            if (dim > 0.01) {
-                // Revolving facet waves from the spinning mirror ball at (0, 6.5, -12)
-                if (this.mirrorBallActive && this.mirrorBallSpotlightColor) {
-                    const mc = this.mirrorBallSpotlightColor;
-                    const mx = pos.x, my = pos.y - 6.5, mz = pos.z + 12;
-                    const mDistSq = mx * mx + my * my + mz * mz;
-                    const angle = Math.atan2(mx, mz);
-                    const spin = this.mirrorBallRotation || 0;
-                    const sparkle = 0.25 + 0.75 * Math.max(0, Math.sin(angle * 6 - spin * 8) * Math.cos(my * 1.4 + spin * 5));
-                    const mw = (0.55 * dim * sparkle) / (1 + mDistSq * 0.04);
-                    localR += mc.r * mw; localG += mc.g * mw; localB += mc.b * mw; localLit += mw;
+            if (sampled) {
+                for (let k = 0; k < nBeams; k++) {
+                    const b = beams[k];
+                    const vx = pos.x - b.ox, vy = pos.y - b.oy, vz = pos.z - b.oz;
+                    const t = vx * b.dx + vy * b.dy + vz * b.dz;
+                    if (t < 0.25 || t > b.len) continue;
+                    const rad = Math.max(1e-3, t * b.tan + (p.size || 0) * 0.35);
+                    const radialSq = Math.max(0, vx * vx + vy * vy + vz * vz - t * t);
+                    const q = radialSq / (rad * rad);
+                    if (q >= maxQ && (!isPlume || radialSq >= 51.84)) continue;
+                    let w = 0;
+                    if (q < 1) {
+                        const edge = 1 - q;
+                        w = edge * edge * (3 - 2 * edge) * b.gain;
+                        if (!isDust && (b.spot || b.mediumBeam)) b.acc += w * stride;
+                    } else if (q < maxQ) {
+                        const halo = (maxQ - q) / (maxQ - 1);
+                        w = 0.36 * halo * halo * b.gain / (1 + t * 0.05);
+                    }
+                    // Wide forward-scattered room wash (< 7.2 m) so nozzle smoke plumes rolling across the
+                    // dance floor remain visibly lit between the narrow 12° spotlight cores.
+                    if (isPlume && radialSq < 51.84) {
+                        const washFade = 1 - Math.sqrt(radialSq) / 7.2;
+                        w += 0.28 * washFade * washFade * b.gain / (1 + t * 0.05);
+                    }
+                    let phase = 0.5;
+                    if (cp) {
+                        const cosT = Math.max(-1, Math.min(1, (cx * b.dx + cy * b.dy + cz * b.dz) / cameraDistance));
+                        phase = Math.min(1, 0.35 / Math.pow(1.25 - cosT, 1.5));
+                    }
+                    const contrib = w * (0.35 + 0.65 * phase);
+                    lit += contrib;
+                    const bc = b.color || tint;
+                    if (bc) {
+                        beamR += Math.max(0, bc.r) * contrib;
+                        beamG += Math.max(0, bc.g) * contrib;
+                        beamB += Math.max(0, bc.b) * contrib;
+                    }
                 }
-                if (strobeFiring) {
-                    const strobeSample = this._airStrobeSample || (this._airStrobeSample = { r: 0, g: 0, b: 0, lit: 0 });
-                    (this._sampleAirStrobes || VRClubAnimationCore.prototype._sampleAirStrobes).call(this, pos, dim, cp, strobeSample);
-                    localR += strobeSample.r;
-                    localG += strobeSample.g;
-                    localB += strobeSample.b;
-                    localLit += strobeSample.lit;
+                const sampleDt = Math.min(0.1, dt * stride);
+                if (dim <= 0.01) {
+                    airState.beam.r = airState.beam.g = airState.beam.b = airState.beam.lit = 0;
+                    airState.sheet.r = airState.sheet.g = airState.sheet.b = airState.sheet.lit = 0;
+                    airState.local.r = airState.local.g = airState.local.b = airState.local.lit = 0;
+                } else {
+                    easeAirLightSample(airState.beam, beamR, beamG, beamB, lit, sampleDt, 0.12, 0.32);
                 }
+                rawSheetLit = nSheets > 0
+                    ? (this._sampleAirSheets || VRClubAnimationCore.prototype._sampleAirSheets).call(this, pos, p.size || 1, isPlume, dim, cp, sheets, nSheets)
+                    : 0;
+                const sheetColor = laserColor || tint;
+                if (dim > 0.01) {
+                    easeAirLightSample(airState.sheet,
+                        sheetColor ? sheetColor.r * rawSheetLit : 0,
+                        sheetColor ? sheetColor.g * rawSheetLit : 0,
+                        sheetColor ? sheetColor.b * rawSheetLit : 0,
+                        rawSheetLit, sampleDt, 0.18, 0.42);
+                }
+                if (ledActive) {
+                    (this._sampleAirLedWall || VRClubAnimationCore.prototype._sampleAirLedWall).call(this, pos, ledSample, cp);
+                    localR += ledSample.r;
+                    localG += ledSample.g;
+                    localB += ledSample.b;
+                    localLit += ledSample.lit;
+                }
+                if (dim > 0.01) {
+                    if (this.mirrorBallActive && this.mirrorBallSpotlightColor) {
+                        const mirrorSample = this._airMirrorSample || (this._airMirrorSample = { r: 0, g: 0, b: 0, lit: 0 });
+                        (this._sampleAirMirrorRays || VRClubAnimationCore.prototype._sampleAirMirrorRays)
+                            .call(this, pos, p.size || 0, cp, dim, isDust, mirrorSample);
+                        localR += mirrorSample.r;
+                        localG += mirrorSample.g;
+                        localB += mirrorSample.b;
+                        localLit += mirrorSample.lit;
+                    }
+                    if (strobeFiring) {
+                        const strobeSample = this._airStrobeSample || (this._airStrobeSample = { r: 0, g: 0, b: 0, lit: 0 });
+                        (this._sampleAirStrobes || VRClubAnimationCore.prototype._sampleAirStrobes).call(this, pos, dim, cp, strobeSample);
+                        localR += strobeSample.r;
+                        localG += strobeSample.g;
+                        localB += strobeSample.b;
+                        localLit += strobeSample.lit;
+                    }
+                }
+                if (isDust) {
+                    localR *= 0.4;
+                    localG *= 0.4;
+                    localB *= 0.4;
+                    localLit *= 0.4;
+                }
+                airState.local.r = Math.max(0, localR);
+                airState.local.g = Math.max(0, localG);
+                airState.local.b = Math.max(0, localB);
+                airState.local.lit = Math.max(0, localLit);
             }
-            if (isDust) {
-                localR *= 0.4;
-                localG *= 0.4;
-                localB *= 0.4;
-                localLit *= 0.4;
-            }
+            lit = dim > 0.01 ? airState.beam.lit : 0;
+            beamR = dim > 0.01 ? airState.beam.r : 0;
+            beamG = dim > 0.01 ? airState.beam.g : 0;
+            beamB = dim > 0.01 ? airState.beam.b : 0;
+            const sheetLit = dim > 0.01 ? airState.sheet.lit : 0;
+            localR = dim > 0.01 ? airState.local.r : 0;
+            localG = dim > 0.01 ? airState.local.g : 0;
+            localB = dim > 0.01 ? airState.local.b : 0;
+            localLit = dim > 0.01 ? airState.local.lit : 0;
             const c = p.color;
+            const cameraDistanceForFade = cp
+                ? Math.sqrt((cp.x - pos.x) ** 2 + (cp.y - pos.y) ** 2 + (cp.z - pos.z) ** 2)
+                : Infinity;
+            const nearFade = Math.max(0, Math.min(1, (cameraDistanceForFade - 0.35) / 0.65));
+            const nearFadeSmooth = nearFade * nearFade * (3 - 2 * nearFade);
             if (isPlume) {
-                const sheetWeight = sheetLit * 0.45;
-                const totalLit = localLit + lit + sheetWeight;
+                const bounceLit = dim > 0.01 && Number.isFinite(this._airBounceLit) ? this._airBounceLit : 0;
+                const bounceR = bounceLit > 0 ? (this._airBounceR || 0) : 0;
+                const bounceG = bounceLit > 0 ? (this._airBounceG || 0) : 0;
+                const bounceB = bounceLit > 0 ? (this._airBounceB || 0) : 0;
+                const sheetWeight = sheetLit * 1.15;
+                const directLit = localLit + lit + sheetWeight;
+                const totalLit = directLit + bounceLit;
                 if (totalLit <= 0.001) {
                     // No light reaching this particle's 3D position: smoke stays dark unlit fog
                     c.r = 0.02;
@@ -1109,16 +1364,24 @@ class VRClubAnimationCore extends VRClubEffects {
                     c.a *= 0.08;
                 } else {
                     const sheetScale = sheetLit > 0 ? sheetWeight / sheetLit : 0;
-                    const rSum = localR + beamR + airState.sheet.r * sheetScale;
-                    const gSum = localG + beamG + airState.sheet.g * sheetScale;
-                    const bSum = localB + beamB + airState.sheet.b * sheetScale;
-                    const inv = 1 / totalLit;
-                    const gain = Math.min(1.25, 0.30 + totalLit * 0.92);
-                    c.r = Math.min(1.15, rSum * inv * gain);
-                    c.g = Math.min(1.15, gSum * inv * gain);
-                    c.b = Math.min(1.15, bSum * inv * gain);
-                    c.a = Math.min(0.42, c.a * (0.18 + Math.min(1.6, localLit + lit + sheetWeight * 0.5) * 2.7));
+                    const rSum = bounceR + localR + beamR + airState.sheet.r * sheetScale;
+                    const gSum = bounceG + localG + beamG + airState.sheet.g * sheetScale;
+                    const bSum = bounceB + localB + beamB + airState.sheet.b * sheetScale;
+                    // Radiative scatter is proportional to incident irradiance (no floor that turns dim wall light bright).
+                    const shoulder = 1.95 / (1 + totalLit * 0.65);
+                    const baseMix = Math.max(0, 1 - totalLit * 1.4);
+                    // Subtle neutral droplet scattering keeps lit smoke reading as misty white-tinted vapour, not dark soot
+                    const mistBody = Math.min(0.065, totalLit * 0.10);
+                    c.r = Math.min(1.15, 0.025 * baseMix + mistBody + rSum * shoulder);
+                    c.g = Math.min(1.15, 0.028 * baseMix + mistBody + gSum * shoulder);
+                    c.b = Math.min(1.15, 0.035 * baseMix + mistBody * 1.05 + bSum * shoulder);
+                    c.a = Math.min(0.32, c.a * (0.28 + Math.min(1.6, bounceLit * 1.1 + localLit + lit + sheetWeight * 0.70) * 2.45));
                 }
+                c.a *= nearFadeSmooth;
+                c.r = Number.isFinite(c.r) ? Math.min(4, Math.max(0, c.r)) : 0;
+                c.g = Number.isFinite(c.g) ? Math.min(4, Math.max(0, c.g)) : 0;
+                c.b = Number.isFinite(c.b) ? Math.min(4, Math.max(0, c.b)) : 0;
+                c.a = Number.isFinite(c.a) ? Math.min(1, Math.max(0, c.a)) : 0;
                 continue;
             }
             const totalLit = lit + sheetLit * 0.55 + localLit;
@@ -1126,18 +1389,20 @@ class VRClubAnimationCore extends VRClubEffects {
                 // Dust is only seen where light catches it.
                 c.a = Math.min(0.9, c.a * (0.2 + Math.min(1.5, totalLit) * 1.7));
             } else if (totalLit > 0) {
-                c.a *= 1 + Math.min(1.2, totalLit) * 1.8;
+                c.a = Math.min(0.14, c.a * (1 + Math.min(1.0, totalLit) * 1.15));
             }
-            if ((lit + localLit) > 0 && (tint || localLit > 0)) {
+            c.a *= nearFadeSmooth;
+            if ((lit + localLit) > 0.001 && (tint || localLit > 0)) {
                 const weight = lit + localLit;
                 const m = Math.min(0.78, weight * 0.65);
                 const inv = 1 / weight;
+                const lumScale = isDust ? 1.1 : Math.min(1.1, 0.22 + weight * 0.95);
                 const tr = (beamR + localR) * inv;
                 const tg = (beamG + localG) * inv;
                 const tb = (beamB + localB) * inv;
-                c.r += (tr * 1.1 - c.r) * m;
-                c.g += (tg * 1.1 - c.g) * m;
-                c.b += (tb * 1.1 - c.b) * m;
+                c.r += (tr * lumScale - c.r) * m;
+                c.g += (tg * lumScale - c.g) * m;
+                c.b += (tb * lumScale - c.b) * m;
             }
             if (sheetLit > 0 && laserColor) {
                 const sm = Math.min(0.52, sheetLit * 0.48);
@@ -1145,6 +1410,10 @@ class VRClubAnimationCore extends VRClubEffects {
                 c.g += (laserColor.g * 0.95 - c.g) * sm;
                 c.b += (laserColor.b * 0.95 - c.b) * sm;
             }
+            c.r = Number.isFinite(c.r) ? Math.min(4, Math.max(0, c.r)) : 0;
+            c.g = Number.isFinite(c.g) ? Math.min(4, Math.max(0, c.g)) : 0;
+            c.b = Number.isFinite(c.b) ? Math.min(4, Math.max(0, c.b)) : 0;
+            c.a = Number.isFinite(c.a) ? Math.min(1, Math.max(0, c.a)) : 0;
         }
 
         if (isPlume && nSheets > 0) {
@@ -1155,16 +1424,22 @@ class VRClubAnimationCore extends VRClubEffects {
             const tau = target > cur ? 0.9 : 1.8;
             this._laserSheetSmokeBoost = cur + (target - cur) * (1 - Math.exp(-dt / tau));
         }
-        if (!isDust && !this.isInVRMode) {
+        if (!isDust && particles.length > 0) {
             // The beam mesh reads how much medium actually sits in its cone, and how much smoke there is to scatter it.
-            const ref = Math.max(6, particles.length * 0.02);
+            const ref = Math.max(4, particles.length * 0.015);
             const smoke = 0.15 + 0.85 * (Number.isFinite(this._smokeLevel) ? this._smokeLevel : (this.smokeActive === false ? 0 : 1));
             for (let k = 0; k < nBeams; k++) {
                 const spot = beams[k].spot;
-                if (!spot) continue;
                 const target = Math.min(1, beams[k].acc / ref) * smoke;
-                const cur = spot._mediumDensity == null ? target : spot._mediumDensity;
-                spot._mediumDensity = cur + (target - cur) * 0.06;
+                if (spot) {
+                    const cur = spot._mediumDensity == null ? target : spot._mediumDensity;
+                    spot._mediumDensity = cur + (target - cur) * 0.06;
+                }
+                const mediumBeam = beams[k].mediumBeam;
+                if (mediumBeam) {
+                    const cur = mediumBeam.mediumDensity == null ? target : mediumBeam.mediumDensity;
+                    mediumBeam.mediumDensity = cur + (target - cur) * 0.08;
+                }
             }
         }
     }
@@ -1204,8 +1479,9 @@ class VRClubAnimationCore extends VRClubEffects {
         if (follower) {
             const trail = sweep(scanTime + (this._laserSheetTrail || 0.5));
             const trailPitch = lateral ? crossPhase : trail;
-            follower.mount.housing.rotation.x = this._laserSheetBasePitch + trailPitch * this._laserSheetPitchRange;
-            follower.mount.housing.rotation.y = -(this._laserSheetBaseYaw + yawPhase * this._laserSheetYawRange);
+            const scanner = follower.mount.scanner || follower.mount.housing;
+            scanner.rotation.x = this._laserSheetBasePitch + trailPitch * this._laserSheetPitchRange;
+            scanner.rotation.y = -(this._laserSheetBaseYaw + yawPhase * this._laserSheetYawRange);
         }
     }
 
@@ -1226,15 +1502,40 @@ class VRClubAnimationCore extends VRClubEffects {
         const view = this._laserViewScratch || (this._laserViewScratch = { cam: null, pixelAngle: 0.8 / 1080 });
         const cam = this.scene && this.scene.activeCamera;
         view.cam = cam ? (cam.globalPosition || cam.position) : null;
-        const h = this.engine && typeof this.engine.getRenderHeight === 'function' ? this.engine.getRenderHeight() : 1080;
-        view.pixelAngle = ((cam && cam.fov) || 0.8) / Math.min(2400, Math.max(600, h || 1080));
+        const eye = cam && cam.rigCameras && cam.rigCameras.length ? cam.rigCameras[0] : cam;
+        const projection = eye && typeof eye.getProjectionMatrix === 'function' ? eye.getProjectionMatrix().m : null;
+        const fov = projection && projection[5] > 0
+            ? 2 * Math.atan(1 / projection[5])
+            : ((eye && eye.fov) || 0.8);
+        const renderHeight = this.engine && typeof this.engine.getRenderHeight === 'function'
+            ? this.engine.getRenderHeight() : 1080;
+        const viewportHeight = eye && eye.viewport ? eye.viewport.height : 1;
+        const pixels = Math.min(2400, Math.max(600, renderHeight * viewportHeight || 1080));
+        view.pixelAngle = fov / pixels;
         return view;
+    }
+
+    /** Subtle, view-dependent source glare; safe mode keeps it near its steady output. */
+    _laserApertureOutput(scanner, color, master, out) {
+        let gain = 1;
+        const camera = this.scene && this.scene.activeCamera;
+        const cam = camera && (camera.globalPosition || camera.position);
+        if (scanner && cam && scanner.computeWorldMatrix) {
+            const m = scanner.computeWorldMatrix(true).m;
+            const dx = cam.x - m[12], dy = cam.y - m[13], dz = cam.z - m[14];
+            const distance = Math.sqrt(dx * dx + dy * dy + dz * dz) || 1;
+            const facing = Math.max(0, (m[8] * dx + m[9] * dy + m[10] * dz) / distance);
+            const t = Math.max(0, Math.min(1, (facing - 0.72) / 0.24));
+            const smooth = t * t * (3 - 2 * t);
+            gain += smooth * Math.max(0, 1 - distance / 12) *
+                (this.photosensitiveSafeMode ? 0.15 : 0.7);
+        }
+        color.scaleToRef(master * gain, out);
     }
 
     /** Scanning laser sheet: continuous tilt sweep and slow smoke UV flow. */
     updateLaserSheet(ctx) {
         const { time, audio: audioData } = ctx;
-        const speedMultiplierLaser = Math.min(1.4, Math.max(0.2, (this.laserSpeed || 1) * (this.laserSheetSpeed || 1)));
         const master = (this.masterIntensity == null ? 1 : Math.min(1, Math.max(0, this.masterIntensity))) *
             (Number.isFinite(this.laserSheetBrightness) ? Math.min(this.photosensitiveSafeMode ? 1 : 3, Math.max(0, this.laserSheetBrightness)) : 1);
 
@@ -1248,11 +1549,10 @@ class VRClubAnimationCore extends VRClubEffects {
             // Compound, slightly asymmetric motion avoids the mechanical pendulum
             // look of a single sine while keeping the fan inside its calibrated aim.
             this._poseLaserSheet(time);
-            // Animate smoke texture flowing OUTWARD from source (matching VRCLUB-UNITY's _NoiseScroll)
+            // Let the haze drift independently of galvo speed instead of painting it onto the scanner.
             if (sheetMat.opacityTexture) {
-                sheetMat.opacityTexture.vOffset = -time * 0.06 * speedMultiplierLaser;
-                sheetMat.opacityTexture.uOffset = 0.01 * time * speedMultiplierLaser +
-                    0.045 * Math.sin(time * 0.19) + 0.015 * Math.sin(time * 0.47);
+                sheetMat.opacityTexture.vOffset = -time * 0.004;
+                sheetMat.opacityTexture.uOffset = 0.015 * Math.sin(time * 0.07);
             }
             
             // Scanned sheets read through the haze: thin air shows a faint veil, a full haze a solid plane.
@@ -1267,9 +1567,8 @@ class VRClubAnimationCore extends VRClubEffects {
                 const hazeMat = this.laserSheetHaze.material;
                 hazeMat.alpha = Math.min(1, 0.58 * level);
                 if (hazeMat.opacityTexture) {
-                    hazeMat.opacityTexture.vOffset = -time * 0.025 * speedMultiplierLaser;
-                    hazeMat.opacityTexture.uOffset = -0.008 * time * speedMultiplierLaser -
-                        0.055 * Math.sin(time * 0.13) + 0.018 * Math.sin(time * 0.31 + 0.8);
+                    hazeMat.opacityTexture.vOffset = time * 0.0025;
+                    hazeMat.opacityTexture.uOffset = 0.022 * Math.sin(time * 0.043 + 1.1);
                 }
             }
             
@@ -1285,13 +1584,16 @@ class VRClubAnimationCore extends VRClubEffects {
             }
             if (this.laserAperture && this.laserAperture.material) {
                 if (!this._laserSheetApertureEmissiveBuf) this._laserSheetApertureEmissiveBuf = new BABYLON.Color3(0, 0, 0);
-                sheetColor.scaleToRef(master, this._laserSheetApertureEmissiveBuf);
+                this._laserApertureOutput(
+                    this.laserSheetSource, sheetColor, master, this._laserSheetApertureEmissiveBuf);
                 this.laserAperture.material.emissiveColor = this._laserSheetApertureEmissiveBuf;
             }
             const follower = this._laserSheetFollower;
             if (follower) {
                 if (!this._laserSheetFollowerApertureEmissiveBuf) this._laserSheetFollowerApertureEmissiveBuf = new BABYLON.Color3(0, 0, 0);
-                sheetColor.scaleToRef(master, this._laserSheetFollowerApertureEmissiveBuf);
+                this._laserApertureOutput(
+                    follower.mount.scanner || follower.mount.housing,
+                    sheetColor, master, this._laserSheetFollowerApertureEmissiveBuf);
                 follower.mount.aperture.material.emissiveColor = this._laserSheetFollowerApertureEmissiveBuf;
             }
             if (this.laserLight) {
@@ -1378,7 +1680,12 @@ class VRClubAnimationCore extends VRClubEffects {
                 }
             }
             if (this.mirrorBallBeams) {
-                for (const beam of this.mirrorBallBeams) beam.mesh.setEnabled(opticsLit);
+                const smoke = typeof this._mirrorSmokeAmount === 'function' ? this._mirrorSmokeAmount() : 0;
+                for (const beam of this.mirrorBallBeams) {
+                    beam.mesh.setEnabled(opticsLit);
+                    beam.material.alpha = 0.015 + smoke * 0.085;
+                    beam.material.emissiveIntensity = 0.8 + smoke * 0.55;
+                }
             }
             const color = this.mirrorBallSpotlightColor;
             // Palette fades can mutate the same Color3; identity alone leaves incident beams on the old hue.
@@ -1406,25 +1713,34 @@ class VRClubAnimationCore extends VRClubEffects {
             if (this.mirrorBallHousings) {
                 this._refreshMirrorBallColorCache();
                 for (const housing of this.mirrorBallHousings) {
-                    // Make all fixture components glow with current color (professional moving head)
                     housing.material.emissiveColor = this.mirrorBallCachedColors.housingGlow;
-                    housing.lensMaterial.emissiveColor = opticsLit ? this.mirrorBallCachedColors.lensBright : this.cachedColors.black;
-                    housing.sourceMaterial.emissiveColor = opticsLit ? this.mirrorBallCachedColors.sourceVeryBright : this.cachedColors.black;
-                    housing.flareMaterial.emissiveColor = opticsLit ? this.mirrorBallCachedColors.flareMedium : this.cachedColors.black;
+                    if (opticsLit) {
+                        this.mirrorBallCachedColors.lensBright.scaleToRef(master, housing.lensMaterial.emissiveColor);
+                        this.mirrorBallCachedColors.sourceVeryBright.scaleToRef(master, housing.sourceMaterial.emissiveColor);
+                        this.mirrorBallCachedColors.flareMedium.scaleToRef(master, housing.flareMaterial.emissiveColor);
+                    } else {
+                        housing.lensMaterial.emissiveColor.set(0, 0, 0);
+                        housing.sourceMaterial.emissiveColor.set(0, 0, 0);
+                        housing.flareMaterial.emissiveColor.set(0, 0, 0);
+                    }
                     if (housing.flare) housing.flare.isVisible = opticsLit;
                 }
             }
             
-            // Rotate mirror ball faster so you can see it spinning (classic disco ball rotation)
-            // Apply speed multiplier for VJ control
             if (this.mirrorBall) {
-                const speedMultiplier = this.mirrorBallSpeed || 1.0;
-                this.mirrorBallRotation -= 0.003 * speedMultiplier * dtScale * (1 + (this.kickPulse || 0) * 1.2); // the ball lurches on the kick
+                const speed = Number.isFinite(this.mirrorBallSpeed)
+                    ? Math.max(0, Math.min(10, this.mirrorBallSpeed))
+                    : 1;
+                const targetAngularSpeed = 0.18 * speed;
+                const motorDt = ctx.dt || dtScale / 60 || 1 / 60;
+                const motorEase = 1 - Math.exp(-motorDt / 1.5);
+                this._mirrorMotorAngularSpeed = (this._mirrorMotorAngularSpeed || 0) +
+                    (targetAngularSpeed - (this._mirrorMotorAngularSpeed || 0)) * motorEase;
+                this.mirrorBallRotation -= this._mirrorMotorAngularSpeed * motorDt;
                 this.mirrorBall.rotation.y = this.mirrorBallRotation;
                 const ballMat = this.mirrorBall.material;
                 if (ballMat && ballMat.emissiveColor && color) {
-                    const master = this.masterIntensity ?? 1;
-                    const m = master * (0.28 + (this.kickPulse || 0) * 0.14);
+                    const m = master * 0.28;
                     ballMat.emissiveColor.set(
                         0.08 * master + color.r * m,
                         0.08 * master + color.g * m,
@@ -1435,7 +1751,7 @@ class VRClubAnimationCore extends VRClubEffects {
             
             if (this.mirrorReflectionBatch) {
                 this.mirrorReflectionBatch.spots.setEnabled(true);
-                this.mirrorReflectionBatch.rays.setEnabled(this.mirrorBallRaysActive !== false);
+                this.mirrorReflectionBatch.rays.setEnabled(opticsLit && this.mirrorBallRaysActive !== false);
                 const hz = this.isInVRMode ? (this.tierSettings?.vrMirrorUpdateHz || 0) : 0;
                 const black = (this.masterIntensity ?? 1) <= 0.001;
                 const blackChanged = this._mirrorCadenceBlack !== black;
@@ -1475,10 +1791,10 @@ class VRClubAnimationCore extends VRClubEffects {
             if (this.mirrorBallHousings) {
                 // PERFORMANCE: Use cached black color instead of creating new Color3 objects
                 this.mirrorBallHousings.forEach(housing => {
-                    housing.material.emissiveColor = this.cachedColors.black;
-                    housing.lensMaterial.emissiveColor = this.cachedColors.black;
-                    if (housing.sourceMaterial) housing.sourceMaterial.emissiveColor = this.cachedColors.black;
-                    if (housing.flareMaterial) housing.flareMaterial.emissiveColor = this.cachedColors.black;
+                    housing.material.emissiveColor.set(0, 0, 0);
+                    housing.lensMaterial.emissiveColor.set(0, 0, 0);
+                    if (housing.sourceMaterial) housing.sourceMaterial.emissiveColor.set(0, 0, 0);
+                    if (housing.flareMaterial) housing.flareMaterial.emissiveColor.set(0, 0, 0);
                     if (housing.flare) housing.flare.isVisible = false;
                 });
             }

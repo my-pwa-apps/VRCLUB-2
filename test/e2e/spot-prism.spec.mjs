@@ -3,6 +3,54 @@ import { enterClub, expectHealthyRuntime, useQuestHarness } from './support.mjs'
 
 useQuestHarness();
 
+test('dense fog never reveals the rectangular black margins of the neon logo', async ({ page }) => {
+    await enterClub(page);
+    const result = await page.evaluate(async () => {
+        const club = window.vrClub, B = window.BABYLON, scene = club.scene;
+        await club.modelLoadPromise;
+        club.engine.stopRenderLoop();
+        const sign = scene.getMeshByName('signageGlow');
+        const camera = new B.FreeCamera('neonFogTestCamera', new B.Vector3(0, 5.2, -10), scene);
+        camera.setTarget(new B.Vector3(0, 5.2, 0));
+        camera.mode = B.Camera.ORTHOGRAPHIC_CAMERA;
+        camera.orthoLeft = -3.2;
+        camera.orthoRight = 3.2;
+        camera.orthoTop = 1.6;
+        camera.orthoBottom = -1.6;
+        const target = new B.RenderTargetTexture('neonFogTestTarget', { width: 512, height: 256 }, scene, false);
+        target.activeCamera = camera;
+        target.clearColor = new B.Color4(0, 0, 0, 1);
+        target.renderList = [sign];
+        const capture = async fog => {
+            scene.fogEnabled = fog;
+            scene.fogMode = B.Scene.FOGMODE_EXP2;
+            scene.fogDensity = 0.084;
+            scene.fogColor.set(0.12, 0.035, 0.20);
+            await scene.whenReadyAsync();
+            scene.incrementRenderId();
+            target.render(true);
+            return (await target.readPixels()).slice();
+        };
+        const clear = await capture(false);
+        const dense = await capture(true);
+        let darkPixels = 0, revealed = 0, tubePixels = 0;
+        for (let i = 0; i < dense.length; i += 4) {
+            if (clear[i] + clear[i + 1] + clear[i + 2] <= 3) {
+                darkPixels++;
+                if (dense[i] + dense[i + 1] + dense[i + 2] > 6) revealed++;
+            }
+            if (dense[i] + dense[i + 1] + dense[i + 2] > 150) tubePixels++;
+        }
+        target.dispose();
+        camera.dispose();
+        return { darkPixels, revealed, tubePixels };
+    });
+    expect(result.darkPixels, JSON.stringify(result)).toBeGreaterThan(10_000);
+    expect(result.tubePixels, JSON.stringify(result)).toBeGreaterThan(500);
+    expect(result.revealed, JSON.stringify(result)).toBe(0);
+    await expectHealthyRuntime(page);
+});
+
 test('every filtered beam starts across its lens and follows the physical head', async ({ page }) => {
     test.setTimeout(900_000);
     await enterClub(page);
@@ -56,8 +104,10 @@ test('every filtered beam starts across its lens and follows the physical head',
                 }
             }
         }
-        const gradient = club._beamGradientTexture.getContext().getImageData(32, 0, 1, 1).data[3];
-        return { worstOrigin, worstAngle, worstRay, smallestOuterRing, worstCentroid, worstCase, gradient };
+        const gradientContext = club._beamGradientTexture.getContext();
+        const gradient = gradientContext.getImageData(32, 0, 1, 1).data[3];
+        const gradientEnd = gradientContext.getImageData(32, 255, 1, 1).data[3];
+        return { worstOrigin, worstAngle, worstRay, smallestOuterRing, worstCentroid, worstCase, gradient, gradientEnd };
     });
     expect(result.worstOrigin, JSON.stringify(result)).toBeLessThan(0.002);
     expect(result.worstAngle, JSON.stringify(result)).toBeLessThan(0.01);
@@ -65,6 +115,7 @@ test('every filtered beam starts across its lens and follows the physical head',
     expect(result.smallestOuterRing, JSON.stringify(result)).toBeGreaterThan(0.095);
     expect(result.worstCentroid, JSON.stringify(result)).toBeLessThan(0.002);
     expect(result.gradient, JSON.stringify(result)).toBeGreaterThanOrEqual(85);
+    expect(result.gradientEnd, JSON.stringify(result)).toBeLessThan(result.gradient);
     await expectHealthyRuntime(page);
 });
 
@@ -150,6 +201,10 @@ test('spotlight prism layers clipped, synchronized rays over a dim cone', async 
             rayColor: first.prismMat.emissiveColor.asArray(),
             separateMaterial: first.prism.material !== first.beam.material,
             sameTexture: first.prism.material.opacityTexture === first.beam.material.opacityTexture,
+            beamUvPhases: club.spotlights.map(spot =>
+                spot.beam.getVerticesData(window.BABYLON.VertexBuffer.UVKind)[0]),
+            surfaceRadius: first._beamGeom.surfaceRadius,
+            expectedSurfaceRadius: Math.max(0.17, first._beamGeom.centerBeamLength * Math.tan(first.light.angle / 2)),
             vertices: first.prism.getTotalVertices(),
             indices: first.prism.getIndices().length,
             position: first.prism.position.equalsWithEpsilon(first.beam.position),
@@ -189,13 +244,18 @@ test('spotlight prism layers clipped, synchronized rays over a dim cone', async 
     });
     expect(result.normal.cone).toBe(1);
     expect(result.normal.prism).toBe(false);
-    const { coneAlpha, rayAlpha, coneColor, rayColor, ...split } = result.split;
+    const {
+        coneAlpha, rayAlpha, coneColor, rayColor, beamUvPhases,
+        surfaceRadius, expectedSurfaceRadius, ...split
+    } = result.split;
     expect(split).toEqual({
         cone: 0.25, prism: true, visibility: 1, separateMaterial: true, sameTexture: true,
         vertices: 364, indices: 780, position: true, rotation: true, scale: true, clip: true, allSix: true
     });
+    beamUvPhases.forEach((phase, index) => expect(phase).toBeCloseTo(index / 6, 5));
+    expect(surfaceRadius).toBeCloseTo(expectedSurfaceRadius, 5);
     expect(coneAlpha).toBeCloseTo(result.normal.alpha, 6);
-    expect(rayAlpha).toBeCloseTo(coneAlpha * 0.35, 6);
+    expect(rayAlpha).toBeCloseTo(coneAlpha * 0.26, 6);
     for (let i = 0; i < 3; i++) expect(rayColor[i]).toBeCloseTo(coneColor[i], 6);
     expect(result.blackout).toBe(true);
     expect(result.dark).toBe(true);

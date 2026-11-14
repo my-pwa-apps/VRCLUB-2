@@ -93,7 +93,7 @@ test('the side panels are mutually exclusive: opening one closes the others with
     assert.equal(panels.get('vjToggle').expanded, 'false', 'its toggle reports collapsed');
     for (const open of ['openVJMenu', 'openAudioMenu', 'openNetworkMenu']) {
         const id = { openVJMenu: 'vjMenu', openAudioMenu: 'audioMenu', openNetworkMenu: 'networkMenu' }[open];
-        assert.match(source, new RegExp(`const ${open} = \\(\\) => \\{\\s*closeOtherSidePanels\\('${id}'\\);`), `${open} closes the others first`);
+        assert.match(source, new RegExp(`const ${open} = \\([^)]*\\) => \\{\\s*closeOtherSidePanels\\('${id}'\\);`), `${open} closes the others first`);
     }
 });
 

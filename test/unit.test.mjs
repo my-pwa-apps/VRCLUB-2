@@ -684,7 +684,7 @@ function createMultiplayerHarness() {
     }
     const navigatorStub = { mediaDevices: { getUserMedia: async () => {
         const track = { stop() { this.stopped = true; } };
-        return { getTracks: () => [track] };
+        return { getTracks: () => [track], getAudioTracks: () => [track] };
     } } };
     const { window } = loadClassic('js/networkClient.js', {
         WebSocket: FakeSocket,
@@ -798,7 +798,7 @@ test('a terminal relay close releases the mic and a double click never leaks a c
     const second = client.enableVoice();
     assert.equal(gum.length, 1, 'a second click opened a second capture');
     const t1 = track();
-    resolveMic({ getTracks: () => [t1] });
+    resolveMic({ getTracks: () => [t1], getAudioTracks: () => [t1] });
     await Promise.all([first, second]);
     assert.equal(client.micEnabled, true);
 
@@ -811,7 +811,7 @@ test('a terminal relay close releases the mic and a double click never leaks a c
     const late = client.enableVoice();
     client.disableVoice();
     const t2 = track();
-    resolveMic({ getTracks: () => [t2] });
+    resolveMic({ getTracks: () => [t2], getAudioTracks: () => [t2] });
     await late;
     assert.equal(client.micEnabled, false);
     assert.ok(stops.includes(t2), 'a stream granted after mute kept capturing');
@@ -1216,6 +1216,28 @@ test('Quest browsers skip desktop-only SSAO, SSR, and motion blur construction',
     assert.equal(club.motionBlur, null);
 });
 
+test('motion blur stays disabled when creating the desktop pipeline', () => {
+    let constructors = 0;
+    const { window } = loadClassic('js/club/03-rendering.js', {
+        BABYLON: {
+            MotionBlurPostProcess: class { constructor() { constructors++; } }
+        },
+        VRClubLifecycle: class {},
+        log: { info() {}, warn() {}, error() {} }
+    });
+    const club = Object.assign(Object.create(window.VRClubRendering.prototype), {
+        isQuestBrowser: false,
+        motionBlur: null,
+        tierSettings: { motionBlur: false },
+        scene: {},
+        camera: {}
+    });
+
+    club._createMotionBlur();
+    assert.equal(constructors, 0);
+    assert.equal(club.motionBlur, null);
+});
+
 test('automatic quality is opt-in, session-only and wired into the render loop and both menus', () => {
     const { window } = loadClassic('js/club/01-core.js', { BABYLON: {}, log: { info() {}, warn() {}, error() {} } });
     const store = new Map();
@@ -1339,13 +1361,11 @@ test('network presence sends both eye-relative controllers only in VR and retain
     assert.equal(samples[0].hands.left.fz, 1);
     assert.equal(samples[0].y, 4.7);
     assert.ok(Math.abs(samples[0].rotY - 0.8) < 1e-8);
-    const rotationBuffer = club._networkRotation;
     assert.equal(samples[0].seated, false);
     club.updateNetworkPresence({ time: 1.02, dt: 1 / 60 });
     assert.equal(samples.length, 1);
     club._handPose = side => side === 'left' ? left : null;
     club.updateNetworkPresence({ time: 1.06, dt: 1 / 60 });
-    assert.equal(club._networkRotation, rotationBuffer, 'network rotation must reuse its scratch vector');
     assert.equal(samples[1].hands.right, null);
     club.isInVRMode = false;
     club.updateNetworkPresence({ time: 1.12, dt: 1 / 60 });
@@ -1357,6 +1377,68 @@ test('network presence sends both eye-relative controllers only in VR and retain
     club.updateNetworkPresence({ time: 1.28, dt: 1 / 60 });
     assert.deepEqual({ x: samples[3].x, z: samples[3].z, rotY: samples[3].rotY, seated: samples[3].seated, floorY: samples[3].floorY },
         { x: -11.3, z: -17.55, rotY: 0, seated: true, floorY: 3 });
+});
+
+test('network heading stays continuous through a vertical gaze, roll and quaternion sign changes', () => {
+    const B = require('../js/vendor/babylon.js');
+    const { window } = loadClassic('js/club/07-animation-core.js', { VRClubEffects: class {}, BABYLON: B });
+    const club = Object.create(window.VRClubAnimationCore.prototype);
+    club._bodyEyeHeight = () => 1.7;
+    const samples = [];
+    club.networkManager = { connected: true, sendState: state => samples.push({ ...state }) };
+    club.camera = { position: { x: 0, y: 1.7, z: 0 } };
+    let time = 1;
+    for (const pitch of [1.4, 1.56, Math.PI / 2, 1.58, 1.7]) {
+        club.camera.rotationQuaternion = B.Quaternion.RotationYawPitchRoll(0.8, pitch, 0);
+        club.updateNetworkPresence({ time: time++, dt: 1 / 60 });
+        assert.ok(Math.abs(samples.at(-1).rotY - 0.8) < 1e-8);
+    }
+    club.camera.rotationQuaternion = B.Quaternion.RotationYawPitchRoll(0.8, 0, 0.6);
+    club.updateNetworkPresence({ time: time++, dt: 1 / 60 });
+    assert.ok(Math.abs(samples.at(-1).rotY - 0.8) < 1e-8, 'a level bank is not a turn');
+    const before = samples.at(-1).rotY;
+    club.camera.rotationQuaternion.scaleInPlace(-1);
+    club.updateNetworkPresence({ time: time++, dt: 1 / 60 });
+    assert.ok(Math.abs(samples.at(-1).rotY - before) < 1e-8, 'equivalent quaternion signs preserve heading');
+    club.camera.rotationQuaternion = new B.Quaternion(1, 0, 0, 0);
+    club.updateNetworkPresence({ time: time++, dt: 1 / 60 });
+    assert.equal(samples.at(-1).rotY, before, 'a singular upside-down tilt retains the last valid heading');
+});
+
+test('idle poses are suppressed in small and large rooms, retry failures and retain floor/hand changes', () => {
+    for (const capacity of [8, 32]) {
+        const { window } = loadClassic('js/club/07-animation-core.js', { VRClubEffects: class {}, BABYLON: {} });
+        const club = Object.create(window.VRClubAnimationCore.prototype);
+        club._bodyEyeHeight = () => 1.7;
+        const samples = [];
+        let accepts = true;
+        club.networkManager = { connected: true, capacity, sendState: state => {
+            if (!accepts) return false;
+            samples.push(JSON.parse(JSON.stringify(state)));
+            return true;
+        } };
+        club.camera = { position: { x: 1, y: 1.7, z: 2 }, rotation: { y: Math.PI - 0.001 } };
+        const step = time => club.updateNetworkPresence({ time, dt: 1 / 60 });
+        step(1); step(1.11);
+        assert.equal(samples.length, 1);
+        club.camera.rotation.y = -Math.PI + 0.001;
+        step(1.22);
+        assert.equal(samples.length, 1, 'wrapped yaw noise must not count as a turn');
+        step(1.55);
+        assert.equal(samples.length, 2, 'stationary heartbeat remains');
+        accepts = false;
+        club.camera.position.x = 2;
+        step(1.7);
+        accepts = true;
+        step(1.85);
+        assert.equal(samples.length, 3, 'a rejected send cannot poison the delta cache');
+        club._walkLevel = 0.5;
+        step(2);
+        assert.equal(samples.at(-1).floorY, 0.5);
+        club.networkManager = { ...club.networkManager };
+        step(2.15);
+        assert.equal(samples.length, 5, 'a new client sends its first pose immediately');
+    }
 });
 
 test('remote hands interpolate, expire, override gesture clips only while tracked, and unregister on disposal', () => {
@@ -1438,7 +1520,7 @@ test('remote emoji are allow-listed and rate-limited per guest', () => {
     assert.equal(created.length, planesBefore + 1, 'second reaction inside the interval is dropped');
     advance(600);
     manager.showEmoji('p', '🔥');
-    assert.equal(created.length, planesBefore + 2);
+    assert.equal(created.length, planesBefore + 1, 'subsequent reactions reuse the existing plane');
 });
 
 test('audio URL policy accepts supported sources and rejects unsafe inputs', () => {
@@ -3045,6 +3127,7 @@ test('dense show smoke is emitted in bounded bursts, accumulates gradually and d
             scene: { fogDensity: 0.028, fogColor: {} }, smokeActive: true, fogIntensity: 2,
             fogImmersion: 1, fogBurstMode: 'auto', lightsActive: true, masterIntensity: 0.75,
             currentSpotColor: { r: 0.2, g: 0.6, b: 1 },
+            spotlights: [{ _photoIntensity: 22.5, _renderColor: { r: 0.2, g: 0.6, b: 1 } }],
             vrSettings: { desktop: { fogDensity: 0.028 } },
             fogMachines: [0, 1].map(() => ({ emitter: {}, ledMat: {} })),
             cachedColors: {}, spotRigBeat: () => club.beat, _tintClubAir: proto._tintClubAir
@@ -3112,6 +3195,138 @@ test('active fixture colours tint room fog subtly and never tint a deliberate bl
     assert.deepEqual(renderFog({
         ledWallActive: true, ledWallLevel: 1, ledShowColor: { r: 0, g: 1, b: 0 }, _exterior: 1
     }), { r: 0.024, g: 0.032, b: 0.07 }, 'the room fixtures must not tint street air');
+});
+
+test('smoke room tint follows emitted head colours and output, never a disabled spot palette', () => {
+    const proto = loadClassic('js/club/07-animation-core.js', { VRClubEffects: class {} })
+        .window.VRClubAnimationCore.prototype;
+    const render = (spotlights, options = {}) => {
+        const club = {
+            scene: { fogColor: {} }, masterIntensity: 1, smokeActive: true, fogIntensity: 2,
+            vjManualMode: true, _smokeLevel: 1, lightsActive: true,
+            currentSpotColor: { r: 1, g: 0, b: 0 }, spotlights, ...options
+        };
+        proto._tintClubAir.call(club, 1 / 60);
+        return club;
+    };
+    const head = (output, color = { r: 0, g: 0, b: 1 }) => ({
+        _photoIntensity: output, _renderColor: color, beamVisible: true, _rigLevel: 1
+    });
+    const unlit = render([head(0)]);
+    for (const disabled of [
+        render([head(30)], { lightsActive: false }),
+        render([head(30)], { spotBrightness: 0 }),
+        render([{ ...head(30), _rigLevel: 0 }]),
+        render([{ ...head(30), beamVisible: false }])
+    ]) {
+        assert.deepEqual(disabled.scene.fogColor, unlit.scene.fogColor);
+        assert.equal(disabled._airBounceLit, 0, 'disabled heads must not provide coloured bounce');
+    }
+    const blue = render([head(30)]);
+    assert.ok(blue.scene.fogColor.b > blue.scene.fogColor.r * 3, 'use the emitted blue, not the selected red palette');
+    const mixed = render([head(30), head(30, { r: 1, g: 0, b: 0 })]);
+    assert.ok(mixed.scene.fogColor.r > unlit.scene.fogColor.r + 0.05);
+    assert.ok(mixed.scene.fogColor.b > unlit.scene.fogColor.b + 0.05);
+    const dim = render([head(3)]);
+    assert.ok(dim.scene.fogColor.b - unlit.scene.fogColor.b <
+        (blue.scene.fogColor.b - unlit.scene.fogColor.b) * 0.15,
+    'Maximum smoke must not normalize a faint source into a full-strength coloured glow');
+});
+
+test('LED smoke illumination holds displayed brightness across cadence gaps and mixes with spots', () => {
+    const proto = loadClassic('js/club/07-animation-core.js', { VRClubEffects: class {} })
+        .window.VRClubAnimationCore.prototype;
+    let frame = 1;
+    const club = Object.assign(Object.create(proto), {
+        scene: { getFrameId: () => frame, fogColor: {}, activeCamera: { position: { x: 0, y: 1.7, z: -5 } } },
+        engine: { getDeltaTime: () => 1000 / 60 },
+        masterIntensity: 0.5, ledWallLevel: 0.5, ledWallBrightness: 0.5, ledWallActive: true,
+        _ledAppliedLevel: 0.125, _ledAppliedFrame: 1,
+        currentSpotColor: { r: 1, g: 0, b: 0 },
+        ledCols: 21, ledRows: 10,
+        ledPanels: Array.from({ length: 210 }, () => ({ material: { emissiveColor: { r: 0, g: 0, b: 0.125 } } }))
+    });
+    club._gatherAirLedWall();
+    const displayed = Array.from(club._airLedGrid);
+    frame++;
+    club._gatherAirLedWall();
+    assert.deepEqual(Array.from(club._airLedGrid), displayed,
+        'a held wall already contains master, cue level and trim; do not dim its smoke illumination again');
+
+    club.masterIntensity = club.ledWallLevel = club.ledWallBrightness = club._ledAppliedLevel = 1;
+    club.smokeActive = club.vjManualMode = true;
+    club.fogIntensity = 2;
+    club._smokeLevel = 1;
+    club.spotlights = [{
+        _photoPos: { x: 0, y: 7, z: -17 }, _photoDir: { x: 0, y: -1, z: 0 },
+        _photoIntensity: 30, _photoAngle: Math.PI / 15,
+        _renderColor: { r: 1, g: 0, b: 0 }, beamVisible: true, _rigLevel: 1
+    }];
+    const puff = { position: { x: 0, y: 3, z: -17 }, size: 1.5 };
+    const sample = (spots, wall) => {
+        club.lightsActive = spots;
+        club.ledWallActive = wall;
+        for (const panel of club.ledPanels) panel.material.emissiveColor.b = 1;
+        for (let i = 0; i < 180; i++) {
+            frame++;
+            club._tintClubAir(1 / 60);
+            puff.color = { r: 0.03, g: 0.03, b: 0.04, a: 0.15 };
+            club._lightAirParticles([puff], 'plume');
+        }
+        return { ...puff.color };
+    };
+    const red = sample(true, false);
+    const blue = sample(false, true);
+    const mixed = sample(true, true);
+    assert.ok(red.r > red.b * 3, 'spot-only smoke takes the emitted red');
+    assert.ok(blue.b > blue.r * 3, 'wall-only smoke takes blue even with a red spot colour selected');
+    assert.ok(mixed.r > blue.r * 2 && mixed.b > red.b * 2,
+        `both independent sources must colour the same puff: ${JSON.stringify({ red, blue, mixed })}`);
+    const dark = sample(false, false);
+    assert.ok(dark.r < 0.04 && dark.b < 0.04, 'switching off emitters must remove their illumination');
+    sample(true, true);
+    club.isInVRMode = true;
+    club.masterIntensity = 0;
+    while ((frame + 2) % 3 === 0) frame++;
+    club._tintClubAir(1 / 60);
+    puff.color = { r: 0.03, g: 0.03, b: 0.04, a: 0.15 };
+    club._lightAirParticles([puff], 'plume');
+    assert.ok(puff.color.r < 0.04 && puff.color.b < 0.04 && puff.color.a < 0.02,
+        'master blackout must suppress even a cached VR sample of overlapping light sources');
+});
+
+test('laser and sheet smoke scattering follows their brightness trims and Safe Mode caps', () => {
+    const proto = loadClassic('js/club/07-animation-core.js', { VRClubEffects: class {} })
+        .window.VRClubAnimationCore.prototype;
+    let frame = 0;
+    const club = Object.assign(Object.create(proto), {
+        scene: { getFrameId: () => frame, activeCamera: { position: { x: 0, y: 1.7, z: -5 } } },
+        engine: { getDeltaTime: () => 1000 / 60 },
+        masterIntensity: 1, _laserColor: () => ({ r: 0, g: 1, b: 0 }),
+        lasers: [{ originPos: { x: 0, y: 7, z: -17 }, beams: [{}] }],
+        _aimLaserBeam(laser, beam, index, out) { out.set(0, -1, 0); },
+        laserSheetSource: { position: { x: 0, y: 3, z: -20 }, rotation: { x: 0, y: 0, z: 0 } }
+    });
+    const sample = (sheet, brightness, safe = false) => {
+        club.lasersActive = !sheet;
+        club.laserSheetActive = sheet;
+        club.laserBrightness = club.laserSheetBrightness = brightness;
+        club.photosensitiveSafeMode = safe;
+        const puff = { position: { x: 0, y: 3, z: -17 }, size: 1.5 };
+        for (let i = 0; i < 180; i++) {
+            frame++;
+            puff.color = { r: 0.03, g: 0.03, b: 0.04, a: 0.15 };
+            club._lightAirParticles([puff], 'plume');
+        }
+        return puff.color.g;
+    };
+    for (const sheet of [false, true]) {
+        const dark = sample(sheet, 0);
+        const dim = sample(sheet, 0.25);
+        const full = sample(sheet, 1);
+        assert.ok(dim > dark && full > dim, 'smoke must track source output, not merely its on/off flag');
+        assert.ok(Math.abs(sample(sheet, 2, true) - full) < 1e-8, 'Safe Mode must cap the boost at neutral');
+    }
 });
 
 test('aesthetic mirror sweeps start down, reach inward and return down at varied musical speeds, including late followers', () => {
@@ -3715,6 +3930,7 @@ test('both truss projectors emit a sheet together, mirrored; a single side parks
 
     const makeMount = x => ({
         housing: { position: new BABYLON.Vector3(x, 7.55, -16), rotation: new BABYLON.Vector3(0, 0, 0) },
+        scanner: { position: new BABYLON.Vector3(), rotation: new BABYLON.Vector3(0, 0, 0) },
         aperture: { material: { emissiveColor: null } }
     });
     const mat = { alpha: 0, emissiveColor: null, opacityTexture: { vOffset: 0, uOffset: 0 } };
@@ -3733,9 +3949,10 @@ test('both truss projectors emit a sheet together, mirrored; a single side parks
         laserSheet: fan(), laserSheetHaze: fan(), _laserSheetFanB: { sheet: fan(), haze: fan() },
         laserSpeed: 1, kickPulse: 0,
         _poseLaserSheet: core.window.VRClubAnimationCore.prototype._poseLaserSheet,
-        _laserColor: core.window.VRClubAnimationCore.prototype._laserColor
+        _laserColor: core.window.VRClubAnimationCore.prototype._laserColor,
+        _laserApertureOutput: core.window.VRClubAnimationCore.prototype._laserApertureOutput
     });
-    club.laserSheetSource = club._laserSheetMounts.ceilingLeft.housing;
+    club.laserSheetSource = club._laserSheetMounts.ceilingLeft.scanner;
     club.laserAperture = club._laserSheetMounts.ceilingLeft.aperture;
     const frame = time => animate.call(club, { time, audio: { average: 0.5 } });
 
@@ -3748,27 +3965,27 @@ test('both truss projectors emit a sheet together, mirrored; a single side parks
     assert.equal(club._laserSheetFanB.haze.isVisible, true);
     assert.notEqual(left.aperture.material.emissiveColor, club._laserApertureOff);
     assert.notEqual(right.aperture.material.emissiveColor, club._laserApertureOff, 'the right slit stayed dark');
-    assert.ok(Math.abs(right.housing.rotation.y + left.housing.rotation.y) < 1e-9, 'the right fan does not mirror the left');
+    assert.ok(Math.abs(right.scanner.rotation.y + left.scanner.rotation.y) < 1e-9, 'the right fan does not mirror the left');
     frame(9);
-    assert.ok(Math.abs(right.housing.rotation.y + left.housing.rotation.y) < 1e-9);
+    assert.ok(Math.abs(right.scanner.rotation.y + left.scanner.rotation.y) < 1e-9);
     // Not a copy: the right projector trails the left's pitch.
     club.laserSheetMotion = 'vertical';
     frame(5);
-    assert.notEqual(right.housing.rotation.x, left.housing.rotation.x);
+    assert.notEqual(right.scanner.rotation.x, left.scanner.rotation.x);
 
     // One side only: the other fan is hidden and its slit dark.
     club.laserSheetOrigin = 'ceilingRight';
     club.configureLaserSheetVariant();
     frame(3);
-    assert.equal(club.laserSheetSource, right.housing, 'the lead projector did not move to the right');
-    assert.equal(club.laserSheet.parent, right.housing);
+    assert.equal(club.laserSheetSource, right.scanner, 'the lead projector did not move to the right');
+    assert.equal(club.laserSheet.parent, right.scanner);
     assert.equal(club._laserSheetFanB.sheet.isVisible, false);
     assert.equal(left.aperture.material.emissiveColor, club._laserApertureOff);
 
     // Back to both, then off: every fan and slit goes dark.
     club.laserSheetOrigin = 'both';
     club.configureLaserSheetVariant();
-    assert.equal(club.laserSheetSource, left.housing);
+    assert.equal(club.laserSheetSource, left.scanner);
     club.laserSheetActive = false;
     frame(4);
     assert.equal(club.laserSheet.isVisible, false);
@@ -5747,6 +5964,98 @@ test('strobe bursts light immediately and safe mode restores the scene', () => {
     assert.equal(retinalFlash.color.a, 0, 'Safe Mode did not clear retinal glare');
 });
 
+test('strobe output follows the active bank, room enclosure and viewer gaze', () => {
+    const BABYLON = makeBabylonStub();
+    const { window } = loadClassic('js/club/09-animation-finish.js', {
+        BABYLON,
+        VRClubAnimationFixtures: class {},
+        CityLayout: { exteriorAmount: (_x, z) => z > 6 ? 1 : 0 },
+        VenueLayout: { vestibule: { enclosure: z => z > 4 ? 0.25 : 1 } }
+    });
+    const finish = window.VRClubAnimationFinish;
+    const camera = {
+        position: { x: 0, y: 1.6, z: 0 },
+        getForwardRay: () => ({ direction: new BABYLON.Vector3(0, 0, -1) })
+    };
+    const club = { scene: { activeCamera: camera } };
+    assert.equal(finish.strobeSpatialGain(club), 1, 'the dance floor keeps the full room response');
+    camera.position.z = 5;
+    assert.equal(finish.strobeSpatialGain(club), 0.4, 'the entrance stair attenuates the room response');
+    camera.position.z = 7;
+    assert.equal(finish.strobeSpatialGain(club), 0, 'the exterior receives no global room impulse');
+    camera.position.z = 0;
+    assert.equal(finish.strobeGazeGain(club, { mesh: { position: { x: 0, y: 1.6, z: -8 } } }), 1);
+    assert.ok(finish.strobeGazeGain(club, { mesh: { position: { x: 0, y: 1.6, z: 8 } } }) < 0.1,
+        'off-axis strobes should not create a full retinal or glare response');
+
+    const strobes = [-7.6, 7.6, -7.6, 7.6].map((x, i) => ({
+        mesh: { position: { x, y: 7.6, z: i < 2 ? -9.2 : -14.8 } },
+        material: { emissiveColor: new BABYLON.Color3() },
+        glareMaterial: { emissiveColor: new BABYLON.Color3(), alpha: 0 },
+        flashDuration: 0,
+        currentIntensity: 0
+    }));
+    const flashPosition = { x: 0, y: 0, z: 0, set(x, y, z) { this.x = x; this.y = y; this.z = z; } };
+    const flash = { intensity: 0, position: flashPosition };
+    Object.assign(club, {
+        strobesActive: true, photosensitiveSafeMode: false, strobePattern: 'sides',
+        strobeSync: 'free', strobeSpeed: 1, vjDropActive: false, vjBuildIntensity: 0,
+        masterIntensity: 1, cachedColors: { ledMonoWhite: new BABYLON.Color3(1, 1, 1) },
+        strobes, strobeFlashLight: flash,
+        scene: { activeCamera: camera, getLightByName: () => null }
+    });
+    finish.prototype.updateStrobes.call(club, { time: 1, dt: 1 / 60, audio: { bass: 0 } });
+    assert.deepEqual(strobes.map((strobe, i) => strobe.flashDuration > 0 ? i : -1).filter(i => i >= 0), [0, 2]);
+    assert.deepEqual([flash.position.x, flash.position.y, flash.position.z], [-7.6, 7.6, -12]);
+    assert.equal(flash.intensity, Math.max(strobes[0].currentIntensity, strobes[2].currentIntensity) * 28,
+        'the shared flash scales with the two active fixtures, not the four-fixture bank');
+    assert.ok(strobes[0].glareMaterial.alpha < 0.95, 'the glare plane ignored the viewer direction');
+});
+
+test('strobe tube afterglow decays quickly and is removed by Safe Mode', () => {
+    const BABYLON = makeBabylonStub();
+    const { window } = loadClassic('js/club/09-animation-finish.js', {
+        BABYLON, VRClubAnimationFixtures: class {}
+    });
+    const finish = window.VRClubAnimationFinish;
+    const strobe = {
+        mesh: { position: { x: 0, y: 7.6, z: -9.2 } },
+        material: { emissiveColor: new BABYLON.Color3() },
+        glareMaterial: { emissiveColor: new BABYLON.Color3(), alpha: 0 },
+        flashDuration: 0, currentIntensity: 0,
+        emitter: { enabled: false, setEnabled(value) { this.enabled = value; } },
+        glare: { enabled: false, setEnabled(value) { this.enabled = value; } }
+    };
+    const club = {
+        strobesActive: true, photosensitiveSafeMode: false, strobePattern: 'all', strobeSpeed: 1,
+        vjDropActive: false, vjBuildIntensity: 0, masterIntensity: 1,
+        cachedColors: {
+            ledMonoWhite: new BABYLON.Color3(1, 1, 1),
+            warmWhite: new BABYLON.Color3(1, 0.9, 0.7)
+        },
+        strobes: [strobe], strobeFlashLight: { intensity: 0 },
+        scene: { getLightByName: () => null }
+    };
+    const dt = 1 / 60;
+    const step = frame => finish.prototype.updateStrobes.call(club, {
+        time: 1 + frame * dt, dt, audio: { bass: 0 }
+    });
+    step(0);
+    const peakAlpha = strobe.glareMaterial.alpha;
+    let frame = 1;
+    while (strobe.flashDuration > 0 && frame < 20) step(frame++);
+    assert.ok(strobe._afterglowAge >= 0 && strobe.emitter.enabled, 'the tube should retain a short visible tail');
+    assert.ok(strobe.glareMaterial.alpha > 0 && strobe.glareMaterial.alpha < peakAlpha,
+        'the glare plane should decay below the flash peak');
+    const firstTail = strobe.material.emissiveColor.r;
+    step(frame++);
+    assert.ok(strobe.material.emissiveColor.r < firstTail, 'the tube afterglow did not decay');
+    club.photosensitiveSafeMode = true;
+    step(frame);
+    assert.equal(strobe.emitter.enabled, false, 'Safe Mode retained the afterglow');
+    assert.equal(strobe.glareMaterial.alpha, 0, 'Safe Mode retained the glare plane');
+});
+
 test('master dimming scales the strobe room impulse from blackout to full', () => {
     const BABYLON = makeBabylonStub();
     const { window } = loadClassic('js/club/09-animation-finish.js', {
@@ -5843,7 +6152,7 @@ test('a strobe burst is visible for at least one frame at any frame time', () =>
         strobeFlashLight: { intensity: 0, setEnabled() {} },
         _nextStrobeBurstTime: 0
     });
-    const lit = club => club.strobes.some(s => s.material.emissiveColor.r > 0);
+    const lit = club => club.strobes.some(s => s.flashDuration > 0);
     const step = (club, time, dt) => window.VRClubAnimationFinish.prototype.updateStrobes.call(club, {
         time, dt, audio: { bass: 0, hasAudio: false }
     });
@@ -5894,7 +6203,7 @@ test('strobes are short stabs, and the free-running timer never exceeds three fl
             window.VRClubAnimationFinish.prototype.updateStrobes.call(club, {
                 time: 10 + frame * dt, dt, audio: { bass: 0, hasAudio: false }
             });
-            const lit = club.strobes.some(s => s.material.emissiveColor.r > 0);
+            const lit = club.strobes.some(s => s.flashDuration > 0);
             if (lit) { litFrames++; run++; longestRun = Math.max(longestRun, run); } else run = 0;
             if (lit && !wasLit) bursts++;
             wasLit = lit;
@@ -7403,7 +7712,8 @@ test('VR comfort separates advanced graphics and Wardrobe groups identity choice
     const same = (a, b, message = '') => assert.equal(JSON.stringify(a), JSON.stringify(b), message);
     const comfort = labels('comfort');
     same(comfort, ['LOCOMOTION', 'SAFE MODE', 'SEATED MODE', 'MEASURE EYE HEIGHT', 'QUALITY', 'AUTO QUALITY',
-        'CONVERSATION AUDIO', 'ADVANCED GRAPHICS', 'CREDITS / LICENCES', 'CAMERA', '\u2190 BACK', 'CLOSE']);
+        'CONVERSATION AUDIO', 'ADVANCED GRAPHICS', 'CREDITS / LICENCES', '\u2190 BACK', 'CLOSE']);
+    assert.ok(!labels('home').includes('CAMERA'), 'photos use operating-system capture, not a club menu');
     same(labels('graphics'), ['4X EDGE SMOOTHING',
         'HIGH PRECISION SHADERS', 'SMOOTH SHINY SURFACES', 'MAX TEXTURE FILTERING',
         '\u2190 BACK', 'CLOSE']);
@@ -7814,8 +8124,8 @@ test('seat picks choose the nearest cushion and preserve tracked VR height', () 
 test('smoke drift is smooth, bounded and independent of frame rate', () => {
     const { window } = loadClassic('js/club/07-animation-core.js', { VRClubEffects: class {} });
     const drift = window.VRClubAnimationCore.prototype._driftAirParticles;
-    const simulate = (mode, fps, seconds) => {
-        const club = { engine: { getDeltaTime: () => 1000 / fps } };
+    const simulate = (mode, fps, seconds, kickPulse = 0, photosensitiveSafeMode = false) => {
+        const club = { engine: { getDeltaTime: () => 1000 / fps }, kickPulse, photosensitiveSafeMode };
         const particle = { position: { x: 1, y: 4, z: -12 }, age: 0 };
         const start = { ...particle.position };
         let largestStep = 0;
@@ -7854,6 +8164,31 @@ test('smoke drift is smooth, bounded and independent of frame rate', () => {
     assert.ok(plume.displacement > 0.001 && plume.displacement < 0.22,
         'nozzle smoke should have a little more drift, still bounded');
     assert.ok(plume.largestStep < 0.005, 'nozzle smoke must drift smoothly');
+
+    const kickHaze = simulate('haze', 60, 8, 1);
+    const safeHaze = simulate('haze', 60, 8, 1, true);
+    assert.ok(Math.abs(kickHaze.position.x - safeHaze.position.x) > 0.001,
+        'a kick should add restrained micro-turbulence unless Safe Mode is active');
+    assert.ok(Math.abs(safeHaze.position.x - haze90.position.x) < 1e-9,
+        'Safe Mode should retain the ordinary haze drift');
+});
+
+test('smoke plumes cushion against the room floor and measured venue surfaces', () => {
+    const { window } = loadClassic('js/club/07-animation-core.js', { VRClubEffects: class {} });
+    const drift = window.VRClubAnimationCore.prototype._driftAirParticles;
+    const club = { engine: { getDeltaTime: () => 1000 / 60 } };
+    const particle = (x, y, z) => ({
+        position: { x, y, z },
+        direction: { x: 0, y: -1, z: 0 },
+        age: 0
+    });
+    const floor = particle(0, 0.03, -12);
+    const stage = particle(0, 0.53, -18);
+    drift.call(club, [floor, stage], 'plume');
+    assert.equal(floor.position.y, 0.12, 'floor smoke should be kept above the floor');
+    assert.equal(stage.position.y, 0.62, 'smoke should cushion above the DJ riser');
+    assert.ok(floor.direction.y > -1 && stage.direction.y > -1,
+        'downward plume velocity should lose energy at a surface');
 });
 
 test('beams light the smoke they cross and dust is only seen inside them', () => {
@@ -7920,7 +8255,7 @@ test('beams light the smoke they cross and dust is only seen inside them', () =>
     proto._lightAirParticles.call(club, [dark], 'haze');
     assert.equal(dark.color.a, 0.04, 'no beams, no lit smoke');
 
-    // The headset samples one third of room particles per frame; plumes stay full rate.
+    // The headset samples one third of particles per frame and reapplies cached lighting.
     club.lightsActive = true;
     club.isInVRMode = true;
     spot._mediumDensity = 0.5;
@@ -7936,7 +8271,9 @@ test('beams light the smoke they cross and dust is only seen inside them', () =>
         proto._lightAirParticles.call(club, vr, 'dust');
     }
     assert.ok(vr[2]._airLightState.beam.lit > 0, 'the rotating one-third sample must smoothly catch the beam');
-    assert.equal(spot._mediumDensity, null, 'VR must hand the beam-density feedback back to neutral');
+    assert.ok(vr[0].color.a > 0.5 && vr[2].color.a > 0.5,
+        'cached lighting must be reapplied between VR spatial samples');
+    assert.ok(spot._mediumDensity > 0, 'VR smoke samples must feed measured beam density back to the fixture');
 });
 
 test('small dust catches the LED wall, mirror ball, strobes and laser sheets on desktop', () => {
@@ -7947,7 +8284,15 @@ test('small dust catches the LED wall, mirror ball, strobes and laser sheets on 
     const club = {
         scene: { getFrameId: () => frame, activeCamera: { globalPosition: vec(0, 1.7, -4) } },
         masterIntensity: 1,
+        smokeActive: true,
         spotlights: [],
+        mirrorReflectionBatch: {
+            rayCount: 1,
+            rayOrigins: new Float32Array([0, 6.508, -12]),
+            rayDirections: new Float32Array([0, -1, 0]),
+            rayLengths: new Float32Array([8]),
+            rayStrengths: new Float32Array([1])
+        },
         _gatherAirBeams: proto._gatherAirBeams,
         _gatherAirLedWall: proto._gatherAirLedWall,
         _gatherAirSheets: proto._gatherAirSheets
@@ -8008,6 +8353,7 @@ test('shipped club air keeps fog on and tints toward the look without changing h
         isInVRMode: false,
         masterIntensity: 1,
         currentSpotColor: new BABYLON.Color3(1, 0, 0),
+        spotlights: [{ _photoIntensity: 30, _renderColor: new BABYLON.Color3(1, 0, 0) }],
         vrSettings: {
             desktop: { fogDensity: 0.028 },
             vr: { fogDensity: 0.022 }
@@ -8035,7 +8381,7 @@ test('shipped club air keeps fog on and tints toward the look without changing h
     assert.equal(stops[3].color2.a, 0, 'a puff must die transparent');
     assert.equal(stops[1].color1.a, 0.04, 'peak alpha must follow color1.a');
     assert.equal(stops[2].color2.a, 0.03, 'peak alpha must follow color2.a');
-    assert.ok(stops[1].color1.r > 0.42, 'gradient stops must carry the look tint');
+    assert.ok(stops[1].color1.r > 0.18, 'gradient stops must carry the weighted look tint');
 
     // A smoke-off cue stops the machines, never the hazer, and eases the fog.
     club.smokeActive = false;
@@ -8380,15 +8726,16 @@ test('headset laser geometry follows the tier cadence without slowing motion', (
     assert.ok(uploads >= 2 * 43 && uploads <= 2 * 46, `expected about 45 geometry uploads, got ${uploads / 2}`);
 });
 
-test('moving-head photometry uses one bounded distance and incidence model', () => {
+test('moving-head surface photometry follows inverse-square distance and incidence', () => {
     const BABYLON = require('../js/vendor/babylon.js');
     const gain = loadClassic('js/club/08-animation-fixtures.js', {
         BABYLON, VRClubAnimationCore: class {}
     }).window.VRClubAnimationFixtures.prototype._fixturePhotometricGain;
     assert.equal(gain(7.3, 1), 1);
-    assert.equal(gain(7.3, 0), 0.2);
-    assert.equal(gain(1, 1), 2, 'near fixtures must stay bounded');
-    assert.equal(gain(100, 1), 0.25, 'distant fixtures must keep a visible floor');
+    assert.equal(gain(7.3, 0), 0);
+    assert.equal(gain(1, 1), 2, 'near fixtures must cap the reference gain');
+    assert.ok(Math.abs(gain(100, 1) - (7.3 / 100) ** 2) < 1e-12,
+        'distant surfaces must not retain an artificial brightness floor');
 });
 
 test('base-scene compilation waits behind the splash but has a diagnostic timeout', async () => {
@@ -8437,6 +8784,7 @@ test('mirror-ball incident beams, housings and reflections follow in-place colou
         mirrorReflectionBatch: { spots: mesh(), rays: mesh(), spotMat: material(), rayMat: material() },
         reflectionUpdates: 0,
         _updateMirrorReflectionColors: effects._updateMirrorReflectionColors,
+        _mirrorSmokeAmount: effects._mirrorSmokeAmount,
         _updateMirrorReflectionBatch() {
             this.reflectionUpdates++;
             this._updateMirrorReflectionColors();
@@ -8448,7 +8796,8 @@ test('mirror-ball incident beams, housings and reflections follow in-place colou
         const color = club.mirrorBallSpotlightColor;
         assert.ok(club.mirrorBallBeams[0].material.emissiveColor.equals(color), 'incident beam retained an old hue');
         assert.ok(club.mirrorReflectionBatch.rayMat.emissiveColor.equals(color), 'VR cadence delayed the reflected hue');
-        assert.ok(club.mirrorBallCachedColors.housingGlow.equals(club.cachedColors.black), 'mirror ball spotlight housing must stay dark metal and not glow with the beam colour');
+        assert.ok(club.mirrorBallCachedColors.housingGlow.equals(club.cachedColors.black),
+            `mirror ball spotlight housing must stay dark metal (${club.mirrorBallCachedColors.housingGlow.asArray()} vs ${club.cachedColors.black.asArray()})`);
         assert.ok(club.mirrorBallCachedColors.lensBright.equals(color.scale(8)), 'lens cache retained an old hue');
     };
     tick();
@@ -8537,18 +8886,42 @@ test('mirror reflections use analytic room hits and thin-instance tier counts', 
     });
     const spotMatrices = new Float32Array(280 * 16);
     const rayMatrices = new Float32Array(64 * 16);
-    const directions = new Float32Array(280 * 2);
+    const facetNormals = new Float32Array(280 * 3);
+    const facetCenters = new Float32Array(280 * 3);
+    const facetIndices = new Uint16Array(280);
     const golden = Math.PI * (3 - Math.sqrt(5));
     for (let i = 0; i < 280; i++) {
-        directions[i * 2] = golden * i;
+        const theta = golden * i;
         let latitude = 0.5 / 280;
         let weight = 0.5;
         for (let index = i; index > 0; index = Math.floor(index / 2)) {
             latitude += (index % 2) * weight;
             weight *= 0.5;
         }
-        directions[i * 2 + 1] = Math.acos(1 - 2 * latitude);
+        const phi = Math.acos(1 - 2 * latitude);
+        const normalOffset = i * 3;
+        const sinPhi = Math.sin(phi);
+        facetNormals[normalOffset] = sinPhi * Math.cos(theta);
+        facetNormals[normalOffset + 1] = Math.cos(phi);
+        facetNormals[normalOffset + 2] = sinPhi * Math.sin(theta);
+        facetCenters[normalOffset] = facetNormals[normalOffset] * 0.6;
+        facetCenters[normalOffset + 1] = facetNormals[normalOffset + 1] * 0.6;
+        facetCenters[normalOffset + 2] = facetNormals[normalOffset + 2] * 0.6;
+        facetIndices[i] = i;
     }
+    const pinspots = [[4, 7.1, -8], [-4, 7.1, -8], [4, 7.1, -16], [-4, 7.1, -16]].map(([x, y, z]) => {
+        const dx = -x, dy = 6.5 - y, dz = -12 - z;
+        const length = Math.hypot(dx, dy, dz);
+        return {
+            origin: { x, y, z },
+            direction: { x: dx / length, y: dy / length, z: dz / length },
+            length: length + 0.2,
+            mesh: { setEnabled() {} },
+            material: { alpha: 0, emissiveIntensity: 0, emissiveColor: new BABYLON.Color3() }
+        };
+    });
+    const spotColors = new Float32Array(280 * 4);
+    const rayColors = new Float32Array(64 * 4);
     const club = {
         mirrorBallActive: true,
         vjManualMode: true,
@@ -8557,6 +8930,7 @@ test('mirror reflections use analytic room hits and thin-instance tier counts', 
         masterIntensity: 1,
         kickPulse: 0,
         mirrorBall: { position: new BABYLON.Vector3(0, 6.5, -12), rotation: { y: 0 } },
+        mirrorBallBeams: pinspots,
         mirrorBallSpotlightColor: new BABYLON.Color3(1, 0.5, 0.25),
         tierSettings: { mirrorSpots: 180, mirrorRays: 52 },
         mirrorReflectionBatch: {
@@ -8565,15 +8939,28 @@ test('mirror reflections use analytic room hits and thin-instance tier counts', 
             spotMat: { emissiveColor: new BABYLON.Color3() },
             rayMat: { emissiveColor: new BABYLON.Color3(), alpha: 0 },
             spotMatrices,
+            spotColors,
             rayMatrices,
-            directions,
-            hit: {}
+            rayColors,
+            rayOrigins: new Float32Array(64 * 3),
+            rayDirections: new Float32Array(64 * 3),
+            rayLengths: new Float32Array(64),
+            rayStrengths: new Float32Array(64),
+            rayFacetIndices: new Uint16Array(64),
+            raySources: new Uint8Array(64),
+            facetIndices,
+            facetNormals,
+            facetCenters,
+            hit: {},
+            trace: { source: -1, strength: 0, px: 0, py: 0, pz: 0, nx: 0, ny: 0, nz: 0, dx: 0, dy: 0, dz: 0 }
         },
         _intersectRoomInterior: effects._intersectRoomInterior,
         _intersectEntranceInterior: effects._intersectEntranceInterior,
         _considerEntranceHit: effects._considerEntranceHit,
         _writeMirrorSpotMatrix: effects._writeMirrorSpotMatrix,
         _writeMirrorRayMatrix: effects._writeMirrorRayMatrix,
+        _mirrorSmokeAmount: effects._mirrorSmokeAmount,
+        _traceMirrorFacet: effects._traceMirrorFacet,
         _updateMirrorReflectionBatch: effects._updateMirrorReflectionBatch,
         _updateMirrorReflectionColors: effects._updateMirrorReflectionColors,
         scene: { pickWithRay() { throw new Error('mirror batching must not scene-raycast'); } }
@@ -8582,9 +8969,46 @@ test('mirror reflections use analytic room hits and thin-instance tier counts', 
     assert.equal(club.mirrorReflectionBatch.spots.thinInstanceCount, 180);
     assert.equal(club.mirrorReflectionBatch.rays.thinInstanceCount, 52);
     assert.deepEqual(enabled, { spots: true, rays: true });
-    assert.deepEqual(updates, { spots: 1, rays: 1 });
+    assert.deepEqual(updates, { spots: 2, rays: 2 }, 'each batch uploads transforms and per-instance energy');
     assert.ok([...spotMatrices.slice(0, 180 * 16)].every(Number.isFinite));
     assert.ok([...rayMatrices.slice(0, 52 * 16)].every(Number.isFinite));
+    assert.ok(club.mirrorReflectionBatch.rayStrengths.slice(0, 52).some(value => value > 0),
+        'at least some reflected rays must come from illuminated facets');
+    const litRay = club.mirrorReflectionBatch.rayStrengths.findIndex(value => value > 0);
+    const rayOrigin = club.mirrorReflectionBatch.rayOrigins;
+    const rayOffset = litRay * 3;
+    assert.ok(Math.abs(Math.hypot(rayOrigin[rayOffset], rayOrigin[rayOffset + 1] - 6.5, rayOrigin[rayOffset + 2] + 12) - 0.608) < 0.01,
+        'the reflected shaft must begin at its mirror facet, not the ball centre');
+    const batch = club.mirrorReflectionBatch;
+    const facetOffset = batch.rayFacetIndices[litRay] * 3;
+    const nx = facetNormals[facetOffset], ny = facetNormals[facetOffset + 1], nz = facetNormals[facetOffset + 2];
+    const source = pinspots[batch.raySources[litRay]];
+    const pointX = nx * 0.6, pointY = 6.5 + ny * 0.6, pointZ = -12 + nz * 0.6;
+    const incomingX0 = pointX - source.origin.x, incomingY0 = pointY - source.origin.y, incomingZ0 = pointZ - source.origin.z;
+    const incomingLength = Math.hypot(incomingX0, incomingY0, incomingZ0);
+    const incomingX = incomingX0 / incomingLength, incomingY = incomingY0 / incomingLength, incomingZ = incomingZ0 / incomingLength;
+    const normalDot = incomingX * nx + incomingY * ny + incomingZ * nz;
+    const expectedX = incomingX - 2 * normalDot * nx;
+    const expectedY = incomingY - 2 * normalDot * ny;
+    const expectedZ = incomingZ - 2 * normalDot * nz;
+    const rayDirection = batch.rayDirections;
+    assert.ok(Math.hypot(rayDirection[rayOffset] - expectedX, rayDirection[rayOffset + 1] - expectedY,
+        rayDirection[rayOffset + 2] - expectedZ) < 1e-5, 'each shaft must follow the actual pinspot/facet reflection');
+    club.smokeActive = true;
+    club._smokeLevel = 0;
+    club._updateMirrorReflectionColors();
+    const clearAirRayAlpha = batch.rayMat.alpha;
+    club._smokeLevel = 1;
+    club._updateMirrorReflectionColors();
+    assert.ok(batch.rayMat.alpha > clearAirRayAlpha, 'smoke should strengthen reflected-ray scatter through its eased level');
+    club._smokeLevel = 0;
+    club._updateMirrorReflectionBatch();
+    const clearStrengths = batch.rayStrengths.slice();
+    const clearSpots = batch.spotColors.slice();
+    club._smokeLevel = 1;
+    club._updateMirrorReflectionBatch();
+    assert.deepEqual(batch.rayStrengths, clearStrengths, 'incident reflected energy must not be multiplied by smoke twice');
+    assert.deepEqual(batch.spotColors, clearSpots, 'the pools remain visible independently of shaft scatter');
 
     club.tierSettings = { mirrorSpots: 96, mirrorRays: 32 };
     update.call(club, { time: 2, dtScale: 1 });
@@ -8662,6 +9086,94 @@ test('mirror reflections use analytic room hits and thin-instance tier counts', 
     }
 });
 
+test('mirror reflection samples cover equal solid angles at every tier and shafts feather into their surface footprint', () => {
+    const BABYLON = require('../js/vendor/babylon.js');
+    const effects = loadClassic('js/club/06-effects.js', {
+        BABYLON, VRClubFixtures: class {}
+    }).window.VRClubEffects.prototype;
+    const facets = effects._buildMirrorReflectionFacets(0.6);
+    for (const count of [32, 52, 64, 96, 180, 280]) {
+        const bands = new Uint16Array(8);
+        for (let i = 0; i < count; i++) {
+            const o = i * 3;
+            const nx = facets.facetNormals[o], ny = facets.facetNormals[o + 1], nz = facets.facetNormals[o + 2];
+            bands[Math.min(7, Math.floor((ny + 1) * 4))]++;
+            assert.ok(Math.abs(Math.hypot(nx, ny, nz) - 1) < 1e-6);
+        }
+        assert.ok(Math.max(...bands) - Math.min(...bands) <= 2,
+            `${count} samples must not concentrate reflected shafts at the poles: ${bands}`);
+    }
+    const data = effects._buildMirrorRayGeometry();
+    assert.equal(data.positions.length / 3, data.colors.length / 4, 'each ribbon vertex needs complete RGBA');
+    const matrix = new Float32Array(16);
+    for (const length of [3, 10, 20]) {
+        effects._writeMirrorRayMatrix(matrix, 0, 0, 6, -12, 0, -1, 0, length);
+        const width = Math.hypot(matrix[0], matrix[1], matrix[2]);
+        let startWidth = 0, endWidth = 0, peak = 0;
+        for (let i = 0; i < data.positions.length / 3; i++) {
+            const x = data.positions[i * 3], y = data.positions[i * 3 + 1], z = data.positions[i * 3 + 2];
+            const radial = Math.hypot(x, z);
+            const alpha = data.colors[i * 4 + 3];
+            peak = Math.max(peak, alpha);
+            if (i % 5 === 0 || i % 5 === 4) assert.equal(alpha, 0, 'ribbon edges must disappear, not outline a polygon');
+            if (y === -0.5) {
+                startWidth = Math.max(startWidth, radial * width * 2);
+                assert.equal(alpha, 0, 'a shaft must emerge softly from its facet');
+            }
+            if (y === 0.5) endWidth = Math.max(endWidth, radial * width * 2);
+        }
+        const footprint = Math.min(0.42, 0.18 + length * 0.012);
+        assert.ok(Math.abs(endWidth - footprint) < 1e-6, 'shaft end and pool footprint must agree');
+        assert.ok(startWidth < 0.1 && startWidth < endWidth * 0.3,
+            'shafts must start at a small mirror facet, not spread out from a broad cone base');
+        assert.ok(peak > 0.9, 'feathering must retain a visible core');
+    }
+});
+
+test('mirror-ball motor speed eases smoothly, ignores kick energy and is frame-rate independent', () => {
+    const BABYLON = makeBabylonStub();
+    const { window } = loadClassic('js/club/07-animation-core.js', {
+        BABYLON,
+        VRClubEffects: class {}
+    });
+    const update = window.VRClubAnimationCore.prototype.updateMirrorBall;
+    const makeClub = kick => Object.assign(Object.create(window.VRClubAnimationCore.prototype), {
+        mirrorBallActive: true,
+        vjManualMode: true,
+        mirrorBallRotation: 0,
+        _mirrorMotorAngularSpeed: 0.18,
+        mirrorBallSpeed: 1,
+        masterIntensity: 1,
+        kickPulse: kick,
+        mirrorBallSpotlightColor: new BABYLON.Color3(1, 0.5, 0.25),
+        mirrorBallSpotlights: null,
+        mirrorBallBeams: null,
+        mirrorBallHousings: null,
+        mirrorReflectionBatch: null,
+        mirrorBall: { rotation: { y: 0 }, material: { emissiveColor: new BABYLON.Color3() } }
+    });
+    const advance = (hz, kick) => {
+        const club = makeClub(kick);
+        for (let frame = 0; frame < hz * 2; frame++) {
+            update.call(club, { time: frame / hz, dt: 1 / hz, dtScale: 60 / hz });
+        }
+        return club.mirrorBallRotation;
+    };
+
+    const at30Hz = advance(30, 0);
+    const at120Hz = advance(120, 0);
+    const withKick = advance(60, 1);
+    assert.ok(Math.abs(at30Hz - at120Hz) < 1e-5, 'motor phase must integrate elapsed time rather than frame count');
+    assert.ok(Math.abs(at30Hz - withKick) < 1e-5, 'kick energy must not lurch the physical ball');
+
+    const accelerating = makeClub(1);
+    accelerating._mirrorMotorAngularSpeed = 0.036;
+    accelerating.mirrorBallSpeed = 10;
+    update.call(accelerating, { time: 1, dt: 1 / 60, dtScale: 1 });
+    assert.ok(Math.abs(accelerating.mirrorBallRotation) < 0.002,
+        'a speed change should ramp the geared motor instead of stepping the ball');
+});
+
 test('mirror-ball pinspot housings, lenses, trusses and incident cones align optically with the mirror ball', () => {
     const BABYLON = require('../js/vendor/babylon.js');
     const ROOM_INTERIOR = {
@@ -8709,6 +9221,18 @@ test('mirror-ball pinspot housings, lenses, trusses and incident cones align opt
 
     assert.equal(club.mirrorBallHousings.length, 4);
     assert.equal(club.mirrorBallBeams.length, 4);
+    assert.equal(club.mirrorBallFacetCount, 512);
+    assert.equal(club.mirrorBall.rotation.x, 0, 'the mirror ball must hang upright');
+    assert.equal(club.mirrorBall.rotation.z, 0, 'the mirror ball must hang upright');
+    assert.equal(scene.getMeshByName('mirrorBallFacetGlints'), null, 'no extra glint overlay mesh is added onto the ball');
+    assert.equal(scene.getMeshByName('mirrorBallMotor'), null, 'retains the classic clean cable suspension');
+    const cable = scene.getMeshByName('mirrorBallCable');
+    assert.ok(cable && cable.position.x === 0 && cable.position.y === 7.25 && cable.position.z === -12,
+        'the cable hangs vertically between the centre truss and the ball');
+    const first32Latitudes = Array.from(club.mirrorReflectionBatch.facetIndices.slice(0, 32),
+        idx => club.mirrorBallFacetNormals[idx * 3 + 1]);
+    assert.ok(first32Latitudes.some(ny => ny < -0.25) && first32Latitudes.some(ny => ny > 0.25),
+        'even the smallest tier ray prefix must sample both lower (floor-reflecting) and upper latitudes');
     assert.ok(scene.getMeshByName('mirrorSpotTrussClamps'), 'pinspots must clamp to the front/rear trusses');
     assert.ok(scene.getMeshByName('mirrorSpotRiggingMounts'), 'pinspots must hang from drop pipes and yokes');
     const bezels = scene.getMeshByName('mirrorSpotBezelMerged');
@@ -9139,7 +9663,8 @@ test('master dimming scales moving heads, ceiling lasers and the laser sheet con
             _laserSheetFollower: { mount: { aperture: { material: { emissiveColor: new BABYLON.Color3() } } } },
             laserLight: { diffuse: null, intensity: 0 },
             _poseLaserSheet() {},
-            _laserColor: core._laserColor
+            _laserColor: core._laserColor,
+            _laserApertureOutput: core._laserApertureOutput
         };
         core.updateLaserSheet.call(club, { time: 1, audio: { average: 0 } });
         return {
@@ -9169,7 +9694,7 @@ test('master dimming scales moving heads, ceiling lasers and the laser sheet con
     assert.equal(renderSheet(0, 3).alpha, 0);
 });
 
-test('ceiling lasers end on the wall they reach, scatter forward, never alias below a few pixels, and the sheet ends where it meets the floor', () => {
+test('ceiling lasers end on the wall, scatter into segmented ribbons, and the sheet ends where it meets the floor', () => {
     const BABYLON = require('../js/vendor/babylon.js');
     const ROOM_INTERIOR = {
         x: { min: -12.25, max: 12.25 },
@@ -9207,8 +9732,84 @@ test('ceiling lasers end on the wall they reach, scatter forward, never alias be
     assert.ok(Math.abs(near.width - 0.032) < 1e-6, 'a near beam lost its physical width');
     assert.ok(far.alpha < near.alpha, 'widening a distant beam must dim it, not brighten the room');
 
+    const segments = 6;
+    const segmentedPositions = new Float32Array(segments * 12);
+    const segmentedColors = new Float32Array(segments * 16);
+    fixtures._writeLaserBeamQuad.call(fixtures, {
+        positions: segmentedPositions, colors: segmentedColors, segments
+    }, 0, { x: 0, y: 7, z: -12 }, beamDir, { t: 12 }, null, 0, 1, 0.5);
+    assert.ok(segmentedPositions[segments * 12 - 1] !== 0, 'the final segment was not written');
+    assert.ok(segmentedColors[3] > segmentedColors[(segments * 4 - 1) * 4 + 3],
+        'the segmented beam did not attenuate along its length');
+
+    const aim = new BABYLON.Vector3();
+    const laser = { type: 'multi', beams: Array.from({ length: 5 }, (_, beamIndex) => ({ beamIndex })),
+        rotation: 0.4, tiltPhase: 0.2 };
+    laser.program = 1;
+    fixtures._aimLaserBeam.call(fixtures, laser, laser.beams[0], 0, aim);
+    const fanLeft = aim.clone();
+    fixtures._aimLaserBeam.call(fixtures, laser, laser.beams[4], 0, aim);
+    assert.ok(fanLeft.x < 0 && aim.x > 0, 'the bar-stepped horizontal fan did not span both sides');
+    laser.program = 2;
+    fixtures._aimLaserBeam.call(fixtures, laser, laser.beams[0], 0, aim);
+    assert.ok(Math.abs(Math.hypot(aim.x, aim.y, aim.z) - 1) < 1e-6,
+        'the diagonal fan direction is not normalized');
+
+    const aperture = new BABYLON.Color3();
+    const apertureColor = new BABYLON.Color3(0.2, 0.8, 0.3);
+    const scanner = { computeWorldMatrix: () => ({ m: BABYLON.Matrix.Identity().m }) };
+    const glare = { scene: { activeCamera: { globalPosition: new BABYLON.Vector3(0, 0, 5) } },
+        photosensitiveSafeMode: false };
+    core._laserApertureOutput.call(glare, scanner, apertureColor, 1, aperture);
+    const directView = aperture.r;
+    glare.photosensitiveSafeMode = true;
+    core._laserApertureOutput.call(glare, scanner, apertureColor, 1, aperture);
+    assert.ok(directView > aperture.r && aperture.r <= apertureColor.r * 1.1,
+        'safe mode did not suppress the view-dependent aperture glint');
+
+    const projection = new Float32Array(16);
+    projection[5] = 1 / Math.tan(0.5);
+    const view = core._laserView.call({
+        scene: { activeCamera: { globalPosition: new BABYLON.Vector3(), rigCameras: [
+            { viewport: { height: 0.5 }, getProjectionMatrix: () => ({ m: projection }) }
+        ] } },
+        engine: { getRenderHeight: () => 1200 }
+    });
+    assert.ok(Math.abs(view.pixelAngle - 1 / 600) < 1e-8,
+        'XR line width did not use the eye projection and per-eye viewport height');
+
     // The fan ends where the floor occludes it; it draws no separate line on the floor (removed by request).
     assert.equal(core._updateLaserSheetScanLines, undefined);
+});
+
+test('ceiling laser smoke is sampled in a narrow cone and feeds its own beam medium', () => {
+    const { window } = loadClassic('js/club/07-animation-core.js', { VRClubEffects: class {} });
+    const proto = window.VRClubAnimationCore.prototype;
+    const fixtures = loadClassic('js/club/08-animation-fixtures.js', {
+        BABYLON: require('../js/vendor/babylon.js'), VRClubAnimationCore: class {}
+    }).window.VRClubAnimationFixtures.prototype;
+    const vec = (x, y, z) => ({ x, y, z });
+    const beam = { beamIndex: 0, length: 5, mediumDensity: 0 };
+    const club = {
+        scene: { getFrameId: () => 0, activeCamera: { globalPosition: vec(0, 1.7, -4) } },
+        engine: { getDeltaTime: () => 1000 / 60 },
+        currentSpotColor: { r: 0, g: 1, b: 0 },
+        masterIntensity: 1,
+        lasersActive: true,
+        lasers: [{ type: 'single', beams: [beam], originPos: vec(0, 7, -12), rotation: 0, tiltPhase: 0 }],
+        _aimLaserBeam: fixtures._aimLaserBeam,
+        _gatherAirBeams: proto._gatherAirBeams
+    };
+    const gathered = proto._gatherAirBeams.call(club);
+    assert.equal(gathered[0].tan, 0.008, 'ceiling laser haze volume is wider than its beam');
+    const puff = { position: vec(0, 7 - 3 * Math.cos(Math.PI / 6), -12 + 3 * Math.sin(Math.PI / 6)), size: 0.08,
+        color: { r: 0.6, g: 0.6, b: 0.7, a: 0.04 } };
+    for (let frame = 1; frame <= 48; frame++) {
+        club.scene.getFrameId = () => frame;
+        puff.color = { r: 0.6, g: 0.6, b: 0.7, a: 0.04 };
+        proto._lightAirParticles.call(club, [puff], 'haze');
+    }
+    assert.ok(beam.mediumDensity > 0, 'particles did not feed density back to their ceiling beam');
 });
 
 test('ceiling laser ribbons stay out of the depthless glow pass', () => {
@@ -13633,7 +14234,7 @@ test('VR menu: unavailable buttons are drawn disabled and say why; the chat page
     assert.equal(chat[0].target, 'chatAudience');
     assert.deepEqual([...chat.filter(b => b.op === 'phrase').map(b => b.phrase)], ['Hi!', 'Great track!']);
     assert.ok(chat.length <= 12);
-    proto._runVRNetworkAction.call(club, chat[2]);
+    proto._runVRNetworkAction.call(club, chat.find(b => b.phrase === 'Great track!'));
     assert.deepEqual([...sent], ['Great track!']);
     const duck = proto._vrNetPageDefinitions.call(club, 'safety', common).find(b => b.op === 'duck');
     assert.ok(duck, 'LOWER MUSIC is on the safety page');
@@ -13670,6 +14271,53 @@ test('VR recipient pages fit all seven peers and delegate separate chat and voic
     assert.deepEqual(JSON.parse(JSON.stringify(calls)), [['voice', 'p1'], ['voice', []], ['voice', null],
         ['chat', 'p1'], ['chat', []], ['chat', null]]);
     assert.ok(club._vrNetPageDefinitions('online', common).length <= 12);
+});
+
+test('VR recipient pagination reaches every guest in a 32-person room within twelve slots', async () => {
+    const { window } = loadClassic('js/club/10-ui.js', { VRClubAnimationFinish: class {}, BABYLON: {}, document: {} });
+    const club = Object.create(window.VRClubUI.prototype);
+    const people = Array.from({ length: 31 }, (_, i) => ({ id: `p${i}`, name: `Guest ${i}` }));
+    club.multiplayer = { people: () => people, connected: true };
+    club._showVRQuickMenuPage = () => {};
+    const common = { back: { action: 'back' }, close: { action: 'close' } };
+    for (const scope of ['voice', 'chat']) {
+        const seen = new Set();
+        for (let i = 0; i < 6; i++) {
+            const buttons = club._vrNetPageDefinitions(`${scope}Audience`, common);
+            assert.ok(buttons.length <= 12, `${scope} page ${i} exceeded the mesh slots`);
+            assert.equal(buttons.at(-2).action, 'back');
+            assert.equal(buttons.at(-1).action, 'close');
+            for (const button of buttons.filter(b => b.op === 'audiencePeer')) seen.add(button.peer);
+            await club._runVRNetworkAction(buttons.find(b => b.op === 'audiencePage'));
+        }
+        assert.equal(seen.size, 31);
+    }
+});
+
+test('VR recent chat and moderation reports use the shared session state and bounded pages', async () => {
+    const { window } = loadClassic('js/club/10-ui.js', { VRClubAnimationFinish: class {}, BABYLON: {}, document: {},
+        ClubMultiplayer: { REPORT_REASONS: { harassment: 'Harassment' } } });
+    const club = Object.create(window.VRClubUI.prototype);
+    const calls = [];
+    const messages = Array.from({ length: 50 }, (_, i) => ({ name: 'Alex', text: `${i}: ${'x'.repeat(196)}`, self: false }));
+    club.multiplayer = { connected: true, chat: messages, canModerate: () => true,
+        moderationReports: [{ at: 123, reporter: { name: 'Reporter' }, target: { name: 'Alex', id: 'p' }, reason: 'harassment' }],
+        people: () => [{ id: 'p', name: 'Alex' }], dismissModerationReport: at => calls.push(at) };
+    club._showVRQuickMenuPage = page => calls.push(page);
+    const common = { back: { action: 'back' }, close: { action: 'close' } };
+    let buttons = club._vrNetPageDefinitions('chatHistory', common);
+    assert.ok(buttons.length <= 12);
+    assert.ok(buttons.some(b => b.label.includes('49:')));
+    await club._runVRNetworkAction(buttons.find(b => b.op === 'chatHistoryPage' && b.delta === 1));
+    buttons = club._vrNetPageDefinitions('chatHistory', common);
+    assert.ok(buttons.some(b => b.label.includes('48:')));
+    buttons = club._vrNetPageDefinitions('reports', common);
+    assert.ok(buttons.length <= 12);
+    assert.ok(buttons.some(b => b.op === 'select' && b.peer === 'p'));
+    await club._runVRNetworkAction(buttons.find(b => b.op === 'dismissReport'));
+    assert.ok(calls.includes(123));
+    club.multiplayer.canModerate = () => false;
+    assert.equal(club._vrNetPageDefinitions('reports', common).length, 2, 'report content disappears with role loss');
 });
 
 // ---------------------------------------------------------------------------
@@ -15319,6 +15967,34 @@ test('the automatic spot path crosses the room at a believable moving-head rate'
         'RANDOM/AUTO changed aim too far in one second for a physical moving head');
 });
 
+test('moving-head servo accelerates and brakes within its mechanical limits', () => {
+    const BABYLON = makeBabylonStub();
+    const F = loadClassic('js/club/08-animation-fixtures.js', {
+        BABYLON, VRClubAnimationCore: class {}
+    }).window.VRClubAnimationFixtures;
+    const spot = {};
+    const dt = 1 / 60;
+    let total = 0;
+    let previousVelocity = 0;
+    for (let frame = 0; frame < 120; frame++) {
+        const step = F.prototype._stepSpotServo.call({}, spot, 'pan', 10 - total, dt, 0.75, 2.8);
+        assert.ok(Math.abs(spot._panVelocity) <= 0.75 + 1e-9, 'pan exceeded its speed limit');
+        assert.ok(Math.abs(spot._panVelocity - previousVelocity) <= 2.8 * dt + 1e-9,
+            'pan exceeded its acceleration limit');
+        total += step;
+        previousVelocity = spot._panVelocity;
+    }
+    const beforeReverse = spot._panVelocity;
+    F.prototype._stepSpotServo.call({}, spot, 'pan', -10, dt, 0.75, 2.8);
+    assert.ok(Math.abs(spot._panVelocity - beforeReverse) <= 2.8 * dt + 1e-9,
+        'pan reversed faster than the motor can brake');
+
+    const club = { _stepSpotServo: F.prototype._stepSpotServo };
+    const head = { yoke: { rotation: { y: 0.8 } }, head: { rotation: { x: -0.5 } } };
+    F.prototype._animateMovingHead.call(club, head, new BABYLON.Vector3(0, -1, 0), 1, true);
+    assert.equal(head.yoke.rotation.y, 0.8, 'a vertical limited aim jittered the pan axis');
+});
+
 test('every strobe pattern fires its corners in turn, under the three-a-second room limit, and never in Safe Mode', () => {
     const BABYLON = makeBabylonStub();
     const { window } = loadClassic('js/club/09-animation-finish.js', { BABYLON, VRClubAnimationFixtures: class {} });
@@ -16050,7 +16726,9 @@ test('moving-head beams clip and place pools on elevated venue surfaces (mezzani
         const spot = makeSpot(0, 7.3, -12);
         const geom = club._updateSpotBeamGeometry(spot, 0, dir, 0, 1, 1);
         assert.equal(spot.beam.scaling.x, spot.beam.scaling.z, 'beam cross-section must not depend on azimuth');
-        assert.ok(Math.abs(geom.beamLength - geom.centerBeamLength - 0.5) < 1e-6, 'wide rim must reach the floor');
+        const tilt = Math.sqrt(1 - dir.y * dir.y) / Math.abs(dir.y);
+        assert.ok(Math.abs(geom.beamLength - geom.centerBeamLength - geom.surfaceRadius * tilt) < 1e-6,
+            'the angle-derived wide rim must reach the floor');
     }
 
     // 2. Beam aimed down at the bar counter (x = 10.1, z = -10) stops at y = 1.1.
@@ -16065,8 +16743,8 @@ test('moving-head beams clip and place pools on elevated venue surfaces (mezzani
         barGeom.surfaceIntersection.z - barGeom.surfaceBounds.z0,
         barGeom.surfaceBounds.z1 - barGeom.surfaceIntersection.z);
     assert.ok(barSpot.lightPool.scaling.x <= clearance + 1e-9);
-    assert.ok(barSpot.lightPoolGlow.scaling.x * 1.5 <= clearance + 1e-9,
-        'the larger glow disc must also fit on the counter');
+    assert.ok(barSpot.lightPoolGlow.scaling.x <= clearance + 1e-9,
+        'the larger glow disc must stay inside the counter edge');
 
     // 3. Beam aimed down at the DJ riser (x = 2.5, z = -17) stops at y = 0.5, and at the DJ table (x = 0, z = -18.5) stops at y = 1.42.
     const riserSpot = makeSpot(2.5, 7.3, -17);
@@ -16087,7 +16765,7 @@ test('Unity-ported fog machines face inward into the dance floor, wrap plume bea
     assert.match(fixturesSource, /rotY:\s*Math\.PI\s*-\s*0\.3/, 'left fog machine must turn inward toward the dance floor (-Z)');
     assert.match(fixturesSource, /rotY:\s*Math\.PI\s*\+\s*0\.3/, 'right fog machine must turn inward toward the dance floor (-Z)');
     assert.match(fixturesSource, /pos\.z\s*\+\s*0\.15\s*\*\s*Math\.cos\(pos\.rotY\)/, 'nozzle emitter must sit on the dance-floor side of the z=-8 truss');
-    assert.match(fixturesSource, /new BABYLON\.Vector3\(centerDir - 0\.18,\s*-0\.75,\s*-0\.70\)/, 'plume direction must shoot into -Z');
+    assert.match(fixturesSource, /fogEmitter\.direction1\s*=\s*new BABYLON\.Vector3\(centerDir - 0\.18,\s*-\d+\.\d+,\s*-\d+\.\d+\)/, 'plume direction must shoot into -Z');
 
     const { VRClubAnimationFinish } = loadClassic('js/club/09-animation-finish.js', { VRClubAnimationFixtures: class {} }).window;
     assert.ok(VRClubAnimationFinish.STROBE_PATTERNS.includes('burst'), 'STROBE_PATTERNS must include burst');
@@ -16247,4 +16925,203 @@ test('Unity-ported fog machines face inward into the dance floor, wrap plume bea
     assert.ok(diagnostics.some(d => d.includes('resumed after buffering')));
     listeners.error();
     assert.ok(diagnostics.some(d => d.includes('error code 3')));
+});
+
+test('laser fans keep unit directions, never poison particle float16 colours, fog plumes reach floor and DJ, and LED wall smoke tint scales with source brightness', () => {
+    const BABYLON = require('../js/vendor/babylon.js');
+    const animCore = loadClassic('js/club/07-animation-core.js', { BABYLON, VRClubEffects: class {} })
+        .window.VRClubAnimationCore.prototype;
+    const animFixtures = loadClassic('js/club/08-animation-fixtures.js', {
+        BABYLON, VRClubAnimationCore: class {},
+        ROOM_INTERIOR: { x: { min: -12.25, max: 12.25 }, y: { min: 0, max: 9.85 }, z: { min: -20, max: -0.25 } }
+    }).window.VRClubAnimationFixtures.prototype;
+    const animFinish = loadClassic('js/club/09-animation-finish.js', { BABYLON, VRClubAnimationFixtures: class {} })
+        .window.VRClubAnimationFinish.prototype;
+    const canvasStub = () => ({
+        width: 0, height: 0,
+        getContext: () => ({
+            createImageData: (w, h) => ({ data: new Uint8ClampedArray(w * h * 4) }),
+            putImageData() {},
+            createRadialGradient: () => ({ addColorStop() {} }),
+            fillRect() {}
+        })
+    });
+    const fixturesProto = loadClassic('js/club/05-fixtures.js', {
+        BABYLON, VRClubEnvironment: class {}, CLUB_POSITIONS: { sideTrussX: 7.6 }, log: { info() {}, warn() {} },
+        document: { createElement: canvasStub }
+    }).window.VRClubFixtures.prototype;
+
+    // 1. All laser programs emit strictly unit-length vectors, and _lightAirParticles never outputs negative/NaN/overflow colours.
+    const out = { x: 0, y: -1, z: 0, set(x, y, z) { this.x = x; this.y = y; this.z = z; } };
+    for (const type of ['multi', 'spread', 'single']) {
+        for (let program = 0; program < 4; program++) {
+            for (let bi = 0; bi < 5; bi++) {
+                const laser = { type, program, rotation: 0.78, tiltPhase: 1.1, beams: Array.from({ length: 5 }, (_, k) => ({ beamIndex: k })) };
+                animFixtures._aimLaserBeam(laser, laser.beams[bi], 0, out);
+                const len = Math.hypot(out.x, out.y, out.z);
+                assert.ok(Math.abs(len - 1) < 1e-9, `laser ${type} program ${program} beam ${bi} must be unit length, got ${len}`);
+            }
+        }
+    }
+
+    let frameId = 1;
+    const hazardParticle = { position: { x: -7.6, y: 3.6, z: -12 }, size: 1.2, color: { r: 0.04, g: 0.04, b: 0.05, a: 0.04 } };
+    const hazardClub = {
+        scene: { getFrameId: () => frameId, activeCamera: { globalPosition: { x: 0, y: 1.7, z: -3 } } },
+        engine: { getDeltaTime: () => 1000 / 60 },
+        masterIntensity: 1,
+        lasersActive: true,
+        ledWallActive: true,
+        ledWallLevel: 0.4,
+        ledShowColor: { r: 1, g: 0.3, b: 0 },
+        _laserColor: () => ({ r: 1, g: 0.25, b: 0 }),
+        // Deliberately feed an unnormalized beam direction (|d| = 1.12) to prove defense-in-depth against negative radialSq.
+        _gatherAirBeams() {
+            this._airBeamCount = 1;
+            return [{ ox: -7.6, oy: 7.6, oz: -12, dx: 0, dy: -1.12, dz: 0, tan: 0.008, len: 14, gain: 1.15, color: { r: 1, g: 0.2, b: 0 }, acc: 0 }];
+        },
+        _gatherAirLedWall: animCore._gatherAirLedWall,
+        _sampleAirLedWall: animCore._sampleAirLedWall
+    };
+    for (let f = 1; f <= 45; f++) {
+        frameId = f;
+        if (f > 15) hazardClub._gatherAirBeams = function () { this._airBeamCount = 0; return []; };
+        hazardParticle.color = { r: 0.04, g: 0.04, b: 0.05, a: 0.04 };
+        animCore._lightAirParticles.call(hazardClub, [hazardParticle], 'haze');
+        for (const ch of ['r', 'g', 'b', 'a']) {
+            const v = hazardParticle.color[ch];
+            assert.ok(Number.isFinite(v) && v >= 0 && v <= 4, `particle colour.${ch} turned invalid (${v}) on frame ${f}`);
+        }
+    }
+
+    // 2. Fog machine plumes physically reach the dance floor (y <= 1.0 m), centre line, and DJ stage/booth (z <= -16.5 m).
+    const engine = new BABYLON.NullEngine();
+    const scene = new BABYLON.Scene(engine);
+    try {
+        const smokeClub = {
+            scene,
+            engine: { getDeltaTime: () => 16.667 },
+            graphicsTier: 'ultra',
+            tierSettings: { fogParticleCapacity: 800, hazeCapacity: 1500 },
+            vrSettings: { desktop: { hazeAlpha: [0.04, 0.03] } },
+            materialFactory: {
+                createPBRMaterial: () => new BABYLON.PBRMaterial('m', scene),
+                getPreset: () => new BABYLON.PBRMaterial('p', scene),
+                createStandardMaterial: () => new BABYLON.StandardMaterial('s', scene)
+            },
+            _installAirLighting: animCore._installAirLighting,
+            _driftAirParticles: animCore._driftAirParticles,
+            _lightAirParticles() {}
+        };
+        fixturesProto.createHyperrealisticSmoke.call(smokeClub);
+        assert.ok(smokeClub.haze.maxInitialRotation - smokeClub.haze.minInitialRotation > 6 &&
+            smokeClub.haze.minScaleX > smokeClub.haze.maxScaleY,
+            'ambient haze must use randomized initial rotation and anisotropic wisps rather than uniform circles');
+        for (const m of smokeClub.fogMachines) {
+            assert.ok(m.emitter.maxInitialRotation - m.emitter.minInitialRotation > 6 &&
+                m.emitter.minScaleX > m.emitter.maxScaleY,
+                'fog plumes must use randomized rotation and stretched wisps rather than round puffs');
+            m.emitter.isReady = () => true;
+            m.emitter.emitRate = 80;
+        }
+        for (let f = 1; f <= 1100; f++) {
+            scene._frameId = f;
+            for (const m of smokeClub.fogMachines) m.emitter.animate();
+        }
+        const allPlumes = smokeClub.fogMachines.flatMap(m => m.emitter.particles);
+        assert.ok(allPlumes.length > 200 && smokeClub.fogMachines.every(m => m.emitter.particles.length < 800),
+            'plume emitters must stay below their particle capacity');
+        const floorPuffs = allPlumes.filter(p => p.position.y <= 1.0).length;
+        const djPuffs = allPlumes.filter(p => p.position.z <= -16.2).length;
+        const centrePuffs = allPlumes.filter(p => Math.abs(p.position.x) <= 1.8 && p.position.z <= -12).length;
+        assert.ok(floorPuffs >= 50, `expected fog plumes to reach the dance floor, got ${floorPuffs} floor puffs`);
+        assert.ok(djPuffs >= 20, `expected fog plumes to reach the DJ stage/booth, got ${djPuffs} DJ puffs`);
+        assert.ok(centrePuffs >= 30, `expected fog plumes from side trusses to cross into centre floor, got ${centrePuffs}`);
+    } finally {
+        scene.dispose();
+        engine.dispose();
+    }
+
+    // 3. LED wall smoke tint scales realistically with actual panel brightness (dim Aesthetic wall vs bright wall).
+    let wallFrame = 10;
+    const makeWallClub = (ledWallLevel, panelPeak, sparse) => {
+        const panels = Array.from({ length: 210 }, (_, idx) => {
+            const lit = !sparse || (idx % 5 === 0);
+            const v = lit ? panelPeak : 0.08;
+            return {
+                material: { emissiveColor: { r: v, g: v * 0.25, b: 0 } },
+                colorBuffer: { r: 0, g: 0, b: 0 }
+            };
+        });
+        const c = {
+            scene: { getFrameId: () => wallFrame, fogDensity: 0.028, fogColor: { r: 0, g: 0, b: 0 }, activeCamera: { globalPosition: { x: 0, y: 1.7, z: -3 } } },
+            engine: { getDeltaTime: () => 16.667 },
+            vrSettings: { desktop: { fogDensity: 0.028 } },
+            smokeActive: true, fogIntensity: 2, _smokeLevel: 1, _smokeImmersion: 0,
+            masterIntensity: 1,
+            ledWallActive: true, ledWallLevel, ledWallBrightness: 1,
+            ledShowColor: { r: 1, g: 0.25, b: 0 },
+            ledCols: 21, ledRows: 10, ledPanels: panels,
+            haze: { color1: { r: 0.6, g: 0.6, b: 0.7, a: 0.04 }, color2: { r: 0.7, g: 0.7, b: 0.8, a: 0.03 } },
+            _gatherAirBeams() { this._airBeamCount = 0; return []; },
+            _gatherAirLedWall: animCore._gatherAirLedWall,
+            _sampleAirLedWall: animCore._sampleAirLedWall,
+            _applyLedLevel: animFinish._applyLedLevel,
+            _tintClubAir: animCore._tintClubAir
+        };
+        wallFrame++;
+        // Advance _ledFade to steady state for dimmed walls
+        for (let t = 0; t <= 4; t += 0.08) c._applyLedLevel(t);
+        const midPlume = { position: { x: 0, y: 2.5, z: -12 }, size: 1.6, color: { r: 0.035, g: 0.04, b: 0.055, a: 0.16 } };
+        const nearPlume = { position: { x: 0, y: 2.5, z: -17.5 }, size: 1.6, color: { r: 0.035, g: 0.04, b: 0.055, a: 0.16 } };
+        animCore._lightAirParticles.call(c, [midPlume, nearPlume], 'plume');
+        c._tintClubAir(1 / 60, 0);
+        return { midPlume: midPlume.color, nearPlume: nearPlume.color, hazeR: c.haze.color1.r };
+    };
+
+    const dimAesthetic = makeWallClub(0.45, 0.65, true);
+    const fullBright = makeWallClub(1.0, 1.0, false);
+    assert.ok(dimAesthetic.midPlume.r < 0.045,
+        `dim sparse Aesthetic LED wall must not glow mid-floor smoke bright orange (got r=${dimAesthetic.midPlume.r.toFixed(3)})`);
+    assert.ok(dimAesthetic.hazeR < 0.07,
+        `dim sparse Aesthetic LED wall must not flood ambient room haze (got haze.r=${dimAesthetic.hazeR.toFixed(3)})`);
+    assert.ok(fullBright.nearPlume.r > 0.35 && fullBright.nearPlume.r > dimAesthetic.nearPlume.r * 8,
+        'a full-brightness LED wall must still strongly illuminate nearby smoke');
+    assert.ok(fullBright.nearPlume.r > fullBright.midPlume.r * 2,
+        'LED wall smoke illumination must fall off physically with distance into the room');
+
+    // 4. Spotlights stay focused (~12 deg cone, < 0.85 m radius at 7.3 m) and remain clearly visible without smoke.
+    const spotTest = {
+        light: { angle: Math.PI / 15 },
+        beam: { position: new BABYLON.Vector3(), scaling: new BABYLON.Vector3(1, 1, 1), visibility: 1 },
+        beamMat: { emissiveColor: new BABYLON.Color3(), alpha: 0 },
+        _beamMidpoint: new BABYLON.Vector3(),
+        _mediumDensity: 0
+    };
+    const spotClub = {
+        lightsActive: true, masterIntensity: 1, spotBrightness: 1, spotlightMode: 1,
+        currentSpotColor: new BABYLON.Color3(0.2, 0.7, 1),
+        vecPool: { up: new BABYLON.Vector3(), spotAxis: new BABYLON.Vector3() },
+        _quatIdentity: BABYLON.Quaternion.Identity(),
+        _quatFlipX: BABYLON.Quaternion.RotationAxis(BABYLON.Axis.X, Math.PI),
+        _fixturePhotometricGain: animFixtures._fixturePhotometricGain,
+        _resolveSpotSurfaceHit: () => ({
+            centerDistanceToSurface: 7.3, hitSurface: 'floor',
+            emissionPoint: new BABYLON.Vector3(0, 7.3, -12),
+            surfaceIntersection: new BABYLON.Vector3(0, 0, -12),
+            surfaceBounds: null
+        }),
+        smokeActive: false, _smokeLevel: 0
+    };
+    const geom = animFixtures._updateSpotBeamGeometry.call(spotClub, spotTest, 0, new BABYLON.Vector3(0, -1, 0), 0, 1, 1);
+    assert.ok(geom.surfaceRadius < 0.85 && geom.surfaceRadius > 0.65,
+        `expected focused ~12° spotlight radius (< 0.85 m at 7.3 m), got ${geom.surfaceRadius.toFixed(3)} m`);
+    animFixtures._updateSpotBeamAppearance.call(spotClub, spotTest, 0, 0, 0, 1, geom);
+    const clearAirAlpha = spotTest.beamMat.alpha;
+    assert.ok(clearAirAlpha > 0.30, `spot beams must stay clearly visible without smoke, got alpha=${clearAirAlpha.toFixed(3)}`);
+    spotClub.smokeActive = true;
+    spotClub._smokeLevel = 1;
+    spotTest._mediumDensity = 0.6;
+    animFixtures._updateSpotBeamAppearance.call(spotClub, spotTest, 0, 0, 0, 1, geom);
+    assert.ok(spotTest.beamMat.alpha > clearAirAlpha * 1.35, 'spot beams must still scatter more strongly with smoke');
 });

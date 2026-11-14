@@ -352,25 +352,81 @@ class VRClubFixtures extends VRClubEnvironment {
         
         log.info('💨 Creating hyperrealistic fog machine system...');
         
-        // Create a soft particle texture using Canvas
+        const noise = (x, y, seed, period) => {
+            const ix = Math.floor(x), iy = Math.floor(y);
+            let fx = x - ix, fy = y - iy;
+            fx = fx * fx * (3 - 2 * fx);
+            fy = fy * fy * (3 - 2 * fy);
+            const hash = (px, py) => {
+                let h = (Math.imul(px + seed, 374761393) + Math.imul(py + seed * 31, 668265263)) >>> 0;
+                h = Math.imul(h ^ (h >>> 13), 1274126177) >>> 0;
+                return ((h ^ (h >>> 16)) & 0xffff) / 65535;
+            };
+            const x0 = ((ix % period) + period) % period, y0 = ((iy % period) + period) % period;
+            const x1 = (x0 + 1) % period, y1 = (y0 + 1) % period;
+            const a = hash(x0, y0) + (hash(x1, y0) - hash(x0, y0)) * fx;
+            const b = hash(x0, y1) + (hash(x1, y1) - hash(x0, y1)) * fx;
+            return a + (b - a) * fy;
+        };
         const smokeCanvas = document.createElement('canvas');
-        smokeCanvas.width = 128;
-        smokeCanvas.height = 128;
-        const ctx = smokeCanvas.getContext('2d');
-        
-        // Create soft radial gradient for smoke puff
-        const grad = ctx.createRadialGradient(64, 64, 0, 64, 64, 64);
-        grad.addColorStop(0, 'rgba(255, 255, 255, 1)');
-        grad.addColorStop(0.3, 'rgba(255, 255, 255, 0.6)');
-        grad.addColorStop(0.6, 'rgba(255, 255, 255, 0.25)');
-        grad.addColorStop(1, 'rgba(255, 255, 255, 0)');
-        
-        ctx.fillStyle = grad;
-        ctx.fillRect(0, 0, 128, 128);
-        
-        const particleTexture = new BABYLON.Texture(smokeCanvas.toDataURL(), this.scene);
-        particleTexture.name = "proceduralSmokeTexture";
+        smokeCanvas.width = smokeCanvas.height = 512;
+        const smokeContext = smokeCanvas.getContext('2d');
+        const smokeImage = smokeContext.createImageData(512, 512);
+        for (let cell = 0; cell < 16; cell++) {
+            const seed = cell + 1;
+            const angle = (cell * 2.399963) % (Math.PI * 2);
+            const ca = Math.cos(angle), sa = Math.sin(angle);
+            const sx = 0.84 + (cell % 3) * 0.08;
+            const sy = 1.18 - (cell % 3) * 0.07;
+            for (let py = 0; py < 128; py++) {
+                for (let px = 0; px < 128; px++) {
+                    const u = (px + 0.5) / 64 - 1, v = (py + 0.5) / 64 - 1;
+                    const rOuterSq = u * u + v * v;
+                    if (rOuterSq >= 0.98) continue;
+                    const ru = (u * ca - v * sa) * sx;
+                    const rv = (u * sa + v * ca) * sy;
+                    // Smooth low-frequency domain warp only (no high-frequency grit/speckles):
+                    // overlapping warped Gaussian pillows merge into a velvety, continuous glycol vapour cloud.
+                    const warpX = (noise(ru * 1.4 + 5, rv * 1.4 + 3, seed + 17, 6) - 0.5) * 0.44;
+                    const warpY = (noise(ru * 1.4 - 4, rv * 1.4 + 7, seed + 29, 6) - 0.5) * 0.44;
+                    const wx = ru + warpX, wy = rv + warpY;
+                    const rWarpedSq = wx * wx + wy * wy;
+                    const gaussian = Math.exp(-3.1 * rWarpedSq);
+                    const borderFade = Math.max(0, Math.min(1, (0.98 - rOuterSq) / 0.30));
+                    const borderSmooth = borderFade * borderFade * (3 - 2 * borderFade);
+                    const billow = 0.68 + 0.32 * (
+                        noise(wx * 1.6 + 2, wy * 1.6 - 3, seed, 6) * 0.68 +
+                        noise(wx * 3.1 - 5, wy * 3.1 + 4, seed + 43, 12) * 0.32
+                    );
+                    const alpha = Math.round(158 * gaussian * borderSmooth * billow);
+                    const index = ((Math.floor(cell / 4) * 128 + py) * 512 +
+                        (cell % 4) * 128 + px) * 4;
+                    smokeImage.data[index] = 255;
+                    smokeImage.data[index + 1] = 255;
+                    smokeImage.data[index + 2] = 255;
+                    smokeImage.data[index + 3] = alpha;
+                }
+            }
+        }
+        smokeContext.putImageData(smokeImage, 0, 0);
+        const particleTexture = new BABYLON.DynamicTexture('proceduralSmokeTexture', smokeCanvas, this.scene, false);
+        particleTexture.hasAlpha = true;
+        particleTexture.update(false);
         this._fogParticleTexture = particleTexture; // Store for reuse
+
+        const dustCanvas = document.createElement('canvas');
+        dustCanvas.width = dustCanvas.height = 128;
+        const dustContext = dustCanvas.getContext('2d');
+        const dustGradient = dustContext.createRadialGradient(64, 64, 0, 64, 64, 64);
+        dustGradient.addColorStop(0, 'rgba(255,255,255,1)');
+        dustGradient.addColorStop(0.3, 'rgba(255,255,255,0.6)');
+        dustGradient.addColorStop(0.6, 'rgba(255,255,255,0.25)');
+        dustGradient.addColorStop(1, 'rgba(255,255,255,0)');
+        dustContext.fillStyle = dustGradient;
+        dustContext.fillRect(0, 0, 128, 128);
+        this._dustParticleTexture = new BABYLON.DynamicTexture('proceduralDustTexture', dustCanvas, this.scene, false);
+        this._dustParticleTexture.hasAlpha = true;
+        this._dustParticleTexture.update(false);
         
         // === FOG MACHINE POSITIONS ===
         // Mounted on front truss (z=-8) on left and right sides, turned inward toward the dance floor (-Z, z=-12)
@@ -468,6 +524,12 @@ class VRClubFixtures extends VRClubEnvironment {
             const fogEmitter = new BABYLON.ParticleSystem(
                 `fogEmitter${i}`, this.tierSettings.fogParticleCapacity, this.scene);
             fogEmitter.particleTexture = particleTexture;
+            fogEmitter.isAnimationSheetEnabled = true;
+            fogEmitter.spriteCellWidth = fogEmitter.spriteCellHeight = 128;
+            fogEmitter.startSpriteCellID = 0;
+            fogEmitter.endSpriteCellID = 15;
+            fogEmitter.spriteCellChangeSpeed = 0.8;
+            fogEmitter.spriteRandomStartCell = true;
             
             // World position of the angled nozzle mouth (turned toward -Z dance floor)
             const nozzleWorldPos = new BABYLON.Vector3(
@@ -482,55 +544,63 @@ class VRClubFixtures extends VRClubEnvironment {
             fogEmitter.maxEmitBox = new BABYLON.Vector3(0.06, 0.06, 0.06);
             
             // Unlit base colour is dark club air (zero self-brightness): plumes only light up from active club lighting
-            fogEmitter.color1 = new BABYLON.Color4(0.035, 0.04, 0.055, 0.22);
-            fogEmitter.color2 = new BABYLON.Color4(0.03, 0.035, 0.05, 0.18);
+            fogEmitter.color1 = new BABYLON.Color4(0.035, 0.04, 0.055, 0.21);
+            fogEmitter.color2 = new BABYLON.Color4(0.03, 0.035, 0.05, 0.17);
             fogEmitter.colorDead = new BABYLON.Color4(0.02, 0.025, 0.035, 0.0);
             
-            // Compact at nozzle, billowing as the jet disperses across the floor
-            fogEmitter.minSize = 0.65;
-            fogEmitter.maxSize = 2.4;
-            fogEmitter.minScaleX = 1.0;
-            fogEmitter.maxScaleX = 1.6;
-            fogEmitter.minScaleY = 1.0;
-            fogEmitter.maxScaleY = 1.6;
+            // Smooth overlapping vapor pillows (compact at nozzle, wide rolling cloud bank on floor, VR-safe overdraw)
+            fogEmitter.minSize = 1.15;
+            fogEmitter.maxSize = 2.35;
+            fogEmitter.minScaleX = 1.15;
+            fogEmitter.maxScaleX = 1.48;
+            fogEmitter.minScaleY = 0.82;
+            fogEmitter.maxScaleY = 1.06;
+            fogEmitter.minInitialRotation = -Math.PI;
+            fogEmitter.maxInitialRotation = Math.PI;
             
-            // Lifetime (with updateSpeed = 0.008, 4..7.5 units is ~8..15 real seconds)
-            fogEmitter.minLifeTime = 4.0;
-            fogEmitter.maxLifeTime = 7.5;
+            // Lifetime (with updateSpeed = 0.008, 4.8..8.5 units is ~10..17.5 real seconds, within tier capacities)
+            fogEmitter.minLifeTime = 4.8;
+            fogEmitter.maxLifeTime = 8.5;
             
             // Emission rate (VJ controlled). Leave manualEmitCount at default (-1) so Babylon uses emitRate;
             // setting manualEmitCount = 0 puts Babylon's ParticleSystem into manual mode with 0 particles!
             fogEmitter.emitRate = 55;
             fogEmitter.blendMode = BABYLON.ParticleSystem.BLENDMODE_STANDARD;
             
-            // Direction - angled downward and inward into the dance floor (toward z = -12)
-            const centerDir = i === 0 ? 0.4 : -0.4; // Left machine aims right (+X), right aims left (-X)
-            fogEmitter.direction1 = new BABYLON.Vector3(centerDir - 0.18, -0.75, -0.70);
-            fogEmitter.direction2 = new BABYLON.Vector3(centerDir + 0.18, -0.45, -0.40);
+            // Direction - pressurized nozzle jet aimed down onto the dance floor and deep toward the DJ booth (z = -18)
+            const centerDir = i === 0 ? 0.56 : -0.56; // Left machine aims right (+X), right aims left (-X)
+            fogEmitter.direction1 = new BABYLON.Vector3(centerDir - 0.18, -0.82, -1.16);
+            fogEmitter.direction2 = new BABYLON.Vector3(centerDir + 0.36, -0.36, -0.58);
             
-            // Velocity — strong jet from the nozzle into the room
-            fogEmitter.minEmitPower = 2.6;
-            fogEmitter.maxEmitPower = 4.4;
+            // Velocity — industrial pressurized glycol jet with hyperbolic entrainment decay
+            fogEmitter.minEmitPower = 5.0;
+            fogEmitter.maxEmitPower = 8.0;
             
-            // Physics - gentle downward drift as the cooled plume settles
-            fogEmitter.gravity = new BABYLON.Vector3(0, -0.15, 0);
+            // Physics - cooled dense vapor settles onto the floor and drifts toward the stage
+            fogEmitter.gravity = new BABYLON.Vector3(0, -0.24, -0.10);
+            fogEmitter.limitVelocityDamping = 0.14;
+            fogEmitter.addLimitVelocityGradient(0.00, 8.0);
+            fogEmitter.addLimitVelocityGradient(0.24, 5.5);
+            fogEmitter.addLimitVelocityGradient(0.55, 2.9);
+            fogEmitter.addLimitVelocityGradient(0.82, 1.48);
+            fogEmitter.addLimitVelocityGradient(1.00, 0.62);
             
             // Rotation for natural billow turbulence
-            fogEmitter.minAngularSpeed = -0.35;
-            fogEmitter.maxAngularSpeed = 0.35;
+            fogEmitter.minAngularSpeed = -0.18;
+            fogEmitter.maxAngularSpeed = 0.18;
             
-            // Size growth over lifetime (nozzle jet -> billowing cloud)
-            fogEmitter.addSizeGradient(0.0, 0.25);
-            fogEmitter.addSizeGradient(0.3, 0.95);
-            fogEmitter.addSizeGradient(0.7, 1.75);
-            fogEmitter.addSizeGradient(1.0, 2.45);
+            // Normalized size growth (compact nozzle exit -> smooth overlapping cloud pillows across floor & stage)
+            fogEmitter.addSizeGradient(0.0, 0.28);
+            fogEmitter.addSizeGradient(0.22, 0.74);
+            fogEmitter.addSizeGradient(0.62, 1.15);
+            fogEmitter.addSizeGradient(1.0, 1.42);
             
-            // 6-key alpha/colour envelope: unlit dark fog density profile; colour and brightness come solely from club lights
+            // 6-key alpha/colour envelope: visible wispy smoke plumes illuminated by club fixtures
             fogEmitter.addColorGradient(0.00, new BABYLON.Color4(0.035, 0.04, 0.055, 0.00));
-            fogEmitter.addColorGradient(0.05, new BABYLON.Color4(0.035, 0.04, 0.055, 0.22));
-            fogEmitter.addColorGradient(0.22, new BABYLON.Color4(0.035, 0.04, 0.055, 0.18));
-            fogEmitter.addColorGradient(0.50, new BABYLON.Color4(0.03, 0.035, 0.05, 0.12));
-            fogEmitter.addColorGradient(0.82, new BABYLON.Color4(0.025, 0.03, 0.04, 0.05));
+            fogEmitter.addColorGradient(0.06, new BABYLON.Color4(0.035, 0.04, 0.055, 0.21));
+            fogEmitter.addColorGradient(0.24, new BABYLON.Color4(0.035, 0.04, 0.055, 0.175));
+            fogEmitter.addColorGradient(0.52, new BABYLON.Color4(0.03, 0.035, 0.05, 0.13));
+            fogEmitter.addColorGradient(0.82, new BABYLON.Color4(0.025, 0.03, 0.04, 0.075));
             fogEmitter.addColorGradient(1.00, new BABYLON.Color4(0.02, 0.025, 0.035, 0.00));
             
             fogEmitter.updateSpeed = 0.008;
@@ -557,6 +627,20 @@ class VRClubFixtures extends VRClubEnvironment {
         // Light dispersed particles from accumulated fog - makes beams visible
         this.haze = new BABYLON.ParticleSystem("haze", this.tierSettings.hazeCapacity, this.scene);
         this.haze.particleTexture = particleTexture;
+        this.haze.isAnimationSheetEnabled = true;
+        this.haze.spriteCellWidth = this.haze.spriteCellHeight = 128;
+        this.haze.startSpriteCellID = 0;
+        this.haze.endSpriteCellID = 15;
+        this.haze.spriteCellChangeSpeed = 0.45;
+        this.haze.spriteRandomStartCell = true;
+        this.haze.minInitialRotation = -Math.PI;
+        this.haze.maxInitialRotation = Math.PI;
+        this.haze.minAngularSpeed = -0.08;
+        this.haze.maxAngularSpeed = 0.08;
+        this.haze.minScaleX = 1.15;
+        this.haze.maxScaleX = 1.48;
+        this.haze.minScaleY = 0.80;
+        this.haze.maxScaleY = 1.05;
         
         // Emitter covers dance floor area
         this.haze.emitter = new BABYLON.Vector3(0, 4, -12);
@@ -578,15 +662,15 @@ class VRClubFixtures extends VRClubEnvironment {
                 new BABYLON.Color4(0.7, 0.7, 0.8, this.vrSettings.desktop.hazeAlpha[1] * fade));
         });
         this._hazeGradients = this.haze.getColorGradients ? this.haze.getColorGradients() : null;
-        // Smoke billows as it disperses.
+        // Bounded size growth avoids large full-screen quads that hurt headset fill rate.
         this.haze.addSizeGradient(0, 0.55);
-        this.haze.addSizeGradient(0.25, 1.0);
-        this.haze.addSizeGradient(1, 1.3);
+        this.haze.addSizeGradient(0.3, 0.92);
+        this.haze.addSizeGradient(1, 1.12);
         
         // Smoke, not glow sprites. STANDARD keeps the asserted alphas from
         // adding a white sheet over the floor; size stays inside the beam volume.
-        this.haze.minSize = 0.8;
-        this.haze.maxSize = 2.2;
+        this.haze.minSize = 1.0;
+        this.haze.maxSize = 2.0;
         this.haze.minLifeTime = 8.0;
         this.haze.maxLifeTime = 15.0;
         
@@ -615,7 +699,7 @@ class VRClubFixtures extends VRClubEnvironment {
         const moteCapacity = this.graphicsTier === 'ultra' ? 1400
             : this.graphicsTier === 'high' ? 900 : 400;
         this.dustMotes = new BABYLON.ParticleSystem("dustMotes", moteCapacity, this.scene);
-        this.dustMotes.particleTexture = particleTexture;
+        this.dustMotes.particleTexture = this._dustParticleTexture;
         this.dustMotes.emitter = new BABYLON.Vector3(0, 4, -12);
         this.dustMotes.minEmitBox = new BABYLON.Vector3(-11, -3.5, -8);
         this.dustMotes.maxEmitBox = new BABYLON.Vector3(11, 3.5, 8);
@@ -1202,8 +1286,7 @@ class VRClubFixtures extends VRClubEnvironment {
             emitter.renderingGroupId = 2; // Render on top for visibility
             if (this.glowLayer) this.glowLayer.addIncludedOnlyMesh(emitter);
             
-            // Logical beams. Geometry lives in one shared camera-facing ribbon batch built after the loop
-            // (see _createLaserBeamBatch), so 15 beams cost one draw call, plus one for their surface dots.
+            // Logical beams. Geometry lives in one shared segmented ribbon batch built after the loop.
             const beams = [];
             // No real lights: 15 SpotLights would overflow every PBR material's light budget.
             const lights = [];
@@ -1220,9 +1303,10 @@ class VRClubFixtures extends VRClubEnvironment {
                 emitter: emitter,
                 emitterMat: emitterMat,
                 lights: lights,
-                rotation: 0,
+                rotation: i === 2 ? Math.PI : 0,
                 rotationSpeed: 0.01,
                 tiltPhase: 0,
+                direction: i === 2 ? -1 : 1,
                 originPos: actualWorldPos,
                 parentTruss: parentTruss,
                 localPos: new BABYLON.Vector3(localX, -0.45, localZ),
@@ -1300,6 +1384,7 @@ class VRClubFixtures extends VRClubEnvironment {
      * (updateLasers()). Brightness lives in vertex alpha, which the glow layer reads too.
      */
     _createLaserBeamBatch(count) {
+        const segments = 6;
         const profile = (name, w, h, alphaAt) => {
             const tex = new BABYLON.DynamicTexture(name, { width: w, height: h }, this.scene, false);
             const ctx = tex.getContext();
@@ -1318,19 +1403,26 @@ class VRClubFixtures extends VRClubEnvironment {
             tex.wrapV = BABYLON.Texture.CLAMP_ADDRESSMODE;
             return tex;
         };
-        // Across the ribbon: the coherent core (sigma ~5% of the ribbon) plus forward-scatter halo.
-        const beamTex = profile('laserBeamProfile', 64, 4, u => {
+        // A narrow core and halo across the beam, with restrained axial variation from turbulent haze.
+        const beamTex = profile('laserBeamProfile', 64, 128, (u, v) => {
             const s = 2 * u - 1;
-            return Math.exp(-(s / 0.11) * (s / 0.11)) + 0.2 * Math.exp(-(s / 0.45) * (s / 0.45));
+            const transverse = Math.exp(-(s / 0.11) * (s / 0.11)) +
+                0.2 * Math.exp(-(s / 0.45) * (s / 0.45));
+            const eddy = 0.88 + 0.12 * (
+                0.55 * Math.sin(v * 31 + s * 4.3) +
+                0.3 * Math.sin(v * 73 - s * 8.1) +
+                0.15 * Math.cos(v * 137 + s * 2.7));
+            return transverse * Math.max(0.65, eddy);
         });
         const build = (name, texture) => {
             const mesh = new BABYLON.Mesh(name, this.scene);
-            const positions = new Float32Array(count * 12);
-            const colors = new Float32Array(count * 16);
-            const normals = new Float32Array(count * 12);
-            const uvs = new Float32Array(count * 8);
-            const indices = new Uint16Array(count * 6);
-            for (let i = 0; i < count; i++) {
+            const quadCount = count * segments;
+            const positions = new Float32Array(quadCount * 12);
+            const colors = new Float32Array(quadCount * 16);
+            const normals = new Float32Array(quadCount * 12);
+            const uvs = new Float32Array(quadCount * 8);
+            const indices = new Uint16Array(quadCount * 6);
+            for (let i = 0; i < quadCount; i++) {
                 uvs.set([0, 0, 1, 0, 1, 1, 0, 1], i * 8);
                 for (let k = 0; k < 4; k++) {
                     normals[(i * 4 + k) * 3 + 1] = 1;
@@ -1375,6 +1467,7 @@ class VRClubFixtures extends VRClubEnvironment {
         const beams = build('laser_beams', beamTex);
         return {
             count,
+            segments,
             mesh: beams.mesh,
             material: beams.material,
             positions: beams.positions,

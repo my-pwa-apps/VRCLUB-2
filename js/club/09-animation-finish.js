@@ -4,6 +4,8 @@ const STROBE_FLASH_S = 0.040;       // one burst at strobeSpeed 1
 const STROBE_DROP_FLASH_S = 0.032;  // during a drop
 const STROBE_MIN_FLASH_S = 0.022;   // however fast the strobe runs
 const STROBE_MIN_INTERVAL_S = 0.34; // free-running timer floor: under three flashes a second
+const STROBE_AFTERGLOW_S = 0.065;
+const STROBE_AFTERGLOW_TAU_S = 0.018;
 const STROBE_RING_4 = Object.freeze([0, 1, 3, 2]);
 const strobeRingIndex = (count, index) => count === 4 ? STROBE_RING_4[index] : index;
 
@@ -135,13 +137,27 @@ class VRClubAnimationFinish extends VRClubAnimationFixtures {
             if (ambient) ambient.intensity = this._preStrobeAmbientIntensity;
             this._preStrobeAmbientIntensity = undefined;
         }
+        if (this._preStrobeAmbientDirection && ambient?.direction?.set) {
+            const direction = this._preStrobeAmbientDirection;
+            ambient.direction.set(direction.x, direction.y, direction.z);
+            this._preStrobeAmbientDirection = undefined;
+        }
         if (this._preStrobeFogSaved && this.scene?.fogColor && this._preStrobeFogColor) {
             this.scene.fogColor.r = this._preStrobeFogColor.r;
             this.scene.fogColor.g = this._preStrobeFogColor.g;
             this.scene.fogColor.b = this._preStrobeFogColor.b;
             this._preStrobeFogSaved = false;
         }
-        if (this.strobeRetinalFlash?.color) this.strobeRetinalFlash.color.a = 0;
+        if (this.strobeRetinalFlash?.color) {
+            if (this.strobesActive && !this.photosensitiveSafeMode && this._strobeRetinalRemaining > 0) {
+                this.strobeRetinalFlash.color.a = (this._strobeRetinalPeak || 0) *
+                    Math.min(1, this._strobeRetinalRemaining / 0.14);
+                this._strobeRetinalRemaining = Math.max(0, this._strobeRetinalRemaining - dt);
+            } else {
+                this.strobeRetinalFlash.color.a = 0;
+                this._strobeRetinalRemaining = 0;
+            }
+        }
         if (this.strobes && this.strobes.length > 0) {
             // Photosensitive Safe Mode hard-disables strobes regardless of VJ state
             if (this.strobesActive && !this.photosensitiveSafeMode) {
@@ -163,7 +179,7 @@ class VRClubAnimationFinish extends VRClubAnimationFixtures {
                 const due = syncDue === null
                     ? (this._nextStrobeBurstTime === undefined || time >= this._nextStrobeBurstTime)
                     : syncDue;
-                const flashGranted = !burstActive && due && (typeof this._tryClubFlash !== 'function' ||
+                const flashGranted = master > 0 && !burstActive && due && (typeof this._tryClubFlash !== 'function' ||
                     this._tryClubFlash(time, 'strobe', STROBE_MIN_INTERVAL_S));
                 if (flashGranted) {
                     let intensityBase = inDropMode ? 100 : 72 + Math.random() * 28;
@@ -187,8 +203,7 @@ class VRClubAnimationFinish extends VRClubAnimationFixtures {
                         if (this.strobes.length === 1) {
                             targets = [0];
                         } else if (syncDue !== null) {
-                            // On the grid the chase must read as a pattern, not a dice roll.
-                            this._strobeChaseStep = ((Number.isInteger(this._strobeChaseStep) ? this._strobeChaseStep : -1) + 1) % this.strobes.length;
+                            this._strobeChaseStep = VRClubAnimationFinish.sharedStrobeStep(this, syncDue) % this.strobes.length;
                             targets = VRClubAnimationFinish.strobeTargets('chase', this.strobes.length, this._strobeChaseStep);
                         } else {
                             // Pick any corner except the previous one. This reads as
@@ -204,7 +219,7 @@ class VRClubAnimationFinish extends VRClubAnimationFixtures {
                         }
                         this._lastStrobeChaseIndex = targets[0];
                     } else if (pattern !== 'all' && VRClubAnimationFinish.STROBE_PATTERNS.includes(pattern)) {
-                        this._strobePatternStep = (Number.isInteger(this._strobePatternStep) ? this._strobePatternStep : -1) + 1;
+                        this._strobePatternStep = VRClubAnimationFinish.sharedStrobeStep(this, syncDue);
                         targets = VRClubAnimationFinish.strobeTargets(pattern, this.strobes.length, this._strobePatternStep,
                             Math.random, this._lastStrobeTarget, this._strobeTargetBuffer || (this._strobeTargetBuffer = []));
                         this._lastStrobeTarget = targets.length === 1 ? targets[0] : -1;
@@ -216,6 +231,7 @@ class VRClubAnimationFinish extends VRClubAnimationFixtures {
                         strobe._burstOn = active;
                         // The burst is shown for the frame it fires on, whatever the frame time.
                         strobe._holdFrame = active;
+                        strobe._afterglowAge = -1;
                         if (!active) {
                             strobe.emitter?.setEnabled(false);
                             strobe.glare?.setEnabled(false);
@@ -238,59 +254,96 @@ class VRClubAnimationFinish extends VRClubAnimationFixtures {
                 this.strobes.forEach((strobe) => {
                     // Handle ongoing flash
                     if (strobe.flashDuration > 0) {
+                        const previousDuration = strobe.flashDuration;
+                        const held = !!strobe._holdFrame;
+                        if (held) strobe._holdFrame = false;
+                        else strobe.flashDuration -= dt;
+                        const endedNow = !held && strobe.flashDuration <= 0;
+                        if (endedNow) strobe._afterglowAge = Math.max(0, dt - previousDuration);
+                        const intensityVariation = Math.min(100, (strobe.currentIntensity || 80) *
+                            (inDropMode ? 1.5 : 1) *
+                            (this.masterIntensity != null ? this.masterIntensity : 1));
+                        if (endedNow) {
+                            if (strobe._afterglowAge < STROBE_AFTERGLOW_S && master > 0) {
+                                const tail = Math.exp(-strobe._afterglowAge / STROBE_AFTERGLOW_TAU_S);
+                                const level = Math.min(36, 10 + intensityVariation * 0.30) * 0.10 * tail;
+                                const gaze = VRClubAnimationFinish.strobeGazeGain(this, strobe);
+                                strobe.emitter?.setEnabled(true);
+                                strobe.glare?.setEnabled(true);
+                                if (!strobe._emisBuf) strobe._emisBuf = new BABYLON.Color3(0, 0, 0);
+                                (this.cachedColors.warmWhite || this.cachedColors.ledMonoWhite)
+                                    .scaleToRef(level, strobe._emisBuf);
+                                strobe.material.emissiveColor = strobe._emisBuf;
+                                if (strobe.glareMaterial) {
+                                    if (!strobe._glareBuf) strobe._glareBuf = new BABYLON.Color3(0, 0, 0);
+                                    (this.cachedColors.warmWhite || this.cachedColors.ledMonoWhite)
+                                        .scaleToRef(level * gaze, strobe._glareBuf);
+                                    strobe.glareMaterial.emissiveColor = strobe._glareBuf;
+                                    strobe.glareMaterial.alpha = 0.045 * tail * gaze;
+                                }
+                            } else {
+                                strobe._afterglowAge = -1;
+                                strobe.emitter?.setEnabled(false);
+                                strobe.glare?.setEnabled(false);
+                                if (strobe._emisBuf) strobe._emisBuf.set(0, 0, 0);
+                                if (strobe.glareMaterial) strobe.glareMaterial.alpha = 0;
+                            }
+                            if (strobe.light) strobe.light.intensity = 0;
+                        } else {
+                            strobe.emitter?.setEnabled(true);
+                            strobe.glare?.setEnabled(true);
+                            const emitterLevel = intensityVariation > 0
+                                ? Math.min(36, 10 + intensityVariation * 0.30) : 0;
+                            if (!strobe._emisBuf) strobe._emisBuf = new BABYLON.Color3(0, 0, 0);
+                            this.cachedColors.ledMonoWhite.scaleToRef(emitterLevel, strobe._emisBuf);
+                            strobe.material.emissiveColor = strobe._emisBuf;
+                            if (strobe.glareMaterial) {
+                                const gaze = VRClubAnimationFinish.strobeGazeGain(this, strobe);
+                                if (!strobe._glareBuf) strobe._glareBuf = new BABYLON.Color3(0, 0, 0);
+                                this.cachedColors.ledMonoWhite.scaleToRef(emitterLevel * 0.75 * gaze, strobe._glareBuf);
+                                strobe.glareMaterial.emissiveColor = strobe._glareBuf;
+                                strobe.glareMaterial.alpha = 0.95 * gaze;
+                            }
+                            if (strobe.light) {
+                                strobe.light.intensity = intensityVariation * 200;
+                                strobe.light.range = 80 + (intensityVariation * 0.8);
+                            }
+                        }
+                    } else if (strobe._afterglowAge >= 0 && strobe._afterglowAge < STROBE_AFTERGLOW_S &&
+                        master > 0 &&
+                        this.strobesActive && !this.photosensitiveSafeMode) {
+                        strobe._afterglowAge += dt;
+                        const tail = Math.exp(-strobe._afterglowAge / STROBE_AFTERGLOW_TAU_S);
+                        const emitterLevel = Math.min(36, 10 + Math.min(100, strobe.currentIntensity || 80) * 0.30) *
+                            0.10 * tail * master;
+                        const gaze = VRClubAnimationFinish.strobeGazeGain(this, strobe);
                         strobe.emitter?.setEnabled(true);
                         strobe.glare?.setEnabled(true);
-                        // A burst is 20-90 ms, shorter than one frame on a loaded headset.
-                        // Counting down before drawing lit and cleared it in the same pass,
-                        // so the flash never reached the screen. The frame a burst fires on
-                        // is therefore drawn untouched; the countdown starts on the next.
-                        if (strobe._holdFrame) strobe._holdFrame = false;
-                        else strobe.flashDuration -= dt;
-                    
-                    // Variable intensity - SUPER BRIGHT strobes
-                    // BOOST during drops for maximum crowd impact
-                    let intensityVariation = strobe.currentIntensity || 80;
-                    if (inDropMode) {
-                        intensityVariation *= 1.5; // 50% brighter during drops
-                    }
-                    // VJ Director master fader (1.0 = full, 0 = blackout). Cheap multiply.
-                    intensityVariation *= (this.masterIntensity != null ? this.masterIntensity : 1.0);
-                    
-                    // The scheduler already creates discrete 140-200 ms flashes.
-                    // Gating that short window again at 40 Hz made a newly triggered
-                    // burst begin on an off phase and often disappear entirely.
-                    strobe._burstOn = true;
-                    
-                    // scaleToRef into a per-strobe buffer: Color3.scale() allocates,
-                    // and this runs once per strobe per frame for the whole flash.
-                    if (!strobe._emisBuf) strobe._emisBuf = new BABYLON.Color3(0, 0, 0);
-                    const emitterLevel = Math.min(36, 10 + intensityVariation * 0.30);
-                    this.cachedColors.ledMonoWhite.scaleToRef(emitterLevel, strobe._emisBuf);
-                    strobe.material.emissiveColor = strobe._emisBuf;
-                    if (strobe.glareMaterial) {
-                        if (!strobe._glareBuf) strobe._glareBuf = new BABYLON.Color3(0, 0, 0);
-                        this.cachedColors.ledMonoWhite.scaleToRef(emitterLevel * 0.75, strobe._glareBuf);
-                        strobe.glareMaterial.emissiveColor = strobe._glareBuf;
-                        strobe.glareMaterial.alpha = 0.95;
-                    }
-                    // Per-fixture point lights stay out of the uniform budget. The
-                    // emissive lamp is the fixture; the room fill is the ambient impulse.
-                    if (strobe.light) {
-                        strobe.light.intensity = intensityVariation * 200;
-                        strobe.light.range = 80 + (intensityVariation * 0.8);
-                    }
-                    
-                    if (strobe.flashDuration <= 0) {
+                        if (!strobe._emisBuf) strobe._emisBuf = new BABYLON.Color3(0, 0, 0);
+                        (this.cachedColors.warmWhite || this.cachedColors.ledMonoWhite)
+                            .scaleToRef(emitterLevel, strobe._emisBuf);
+                        strobe.material.emissiveColor = strobe._emisBuf;
+                        if (strobe.glareMaterial) {
+                            if (!strobe._glareBuf) strobe._glareBuf = new BABYLON.Color3(0, 0, 0);
+                            (this.cachedColors.warmWhite || this.cachedColors.ledMonoWhite)
+                                .scaleToRef(emitterLevel * gaze, strobe._glareBuf);
+                            strobe.glareMaterial.emissiveColor = strobe._glareBuf;
+                            strobe.glareMaterial.alpha = 0.045 * tail * gaze;
+                        }
+                        if (strobe.light) strobe.light.intensity = 0;
+                    } else {
+                        strobe._afterglowAge = -1;
                         strobe.emitter?.setEnabled(false);
                         strobe.glare?.setEnabled(false);
+                        if (!strobe._emisBuf) strobe._emisBuf = new BABYLON.Color3(0, 0, 0);
                         strobe._emisBuf.set(0, 0, 0);
+                        strobe.material.emissiveColor = strobe._emisBuf;
                         if (strobe.glareMaterial) {
                             strobe.glareMaterial.emissiveColor.set(0, 0, 0);
                             strobe.glareMaterial.alpha = 0;
                         }
                         if (strobe.light) strobe.light.intensity = 0;
                     }
-                }
                 });
                 
                 // Drive shared strobe flash light from max strobe intensity
@@ -307,12 +360,25 @@ class VRClubAnimationFinish extends VRClubAnimationFixtures {
                     });
                     if (maxIntensity > 0) {
                         const impulse = VRClubAnimationFinish.strobeImpulse(this);
-                        if (this.strobePattern && this.strobePattern !== 'all' && brightestStrobe && this.strobeFlashLight.position) {
-                            this.strobeFlashLight.position.copyFrom(brightestStrobe.mesh.position);
-                        } else if (this.strobeFlashLight.position) {
-                            this.strobeFlashLight.position.set(0, 8, -12);
+                        let sourceX = 0, sourceY = 0, sourceZ = 0, activeCount = 0;
+                        for (const strobe of this.strobes) {
+                            if (!(strobe.flashDuration > 0) || !strobe._burstOn) continue;
+                            const source = strobe.mesh?.position;
+                            if (!source) continue;
+                            sourceX += source.x;
+                            sourceY += source.y;
+                            sourceZ += source.z;
+                            activeCount++;
                         }
-                        this.strobeFlashLight.intensity = maxIntensity * 14 * master;
+                        if (!activeCount) activeCount = 1;
+                        sourceX /= activeCount;
+                        sourceY /= activeCount;
+                        sourceZ /= activeCount;
+                        const audienceGain = VRClubAnimationFinish.strobeSpatialGain(this);
+                        const bankGain = Math.sqrt(activeCount / Math.max(1, this.strobes.length));
+                        const impulseGain = master * audienceGain * bankGain;
+                        if (this.strobeFlashLight.position) this.strobeFlashLight.position.set(sourceX, sourceY, sourceZ);
+                        this.strobeFlashLight.intensity = maxIntensity * 14 * activeCount * master * audienceGain;
                         // Leave the point light disabled for life. Enabling it takes
                         // slot 0 of every material (it is created before ambient) and
                         // the measured cost was ~19 ms per flash. Frozen room materials
@@ -320,7 +386,20 @@ class VRClubAnimationFinish extends VRClubAnimationFixtures {
                         // below is the room fill.
                         if (ambient) {
                             this._preStrobeAmbientIntensity = ambient.intensity;
-                            ambient.intensity = ambient.intensity + (impulse.ambient - ambient.intensity) * master;
+                            if (ambient.direction) {
+                                const direction = this._preStrobeAmbientDirection ||
+                                    (this._preStrobeAmbientDirection = { x: 0, y: 1, z: 0 });
+                                direction.x = ambient.direction.x;
+                                direction.y = ambient.direction.y;
+                                direction.z = ambient.direction.z;
+                                const lx = -sourceX, ly = 1.7 - sourceY, lz = -12 - sourceZ;
+                                const length = Math.max(1e-6, Math.hypot(lx, ly, lz));
+                                if (typeof ambient.direction.set === 'function') {
+                                    ambient.direction.set(lx / length, ly / length, lz / length);
+                                }
+                            }
+                            ambient.intensity = ambient.intensity +
+                                (impulse.ambient - ambient.intensity) * impulseGain;
                         }
                         if (this.scene?.fogColor) {
                             const fog = this.scene.fogColor;
@@ -328,14 +407,18 @@ class VRClubAnimationFinish extends VRClubAnimationFixtures {
                             save.r = fog.r; save.g = fog.g; save.b = fog.b;
                             this._preStrobeFogSaved = true;
                             const smokeNow = Number.isFinite(this._smokeLevel) ? this._smokeLevel : (this.smokeActive === false ? 0 : 1);
-                            const fogFlash = (0.04 + 0.14 * smokeNow) * master * Math.min(1, maxIntensity / 90);
+                            const fogFlash = (0.04 + 0.14 * smokeNow) * impulseGain * Math.min(1, maxIntensity / 90);
                             fog.r = Math.min(0.35, fog.r + fogFlash * 0.94);
                             fog.g = Math.min(0.35, fog.g + fogFlash * 0.97);
                             fog.b = Math.min(0.38, fog.b + fogFlash * 1.00);
                         }
                         if (this.strobeRetinalFlash?.color) {
-                            this.strobeRetinalFlash.color.a = impulse.retinal * master;
+                            this._strobeRetinalPeak = impulse.retinal * impulseGain *
+                                VRClubAnimationFinish.strobeGazeGain(this, brightestStrobe);
+                            this._strobeRetinalRemaining = 0.14;
+                            this.strobeRetinalFlash.color.a = this._strobeRetinalPeak;
                         }
+                        this._strobeAdaptation = Math.min(0.08, (this._strobeAdaptation || 0) + 0.035 * impulseGain);
                         // Brief bloom spike for blinding strobe effect. Captured per
                         // burst (cleared at the top of this function), so a pipeline swap
                         // on VR entry cannot leak a stale desktop bloomWeight into the
@@ -343,11 +426,11 @@ class VRClubAnimationFinish extends VRClubAnimationFixtures {
                         if (this.renderPipeline && this.renderPipeline.bloomEnabled) {
                             this._preStrobeBloom = this.renderPipeline.bloomWeight;
                             this.renderPipeline.bloomWeight = this._preStrobeBloom +
-                                (1.0 - this._preStrobeBloom) * master;
+                                (1.0 - this._preStrobeBloom) * impulseGain;
                             if (this.renderPipeline.imageProcessing) {
                                 this._preStrobeExposure = this.renderPipeline.imageProcessing.exposure;
                                 this._writeExposure(this._preStrobeExposure +
-                                    (impulse.exposure - this._preStrobeExposure) * master);
+                                    (impulse.exposure - this._preStrobeExposure) * impulseGain);
                             }
                         }
                     } else {
@@ -366,6 +449,8 @@ class VRClubAnimationFinish extends VRClubAnimationFixtures {
                     }
                     if (strobe.light) strobe.light.intensity = 0;
                     strobe.flashDuration = 0;
+                    strobe._afterglowAge = -1;
+                    strobe._burstOn = false;
                     strobe.emitter?.setEnabled(false);
                     strobe.glare?.setEnabled(false);
                 });
@@ -380,6 +465,60 @@ class VRClubAnimationFinish extends VRClubAnimationFixtures {
     static strobeImpulse(club) {
         const settings = club.vrSettings && (club.isInVRMode ? club.vrSettings.vr : club.vrSettings.desktop);
         return (settings && settings.strobeImpulse) || { ambient: 3.2, retinal: 0.18, exposure: 2.1 };
+    }
+
+    static sharedStrobeStep(club, syncDue) {
+        if (syncDue !== null && club.showDirector?.isDriving?.()) {
+            const show = club.showDirector;
+            const barValue = show._setPiece
+                ? show._setPieceBar
+                : show._cueBarsElapsed;
+            const fallbackBeat = Math.max(0, Math.floor(club.vjDirector?.beatNumber || 0));
+            if (!Number.isFinite(barValue) || !Number.isFinite(show._beatInBar)) {
+                const beatStep = Math.max(0, fallbackBeat - 1);
+                if (club.strobeSync === 'bar') return Math.floor(beatStep / 4);
+                if (club.strobeSync === 'roll') {
+                    return Math.max(0, beatStep * 2 + (club._strobeHalfDone ? 1 : 0));
+                }
+                return beatStep;
+            }
+            const bars = barValue;
+            const beat = Number.isFinite(show._beatInBar)
+                ? Math.max(0, Math.floor(show._beatInBar))
+                : fallbackBeat % 4;
+            if (club.strobeSync === 'bar') return Math.floor(bars);
+            if (club.strobeSync === 'roll') {
+                return Math.max(0, Math.floor(bars * 8 + beat * 2 + (club._strobeHalfDone ? 1 : 0)));
+            }
+            return Math.max(0, Math.floor(bars * 4 + beat));
+        }
+        club._strobePatternStep = (Number.isInteger(club._strobePatternStep) ? club._strobePatternStep : -1) + 1;
+        return club._strobePatternStep;
+    }
+
+    static strobeSpatialGain(club) {
+        const camera = club.scene?.activeCamera || club.camera || club.xrCamera;
+        const position = camera?.globalPosition || camera?.position;
+        if (!position || !Number.isFinite(position.x) || !Number.isFinite(position.z)) return 1;
+        if (typeof CityLayout !== 'undefined' &&
+            CityLayout.exteriorAmount(position.x, position.z) > 0.5) return 0;
+        const enclosure = typeof VenueLayout !== 'undefined' && VenueLayout.vestibule &&
+            typeof VenueLayout.vestibule.enclosure === 'function'
+            ? VenueLayout.vestibule.enclosure(position.z) : null;
+        return Number.isFinite(enclosure) ? 0.2 + 0.8 * Math.max(0, Math.min(1, enclosure)) : 1;
+    }
+
+    static strobeGazeGain(club, strobe) {
+        const camera = club.scene?.activeCamera || club.camera || club.xrCamera;
+        const position = camera?.globalPosition || camera?.position;
+        const source = strobe?.mesh?.getAbsolutePosition?.() || strobe?.mesh?.position;
+        const forward = camera?.getForwardRay?.().direction;
+        if (!camera || !position || !source || !forward) return 1;
+        const dx = source.x - position.x, dy = source.y - position.y, dz = source.z - position.z;
+        const distance = Math.max(1e-6, Math.hypot(dx, dy, dz));
+        const cosine = (dx * forward.x + dy * forward.y + dz * forward.z) / distance;
+        const t = Math.max(0, Math.min(1, (cosine - 0.25) / 0.65));
+        return 0.08 + 0.92 * t * t * (3 - 2 * t);
     }
 
     /**
@@ -648,6 +787,9 @@ class VRClubAnimationFinish extends VRClubAnimationFixtures {
         }
         this._ledFadeT = time;
         const level = this._ledFade * brightness;
+        this._ledAppliedLevel = level;
+        this._ledAppliedFrame = this.scene && typeof this.scene.getFrameId === 'function'
+            ? this.scene.getFrameId() : -1;
         if (Math.abs(level - 1) > 0.001) {
             for (let i = 0; i < this.ledPanels.length; i++) {
                 const panel = this.ledPanels[i];

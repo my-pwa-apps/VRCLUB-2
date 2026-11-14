@@ -4,6 +4,127 @@ Actionable engineering items for the VRCLUB repository.
 Items are grouped by the review that produced them. Unresolved items are never removed —
 they are carried forward and re-prioritised.
 
+## Network/social implementation follow-up
+
+The validated client/relay review findings are implemented locally: independent
+live-event handlers; stable People/report editing; capped-chat notifications;
+VR recipient pagination, recent chat and report review; invitation safety;
+speech-driven ducking and microphone cleanup; reusable reactions; stationary
+presence suppression; unbiased room-code sampling; visibility-filtered roles;
+and deduplicated SFU catalogs/reconciliation. Loaded room results are sorted by
+population without changing the server's cursor. Frontend and Worker deployment
+remain separate, explicit operations.
+
+- [ ] **Measure restrictive-network connectivity before tuning ICE or adding TURN**
+
+  Keep existing gathering deadlines and transports until paired real-device
+  tests cover ordinary Wi-Fi, restrictive UDP and reconnects. Record connection
+  success, setup p50/p95 and cleanup. Any TURN rollout needs owner-provisioned
+  credentials, bounded lifetime and a relay-only connectivity test; never ship
+  provider secrets in frontend configuration.
+
+- [ ] **Evaluate appearance-validator consolidation without weakening trust boundaries**
+
+  Browser and relay validation remain independent. Before extracting shared
+  schema logic, run complete v1/v2/v3 and malformed-descriptor fixtures through
+  every consumer, verify identical accepted descriptors and preserve classic
+  script order, old-relay behavior and authoritative acknowledgement.
+
+The suggested per-eye water-update optimization was not applied: the existing
+scene-before-render observer is not an eye-render observer. Legacy wire fields
+and compatibility music APIs remain; deleting them requires a supported-client
+compatibility decision, not a local unused-code assumption. Physical headset
+voice, controller-heading and 32-person performance remain unmeasured.
+
+## Review - 2026-11-14 - Club architecture ultrahyperrealism
+
+Architectural review of the basement hall, roof/truss load paths, shell junctions, DJ stage/booth,
+mezzanine, bar, entrance stair hall, restroom and scoped-accent luminaires. All five items must merge
+into existing static material groups or thin-instanced batches without adding dynamic `BABYLON.Light`s,
+per-frame CPU work or violating walkable/collision contracts.
+
+- [ ] **Priority 1: Structural load-path, overhead rigging and ceiling service-pipe coherence**
+
+  **Priority:** High
+  **Category:** Architecture / Rendering
+  **Confidence:** High (directly verified in geometry coordinates)
+  **Area:** Hall roof structure, pilasters, truss suspension and HVAC/piping
+  **Affected files:** [04-environment.js](js/club/04-environment.js), [03-rendering.js](js/club/03-rendering.js), [budget.spec.mjs](test/e2e/budget.spec.mjs)
+  **Evidence:** `createRoofGirders()` places five steel I-beams at `z = -2, -6, -10, -14, -18`, while `createIndustrialWallDetails()` places concrete pillars at `z = -5, -15, -21` (`width: 0.6` centred inside the `0.5 m` wall, protruding only `5 cm`). In `createLightingTruss()`, `createChainHoist()` places hoist motors at `y = 10.2` (inside/above the `y = 10.0` ceiling slab), terminates hooks at `y = 8.9` (`0.75 m` above the `y = 8.15` truss top chord), omits suspension cables on the `(±6, -12)` hoists, hangs trusses between girders without secondary spreader steel, and leaves `ventDuct` (`Ø 0.8 m`) and service pipes floating with uncapped ends `5 cm` short of the walls.
+  **Problem:** Looking up in VR exposes structurally impossible load paths, buried hoist motors, air gaps above the trusses and floating open-ended ducts/pipes.
+  **Impact:** Undermines physical presence in the 10 m industrial hall whenever guests look toward the ceiling rig, mirror ball or mezzanine.
+  **Recommended solution:** Align wall pilasters (`25–30 cm` projection with plinth bases and steel bearing corbels/gussets) with roof girder bays while preserving the restroom doorway (`z = -4.1..-2.3`), bar back-bar and mingler clearances; add secondary spreader channels between girders, clamp inverted chain-hoist bodies below the roof steel (`y ≈ 9.45`) with continuous chain, shackle and black polyester spanset roundslings wrapped around all eight truss pick points plus truss corner junction blocks; merge spiral-duct seam rings, supply grilles, 90° wall elbows/flanges and trapeze hangers into `ceilingServicePipes` / `mergedPipes`.
+  **Regression considerations:** Keep `ceilingServicePipes`, `roofGirders`, `mergedPillars`, `mergedPipes` and truss instance naming/draw budgets intact (`activeSubmeshProxyDraws <= 400`); preserve `ROOM_INTERIOR` analytic ray bounds and mingler/crowd 0.8 m clearances.
+  **Acceptance criteria:** Every roof girder bears on a visible pilaster/corbel; every truss hoist sits below `y = 9.85` with continuous physical connection from roof steel to truss chords; all ducts/pipes have hangers and terminated wall penetrations; zero added dynamic lights and resource budgets pass.
+  **Validation:** Real-Babylon geometry/bounds assertions in `test/unit.test.mjs` plus `test/e2e/budget.spec.mjs`.
+  **Estimated effort:** Medium
+
+- [ ] **Priority 2: Shell junctions, recessed dance-floor channels and acoustic doorway thresholds**
+
+  **Priority:** High
+  **Category:** Architecture / Rendering
+  **Confidence:** High
+  **Area:** Wall-floor/ceiling transitions, dance-floor perimeter strips and doorway reveals
+  **Affected files:** [04-environment.js](js/club/04-environment.js), [03-rendering.js](js/club/03-rendering.js), [venueDressing.js](js/venueDressing.js)
+  **Evidence:** The `26 × 22 m` floor plane meets the `25 m` brick walls at bare 90° edges; `createDanceFloorLighting()` places `2 cm`-tall unlit boxes (`danceFloorLED0..3`) and `5 mm`-raised `2 × 2 m` grid bars (`mergedDanceFloorTileGaps`) on top of continuous damaged-concrete cracks; brick openings lack structural steel lintels, sill plates and physical sound-lock treatment.
+  **Problem:** Sharp untrimmed box-to-plane intersections and floating floor bars read as CG primitives in stereo VR, and the audible `enclosure(z)` muffling at the entrance lacks a visible acoustic counterpart.
+  **Impact:** Weakens close-range floor and wall grounding across the main room and entrance threshold.
+  **Recommended solution:** Add a merged cast-concrete perimeter curb / steel kick-skirting with cable-tray raceway along the hall walls and a ceiling ring-beam shadow reveal at `y = 9.85`; house `danceFloorLEDs` inside flush chamfered brushed-aluminium channels with frosted diffusers and rework `mergedDanceFloorTileGaps` into flush dark saw-cut expansion joints aligned with structural bays; add bolted steel C-channel lintels over the main and restroom doorways, chequered/brass threshold transition plates, and pleated dark acoustic side-drapes/baffles inside the entrance sound-lock (`z ≈ -0.25..+0.8`).
+  **Regression considerations:** Preserve `danceFloorLEDs` whole-show master/blackout animation, walking-surface heights (`y = 0`), doorway sightlines (`CityLayout.canSeeStreet`) and collision clearances.
+  **Acceptance criteria:** Wall-floor and wall-ceiling junctions carry continuous architectural trim; floor joints and LED channels sit flush without raised trip-bar boxes; doorway lintels, sills and acoustic sound-lock baffles leave `clubDoorHalfWidth` unobstructed.
+  **Validation:** Unit geometry/clearance checks, `test/e2e/street.spec.mjs` sightline/walkthrough tests and `test/e2e/vr-parity.spec.mjs`.
+  **Estimated effort:** Medium
+
+- [ ] **Priority 3: Modular DJ stage framing, booth front fascia and LED-wall ground support**
+
+  **Priority:** Medium
+  **Category:** Architecture / Venue Dressing
+  **Confidence:** High
+  **Area:** DJ riser, operator flanks, booth plinth, monitor stands and LED-wall rear structure
+  **Affected files:** [05-fixtures.js](js/club/05-fixtures.js), [venueDressing.js](js/venueDressing.js), [mezzanine.js](js/mezzanine.js)
+  **Evidence:** `createDJBooth()` builds `djPlatform` (`6 × 4 × 0.5 m`) as a plain box without side steps (guests walk up a sheer `0.5 m` vertical face on the `±2..±3 m` flanks), `djTable` uses a near-mirror `table` preset (`metallic: 0.95, roughness: 0.15`), Yamaha HS8 monitors sit directly on the wood top, and `ledPanel_wall` (`z = -20`) floats `0.75 m` ahead of `backWall` (`z = -20.75` inner face) without rear support steel.
+  **Problem:** Viewed from the dance floor, booth flanks or mezzanine, the stage lacks touring-deck framing and steps, the booth front looks overly mirror-smooth, and the 210-panel LED screen appears paper-thin and unsupported from the side.
+  **Impact:** Reduces close-up believability at the club's primary focal point and DJ/VJ operator station.
+  **Recommended solution:** Frame `djPlatform` with extruded aluminium stage-deck edging, corner leg pockets, recessed step-light bezels and tucked two-tread (`0.25 m` rise) side access steps matching `DJ_RISER` walk-on paths; give `djTable` a slotted dark timber / perforated blackened-steel fascia with recessed toe-kick; add angled acoustic isolation pads/stands under both booth monitors (updating `_createDJMonitorCables()` rear heights if lifted); add a merged rear ground-support steel frame, ballast outriggers and power/data distro box behind `ledPanel_wall` (`z = -20.05..-20.72`).
+  **Regression considerations:** Do not alter `DECK_TOP_Y` (`1.42 m`), DJ rig Console/knob reach (`test/rig.test.mjs`), VJ desk panel pick rays (`test/e2e/vj-desk.spec.mjs`), `ledWallCollider` containment or stage walk-on (`test/e2e/dj-stage.spec.mjs`).
+  **Acceptance criteria:** Side steps match walkable flank entry; LED wall rear frame closes side gaps without protruding past `z = -20`; DJ rig reach, VJ desk interaction and stage locomotion tests pass unchanged.
+  **Validation:** `test/rig.test.mjs`, `test/e2e/dj-stage.spec.mjs` and `test/e2e/vj-desk.spec.mjs`.
+  **Estimated effort:** Medium
+
+- [ ] **Priority 4: Mezzanine structural connections, service-bar underbar equipment and restroom/vestibule finishes**
+
+  **Priority:** Medium
+  **Category:** Architecture / Venue Dressing
+  **Confidence:** High
+  **Area:** Mezzanine wall/floor connections, bartender work zone, bar canopy and WC/vestibule surfaces
+  **Affected files:** [mezzanine.js](js/mezzanine.js), [venueDressing.js](js/venueDressing.js)
+  **Evidence:** `createMezzanine()` butts joists into `x = -12.2` without a wall ledger, lands stair stringers without baseplates, leaves the low stair soffit (`y < 2.0 m`) unguarded and uses bare unshielded cyan boxes (`mezzGlowCyan`). `createBar()` leaves the bartender's inner counter face completely blank and hangs pendants on `7.4 m` wires from the `10 m` roof. `createRestroom()` uses an untextured solid colour for `restroomFloorMat` and omits ceiling vents/drains.
+  **Problem:** Close inspection from the balcony, bar stools or restroom reveals missing structural fasteners, a non-functional bartender workstation and unfinished wet-room floor/ceiling details.
+  **Impact:** Diminishes immersion in the three main social hangout zones off the dance floor.
+  **Recommended solution:** Merge a bolted steel C-channel wall ledger, column cap gussets, stringer floor shoes, a low-headroom soffit guard rail and recessed aluminium LED extrusions into the mezzanine groups; add stainless underbar ice wells, speed-rail trough, dump sink/faucet, rubber spill mats, draught font, POS screen and a tie-rod-suspended `y ≈ 3.2 m` blackened-steel bar gantry carrying the pendants; add dark tiled restroom flooring with stainless floor drain, ceiling exhaust grilles, and vestibule ceiling coffers + emergency bulkhead luminaires.
+  **Regression considerations:** Preserve bartender `AvatarRig` reach/glass-service contacts and `f6` seated bottle contacts (`test/rig.test.mjs`, `test/e2e/bar.spec.mjs`), mingler bar/balcony clearances, restroom door/fixture picking and scoped-light budgets.
+  **Acceptance criteria:** Mezzanine, bar and restroom remain within their merged static draw groups; bartender and mingler contact assertions stay within existing centimetre tolerances; no seat or walk collider is obstructed.
+  **Validation:** `test/rig.test.mjs`, `test/e2e/bar.spec.mjs`, `test/e2e/mezzanine.spec.mjs` and `test/e2e/restroom-vr.spec.mjs`.
+  **Estimated effort:** Medium
+
+- [ ] **Priority 5: Physical luminaire housings for scoped accents and macro vertex-AO weathering**
+
+  **Priority:** Medium
+  **Category:** Rendering / Architecture
+  **Confidence:** High
+  **Area:** Scoped accent light origins, large-scale brick/ceiling patina and static contact shadows
+  **Affected files:** [venueDressing.js](js/venueDressing.js), [mezzanine.js](js/mezzanine.js), [03-rendering.js](js/club/03-rendering.js), [04-environment.js](js/club/04-environment.js)
+  **Evidence:** `entranceLight`, `barLight`, `loungeLight`, `balconyLight` and `restroomLight` illuminate their zones from empty air without physical fixture geometry; `25 × 10 m` brick walls tile uniformly at `1.5 m` without basement damp-course or ceiling-corner soot gradients; `createVenueContactShadows()` omits vestibule joinery, restroom pilasters and stage-step footprints.
+  **Problem:** Visible pools of static light appear sourceless when looking up, and large brick expanses show subtle periodic tiling under moving-head sweeps.
+  **Impact:** Subtle but pervasive "clean CG room" tell across peripheral vision in VR.
+  **Recommended solution:** Place merged static industrial bulkhead sconces, track spots or recessed downlight trims (with restrained warm emissive lenses and zero new `BABYLON.Light`s) at every scoped accent's exact position; apply macro vertex-colour AO/patina gradients (basement rising-damp darkening in the bottom `0.7 m`, upper ceiling-corner soot darkening at `y = 9.0–9.85 m`, and girder/pilaster contact darkening) to shell meshes; append the remaining static furniture/pilaster footprints to `createVenueContactShadows()`.
+  **Regression considerations:** Keep `loungeLight` pixel luminance inside `test/e2e/lounge.spec.mjs` bounds (`12–23`), keep `venueContactShadows` as one thin-instanced draw call, and do not enable vertex alpha on opaque PBR shell materials (`transparencyMode = 0`).
+  **Acceptance criteria:** Every scoped accent light aligns with a visible luminaire mesh; wall/ceiling vertex-colour gradients break up macro tiling while preserving `PBRMATERIAL_OPAQUE`; `venueContactShadows` remains 1 draw call; `lounge.spec.mjs` and `budget.spec.mjs` pass.
+  **Validation:** `test/e2e/lounge.spec.mjs`, `test/e2e/budget.spec.mjs` and `npm test`.
+  **Estimated effort:** Small–Medium
+
+---
+
 ## Triage - 2026-11-04 - Whole-app polish
 
 Historical reports are retained as evidence, not current architecture specifications.

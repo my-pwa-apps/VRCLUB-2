@@ -495,7 +495,7 @@ if (enterClubBtn) {
             if (eventInviteRequested && !invitedEvent) {
                 window.vrClub.showErrorMessage('This live event invitation is invalid. Ask the event owner for a new audience link.');
             } else {
-                window.vrClub.multiplayer.connect({
+                window.vrClub.multiplayer.joinInvitation({
                     room: invitedRoom,
                     eventId: invitedEvent,
                     name: typedName || window.vrClub.multiplayer.name
@@ -2389,7 +2389,7 @@ function initSocialBar(mp) {
     const badge = document.getElementById('socialChatBadge');
     const peek = document.getElementById('socialPeek');
     let inVR = false;
-    let seen = 0;
+    let lastSeen = null;
     let peekTimer = null;
 
     const setOpen = (button, pop, open) => {
@@ -2436,7 +2436,7 @@ function initSocialBar(mp) {
         if (micBtn) {
             micBtn.setAttribute('aria-pressed', String(mp.micEnabled));
             micBtn.classList.toggle('active', mp.micEnabled);
-            if (micLabel) micLabel.textContent = mp.micEnabled ? (mp.voiceAudience === null ? 'Mic: everyone' : 'Mic: selected') : 'Mic off';
+            if (micLabel) micLabel.textContent = mp.micEnabled ? (mp.client?.localSpeaking ? 'Speaking' : mp.voiceAudience === null ? 'Mic: everyone' : 'Mic: selected') : 'Mic off';
             micBtn.setAttribute('aria-label', `Microphone ${mp.micEnabled ? 'on' : 'off'}. Audience: ${mp.audienceLabel('voice')}. Change recipients in People, Talk.`);
         }
         for (const button of tray ? tray.querySelectorAll('[data-gesture="dance"]') : []) {
@@ -2445,10 +2445,10 @@ function initSocialBar(mp) {
         }
         // A message that arrives while the box is closed: a short peek above the bar and a count on the button.
         const chatOpen = box && !box.hidden;
-        const fresh = mp.chat.slice(seen).filter(entry => !entry.self);
-        if (mp.chat.length < seen) seen = 0;
+        const seenIndex = lastSeen ? mp.chat.indexOf(lastSeen) : -1;
+        const fresh = mp.chat.slice(seenIndex + 1).filter(entry => !entry.self);
         if (fresh.length && !chatOpen) showPeek(fresh[fresh.length - 1]);
-        seen = mp.chat.length;
+        lastSeen = mp.chat.at(-1) || null;
         if (chatOpen && mp.chatUnread) mp.markChatRead();
         if (badge) {
             badge.hidden = !mp.chatUnread || chatOpen;
@@ -2596,11 +2596,12 @@ function initNetworkMenu() {
         networkToggle.setAttribute('aria-expanded', 'false');
         if (restoreFocus) networkToggle.focus();
     };
-    const openNetworkMenu = () => {
+    const openNetworkMenu = (redraw = true) => {
         closeOtherSidePanels('networkMenu');
         networkMenu.classList.remove('hidden');
         setPanelMinimized(networkMenu, networkMinimize, false, 'Online');
         networkToggle.setAttribute('aria-expanded', 'true');
+        if (redraw) render();
         if (!mp.hasAcceptedOnlineSafety() && safetyGate) safetyGate.focus();
         else if (networkTitle) networkTitle.focus();
     };
@@ -2656,23 +2657,45 @@ function initNetworkMenu() {
         return false;
     };
 
+    const peopleRows = new Map();
+    const reportDrafts = new Map();
     const renderPeople = () => {
         if (!peopleList) return;
-        peopleList.replaceChildren();
         const host = mp.isHost();
-        for (const person of mp.people()) {
+        const people = mp.people();
+        const ids = new Set(people.map(person => person.id));
+        for (const [id, row] of peopleRows) {
+            if (ids.has(id)) continue;
+            row.item.remove();
+            peopleRows.delete(id);
+            reportDrafts.delete(id);
+        }
+        for (const person of people) {
+            const name = `${person.isHost ? '\u{1F451} ' : ''}${person.name}${person.speaking ? ' \u{1F5E3}\uFE0F' : ''}${person.muted ? ' (muted)' : ''}`;
+            const signature = JSON.stringify([person.name, person.avatar, person.muted, person.isHost, person.simulated,
+                host, mp.canModerate(), mp.client.vjId, mp.client.moderatorId, mp.client.vjPassSupported,
+                mp.client.moderatorRoleSupported, mp.client.hostTransferSupported,
+                ['host', 'kick', 'ban'].map(kind => (armed.get(`${kind}:${person.id}`) || 0) > Date.now())]);
+            const existing = peopleRows.get(person.id);
+            if (existing?.signature === signature) {
+                existing.who.textContent = name;
+                continue;
+            }
+            const focused = existing?.item.contains(document.activeElement)
+                ? document.activeElement.getAttribute('aria-label') : null;
             const item = document.createElement('li');
             item.className = 'network-person';
             const who = document.createElement('span');
             who.className = 'network-person-name';
-            who.textContent = `${person.isHost ? '\u{1F451} ' : ''}${person.name}${person.speaking ? ' \u{1F5E3}\uFE0F' : ''}${person.muted ? ' (muted)' : ''}`;
+            who.textContent = name;
             who.title = label(person.avatar);
             item.appendChild(who);
             item.appendChild(rowButton(person.muted ? 'Unmute' : 'Mute', `${person.muted ? 'Unmute' : 'Mute'} ${person.name}`,
                 () => mp.togglePeerMute(person.id)));
             item.appendChild(rowButton('Block', `Block ${person.name}: you will not see or hear each other`, () => mp.blockPeer(person.id)));
-            const reportButton = rowButton('Report & block', `Report ${person.name} to the room host and immediately block contact both ways`, () => {
+            const openReport = () => {
                 reportButton.disabled = true;
+                reportDrafts.set(person.id, reportDrafts.get(person.id) || Object.keys(ClubMultiplayer.REPORT_REASONS)[0]);
                 const picker = document.createElement('select');
                 picker.className = 'network-report-reason';
                 picker.setAttribute('aria-label', `Reason for reporting ${person.name}`);
@@ -2682,16 +2705,22 @@ function initNetworkMenu() {
                     option.textContent = text;
                     picker.appendChild(option);
                 }
+                picker.value = reportDrafts.get(person.id);
+                picker.addEventListener('change', () => reportDrafts.set(person.id, picker.value));
                 const send = rowButton('Report & block', `Report and block ${person.name}`, () => {
                     if (!mp.reportAndBlockPeer(person.id, picker.value)) {
                         vrClubInstance.showErrorMessage('The report was not sent. Please try again while connected.');
+                        return;
                     }
+                    reportDrafts.delete(person.id);
                     picker.remove();
                     send.remove();
                     reportButton.disabled = false;
                 }, true);
                 item.append(picker, send);
-            }, true);
+                if (!focused) picker.focus();
+            };
+            const reportButton = rowButton('Report & block', `Report ${person.name} to the room host and immediately block contact both ways`, openReport, true);
             item.appendChild(reportButton);
             if (host) {
                 if (!person.simulated) {
@@ -2724,7 +2753,11 @@ function initNetworkMenu() {
                 item.appendChild(rowButton(armed.has(banKey) && armed.get(banKey) > Date.now() ? 'Sure?' : 'Ban',
                     `Remove ${person.name} and keep them out of this room`, () => { if (confirmed(banKey)) mp.banPeer(person.id); }, true));
             }
-            peopleList.appendChild(item);
+            if (reportDrafts.has(person.id)) openReport();
+            if (existing) existing.item.replaceWith(item);
+            else peopleList.appendChild(item);
+            peopleRows.set(person.id, { item, who, signature });
+            if (focused) [...item.querySelectorAll('[aria-label]')].find(node => node.getAttribute('aria-label') === focused)?.focus();
         }
     };
 
@@ -2751,10 +2784,15 @@ function initNetworkMenu() {
         }
     };
 
+    let showingPendingSafety = false;
     function render() {
         const connected = mp.connected, connecting = mp.connecting;
         const safetyAccepted = mp.hasAcceptedOnlineSafety();
         const showSafety = !safetyAccepted || safetyReviewing;
+        if (mp.pendingSafetyJoin && !showingPendingSafety && !vrClubInstance.isInVRMode) openNetworkMenu(false);
+        showingPendingSafety = !!mp.pendingSafetyJoin;
+        if (safetyContinue) safetyContinue.textContent = mp.pendingSafetyJoin ? 'I understand — join invitation' : 'I understand — show online options';
+        if (safetyCancel) safetyCancel.textContent = connected ? 'Return to the room' : 'Stay offline';
         setStatus(mp.statusText());
         // Before joining only the join form shows; once in a room, the things you can do there.
         if (safetyGate) safetyGate.hidden = !showSafety;
@@ -2791,7 +2829,7 @@ function initNetworkMenu() {
         for (const input of [nameInput, roomInput, serverUrlInput]) if (input) input.disabled = connecting;
         if (micBtn) {
             setToggleState(micBtn, mp.micEnabled);
-            if (micBtnLabel) micBtnLabel.textContent = mp.micEnabled ? 'Turn my microphone off' : 'Turn my microphone on';
+            if (micBtnLabel) micBtnLabel.textContent = mp.micEnabled ? `${mp.client?.localSpeaking ? 'Speaking. ' : ''}Turn my microphone off` : 'Turn my microphone on';
         }
         if (duckBtn) {
             duckBtn.textContent = `Lower the music while people talk: ${mp.duckForVoice ? 'ON' : 'OFF'}`;
@@ -2826,6 +2864,7 @@ function initNetworkMenu() {
             lockBtn.textContent = `Lock room: ${mp.locked ? 'ON (nobody new can join)' : 'OFF'}`;
             setPressed(lockBtn, mp.locked);
         }
+        if (networkMenu.classList.contains('hidden')) return;
         renderPeople();
         renderBlocked();
         if (moderationReports) {
@@ -2901,11 +2940,13 @@ function initNetworkMenu() {
         if (nameInput) nameInput.focus();
     });
     if (safetyPrivate) safetyPrivate.addEventListener('click', () => {
+        mp.cancelPendingSafetyJoin();
         mp.acceptOnlineSafety();
         safetyReviewing = false;
         if (mp.joinNewPrivateRoom() && roomInput) roomInput.value = mp.currentRoom;
     });
     if (safetyCancel) safetyCancel.addEventListener('click', () => {
+        mp.cancelPendingSafetyJoin();
         safetyReviewing = false;
         render();
         closeNetworkMenu();
@@ -2975,34 +3016,36 @@ function initNetworkMenu() {
             } catch (_) {
                 vrClubInstance.showErrorMessage(`Could not copy. Share the room code instead: ${mp.currentRoom}`);
             }
-            let liveArmed = null;
-            const liveAction = async action => {
-                try {
-                    if (action === 'create' || action === 'rotate' || action === 'end') {
-                        if (action !== 'create') {
-                            if (liveArmed?.action !== action || liveArmed.until < Date.now()) {
-                                liveArmed = { action, until: Date.now() + 4000 };
-                                vrClubInstance.showErrorMessage(action === 'end'
-                                    ? 'Press End live event again within four seconds to disconnect its audio.'
-                                    : 'Press Replace DJ invitation again within four seconds to disconnect the current broadcaster.');
-                                return;
-                            }
-                            liveArmed = null;
-                        }
-                        await mp.manageLiveEvent(action, live.Title?.value || 'Live DJ set');
-                        vrClubInstance.showErrorMessage(action === 'end' ? 'Live event ended.' : 'Ready. Copy the private DJ link and send it only to your DJ.');
-                    } else if (action === 'listen') mp.retryLiveEventAudio();
-                    else {
-                        const url = action === 'dj' ? mp.publisherInviteUrl() : mp.inviteUrl();
-                        await navigator.clipboard.writeText(url);
-                        vrClubInstance.showErrorMessage(action === 'dj' ? 'Private DJ link copied. Do not send it to the audience.' : 'Live event audience link copied.');
-                    }
-                } catch (error) { vrClubInstance.showErrorMessage(error.message || 'The live event action failed.'); }
-            };
-            for (const [key, action] of Object.entries({ Create: 'create', Listen: 'listen', Invite: 'invite', DJ: 'dj', Rotate: 'rotate', End: 'end' })) {
-                live[key]?.addEventListener('click', () => { void liveAction(action); });
-            }
         });
+    }
+    let liveArmed = null;
+    const liveAction = async action => {
+        try {
+            if (action === 'create' || action === 'rotate' || action === 'end') {
+                if (action !== 'create') {
+                    if (liveArmed?.action !== action || liveArmed.until < Date.now()) {
+                        liveArmed = { action, until: Date.now() + 4000 };
+                        vrClubInstance.showErrorMessage(action === 'end'
+                            ? 'Press End live event again within four seconds to disconnect its audio.'
+                            : 'Press Replace DJ invitation again within four seconds to disconnect the current broadcaster.');
+                        return;
+                    }
+                    liveArmed = null;
+                }
+                await mp.manageLiveEvent(action, live.Title?.value || 'Live DJ set');
+                vrClubInstance.showErrorMessage(action === 'end' ? 'Live event ended.' : 'Ready. Copy the private DJ link and send it only to your DJ.');
+            } else if (action === 'listen') mp.retryLiveEventAudio();
+            else {
+                const url = action === 'dj' ? mp.publisherInviteUrl() : mp.inviteUrl();
+                await navigator.clipboard.writeText(url);
+                vrClubInstance.showErrorMessage(action === 'dj' ? 'Private DJ link copied. Do not send it to the audience.' : 'Live event audience link copied.');
+            }
+        } catch (error) { vrClubInstance.showErrorMessage(error.message || 'The live event action failed.'); }
+    };
+    for (const [key, action] of Object.entries({ Create: 'create', Listen: 'listen', Invite: 'invite', DJ: 'dj', Rotate: 'rotate', End: 'end' })) {
+        const handler = () => { void liveAction(action); };
+        live[key]?.addEventListener('click', handler);
+        teardowns.push(() => live[key]?.removeEventListener('click', handler));
     }
     // The music and the lights are the host's, and the host's alone: the panels tell a guest so and stand down.
     initRoomGuestLock(mp);

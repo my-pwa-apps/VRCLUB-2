@@ -743,6 +743,30 @@ lights survive late joins and host handover; the pass itself clears on handover,
 host/VJ departure, mutual blocking or an empty room. A guest who cannot see the
 VJ runs their own local lights rather than receiving blocked frames.
 
+New clients request `roleViews=1` and send their initial `blocklist` even when
+empty. Their welcome carries `roleStatePending`; role IDs and retained lighting
+wait until that list is processed. Moderator and VJ views are personalized for
+two-way visibility. `vj-pass` may carry `id:null, hidden:true` without exposing
+the blocked VJ's identity. This enables local lighting only, not room publication
+or music control. Initial snapshots preserve the guest's local lighting settings
+before following begins. Older clients retain the legacy welcome path.
+
+The accompanying client/relay reliability changes require both frontend and
+Worker updates; no migration or new secret is required. They are not deployed
+by editing these sources. Unchanged SFU member catalogs are not resent, queued
+reconciliation is coalesced, and live-event heartbeat renewals remain persisted
+even when unchanged policy skips media reconciliation. Policy revocation remains
+immediate; media membership is not inferred from directory counts.
+
+Stationary clients publish a 500 ms presence heartbeat at every room capacity;
+movement, hands, seats, floor and eye-height changes still publish at their
+existing cadence. Local speech detection, rather than an enabled-but-silent mic,
+controls voice ducking. DOM report drafts survive speaking updates, VR recipients
+are paginated, and VR recent chat/report review uses the existing session state.
+Joining through an invitation now waits for online-safety acceptance, including
+inside VR after any locked welcome/access flow. The guide discloses automatic
+host-music following and third-party linked audio hosts receiving the guest's IP.
+
 The booth readout counts other visible real guests, those within eight metres
 of the booth and distinct guests who reacted in the last fifteen seconds. It
 does not infer enjoyment, musical energy or crowd response from the audio.

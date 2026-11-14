@@ -98,7 +98,7 @@ import { handleRoomDirectory, publishRoom, privateRoomName, ROOM_DIRECTORY_REFRE
 import { RoomMedia, mediaTransport } from './sfu.js';
 import { DEV_ROOM, DEV_OWNER_HEADER, devRoomAccess } from './devRoomAccess.js';
 import { DevAttendees } from './devAttendees.js';
-import { LIVE_EVENT_ID, liveEventsEnabled, liveEventCall, liveEventStub, consumeLiveRate } from './liveEvents.js';
+import { LIVE_EVENT_ID, LIVE_EVENT_LIMITS, liveEventsEnabled, liveEventCall, liveEventStub, consumeLiveRate } from './liveEvents.js';
 import { RoomAvatarAssets } from './avatarAssets.js';
 import { createRestroomState, applyRestroomAction } from './restroomState.js';
 import { applyWaterAction, waterSnapshot } from './sessionProps.js';
@@ -123,6 +123,7 @@ export const CLOSE_LOCKED = 4012;
 export const CLOSE_IDLE = 4013;
 export const IDLE_CLOSE_MS = 30000;
 export const SWEEP_INTERVAL_MS = 10000;
+const LIVE_HEARTBEAT_MS = Math.floor(LIVE_EVENT_LIMITS.membershipMs / 3);
 
 export const ALLOWED_EMOJI = Object.freeze(['🎉', '🔥', '❤️', '😂', '👋', '🙌', '💃', '🕺']);
 export const ALLOWED_GESTURES = Object.freeze(['wave', 'nod', 'dance', 'stop']);
@@ -439,6 +440,7 @@ export class ClubRoom {
         this._directoryUpdatedAt = 0;
         /** @type {Map<WebSocket, {id: string, pid: string, name: string, avatar: string, avatarPool: string, blocked: Set<string>, lastState: object|null, buckets: object, dropped: number}>} */
         this.sessions = new Map();
+        this.sessionSockets = new Map();
         this.avatarAssets = env.AVATAR_ASSETS ? new RoomAvatarAssets(this) : null;
         this.hostId = null;
         this.musicState = null; // { url, playing, position, updatedAt, podcast, title }
@@ -458,6 +460,7 @@ export class ClubRoom {
         this._liveEvent = null;
         this._liveReady = state.storage?.get('liveEvent').then(value => { this._liveEvent = value || null; }) || Promise.resolve();
         this._liveQueue = Promise.resolve();
+        this._lastLiveHeartbeatAt = 0;
         this._lastEventCreated = 0;
     }
 
@@ -489,6 +492,7 @@ export class ClubRoom {
         }
         const name = sanitizeName(url.searchParams.get('name'));
         const avatar = url.searchParams.get('avatar');
+        const roleViews = url.searchParams.get('roleViews') === '1';
         if (avatar !== null && !AVATARS.includes(avatar)) return new Response('unknown character', { status: 400 });
         let appearance = null;
         if (url.searchParams.has('appearance')) {
@@ -531,7 +535,7 @@ export class ClubRoom {
         }
         const pair = new WebSocketPair();
         const [client, server] = Object.values(pair);
-        const accepted = this._acceptSession(server, name, pid, sanitizePool(url.searchParams.get('avatars')), url.searchParams.get('poseBatch') === '1', null, avatar, appearance, admission);
+        const accepted = this._acceptSession(server, name, pid, sanitizePool(url.searchParams.get('avatars')), url.searchParams.get('poseBatch') === '1', null, avatar, appearance, admission, roleViews);
         if (accepted) accepted.liveIp = request.headers.get('CF-Connecting-IP');
         return new Response(null, { status: 101, webSocket: client });
     }
@@ -573,7 +577,7 @@ export class ClubRoom {
             ...(session.simulated ? { simulated: true } : {}) };
     }
 
-    _acceptSession(ws, name, pid = null, avatarPool = 'any', poseBatch = false, simulation = null, avatar = null, appearance = null, admission = null) {
+    _acceptSession(ws, name, pid = null, avatarPool = 'any', poseBatch = false, simulation = null, avatar = null, appearance = null, admission = null, roleViews = false) {
         const simulated = simulation !== null;
         if (!simulated) ws.accept();
         pid = PID_PATTERN.test(pid || '') ? pid : Array.from(crypto.getRandomValues(new Uint8Array(8)), b => b.toString(16).padStart(2, '0')).join('');
@@ -602,7 +606,7 @@ export class ClubRoom {
         const buckets = {};
         for (const [type, limit] of Object.entries(RATE_LIMITS)) buckets[type] = new TokenBucket(limit, now);
         const session = { id, pid, name, avatar: AVATARS.includes(avatar) ? avatar : this._pickAvatar(null, avatarPool), avatarPool, blocked: new Set(), lastState: null, buckets, dropped: 0, lastSeen: now, pinger: false,
-            poseBatch, poseSent: new Map() };
+            poseBatch, poseSent: new Map(), roleStatePending: !simulated && roleViews === true };
         session.appearance = sanitizeAppearance(appearance, session.avatar) || null;
         if (this.avatarAssets && !simulated) session.avatarAssetToken = crypto.randomUUID();
         if (admission) session.liveEvent = admission.event;
@@ -613,6 +617,7 @@ export class ClubRoom {
         } else if (this._roomName === DEV_ROOM) session.pinger = true;
         this._startSweeper();
         this.sessions.set(ws, session);
+        this.sessionSockets.set(id, ws);
         if (!this.hostId && !simulated) this.hostId = id;
         if (simulated) {
             this._relay(session, { type: 'join', ...this._peerInfo(session), state: session.lastState });
@@ -646,8 +651,10 @@ export class ClubRoom {
             hostTransfer: true,
             vjPass: true,
             moderatorRole: true,
-            moderatorId: this.moderatorId,
-            vjId: this.vjId,
+            moderatorId: session.roleStatePending ? null : this._visibleRoleId(this.moderatorId, session),
+            vjId: session.roleStatePending ? null : this._visibleRoleId(this.vjId, session),
+            ...(!session.roleStatePending ? { vjHidden: !!this.vjId && !this._visibleRoleId(this.vjId, session) } : {}),
+            ...(session.roleStatePending ? { roleStatePending: true } : {}),
             sharedWater: true,
             waterClink: true,
             water: waterSnapshot(this.drinks, this.sessions, session, (a, b) => this._visible(a, b)),
@@ -658,7 +665,7 @@ export class ClubRoom {
                 ...(session.liveEvent ? { liveEvent: session.liveEvent } : {}) } : {}),
             peers,
             music: this.musicState,
-            show: this._showFor(session),
+            show: session.roleStatePending ? null : this._showFor(session),
             doors: this.doors,
             restroomInteractions: true,
             restroom: this.restroom
@@ -898,7 +905,7 @@ export class ClubRoom {
                     }
                 } else this.showState = show;
                 for (const [targetWs, target] of this.sessions) {
-                    const frame = targetWs !== ws && this._showFor(target);
+                    const frame = targetWs !== ws && !target.roleStatePending && this._showFor(target);
                     if (frame) this._send(targetWs, { type: 'show', ...frame });
                 }
                 break;
@@ -1076,13 +1083,15 @@ export class ClubRoom {
 
     /** After `session`'s block list changed: tell both sides whoever became invisible has left, and whoever reappeared has joined. */
     _applyBlockChanges(session, before) {
+        const changed = before.size !== session.blocked.size ||
+            [...before].some(pid => !session.blocked.has(pid));
         const host = this.sessions.get(this._findSocketById(this.hostId));
         const vj = this.sessions.get(this._findSocketById(this.vjId));
         if (vj && (!host || !this._visible(host, vj))) this._clearVJ();
         const moderator = this.sessions.get(this._findSocketById(this.moderatorId));
         if (moderator && (!host || !this._visible(host, moderator))) this._changeModerator(null);
-        if (this._liveEvent) this._liveHeartbeat();
-        if (this.media) { this.media.refresh(); this.media.reconcile(); }
+        if (changed && this._liveEvent) this._liveHeartbeat(true);
+        if (changed && this.media) { this.media.refresh(); this.media.reconcile(); }
         const sessionWs = this._findSocketById(session.id);
         for (const [ws, other] of this.sessions) {
             if (other === session) continue;
@@ -1103,12 +1112,14 @@ export class ClubRoom {
                 if (sessionWs) this._send(sessionWs, { type: 'leave', id: other.id });
             }
         }
-        this._broadcastWater();
+        if (changed) this._syncRoleViews();
+        if (session.roleStatePending) this._sendRoleState(session);
+        if (changed) this._broadcastWater();
     }
 
     _changeModerator(id) {
         this.moderatorId = id;
-        this._broadcast({ type: 'moderator', id });
+        this._syncRoleViews();
     }
 
     _clearVJ() {
@@ -1117,10 +1128,32 @@ export class ClubRoom {
     }
 
     _changeVJ(id) {
-        for (const [ws, viewer] of this.sessions) {
-            if (!viewer.simulated) this._send(ws, { type: 'vj-pass', id, show: this._showFor(viewer) });
-        }
         this.vjId = id;
+        this._syncRoleViews();
+    }
+
+    _visibleRoleId(id, viewer) {
+        const ws = this._findSocketById(id);
+        const holder = ws && this.sessions.get(ws);
+        return holder && (holder === viewer || this._visible(holder, viewer)) ? id : null;
+    }
+
+    _syncRoleViews() {
+        for (const viewer of this.sessions.values()) {
+            if (!viewer.simulated && !viewer.roleStatePending) this._sendRoleState(viewer);
+        }
+    }
+
+    _sendRoleState(viewer) {
+        if (!viewer || viewer.simulated) return;
+        const ws = this._findSocketById(viewer.id);
+        if (!ws) return;
+        const moderatorId = this._visibleRoleId(this.moderatorId, viewer);
+        const vjId = this._visibleRoleId(this.vjId, viewer);
+        this._send(ws, { type: 'moderator', id: moderatorId });
+        this._send(ws, { type: 'vj-pass', id: vjId,
+            hidden: !!this.vjId && !vjId, show: this._showFor(viewer) });
+        viewer.roleStatePending = false;
     }
 
     _showFor(viewer) {
@@ -1169,7 +1202,7 @@ export class ClubRoom {
      * keep talking: after IDLE_CLOSE_MS of silence it is closed, so the next guest becomes host promptly.
      */
     _sweep(now = Date.now()) {
-        if (this._liveEvent) this._liveHeartbeat();
+        if (this._liveEvent) this._liveHeartbeat(false, now);
         for (const [ws, session] of [...this.sessions]) {
             if (!session.pinger || now - session.lastSeen <= IDLE_CLOSE_MS) continue;
             try { ws.close(CLOSE_IDLE, 'no heartbeat'); } catch { /* already closed */ }
@@ -1195,6 +1228,7 @@ export class ClubRoom {
         if (session.id === this.vjId || session.id === this.hostId) this._clearVJ();
         if (session.id === this.moderatorId || session.id === this.hostId) this._changeModerator(null);
         this.sessions.delete(ws);
+        this.sessionSockets.delete(session.id);
         if (this.drinks.delete(session.id)) this._broadcastWater();
         if (session.simulated) this._simulation?.remove(session.simulatedIndex);
         else if (this.media) this.media.remove(session);
@@ -1261,10 +1295,13 @@ export class ClubRoom {
             .map(s => ({ id: s.id, pid: s.pid, blocked: [...s.blocked] }));
     }
 
-    _liveHeartbeat() {
+    _liveHeartbeat(force = false, now = Date.now()) {
+        if (!this._liveEvent || (!force && now - this._lastLiveHeartbeatAt < LIVE_HEARTBEAT_MS)) return false;
         const id = this._liveEvent.id;
         const members = this._liveMembers();
+        this._lastLiveHeartbeatAt = now;
         this._liveTask(() => liveEventCall(this.env, id, 'heartbeat', { room: this._roomName, members }));
+        return true;
     }
 
     _livePolicy(policy) {
@@ -1375,11 +1412,7 @@ export class ClubRoom {
     }
 
     _findSocketById(id) {
-        if (!id) return null;
-        for (const [ws, session] of this.sessions) {
-            if (session.id === id) return ws;
-        }
-        return null;
+        return id ? this.sessionSockets.get(id) || null : null;
     }
 
     _send(ws, obj) {

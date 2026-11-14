@@ -136,7 +136,16 @@ class ClubMultiplayer {
         if (rng) for (let i = 0; i < length; i++) bytes[i] = Math.floor(rng() * 256);
         else if (typeof crypto !== 'undefined' && crypto.getRandomValues) crypto.getRandomValues(bytes);
         else for (let i = 0; i < length; i++) bytes[i] = Math.floor(Math.random() * 256);
-        for (let i = 0; i < length; i++) out += alphabet[bytes[i] % alphabet.length];
+        const limit = 256 - (256 % alphabet.length);
+        for (let i = 0; out.length < length; i++) {
+            if (i === bytes.length) {
+                if (rng) for (let j = 0; j < length; j++) bytes[j] = Math.floor(rng() * 256);
+                else if (typeof crypto !== 'undefined' && crypto.getRandomValues) crypto.getRandomValues(bytes);
+                else for (let j = 0; j < length; j++) bytes[j] = Math.floor(Math.random() * 256);
+                i = 0;
+            }
+            if (bytes[i] < limit) out += alphabet[bytes[i] % alphabet.length];
+        }
         return out;
     }
 
@@ -196,7 +205,7 @@ class ClubMultiplayer {
         this.avatarPool = ClubMultiplayer.cleanPool(this._read(ClubMultiplayer.PREFS.avatarPool));
         this.personalSpace = this._read(ClubMultiplayer.PREFS.personalSpace) !== '0';
         this.nameTags = this._read(ClubMultiplayer.PREFS.nameTags) !== '0';
-        /** Lower the music while my mic is on or someone is talking. On unless switched off. */
+        /** Lower the music while local or remote speech is detected. On unless switched off. */
         this.duckForVoice = this._read(ClubMultiplayer.PREFS.duckForVoice) !== '0';
         /** Typed messages this session, oldest first: {id, name, text, at, self}. */
         this.chat = [];
@@ -252,6 +261,23 @@ class ClubMultiplayer {
             this.club.showErrorMessage?.('Online safety guidance accepted for this visit, but this browser could not remember the choice.');
         }
         this.notice = '';
+        const pending = this.pendingSafetyJoin;
+        this.pendingSafetyJoin = null;
+        if (pending) this.connect(pending);
+        this._emit();
+    }
+
+    joinInvitation(options) {
+        if (this.hasAcceptedOnlineSafety()) return this.connect(options);
+        this.pendingSafetyJoin = { ...options };
+        this.notice = 'Read the online safety guide before joining this invitation.';
+        this._emit();
+        return false;
+    }
+
+    cancelPendingSafetyJoin() {
+        this.pendingSafetyJoin = null;
+        this.notice = '';
         this._emit();
     }
 
@@ -302,11 +328,13 @@ class ClubMultiplayer {
     canControlLights() {
         if (!this.connected) return true;
         const client = this.client;
+        if (client.roleStatePending) return false;
+        if (client.vjHidden) return true;
         return client.vjId ? client.vjId === client.selfId || !client.peers.has(client.vjId) : this.isHost() || !this.following;
     }
 
     get followingLights() {
-        if (!this.connected || this.canControlLights()) return false;
+        if (!this.connected || this.client.roleStatePending || this.canControlLights()) return false;
         return this.client.vjId ? this.client.peers.has(this.client.vjId) : this.following;
     }
 
@@ -578,6 +606,7 @@ class ClubMultiplayer {
         this.manager.setMuteAll(this.muteAll);
         this.manager.onSpeakingChange = () => this._emit();
         this.client = client;
+        client.onLocalSpeakingChange = () => this._emit();
         client.setVoiceAudience(this.voiceAudience);
         club.networkManager = client;
         this._wire(client);
@@ -598,6 +627,7 @@ class ClubMultiplayer {
     }
 
     disconnect() {
+        this.pendingSafetyJoin = null;
         this._stopPing();
         this._stopLiveAudio();
         this.liveEvent = null;
@@ -740,7 +770,8 @@ class ClubMultiplayer {
 
     directoryRooms() {
         return [...this.roomDirectory.publicRooms.map(item => ({ ...item, private: false })),
-            ...this.roomDirectory.privateRooms.map(item => ({ ...item, private: true }))];
+            ...this.roomDirectory.privateRooms.map(item => ({ ...item, private: true }))]
+            .sort((a, b) => b.people - a.people || a.room.localeCompare(b.room));
     }
 
     joinListedRoom(room, { name = this.name } = {}) {
@@ -758,6 +789,7 @@ class ClubMultiplayer {
         const club = this.club;
         const manager = this.manager;
         client.onStatusChange = (status) => {
+            club._lastNetworkPoseClient = null;
             club.isMultiplayer = status === 'connected';
             club._uploadedAvatarSharing?.().connect(status === 'connected' ? client : null);
             if (status === 'connected' && /^private-/i.test(client.room)) this.savePrivateRoom(client.room, client.serverUrl);
@@ -779,6 +811,8 @@ class ClubMultiplayer {
                 club.setSharedRestroom?.(null);
                 club.setSessionWater?.([]);
                 client.vjId = null;
+                client.vjHidden = false;
+                client.roleStatePending = false;
                 client.moderatorId = null;
                 this.moderationReports = [];
             }
@@ -894,6 +928,7 @@ class ClubMultiplayer {
             client.disableVoice();
         } else {
             try {
+                client.setVoiceActivityContext(this.club.audioContext);
                 await client.enableVoice();
             } catch (err) {
                 this.lastError = `Mic error: ${err.message}`;
@@ -1002,7 +1037,7 @@ class ClubMultiplayer {
             club.setVoiceDuck(strength > 0 || now < this._duckHoldUntil, this._nearbyDuckLevel || 1);
             return;
         }
-        const talking = this.micEnabled || (!!this.manager && this.manager.anyoneSpeaking());
+        const talking = !!this.client?.localSpeaking || (!!this.manager && this.manager.anyoneSpeaking());
         if (talking) this._duckHoldUntil = now + ClubMultiplayer.DUCK_HOLD_MS;
         club.setVoiceDuck(talking || now < this._duckHoldUntil);
     }
@@ -1110,7 +1145,11 @@ class ClubMultiplayer {
     blockPeer(id) {
         const client = this.client;
         const peer = client && client.peers.get(id);
-        if (!peer || !peer.pid) return false;
+        if (!peer) return false;
+        if (!peer.pid) {
+            this.club.showErrorMessage?.('This relay does not provide a stable guest identity. Blocking is unavailable; mute this guest or leave the room.');
+            return false;
+        }
         const list = this.blockedList().filter(item => item.pid !== peer.pid);
         list.unshift({ pid: peer.pid, name: peer.name, at: Date.now() });
         this._write(ClubMultiplayer.PREFS.blocked, JSON.stringify(list.slice(0, ClubMultiplayer.MAX_BLOCKED)));
@@ -1130,7 +1169,9 @@ class ClubMultiplayer {
 
     reportAndBlockPeer(id, reason) {
         const peer = this.client?.peers.get(id);
-        if (!peer || !peer.pid || !this.reportPeer(id, reason)) return false;
+        if (!peer) return false;
+        if (!peer.pid) return this.blockPeer(id);
+        if (!this.reportPeer(id, reason)) return false;
         if (!this.blockPeer(id)) return false;
         this.notice = `${peer.name || 'Guest'} was reported and blocked. You cannot see, hear or contact each other.`;
         this._emit();
@@ -1211,7 +1252,7 @@ class ClubMultiplayer {
     _applyMusic(music) {
         if (this.hasLiveEvent) return;
         const client = this.client, club = this.club;
-        if (!music || !client || client.isHost()) return;
+        if (!music || !client || !this.following) return;
         if (!music.url || !NetworkClient.isShareableMusicUrl(music.url)) return;
         this._broadcastState = null;
         this._stopRemoteMusic();
@@ -1741,6 +1782,11 @@ class ClubMultiplayer {
      * walks away, and turn a real nod of the head (VR) into the nod gesture.
      */
     update(ctx) {
+        if (this.pendingSafetyJoin && this.club.isInVRMode && !this.club._immersive?.menuLocked?.() &&
+            this.club._vrQuickMenuPage !== 'onlineSafety') {
+            this.club.toggleVRQuickMenu(true);
+            this.club._showVRQuickMenuPage('onlineSafety');
+        }
         if (!this.connected) return;
         const club = this.club;
         this._syncShared(performance.now());

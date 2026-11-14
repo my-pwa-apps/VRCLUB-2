@@ -91,6 +91,7 @@ class VRClubMenu extends window.VRClubControls {
         if (needsRoom.includes(button.op) && !mp.connected) return true;
         if (button.op === 'lock' && !mp.isHost()) return true;
         if (button.op === 'peerHost' && (!mp.connected || !mp.isHost() || !mp.client.hostTransferSupported || !mp.client.peers.has(button.peer))) return true;
+        if (button.op === 'peerVJ' && (!mp.connected || !mp.isHost() || !mp.client.vjPassSupported || !mp.client.peers.has(button.peer))) return true;
         if (button.op === 'peerModerator' && (!mp.connected || !mp.isHost() || !mp.client.moderatorRoleSupported || !mp.client.peers.has(button.peer))) return true;
         if (['peerKick', 'peerBan'].includes(button.op) && (!mp.canModerate() || button.peer === mp.client.hostId || !mp.client.peers.has(button.peer))) return true;
         if (button.op === 'unblockAll' && !mp.blockedList().length) return true;
@@ -136,8 +137,6 @@ class VRClubMenu extends window.VRClubControls {
     _vrQuickMenuButtonValue(button, active) {
         if (button.action === 'creditText') return button.detail;
         if (button.action === 'voiceClarity') return this.getVoiceClarityMode?.() === 'nearby' ? 'NEARBY: GENTLE LOCAL DUCKING' : 'STANDARD: STRONGER DUCKING';
-        if (button.action === 'postcardCapture') return this._postcardCapturing ? 'CAPTURING...' : 'LOCAL STILL; NO NAMES OR CHAT';
-        if (button.action === 'postcardSave') return this._postcardUrl ? 'SAVE TO THIS DEVICE' : 'TAKE A PHOTO FIRST';
         if (button.action === 'showMood') return this.showDirector?.program === button.value && !this.vjManualMode ? 'PLAYING' : 'RESUME AUTOMATIC SHOW';
         if (['cycleShowProgram', 'cycleSheetSpeed', 'toggleReducedShowSmoke'].includes(button.control) ||
             Object.hasOwn(VRClubUI.FIXTURE_BRIGHTNESS_CONTROLS, button.control)) {
@@ -317,8 +316,6 @@ class VRClubMenu extends window.VRClubControls {
                 { label: 'TRAVEL', action: 'page', target: 'travel' },
                 { label: 'COMFORT', action: 'page', target: 'comfort' },
                 { label: 'WARDROBE', action: 'page', target: 'me' },
-                ...(!social.length || !this._immersive?.needsAccess()
-                    ? [{ label: 'CAMERA', action: 'page', target: 'camera' }] : []),
                 // A headset in its free preview (or waiting to be paired) can always get back to its pairing code.
                 ...(this._immersive && this._immersive.needsAccess() ? [{ label: 'ACCESS', action: 'page', target: 'access' }] : []),
                 common.close
@@ -327,12 +324,6 @@ class VRClubMenu extends window.VRClubControls {
             welcome: [
                 { label: 'SAFE MODE', action: 'welcomeSafe' },
                 { label: 'FULL LIGHTS', action: 'welcomeFull' }
-            ],
-            camera: [
-                { label: 'TAKE PHOTO', action: 'postcardCapture' },
-                { label: 'SAVE PHOTO', action: 'postcardSave' },
-                { label: 'COPY ROOM INVITE', action: 'postcardInvite' },
-                common.back, common.close
             ],
             access: [
                 { label: 'NEW CODE', action: 'accessNewCode' },
@@ -409,7 +400,6 @@ class VRClubMenu extends window.VRClubControls {
                 { label: 'CONVERSATION AUDIO', action: 'voiceClarity' },
                 { label: 'ADVANCED GRAPHICS', action: 'page', target: 'graphics' },
                 { label: 'CREDITS / LICENCES', action: 'page', target: 'credits' },
-                { label: 'CAMERA', action: 'page', target: 'camera' },
                 common.back,
                 common.close
             ],
@@ -547,7 +537,7 @@ class VRClubMenu extends window.VRClubControls {
             page = 'onlineSafety';
         }
         this._vrQuickMenuPage = page;
-        if (page === 'chat' && this.multiplayer) this.multiplayer.markChatRead();
+        if ((page === 'chat' || page === 'chatHistory') && this.multiplayer) this.multiplayer.markChatRead();
         const definitions = this._vrQuickMenuPageDefinitions(page);
         this._syncVRWardrobe(page);
         this._vrQuickMenuButtons.forEach((button, index) => {
@@ -602,10 +592,10 @@ class VRClubMenu extends window.VRClubControls {
             context.font = 'bold 66px sans-serif';
             context.textAlign = 'left';
             context.textBaseline = 'middle';
-            const titles = { home: 'VR CLUB', onlineSafety: 'BEFORE YOU GO ONLINE', room: 'JOIN ROOM', look: 'RANDOM LOOK', gestures: 'REACT', chat: 'CHAT', crowd: 'WHO IS HERE',
+            const titles = { home: 'VR CLUB', onlineSafety: 'BEFORE YOU GO ONLINE', room: 'JOIN ROOM', look: 'RANDOM LOOK', gestures: 'REACT', chat: 'CHAT', chatHistory: 'RECENT MESSAGES', reports: 'SAFETY REPORTS', crowd: 'WHO IS HERE',
                 sheetSettings: 'FIXTURE BRIGHTNESS / SHEET',
                 me: 'WARDROBE', body: 'CHOOSE YOUR BODY', credits: 'CREDITS AND LICENCES', graphics: 'ADVANCED GRAPHICS',
-                camera: 'LOCAL POSTCARD', character: 'YOUR CHARACTER', uploadedSharing: 'SHARE YOUR UPLOADED MODEL',
+                character: 'YOUR CHARACTER', uploadedSharing: 'SHARE YOUR UPLOADED MODEL',
                 appearanceEditor: 'PERSONAL WARDROBE', appearanceBase: 'BASE CHARACTER', appearanceHair: 'HAIR STYLE',
                 appearanceOutfit: 'OUTFIT STYLE', appearanceSkin: 'SKIN COLOR', appearanceHairColor: 'HAIR COLOR',
                 appearanceTop: 'TOP COLOR', appearanceBottom: 'BOTTOM COLOR',
@@ -640,7 +630,6 @@ class VRClubMenu extends window.VRClubControls {
                 body: 'CHOOSE A CLUB CHARACTER OR YOUR OWN MODEL',
                 graphics: 'EXPERIMENTS MAY COST FRAME RATE OR REQUIRE RELOAD',
                 credits: 'PAGED ATTRIBUTION AND SOURCE LINKS; STAY IN VR',
-                camera: 'SAVED LOCALLY; NOTHING IS AUTOMATICALLY SHARED',
                 character: 'YOUR BODY, MIRROR AND ONLINE APPEARANCE',
                 appearanceEditor: this.isCustomAvatarSelected?.() ? 'FIT CLOTHING TO YOUR UPLOADED BODY; APPLY TO SAVE' : 'CUSTOMIZE YOUR CLUB CHARACTER',
                 uploadedSharing: 'ROOM GUESTS RECEIVE YOUR MODEL AND MAY KEEP A COPY',
@@ -929,9 +918,6 @@ class VRClubMenu extends window.VRClubControls {
             this._refreshVRQuickMenu();
             return;
         }
-        if (button.action === 'postcardCapture') { void this.capturePostcard(); return; }
-        if (button.action === 'postcardSave') { this.savePostcard(); return; }
-        if (button.action === 'postcardInvite') { this.copyPostcardInvite(); return; }
         if (button.action === 'showMood' || button.action === 'showBlackout') {
             if (button.action === 'showMood') this.setShowMood(button.value);
             else this.blackOutShow();

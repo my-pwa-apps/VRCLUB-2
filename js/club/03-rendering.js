@@ -249,10 +249,8 @@ class VRClubRendering extends VRClubLifecycle {
     /**
      * Object-based motion blur.
      *
-     * Moving heads, the mirror ball and the sweeping laser fans all move fast enough to
-     * strobe against the frame rate. A short blur trail is what a real camera (and,
-     * loosely, the eye) produces, and it is the difference between "3D objects moving"
-     * and "a light show being filmed". Ultra tier only — it needs a velocity buffer.
+     * Motion blur can smear stationary signage during camera movement, so it remains
+     * disabled until the effect can preserve fine text.
      */
     _createMotionBlur() {
         if (this.isQuestBrowser) return;

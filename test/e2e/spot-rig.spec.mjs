@@ -4,6 +4,89 @@ import { enterClub, enterVR, exitVR, expectHealthyRuntime, useQuestHarness } fro
 
 useQuestHarness();
 
+test('mirror-ball shafts stay subordinate to scattered surface pools through the real pipeline', async ({ page }) => {
+    await enterClub(page);
+    const result = await page.evaluate(async () => {
+        const club = window.vrClub, B = window.BABYLON, scene = club.scene;
+        await club.modelLoadPromise;
+        club.engine.stopRenderLoop();
+        club.takeLightControl();
+        club.lightsActive = club.lasersActive = club.laserSheetActive = club.ledWallActive = club.strobesActive = false;
+        club.mirrorBallActive = club.mirrorBallRaysActive = club.smokeActive = true;
+        club.masterIntensity = 1;
+        club.mirrorBallSpotlightColor.set(0.7, 0.85, 1);
+        club._smokeLevel = 0.5;
+        club.updateMirrorBall({ time: 20, dt: 1 / 60, dtScale: 1 });
+        const batch = club.mirrorReflectionBatch;
+        const camera = new B.FreeCamera('mirrorPoolsCamera', new B.Vector3(0, 1.7, -4), scene);
+        camera.setTarget(new B.Vector3(0, 4.5, -12));
+        const target = new B.RenderTargetTexture('mirrorPoolsTarget', { width: 1024, height: 512 }, scene, false);
+        target.activeCamera = camera;
+        target.clearColor = new B.Color4(0, 0, 0, 1);
+        const capture = async rays => {
+            target.renderList = rays ? [batch.spots, batch.rays] : [batch.spots];
+            await scene.whenReadyAsync();
+            scene.incrementRenderId();
+            target.render(true);
+            return (await target.readPixels()).slice();
+        };
+        const pools = await capture(false);
+        const full = await capture(true);
+        club._smokeLevel = 1;
+        club._updateMirrorReflectionColors();
+        const dense = await capture(true);
+        let poolPixels = 0, shaftPixels = 0, poolEnergy = 0, shaftEnergy = 0;
+        let denseShaftEnergy = 0;
+        for (let i = 0; i < full.length; i += 4) {
+            const p = pools[i] + pools[i + 1] + pools[i + 2];
+            const f = full[i] + full[i + 1] + full[i + 2];
+            if (p > 12) poolPixels++;
+            if (f > p + 6) shaftPixels++;
+            poolEnergy += p;
+            shaftEnergy += Math.max(0, f - p);
+            denseShaftEnergy += Math.max(0, dense[i] + dense[i + 1] + dense[i + 2] - p);
+        }
+        let floor = 0, ceiling = 0;
+        for (let i = 0; i < batch.spots.thinInstanceCount; i++) {
+            if (batch.spotColors[i * 4 + 3] < 0.01) continue;
+            const y = batch.spotMatrices[i * 16 + 13];
+            if (y < 3.1) floor++;
+            if (y > 8) ceiling++;
+        }
+        const denseAlpha = batch.rayMat.alpha;
+        club._smokeLevel = 0.5;
+        club._updateMirrorReflectionColors();
+        const normalAlpha = batch.rayMat.alpha;
+        club._smokeLevel = 1;
+        club._updateMirrorReflectionColors();
+        club.masterIntensity = 0;
+        club._updateMirrorReflectionColors();
+        const blackout = batch.spotMat.emissiveColor.asArray().concat(batch.rayMat.emissiveColor.asArray());
+        club.masterIntensity = 1;
+        club._smokeLevel = 0.5;
+        club._updateMirrorReflectionColors();
+        target.dispose();
+        camera.dispose();
+        club.camera.position.set(0, 1.7, -4);
+        club.camera.setTarget(new B.Vector3(0, 4.5, -12));
+        await scene.whenReadyAsync();
+        for (let i = 0; i < 3; i++) scene.render();
+        return { poolPixels, shaftPixels, poolEnergy, shaftEnergy, denseShaftEnergy, floor, ceiling, normalAlpha, denseAlpha, blackout };
+    });
+    console.log('MIRROR_POOL_SHAFT_RENDER', JSON.stringify(result));
+    expect(result.floor).toBeGreaterThan(10);
+    expect(result.ceiling).toBeGreaterThan(10);
+    expect(result.poolPixels).toBeGreaterThan(500);
+    expect(result.shaftPixels).toBeGreaterThan(100);
+    expect(result.shaftEnergy).toBeLessThan(result.poolEnergy);
+    expect(result.denseShaftEnergy).toBeGreaterThan(result.shaftEnergy);
+    expect(result.denseShaftEnergy).toBeLessThan(result.poolEnergy);
+    expect(result.denseAlpha).toBeGreaterThan(result.normalAlpha);
+    expect(result.blackout).toEqual([0, 0, 0, 0, 0, 0]);
+    await page.screenshot({ path: test.info().outputPath('mirror-pools-and-shafts.png') });
+    await expectHealthyRuntime(page);
+});
+
 test('repeated fixture shells share geometry without sharing their animated transforms', async ({ page }) => {
     test.setTimeout(900_000);
     await enterClub(page);
@@ -463,9 +546,53 @@ test('row choreography: the automatic running order renders delayed pairs, a whi
                 housings: club.mirrorBallHousings.map(housing => housing.material.emissiveColor.asArray())
             });
         }
+        const batch = club.mirrorReflectionBatch;
+        const ray = batch.rayStrengths.findIndex(value => value > 0);
+        const facet = batch.rayFacetIndices[ray];
+        const no = facet * 3;
+        const yaw = club.mirrorBallRotation;
+        const cosYaw = Math.cos(yaw), sinYaw = Math.sin(yaw);
+        const localNx = batch.facetNormals[no], localNy = batch.facetNormals[no + 1], localNz = batch.facetNormals[no + 2];
+        const nx = localNx * cosYaw + localNz * sinYaw;
+        const ny = localNy;
+        const nz = -localNx * sinYaw + localNz * cosYaw;
+        const pointX = club.mirrorBall.position.x + nx * 0.6;
+        const pointY = club.mirrorBall.position.y + ny * 0.6;
+        const pointZ = club.mirrorBall.position.z + nz * 0.6;
+        const beam = club.mirrorBallBeams[batch.raySources[ray]];
+        const ix0 = pointX - beam.origin.x, iy0 = pointY - beam.origin.y, iz0 = pointZ - beam.origin.z;
+        const incomingLength = Math.hypot(ix0, iy0, iz0);
+        const ix = ix0 / incomingLength, iy = iy0 / incomingLength, iz = iz0 / incomingLength;
+        const incidentDot = ix * nx + iy * ny + iz * nz;
+        const expectedRay = [ix - 2 * incidentDot * nx, iy - 2 * incidentDot * ny, iz - 2 * incidentDot * nz];
+        const rayOffset = ray * 3;
+        const actualRay = [batch.rayDirections[rayOffset], batch.rayDirections[rayOffset + 1], batch.rayDirections[rayOffset + 2]];
+        const rayOrigin = [batch.rayOrigins[rayOffset], batch.rayOrigins[rayOffset + 1], batch.rayOrigins[rayOffset + 2]];
+        const ballCenter = club.mirrorBall.position;
+        const rayStartRadius = Math.hypot(rayOrigin[0] - ballCenter.x, rayOrigin[1] - ballCenter.y, rayOrigin[2] - ballCenter.z);
+        const savedSmoke = club._smokeLevel, savedSmokeActive = club.smokeActive;
+        club.smokeActive = true;
+        club._smokeLevel = 0;
+        club._updateMirrorReflectionColors();
+        const clearAirAlpha = batch.rayMat.alpha;
+        club._smokeLevel = 1;
+        club._updateMirrorReflectionColors();
+        const denseAirAlpha = batch.rayMat.alpha;
+        club._smokeLevel = savedSmoke;
+        club.smokeActive = savedSmokeActive;
+        club._updateMirrorReflectionColors();
+        const mirrorGeometry = {
+            facets: club.mirrorBallFacetCount,
+            upright: club.mirrorBall.rotation.x === 0 && club.mirrorBall.rotation.z === 0,
+            classicSuspension: !club.scene.getMeshByName('mirrorBallMotor') && !club.scene.getMeshByName('mirrorBallFacetGlints'),
+            rayCount: batch.rayCount,
+            rayStartRadius,
+            rayReflectionError: Math.hypot(actualRay[0] - expectedRay[0], actualRay[1] - expectedRay[1], actualRay[2] - expectedRay[2]),
+            clearAirAlpha, denseAirAlpha
+        };
         club.vjManualMode = false;
         return { seen: [...seen], waveCue, wave, waveLater, columnCue, columnFill, conversationCue, answer, hold, rearAnswer,
-            chaseCue, chaseSequence, buildCue, fill, sweepCue, columnSweep, safe, safeStrobes, black, mirrorColours };
+            chaseCue, chaseSequence, buildCue, fill, sweepCue, columnSweep, safe, safeStrobes, black, mirrorColours, mirrorGeometry };
     });
     expect(result.waveCue).toBe('rowWave');
     expect(result.conversationCue).toBe('rowConversation');
@@ -517,6 +644,14 @@ test('row choreography: the automatic running order renders delayed pairs, a whi
             for (const housing of colours.housings) expect(housing).toEqual([0, 0, 0]);
         }
     }
+    expect(result.mirrorGeometry.facets).toBe(512);
+    expect(result.mirrorGeometry.upright).toBe(true);
+    expect(result.mirrorGeometry.classicSuspension).toBe(true);
+    expect(result.mirrorGeometry.rayCount).toBeGreaterThan(0);
+    expect(result.mirrorGeometry.rayStartRadius).toBeGreaterThan(0.59);
+    expect(result.mirrorGeometry.rayStartRadius).toBeLessThan(0.62);
+    expect(result.mirrorGeometry.rayReflectionError).toBeLessThan(0.0001);
+    expect(result.mirrorGeometry.denseAirAlpha).toBeGreaterThan(result.mirrorGeometry.clearAirAlpha);
     expect(result.safeStrobes).toBe(false);
     for (const spot of result.safe) expect(spot.level).toBeLessThanOrEqual(0.45);
     for (const spot of result.black) {

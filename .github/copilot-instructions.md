@@ -32,7 +32,7 @@ emits one minified, content-hashed production bundle with esbuild.
 7. `js/vjDirector.js`, then `js/showDirector.js`
 8. `js/ledPatterns.js`, then `js/barProps.js` (bottle geometry and label atlas; no club dependency), then `js/restroomArt.js` (the restroom's painted poster atlas and placement plan; needs `js/nocturneLogo.js` only at paint time), then `js/venueDressing.js` (entrance stair hall, bar, lounge couch and restroom), `js/mezzanine.js` (steel balcony and stair, and the walking-surface follow) and `js/cityDistrict.js` (the street outside, at street level) and `js/vjDesk.js` (the VJ desk's show, lights and set-player touch panels at the DJ table), all mixed into `VRClub.prototype`
    `js/guestExperience.js` and `js/sessionExperience.js` follow the desk and supply guest touchpoints,
-   native credits, phone transfer, local postcards and shared session props.
+   native credits, phone transfer and shared session props.
    Then `js/characterCatalog.js` (generated licensed adult cast and assignments) and `js/characterStyles.js` (room style, local performance override and live model replacement, mixed into `VRClub.prototype`), followed by `js/wardrobeCatalog.js`, `js/avatarDetails.js`, `js/avatarAppearance.js` and `js/avatarEditor.js`.
 9. `js/playerHeight.js` (pure player-height maths), `js/avatarRig.js` (the local player's procedural body), `js/djPerformer.js` (the DJ's live set, posed through the rig), `js/crowdDance.js` (the crowd's choreographer), `js/minglerClock.js` (the shared room-time round), then `js/sfuClient.js`, `js/liveAudioClient.js` (event-owned music; no connection until admitted), `js/liveInput.js` (private mixer testing and explicit publishing), `js/networkClient.js`, `js/avatarManager.js` and `js/multiplayer.js` (`ClubMultiplayer`), then `js/lightingPresets.js` (validated local lighting snapshots reusing the multiplayer fixture schema).
 10. `js/club/01-core.js` through `09-animation-finish.js`, then `10-ui-controls.js`,
@@ -622,6 +622,10 @@ rand, last)` answers it (ring order 0,1,3,2). A look's `strobePattern` still win
 one (`cycleStrobePattern`, VR EFFECTS, VJ panel, host-synced as `strobePatternIndex`) holds in manual mode or a held section.
 Step patterns run on a steady interval and the flash light follows the brightest strobe. Every pattern still claims
 `_tryClubFlash` (<= 3 flashes a second) and Safe Mode still clears `strobesActive`.
+Show-driven steps use the shared cue/bar/beat clock. The room impulse averages only the active fixtures, scales with their
+count and the viewer's room enclosure, and has no global contribution outdoors; the retinal and glare response follows
+the viewer's gaze. The physical tube may retain a warm, dim afterglow for at most 65 ms, but it does not extend the flash
+or room-light impulse. Master-zero and Safe Mode suppress the afterglow too.
 **Show master and peak.** `VJDirector.showMasterIntensity` scales the composed automatic look without changing its
 cue smoothing; it defaults to 1, travels as `fx.vjMaster` in automatic host frames and restores the local setting
 when a follower leaves (promotion keeps the host's). Manual snapshots still capture `targetMasterIntensity`.
@@ -644,20 +648,32 @@ both steppers activate smoke, while the separate smoke switch leaves those choic
 Manual Maximum doubles the existing machine rates (not capacities) and eases scene fog to three times normal density.
 The personal reduced-show-smoke choice suppresses both manual boosts; tier/effect budgets still apply.
 Stopped emitters restart when smoke is enabled. `_tintClubAir` eases `_smokeLevel` (1.6 s) from amount and
-burst strength and scales fog density, haze alpha, laser-sheet haze and beam medium density. Both machines fire together
-for three beats of every sixteen in auto mode, using `spotRigBeat` and the existing shared beat timestamp. Tier and
-effect-load particle limits remain in force. Show looks reset their mode to continuous unless explicitly burst, and include
-a clear-air passage; old lighting presets default to the former auto mode. The relay's flat fixture map carries the mode.
-Reads tolerate a missing `_smokeLevel` (bare stubs).
+burst strength and scales fog density, haze alpha, laser-sheet haze and beam medium density. Fixture colours mix by
+their active contribution rather than one source winning; unlit air stays dark. The smoke uses a deterministic 4×4
+animated cloud atlas separate from radial dust, while ambient haze is world-up billboarded to avoid head-roll swim.
+Nozzle jets use velocity limiting and analytic cushioning at the floor, DJ riser, bar and mezzanine; a camera-near fade
+keeps sprites out of the near plane. Gentle kick-linked turbulence is disabled by Photosensitive Safe Mode. Both
+machines fire together for three beats of every sixteen in auto mode, using `spotRigBeat` and the existing shared beat
+timestamp. Tier and effect-load particle limits remain in force. Show looks reset their mode to continuous unless
+explicitly burst, and include a clear-air passage; old lighting presets default to the former auto mode. The relay's
+flat fixture map carries the mode. Reads tolerate a missing `_smokeLevel` (bare stubs).
 **Random and independent moving heads** integrate elapsed time into `_spotMotionPhase`, rather than multiplying a changing
 speed by absolute time. Aim, pan and tilt are rate-limited; per-head independent overrides use the same path. The host
 shares the phase without adding it to presets. In every pattern the beam and light direction follow the animated physical
 head, not the uneased aim target. `_resolveSpotSurfaceHit()` forces the current yoke/head/lens transforms and places both
 the cone and the multi-beam filter just outside the centre of the lens face. Their near ends spread over the lens without
-exceeding its 0.17 m radius; the source end of the opacity gradient no longer fades to zero. The circular cone's wide end
-is 2 m across, with matching extension and pool sizing; the surface intersection, not the airborne cone, stretches at a tilt.
-The real-scene prism test checks alignment and aperture coverage through pattern transitions; headset appearance
-and the additional transform cost remain unmeasured.
+exceeding its 0.17 m radius; the source end of the opacity gradient no longer fades to zero. The cone uses the same fixed
+30-degree full angle as the `SpotLight`; its surface radius grows with lens-to-hit distance, and the pool derives its
+footprint from that radius plus the oblique-incidence ellipse. Analytic intersections include the front wall and ceiling;
+elevated-slab pools and their larger glow shrink together to remain within the measured slab edge. Surface pools use inverse-square distance falloff and
+surface cosine, with no artificial distant-light floor. The shared opacity map has per-head UV phase offsets, preserving
+one texture/material while avoiding identical turbulence across all six shafts. Beam transmission is
+`exp(-0.08 × medium density × path length)`;
+clear air therefore has no persistent volumetric beam, while haze reveals the beam in proportion to its density. Spot
+aim phase integrates elapsed time, every physical head obeys acceleration- and speed-limited pan/tilt servo motion, and fixture/pool output no longer has
+independent sinusoidal brightness shimmer. The shared beam opacity texture and the real-scene prism test preserve
+alignment and aperture coverage through pattern transitions. Headset appearance and the additional transform cost
+remain unmeasured.
 **Kick punch reaches the fixtures.** `club.kickDepth` (the look's `punch`, written by the
 director) × `beatEnvelope` gives `club.kickPulse` each frame, halved in Safe Mode. It lifts
 the moving-head intensity and beams, laser beams, laser-sheet glow, mirror-ball spin, and —
@@ -679,9 +695,11 @@ calms the room and a drop lifts it.
 The four strobes copy the Unity fixture design and placement only: x = +/-sideTrussX,
 y = 7.6, z = -9.2/-14.8, aimed at (0, 1.7, -12). Dark 1.05 x 0.36 x 0.22 m
 casings, reflectors and resting tubes share static instance draws; each front emitter
-remains independently animated. Upright mounts remain on the trusses. The web flash
-scheduler, glare, Safe Mode and room flash governor are unchanged; no Unity flash
-lights or visual scripting are ported. Geometry is measured by
+remains independently animated. Upright mounts remain on the trusses. The flash light
+stays disabled for life; room response is composed through the existing ambient/fog and
+post-processing path. The dim tube-only afterglow never requests another room flash.
+Safe Mode and the room flash governor remain authoritative; no Unity flash lights or
+visual scripting are ported. Geometry is measured by
 `test/strobe-fixtures.test.mjs`; physical-headset appearance remains unverified.
 
 ### Frame-rate independence
@@ -764,12 +782,23 @@ dust `updateFunction` by `_installAirLighting()`) brightens and tints them in mo
 laser and mirror-ball beams, laser sheets, the LED wall, mirror-ball reflections and actual strobe bursts.
 The dust sprites are 3–12 mm glints, not literal physical dust grain sizes; their LED, reflected and strobe
 responses are attenuated. The moving-head contribution uses a Henyey-Greenstein phase term and smoke
-feeds each desktop beam's `_mediumDensity` back into its alpha. It edits the colour for one frame only
-(the colour gradient recomputes it) and allocates nothing. Desktop evaluates every particle. VR evaluates
-one third of room haze/dust particles per frame, rotating the sample across frames; nozzle plumes remain
-full-rate. A desktop pass with 1,400 motes and six beams measured ~0.3 ms without the wall/mirror and ~1.14 ms
-with both; a single full-size room pass measured ~0.69 ms on Quest 3S, so the headset path deliberately
-uses the rotating sample. Re-measure it on a physical headset before increasing the sample rate.
+feeds each beam's `_mediumDensity` back into its scattering and direct-light attenuation. All sampled beam directions
+are normalized and final particle colours are clamped to finite `[0, 4]` RGB / `[0, 1]` alpha so `mediump` (`float16`)
+shaders can never overflow to `-Infinity`/`NaN` across unrotated haze quads. LED-wall air scatter converts panel
+emission through a radiometric power curve without a brightness/saturation floor, and `_tintClubAir()` weights room
+haze by total active luminous flux so dim/sparse accompaniment walls stay dark while full-drive walls colour nearby
+smoke. Room tint uses each moving head's emitted colour and photometric output, not its selected palette;
+disabled heads contribute nothing. LED samples retain the displayed panel level between cadence updates,
+without applying the master/brightness twice. Local source RGB contributions add together, so wall, spots,
+mirror, lasers and firing strobes can colour the same smoke simultaneously. Additive neon signage skips
+scene-fog colour injection and depth writes so black atlas margins never reveal rectangular quads.
+Front-truss fog jets retain entrainment momentum across the floor and redirect downward contact into horizontal
+glide toward the DJ booth within existing tier particle capacities. It edits the colour
+for one frame only (the particle gradient recomputes it), and allocates only when a particle first receives a cache.
+Desktop evaluates every particle. VR evaluates one third of haze, dust and nozzle plume particles spatially per frame and reapplies
+the cached lighting to every live particle between samples. The former full-size
+lighting benchmarks predate that cache reapplication; headset cost must be remeasured before increasing the sample
+rate or particle budget.
 No light currently owns a `ShadowGenerator`: the two it had sat outside every material's
 slots, so no shadow was ever sampled. Instead, grounding and dynamic shadow projection use two
 thin-instanced ground-decal batches (`contactShadows` for characters, updated by
@@ -780,12 +809,25 @@ columns and restroom fixtures), costing two draw calls total with zero shadow-ma
 Character matrices reuse their Float32 buffer and upload only when its values change,
 including moving characters and raised walking surfaces. These are approximate
 grounding decals, not occlusion-correct cast shadows.
-The four mirror-ball pinspots (`createMirrorBall()`) align their cylindrical barrels, bezels,
-recessed condenser lenses and incident cones axially along local `+Y -> direction`, clamped to
-the front and rear trusses via merged `mirrorSpotTrussClamps` and `mirrorSpotRiggingMounts`.
-Bases join the rigging batch and all four rims share `mirrorSpotBezelMerged`
-(seven fewer geometry draws than separate bases/rims). The ball's facet emission
-obeys the whole-show master, including zero; do not restore an unscaled emission floor.
+The mirror ball retains the classic flat-shaded 1.2 m silver sphere and vertical cable
+suspension beneath the centre truss; its angular speed eases toward `mirrorBallSpeed` in real
+elapsed time around `rotation.y` and is never kicked by the music. Reflected spots and rays are
+traced from an equal-area, low-discrepancy 512-sample virtual facet table using the strongest of the four incident pinspots
+and the mirror-reflection law, then clipped to the analytic room surfaces. Spot/ray transforms,
+per-instance energy and the small set of smoke-scatter samples reuse preallocated buffers; no
+extra glint/motor mesh, real light or per-frame allocation is added. Both incident-beam opacity and reflected-ray scatter use the
+eased `_smokeLevel`, while `masterIntensity` still controls every visible output, including
+blackout. The earlier room-wide scatter distribution is retained without restoring synthetic rotating ray directions.
+Surface spots combine a rounded facet core and soft circular falloff; distance and projected footprint area
+reduce their intensity. Outgoing shafts use three crossed, edge-feathered ribbons in the same instanced mesh,
+not four-sided hollow cones. Shaft and pool widths agree at the surface, and smoke scales shaft visibility
+once, not both the instance strength and material alpha. No new draw, light or texture is added;
+physical-headset appearance and cost remain unmeasured.
+The four pinspots remain visual-only: never add or dynamically enable real lights.
+Their cylindrical barrels, bezels, recessed condenser lenses and incident cones align axially
+along local `+Y -> direction`, clamped to the front and rear trusses via merged
+`mirrorSpotTrussClamps` and `mirrorSpotRiggingMounts`. Bases join the rigging batch and all
+four rims share `mirrorSpotBezelMerged` (seven fewer geometry draws than separate bases/rims).
 On `nocturnedev.mitwee.nl` and `nocturne-dev.pages.dev`, `MusicLibrary` pre-seeds
 `Resident by Hernan Cattaneo` when `vrclub.questMusic` is unset so fresh dev sessions start
 with the latest Resident podcast episode.
@@ -986,7 +1028,10 @@ reflections; lowering it makes the concrete floor mirror the room again at grazi
 The laser sheet has two truss projectors (`laserSheetSource` at x = -6,
 `laserSheetSourceRight` at x = +6) and by default BOTH emit (`laserSheetOrigin: 'both'`): the left
 fan leads, the right one mirrors its yaw and trails its pitch in phase so the planes scissor.
-The fans share materials, so the second costs two draw calls and no extra noise textures.
+Each projector keeps a fixed outer housing and moves only its internal scanner pivot. The fan UVs
+follow world-space width/length rather than squeezing one image from the aperture to the fan edge;
+the right fan reverses and offsets those UVs on unique geometry while sharing the same materials
+and textures. Haze drift is independent of galvo speed.
 
 **Tune the sheets by their crossing, not their planes.** Each plane turns only ~2 deg/s, but the
 bright line where the two planes meet runs many times faster (the old aim measured a median
@@ -1015,10 +1060,17 @@ rules are enforced by `test/unit.test.mjs`:
 - No laser line is narrower than a few pixels (`_laserView()` gives the pixel angle), and widening
   divides its brightness. A sub-pixel modelled cylinder aliased into dashed, crawling lines.
 - Ceiling beams are ONE camera-facing ribbon batch (`laser_beams`) written by `updateLasers()`.
+  Each of the 15 rays is split into six camera-facing segments inside that one draw, so width,
+  forward scatter and Beer-Lambert attenuation vary along the path. `_laserView()` uses the eye
+  projection and viewport height in XR; particle illumination uses a narrower cone and feeds its
+  sampled medium density back to that ray.
   Each beam leaves the projector's underside aperture, ends on whichever `ROOM_INTERIOR`
   face it reaches (walls included), and scatters forward (`_laserScatterGain()`,
   Henyey-Greenstein g 0.45). Surface-hit dots were removed at the owner's request:
   do not restore a dot mesh, texture or per-frame dot uploads.
+  The three galvos counter-rotate and change among tunnel and fan programs only on VJ bar lines.
+  The fourth bar eases the beam shutter closed outside Safe Mode; Safe Mode keeps it open.
+  Source-aperture glare is view-dependent and remains tightly capped in Safe Mode.
 - The sheet fan is subdivided: vertex alpha carries the ~1/r power spread and the brighter scan
   edges, and an emissive Fresnel term makes it a bright line edge-on and a veil face-on. The fan is
   longer than the room so the shell's depth test ends it on a surface. Its noise textures need
@@ -2152,7 +2204,7 @@ inside instead. Desktop initial position and the existing travel presets are unc
 `moveCameraToPreset()` routes to the XR camera when active,
 preserving head orientation and measured seated height with a booth floor offset.
 The guest quick menu offers SHOW (automatic NOCTURNE/AESTHETIC moods, Drop Now, Blackout and travel to the booth),
-CROWD, COMFORT, WARDROBE and CAMERA. Detailed fixture editing belongs at the physical VJ desk.
+CROWD, COMFORT and WARDROBE. Detailed fixture editing belongs at the physical VJ desk.
 COMFORT includes locomotion, Safe Mode, seated play, measured eye height, quality and conversation audio;
 the four rendering experiments live under ADVANCED GRAPHICS. WARDROBE groups body selection and outfit editing.
 Club character selection still uses `setLocalCharacter`, the seventeen saved relay IDs and the two-page
@@ -2210,10 +2262,8 @@ strong voice duck. Optional `nearby` uses a gentler distance-weighted dip for vi
 unmuted real guests between 1.1 and 1.8 metres. It does not change remote voice gain,
 musical analysis, shared playback or room ambience, and respects the existing duck switch.
 
-CAMERA / desktop Photo produces a local still postcard, never an upload or automatic share.
-Capture excludes menu, peer names, chat and emoji, restores visibility even on failure,
-and does not embed room invitations. Copying an invite is a separate confirmed clipboard action.
-The access veil prevents capture. Physical-headset capture cost remains unmeasured.
+Photos use the device's built-in operating-system capture functionality.
+There is no in-app photo control, capture or postcard export.
 
 The phone companion reuses eight-digit verified pairing, bounded cancellable polling and
 explicit music sync. Lighting transfers stage and validate all twelve slots before a
@@ -2243,7 +2293,7 @@ The DOM panel (`js/ui-init.js`), the VR quick menu (`js/club/10-ui.js`) and the 
 reimplemented the same actions and had silently diverged; tests enforce the delegation. The display names for spot
 modes and aims are `VRClubUI.SPOT_MODE_NAMES` / `SPOT_PATTERN_NAMES` on every surface. `cyclePattern` selects the
 moving heads' **SPOT AIM PATH**. The optional **MULTI-BEAM** filter (`spotPrismActive`) overlays
-13 narrow crossed-ribbon shafts in one mesh per head on the normal cone at 25% visibility. Each shaft also has broader,
+13 narrow crossed-ribbon shafts in one mesh per head on the normal cone at 26% visibility. Each shaft also has broader,
 vertex-alpha-feathered crossed ribbons in that same mesh so their halos overlap and soften the gaps.
 Its separate additive material shares the cone's opacity texture,
 colour, dimmer and surface clip, without the cone's edge-on Fresnel term. It creates no lights or projected shapes.
@@ -2466,6 +2516,32 @@ back to a font, or if the splash's `stroke-width` stops matching `NocturneLogo.S
 `js/nocturneLogo.js` and paste the new `path()` into index.html; there is no image file to update.
 
 ## Multiplayer
+
+New clients negotiate `roleViews=1` and always send their initial blocklist, even
+when empty. The relay withholds role IDs and retained show state until that list
+arrives; `roleStatePending` prevents premature lighting authority. Personalized
+moderator/VJ frames obey two-way blocks. A hidden VJ is represented only by
+`hidden:true`, with no ID: this permits local lights, never room publication.
+Initial following snapshots preserve local settings before applying shared ones.
+Legacy clients keep their existing welcome path.
+
+Stationary presence uses a 500 ms heartbeat in every room size; changed body,
+seat, floor, height and hand poses retain their normal publication cadence.
+The sent-pose cache advances only after an accepted send and resets on reconnect.
+Quaternion heading uses yaw twist, avoiding Euler flips across vertical gaze.
+Local microphone RMS sampling supplies `localSpeaking`, reuses the club audio
+context, and stops on mute, input loss or disposal. Capture/publication failure
+releases the microphone; a silent enabled mic does not duck music.
+
+DOM People rows retain report drafts/focus through speaking updates; hidden
+panels defer list work. Chat peeks track message identity, not capped log length.
+VR recipient pages reach all guests within twelve slots, with recent-message
+and moderator-report pages over the same shared state. Emoji resources are
+reused per guest and disposed on departure. Live event handlers initialize
+independently of invite copying and retain confirmation/teardown.
+SFU catalogs skip unchanged member views and coalesce reconciliation while
+retaining immediate policy revocation. Live membership heartbeats still persist
+renewals; unchanged policy alone skips media reconciliation.
 
 `moderatorRole` is a separately acknowledged, host-granted room role for one
 visible real guest. `canModerate()` gates kick/ban and report review, never host
@@ -2763,7 +2839,7 @@ protocol only grew, so older clients keep working.
   Local files instead use a separate `musicPc` per consenting listener, signaled through the existing
   block-aware `rtc-signal` relay with `channel: 'music'` (`state`, `listen`, SDP and ICE).
   Only the current visible host may send music; no music connection or tracks are accepted before
-  Listen along. Voice muting never touches these connections. `ClubMultiplayer.shareLocalMusic()`
+  room admission and visible-host authority. Voice muting never touches these connections. `ClubMultiplayer.shareLocalMusic()`
   captures the local MediaElementSource into a MediaStreamDestination before PA acoustics/ducking;
   host element volume still affects the broadcast. `startNetworkMusic()` routes a received stream
   through the existing PA, analyser and kick/rhythm taps, with a separate guest volume gain and
@@ -2853,7 +2929,7 @@ protocol only grew, so older clients keep working.
   track-attachment path is gated, including late joins; muting stops capture and also clears sender tracks.
   Incoming voice and `musicPc` are untouched. These are outgoing recipients, not private group membership, and
   recipients can still record or forward what they receive. Deploy the changed relay before using targeted chat.
-- **Lowering the music for voice** (`vrclub.duckForVoice`, on by default): while my mic is on or anyone is audibly
+- **Lowering the music for voice** (`vrclub.duckForVoice`, on by default): while my mic detects speech or anyone is audibly
   speaking (`AvatarManager.anyoneSpeaking()`), `VRClub.setVoiceDuck(true)` fades a dedicated `voiceDuckGain` (after the
   compressor, before the master gain) to 0.25 in 80 ms, and it comes back over 0.5 s, 1.5 s after the last word
   (`DUCK_HOLD_MS`). It never touches the user's music volume, the master gain (rewritten every frame by the room
@@ -2866,7 +2942,9 @@ protocol only grew, so older clients keep working.
     `NetworkClient.serverOffset` (measured from the welcome's `serverTime`), never `Date.now()` directly. The host
     re-announces every 3 s and on play, pause and seek (`ClubMultiplayer._watchAudio`, so every control is covered);
     a guest seeks only when it drifts more than 0.75 s and never on a live stream.
-    Every source waits for **Listen along**, because it discloses the guest's IP.
+    Joining automatically follows the visible host's music, subject to browser playback activation.
+    The online safety guide discloses this and linked audio hosts receiving the guest's IP.
+    URL invitations wait for that guide's acceptance too, without replacing locked immersive welcome/access pages.
     The host's title is followed but never its historical artist/DJ metadata.
   - *Lights.* The host sends a `show` frame at most every 250 ms, on each bar line, on any change and every 2 s
     (a lone host sends nothing; a newcomer triggers one at once; the relay keeps the latest for late joiners). Building a
@@ -2937,7 +3015,7 @@ protocol only grew, so older clients keep working.
      animation LOD without a measured need (pausing animatables skews playhead time and the beat lock).
    - Empty club: ~388k active triangles when the monitors were simplified (about +11k now that they are at full detail, 10k each, again). Largest: DJ console 48k, bar bottles 47k, three trusses ~28k each, hoist chains ~13k, side beams 27k. The truss welds and
      chain links are 6-sided; the DJ monitors are NOT simplified (a 4.3k copy looked worse and was undone; the optimizer no longer touches geometry).
-   - Repeated moving-head yokes, housings and bezels, and fog-machine bodies/brackets/nozzles share source geometry through instances while keeping their own animated pivots or parent transforms. Strobe emitter/glare planes are disabled outside the actual flash window. Idle pointer movement skips world picking; picking resumes for an active drag and stops on release. Air-particle beam phase reuses one camera-to-particle vector across beams. These preserve scene detail; their physical-headset performance is unmeasured.
+   - Repeated moving-head yokes, housings and bezels, and fog-machine bodies/brackets/nozzles share source geometry through instances while keeping their own animated pivots or parent transforms. Strobe emitter/glare planes are disabled outside the flash and short, dim tube-afterglow windows. Idle pointer movement skips world picking; picking resumes for an active drag and stops on release. Air-particle beam phase reuses one camera-to-particle vector across beams. These preserve scene detail; their physical-headset performance is unmeasured.
    - **Seen-only animation (street people and remote guests).** Only the *pose* is ever held; positions, facing, speed and state keep running on
      their normal clocks (a remote guest's root keeps interpolating toward the last network position, the mingler stays on `MinglerClock`), so
      whoever you turn to is where everyone else sees them. Street characters (`npc.street`) are held only when more than 130 degrees off the gaze

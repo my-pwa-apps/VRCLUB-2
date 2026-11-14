@@ -332,6 +332,41 @@ suite('live events: creator blocks revoke subscription visibility, end and lifet
     assert.equal(LIVE_EVENT_LIMITS.lifetimeMs, 43200000);
 });
 
+suite('live heartbeat renews persisted tickets without redundant media reconciliation', async t => {
+    const f = fixture(t);
+    const { id, event, guest: owner } = await f.create();
+    const admitted = await admit(f, id);
+    const ticket = event.event.members[admitted.session.id];
+    ticket.expires = Date.now() + 1000;
+    const previousExpiry = ticket.expires;
+    let refreshes = 0, reconciliations = 0;
+    const refresh = event.media.refresh.bind(event.media);
+    const reconcile = event.media.reconcile.bind(event.media);
+    event.media.refresh = () => { refreshes++; };
+    event.media.reconcile = () => { reconciliations++; };
+
+    await liveEventCall(f.env, id, 'heartbeat', {
+        room: 'lobby', members: admitted.room._liveMembers()
+    });
+    await f.settle();
+    assert.ok(ticket.expires > previousExpiry);
+    assert.equal((await event.state.storage.get('event')).members[admitted.session.id].expires, ticket.expires,
+        'the 45 second membership renewal remains persisted');
+    assert.equal(refreshes, 0);
+    assert.equal(reconciliations, 0);
+
+    owner.session.blocked.add(admitted.session.pid);
+    await liveEventCall(f.env, id, 'heartbeat', {
+        room: 'lobby', members: admitted.room._liveMembers()
+    });
+    await f.settle();
+    assert.deepEqual(event.event.ownerBlocks, [admitted.session.pid]);
+    assert.equal(refreshes, 1, 'a changed block policy refreshes authorization immediately');
+    assert.equal(reconciliations, 1, 'a changed block policy schedules provider cleanup');
+    event.media.refresh = refresh;
+    event.media.reconcile = reconcile;
+});
+
 suite('live events: stale members/reservations and idle unauthenticated sockets are bounded', async t => {
     const f = fixture(t);
     const { id, event } = await f.create();

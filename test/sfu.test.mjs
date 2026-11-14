@@ -238,6 +238,64 @@ test('two-way blocks and membership close established subscriptions, and unblock
     await settle(room);
 });
 
+test('media catalogs are emitted only when their visible contents change', async t => {
+    api(t);
+    const room = new ClubRoom({}, env);
+    const host = join(room), guest = join(room);
+    const catalogCount = person => person.ws.sent.filter(msg => msg.type === 'media-catalog').length;
+    const initial = catalogCount(guest);
+    room.media.refresh();
+    room.media.refresh();
+    assert.equal(catalogCount(guest), initial);
+
+    await publish(room, host);
+    const published = catalogCount(guest);
+    assert.ok(published > initial);
+    assert.equal(guest.ws.last('media-catalog').tracks.length, 1);
+    room.media.refresh();
+    room.media.refresh();
+    assert.equal(catalogCount(guest), published);
+
+    room.media.control(host.session, { voice: [] });
+    assert.equal(guest.ws.last('media-catalog').tracks.length, 0,
+        'policy revocation is reflected synchronously, before provider cleanup');
+    const revoked = catalogCount(guest);
+    room.media.refresh();
+    assert.equal(catalogCount(guest), revoked);
+    cleanup(room);
+    await settle(room);
+});
+
+test('overlapping SFU reconciliations coalesce while rechecking the latest policy', async t => {
+    api(t);
+    const room = new ClubRoom({}, env);
+    join(room);
+    const guest = join(room);
+    const member = room.media.members.get(guest.session.id);
+    member.slots.musicPub = {};
+    let started;
+    const entered = new Promise(resolve => { started = resolve; });
+    let release;
+    const hold = new Promise(resolve => { release = resolve; });
+    let retireCalls = 0;
+    room.media._retire = async (target, name) => {
+        retireCalls++;
+        started();
+        await hold;
+        delete target.slots[name];
+    };
+
+    room.media.reconcile();
+    await entered;
+    for (let i = 0; i < 10; i++) room.media.reconcile();
+    release();
+    await settle(room);
+    assert.equal(retireCalls, 1);
+    assert.equal(room.media.reconcileQueued, false);
+    cleanup(room);
+    await settle(room);
+});
+
 test('only host publishes music, Listen Along is required and revoked, handover clears old music', async t => {
     api(t);
     const room = new ClubRoom({}, env), host = join(room), guest = join(room);

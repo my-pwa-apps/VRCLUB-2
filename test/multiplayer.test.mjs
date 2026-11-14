@@ -146,6 +146,33 @@ test('old relays explicitly refuse VJ passes and water without optimistic state'
     client.disconnect();
 });
 
+test('role-view handshake sends empty blocks and preserves invisible VJ local fallback without host authority', () => {
+    const { mp, club } = spotController();
+    mp.connect({ serverUrl: 'wss://relay.example', room: 'r' });
+    const socket = FakeSocket.instances.at(-1);
+    assert.match(socket.url, /roleViews=1/);
+    socket.receive({ type: 'welcome', id: 'me', hostId: 'host', vjPass: true, roleStatePending: true,
+        peers: [{ id: 'host', name: 'Host' }, { id: 'vj', name: 'VJ' }] });
+    assert.deepEqual(socket.last('blocklist').pids, []);
+    assert.equal(mp.following, true);
+    assert.equal(mp.followingLights, false, 'unknown roles cannot silently follow the wrong source');
+    assert.equal(mp.canControlLights(), false);
+    club.laserSheetBrightness = 0.6;
+    socket.receive({ type: 'vj-pass', id: 'vj', show: { m: 'manual', fx: { laserSheetBrightness: 1.8 } } });
+    assert.equal(mp.followingLights, true);
+    assert.equal(club.laserSheetBrightness, 1.8);
+    socket.receive({ type: 'vj-pass', id: null, hidden: true,
+        show: { m: 'manual', performanceOnly: true, fx: { laserSheetBrightness: 2 } } });
+    assert.equal(mp.canControlLights(), true, 'invisible VJ permits only local lighting');
+    assert.equal(mp.followingLights, false);
+    assert.equal(club.laserSheetBrightness, 0.6, 'handing back restores the pre-handshake local preference');
+    assert.equal(mp.following, true, 'visible host still owns music');
+    assert.equal(mp.client.sendShow({ m: 'manual' }), false, 'local fallback never publishes into the room');
+    socket.receive({ type: 'vj-pass', id: null, hidden: false });
+    assert.equal(mp.canControlLights(), false, 'revoking the VJ restores ordinary host following');
+    mp.disconnect();
+});
+
 test('joining clears offline water; a failed room never enables a local fallback', () => {
     const { mp, club } = spotController();
     const snapshots = [];
@@ -332,7 +359,7 @@ test('moderation sends are plain messages, and gestures are allow-listed before 
     client.sendGesture('wave');
     client.sendGesture('hack');
     client.requestAvatar();
-    assert.deepEqual(socket.sent.map(m => m.type), ['kick', 'ban', 'lock', 'gesture', 'avatar']);
+    assert.deepEqual(socket.sent.map(m => m.type), ['blocklist', 'kick', 'ban', 'lock', 'gesture', 'avatar']);
     assert.equal(socket.last('lock').locked, true);
 });
 
@@ -409,6 +436,47 @@ test('connecting is opt-in, one at a time, and joins with uid, room and the save
     assert.match(mp.statusText(), /you are the host/);
     mp.disconnect();
     assert.equal(club.isMultiplayer, false);
+});
+
+test('room and event invitations wait for safety acceptance, resume once, and cancel without connecting', () => {
+    for (const eventId of [null, '12345678-1234-4123-8123-123456789abc']) {
+        const { mp, window } = makeController();
+        window.LiveAudioClient = { isEventId: value => value === eventId };
+        assert.equal(mp.joinInvitation({ room: 'invited', name: 'Visitor', eventId }), false);
+        assert.equal(FakeSocket.instances.length, 0, 'no admission or media before acceptance');
+        assert.equal(mp.pendingSafetyJoin.name, 'Visitor');
+        mp.acceptOnlineSafety();
+        assert.equal(FakeSocket.instances.length, 1);
+        assert.equal(mp.pendingSafetyJoin, null);
+        if (!eventId) assert.match(FakeSocket.instances[0].url, /room=invited/);
+        if (eventId) assert.match(FakeSocket.instances[0].url, /event=/);
+        mp.acceptOnlineSafety();
+        assert.equal(FakeSocket.instances.length, 1, 'acceptance cannot replay admission');
+        mp.disconnect();
+    }
+    const { mp } = makeController();
+    mp.joinInvitation({ room: 'cancelled' });
+    mp.cancelPendingSafetyJoin();
+    mp.acceptOnlineSafety();
+    assert.equal(FakeSocket.instances.length, 0);
+});
+
+test('random room digits reject the biased high tail instead of reducing it modulo ten', () => {
+    const { ClubMultiplayer } = load();
+    const values = [255, 254, 250, 249, 248, 247];
+    let i = 0;
+    const token = ClubMultiplayer.randomToken(3, '0123456789', () => values[i++ % values.length] / 256);
+    assert.equal(token, '987');
+});
+
+test('listed rooms rank loaded populated rooms first without mutating server pagination', () => {
+    const { mp } = makeController();
+    mp.roomDirectory.publicRooms = [{ room: 'a', people: 1 }, { room: 'b', people: 8 }];
+    mp.roomDirectory.privateRooms = [{ room: 'private-123456', people: 3 }];
+    mp.roomDirectory.next = 'b';
+    assert.deepEqual(plain(mp.directoryRooms().map(item => item.room)), ['b', 'private-123456', 'a']);
+    assert.equal(mp.roomDirectory.next, 'b');
+    assert.equal(mp.roomDirectory.publicRooms[0].room, 'a');
 });
 
 test('blocking from the controller persists the guest, removes them and survives a new controller', () => {
@@ -1462,7 +1530,7 @@ test('room browser is opt-in, queries only saved private codes on this relay, an
     assert.deepEqual(JSON.parse(requests[1].options.body), { rooms: ['private-123456'] });
     assert.equal(requests[0].url, 'https://relay.example/rooms');
     assert.ok(requests.every(entry => entry.options.credentials === 'omit'));
-    assert.deepEqual(Array.from(mp.directoryRooms(), item => item.room), ['lobby', 'private-123456']);
+    assert.deepEqual(Array.from(mp.directoryRooms(), item => item.room), ['private-123456', 'lobby']);
     mp.forgetPrivateRoom('private-123456');
     assert.equal(mp.savedPrivateRooms(relay).length, 0);
     assert.equal(mp.savedPrivateRooms('wss://another.example').length, 1);
@@ -1920,7 +1988,7 @@ test('microphone tracks follow recipients before capture, through late joins and
     }
     context.RTCPeerConnection = VoiceConnection;
     const track = { stop() {} };
-    context.navigator = { mediaDevices: { getUserMedia: async () => ({ getTracks: () => [track] }) } };
+    context.navigator = { mediaDevices: { getUserMedia: async () => ({ getTracks: () => [track], getAudioTracks: () => [track] }) } };
     const client = new NetworkClient({ serverUrl: 'wss://relay.example' });
     const socket = welcomed(client, { peers: [{ id: 'p1', name: 'Bo' }, { id: 'p2', name: 'Cy' }] });
     client.setVoiceAudience(['p1']);
@@ -1958,7 +2026,7 @@ test('a new room starts a new conversation, and chat needs a room', () => {
     assert.equal(mp.chatUnread, 0);
 });
 
-test('the music is lowered while my mic is on or someone talks, held briefly, and only if the guest wants it', () => {
+test('the music is lowered only for local or remote speech, held briefly, and only if the guest wants it', () => {
     const { mp, club } = connectedController();
     const calls = [];
     club.setVoiceDuck = on => { calls.push(on); return on; };
@@ -1976,7 +2044,10 @@ test('the music is lowered while my mic is on or someone talks, held briefly, an
     assert.equal(calls.at(-1), false, 'and released after the hold');
     mp.client.micEnabled = true;
     mp._updateVoiceDuck(5000);
-    assert.equal(calls.at(-1), true, 'my own mic is on');
+    assert.equal(calls.at(-1), false, 'an enabled silent microphone does not duck');
+    Object.defineProperty(mp.client, 'localSpeaking', { value: true });
+    mp._updateVoiceDuck(5100);
+    assert.equal(calls.at(-1), true, 'my own speech is detected');
     mp.setDuckForVoice(false);
     assert.equal(calls.at(-1), false, 'switching it off brings the music back at once');
     mp._updateVoiceDuck(6000);
@@ -2000,6 +2071,7 @@ test('optional nearby clarity uses gentler distance-weighted ducking and leaves 
     assert.equal(calls.at(-1).active, false);
     mode = 'standard';
     mp.client.micEnabled = true;
+    Object.defineProperty(mp.client, 'localSpeaking', { value: true });
     mp._updateVoiceDuck(5000);
     assert.deepEqual(calls.at(-1), { active: true, level: undefined });
 });
