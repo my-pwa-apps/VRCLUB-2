@@ -5,6 +5,15 @@ construction, assets, lighting, and crowd placements remain on their existing pa
 Choose **Gashouder Amsterdam** on the entry screen, then select a setup before
 entering.
 
+## Branch isolation
+
+Gashouder development lives on the **Gashouder** Git branch, separate from
+**QuestDev**, with its own worktree at `D:\Git Repos\VRCLUB-Gashouder`.
+QuestDev retains the NOCTURNE development app; do not merge Gashouder venue
+changes into it. Shared fixes may be ported explicitly after checking each
+venue's behavior. Run Gashouder builds and deployments from its worktree.
+The existing NOCTURNE runtime option on this branch is not a shared branch.
+
 ## Deployment
 
 Gashouder is served live on **<https://gashouder.mitwee.nl>** via the Cloudflare
