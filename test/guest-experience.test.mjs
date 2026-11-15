@@ -69,25 +69,36 @@ test('paged VR credits retain attribution and complete source links', () => {
     assert.ok(compact.includes(link));
 });
 
-test('failed postcard restores menu and labels and releases temporary camera', async () => {
-    let disposed = false;
-    const mesh = () => ({ enabled: true, isEnabled() { return this.enabled; },
-        setEnabled(value) { this.enabled = value; }, isDisposed: () => false });
-    const menu = mesh(), label = mesh();
-    const experience = harness({ BABYLON: {
-        FreeCamera: class { dispose() { disposed = true; } },
-        Tools: { CreateScreenshotUsingRenderTargetAsync: async () => { throw new Error('test capture failure'); } }
-    } });
-    const notices = [];
-    const club = { _playerCamera: () => ({ position: { clone: () => ({}) }, rotationQuaternion: { clone: () => ({}) } }),
-        _vrQuickMenuRoot: menu, avatarManager: { remotes: new Map([['p', { nameplate: label }]]) },
+test('room invitations require confirmation and report clipboard failures', async () => {
+    let now = 10, fail = false;
+    const copied = [], notices = [];
+    const experience = harness({
+        performance: { now: () => now },
+        navigator: { clipboard: { writeText: async url => {
+            if (fail) throw new Error('clipboard denied');
+            copied.push(url);
+        } } }
+    });
+    const club = { multiplayer: { connected: false, inviteUrl: () => 'https://example.test/?room=private-123456' },
         showErrorMessage: text => notices.push(text) };
-    assert.equal(await experience.capturePostcard.call(club), false);
-    assert.equal(menu.enabled, true);
-    assert.equal(label.enabled, true);
-    assert.equal(club._postcardCapturing, false);
-    assert.equal(disposed, true);
-    assert.match(notices[0], /test capture failure/);
+    experience.copyRoomInvite.call(club);
+    assert.match(notices.at(-1), /Join a room/);
+    club.multiplayer.connected = true;
+    experience.copyRoomInvite.call(club);
+    assert.deepEqual(copied, []);
+    assert.match(notices.at(-1), /again to confirm/);
+    now += 4001;
+    experience.copyRoomInvite.call(club);
+    assert.deepEqual(copied, []);
+    experience.copyRoomInvite.call(club);
+    await Promise.resolve();
+    assert.deepEqual(copied, ['https://example.test/?room=private-123456']);
+    assert.match(notices.at(-1), /copied/);
+    fail = true;
+    experience.copyRoomInvite.call(club);
+    experience.copyRoomInvite.call(club);
+    await Promise.resolve();
+    assert.match(notices.at(-1), /clipboard denied/);
 });
 
 test('phone presets require a second explicit replacement and leaving the page cancels pairing', async () => {

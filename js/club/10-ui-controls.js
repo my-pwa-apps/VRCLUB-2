@@ -18,7 +18,7 @@ class VRClubControls extends VRClubAnimationFinish {
             const labels = {
                 lightingGallery: ['Rig view', 'Look across the hall beneath the lighting rig'],
                 balcony: ['Hall perimeter', 'View across the hall from its outer edge'],
-                street: ['Loading entrance', 'Stand outside the loading entrance']
+                street: ['Main entrance', 'View the hall from the main entrance']
             };
             for (const [preset, [label, title]] of Object.entries(labels)) {
                 const button = cameraPresetGrid.querySelector(`[data-camera-preset="${preset}"]`);
@@ -374,6 +374,21 @@ class VRClubControls extends VRClubAnimationFinish {
         ].map(([name, heads]) => Object.freeze({ name, heads: Object.freeze(heads) }))));
     }
 
+    static get GASHOUDER_SPOT_GROUPS() {
+        const names = [
+            'ALL 24 SPOTS', 'GROUPS 1 + 4', 'GROUPS 2 + 5', 'GROUPS 3 + 6',
+            'GROUPS 1 + 2 + 3', 'GROUPS 4 + 5 + 6',
+            'GROUP 1', 'GROUP 2', 'GROUP 3', 'GROUP 4', 'GROUP 5', 'GROUP 6'
+        ];
+        return this._gashouderSpotGroups || (this._gashouderSpotGroups = Object.freeze(
+            this.SPOT_GROUPS.map((group, i) => Object.freeze({ name: names[i], heads: group.heads }))
+        ));
+    }
+
+    spotRigGroups() {
+        return this.venueId === 'gashouder' ? VRClubUI.GASHOUDER_SPOT_GROUPS : VRClubUI.SPOT_GROUPS;
+    }
+
     static get SPOT_MOTIONS() {
         return this._spotMotions || (this._spotMotions = Object.freeze(['USE MAIN AIM PATH', 'INDEPENDENT', 'STATIC DOWN', 'MIRROR SWEEP', 'CROSSED BEAMS', 'ROW WAVE', 'ROW FANS', 'ROW CALL / RESPONSE']));
     }
@@ -432,7 +447,7 @@ class VRClubControls extends VRClubAnimationFinish {
     }
 
     spotRigControlValue(control) {
-        const group = VRClubUI.SPOT_GROUPS[this._spotEditTarget || 0];
+        const group = this.spotRigGroups()[this._spotEditTarget || 0];
         const common = suffix => {
             const value = this[`spotHead${group.heads[0]}${suffix}`] ?? (suffix === 'Enabled' ? true : suffix === 'Color' ? -1 : 0);
             return group.heads.every(i => (this[`spotHead${i}${suffix}`] ?? (suffix === 'Enabled' ? true : suffix === 'Color' ? -1 : 0)) === value) ? value : null;

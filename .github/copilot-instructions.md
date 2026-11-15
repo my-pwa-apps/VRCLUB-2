@@ -32,7 +32,7 @@ emits one minified, content-hashed production bundle with esbuild.
 7. `js/vjDirector.js`, then `js/showDirector.js`
 8. `js/ledPatterns.js`, then `js/barProps.js` (bottle geometry and label atlas; no club dependency), then `js/restroomArt.js` (the restroom's painted poster atlas and placement plan; needs `js/nocturneLogo.js` only at paint time), then `js/venueDressing.js` (entrance stair hall, bar, lounge couch and restroom), `js/mezzanine.js` (steel balcony and stair, and the walking-surface follow) and `js/cityDistrict.js` (the street outside, at street level) and `js/vjDesk.js` (the VJ desk's show, lights and set-player touch panels at the DJ table), all mixed into `VRClub.prototype`
    `js/guestExperience.js` and `js/sessionExperience.js` follow the desk and supply guest touchpoints,
-   native credits, phone transfer, local postcards and shared session props.
+   native credits, phone transfer, room invitations and shared session props.
    Then `js/characterCatalog.js` (generated licensed adult cast and assignments) and `js/characterStyles.js` (room style, local performance override and live model replacement, mixed into `VRClub.prototype`), followed by `js/wardrobeCatalog.js`, `js/avatarDetails.js`, `js/avatarAppearance.js` and `js/avatarEditor.js`.
 9. `js/playerHeight.js` (pure player-height maths), `js/avatarRig.js` (the local player's procedural body), `js/djPerformer.js` (the DJ's live set, posed through the rig), `js/crowdDance.js` (the crowd's choreographer), `js/minglerClock.js` (the shared room-time round), then `js/sfuClient.js`, `js/liveAudioClient.js` (event-owned music; no connection until admitted), `js/liveInput.js` (private mixer testing and explicit publishing), `js/networkClient.js`, `js/avatarManager.js` and `js/multiplayer.js` (`ClubMultiplayer`), then `js/lightingPresets.js` (validated local lighting snapshots reusing the multiplayer fixture schema).
 10. `js/club/01-core.js` through `09-animation-finish.js`, then `10-ui-controls.js`,
@@ -94,6 +94,42 @@ HTTPS is not needed locally; the Quest browser allows WebXR over `http://localho
 over your LAN IP.
 
 ## Architecture
+
+### Gashouder entry and preview
+VR starts just inside the main entrance facing the stage; `GASHOUDER_VENUE.vrEntry`
+also owns the Main Entrance travel position. Ahead-analysis status appears in Show,
+Music and VR SHOW, and must reflect the current playing source and a non-silent,
+covered preview window rather than stale, paused or CORS-silent data.
+
+Gashouder's three outer-ring tables and six stage-facing stools are present in every
+setup, including Architectural. `gashouderSeatingLayout()` owns their positions;
+tables use one merged mesh and stools reuse the NOCTURNE balcony model and shared
+seat/picking system. Keep the entrance, stage, bystanders and all 200 dancer slots clear.
+Headset appearance and cost are unmeasured.
+
+The event stage is a 1.8 m steel balcony with low-clearance space underneath and
+twelve-step stairs on both sides. `gashouderStairHeight()` and the walk-surface
+follower must keep floor-level guests below the deck, and each tread is a teleport
+floor. Tabletop simulated-effect props require explicit consent and apply a
+stoppable three-minute personal tint and optional local music filter; never alter
+shared lighting, analysis or broadcast. External-player audio cannot be filtered.
+Headset appearance and performance are unmeasured.
+
+### Gashouder roof
+The five merged roof rings retain Babylon's 128-segment sweep, material and sampled
+normals/UVs while using 32 tube segments. This reduces 166,410 triangles to 40,960;
+the largest tube's maximum deviation from a circular section is under 0.7 mm.
+The real-Babylon venue test compares the sampled geometry and topology to the original.
+Headset appearance and performance are unmeasured.
+
+### Gashouder experimental crowd
+The personal dancer override supports 0..200; automatic tier counts and the
+Architectural/Soundcheck caps are unchanged. The first 24 sources remain distinct;
+placements avoid the side stairs, and additional spread-out positions repeat those sources and use
+the same independently animated bodies. Extras load one at a time, are disposed
+when no longer needed, and pause while character-style replacement is in progress.
+Warn that high counts may severely affect frame rate or exhaust memory; no Quest
+capacity or performance is guaranteed. The DJ and bystanders are not counted.
 
 ### `js/assetCache.js`
 Shared caching primitives used by both loaders:
@@ -287,15 +323,15 @@ set-piece starting or the movement entering `ignition`) and the visitors (this g
 - Activities: `mix` (a deliberate jog-wheel nudge plus a turn-hold-release mixer gesture), `cue` (a headphone cup held
   to the ear, PALM on the cup: the thumb side points back, so the back of the hand faces outward; a unit test fails if
   it reverts), `tweak` (alternating hands on knobs rather than mirrored wrist loops),
-  `crowd` (looking out with both hands resting on the console), `handsUp` (one four-bar staggered raise, long hold and return on a
-  drop, about eight seconds at 120 BPM, palms facing the crowd, never repeated beat pumping; at most once per `CELEBRATION_COOLDOWN` = 24 s,
+  `crowd` (looking out with both hands resting on the console), `handsUp` (one five-beat staggered raise, hold and return on a
+  drop, `CELEBRATION_BEATS` = 5, about 2.5 seconds at 120 BPM, palms facing the crowd, never repeated beat pumping; at most once per `CELEBRATION_COOLDOWN` = 24 s,
   never from sustained loudness alone) and `point` (a brief 1.8 s point and look at a visitor who walks into the zone
   in front of the booth, once per `POINT_COOLDOWN` = 45 s each). Resident DJ rigs curl the other fingers while extending
   the index; unsupported custom skeletons retain the hand gesture without finger posing.
-  The hands-up gesture always finishes its full sixteen integrated beats before returning on the next bar line, so a late-bar
-  peak cannot cut it short and tempo changes cannot jump its pose.
-  Activities change ONLY on bar lines, except the
-  drop and the point, which cut in; a point ends on elapsed time and a drop can interrupt it. Simultaneous arrivals are
+  The hands-up gesture always finishes its full five integrated beats before returning to the decks, so an early bar line
+  cannot cut it short and tempo changes cannot jump its pose.
+  Activities change on bar lines, except the
+  drop and the point, which cut in; `handsUp` ends after its five integrated beats, `point` ends on elapsed time, and a drop can interrupt `point`. Simultaneous arrivals are
   ranked by distance with a small centre-line salience tie-break, not array order; a point locks attention to that visitor
   and tracks them until the gesture ends. With no
   music it keeps its own 118 BPM and never throws its hands up.
@@ -2152,12 +2188,12 @@ inside instead. Desktop initial position and the existing travel presets are unc
 `moveCameraToPreset()` routes to the XR camera when active,
 preserving head orientation and measured seated height with a booth floor offset.
 The guest quick menu offers SHOW (automatic NOCTURNE/AESTHETIC moods, Drop Now, Blackout and travel to the booth),
-CROWD, COMFORT, WARDROBE and CAMERA. Detailed fixture editing belongs at the physical VJ desk.
+CROWD, COMFORT and WARDROBE. Detailed fixture editing belongs at the physical VJ desk.
 COMFORT includes locomotion, Safe Mode, seated play, measured eye height, quality and conversation audio;
 the four rendering experiments live under ADVANCED GRAPHICS. WARDROBE groups body selection and outfit editing.
 Club character selection still uses `setLocalCharacter`, the seventeen saved relay IDs and the two-page
 women/men grid. Uploaded-body selection and sharing live under the same body chooser.
-A page holds at most twelve slots; ACCESS is never displaced by Camera when social actions fill HOME.
+A page holds at most twelve slots; ACCESS remains available when social actions fill HOME.
 The menu retains
 five destinations (entrance, dance floor, DJ booth, balcony, street) and a **Music** page: a seek
 strip (`vrQuickMenuSeek`, click or drag a ray on it; `_beginVRSeek/_moveVRSeek/_endVRSeek` ride the
@@ -2210,10 +2246,7 @@ strong voice duck. Optional `nearby` uses a gentler distance-weighted dip for vi
 unmuted real guests between 1.1 and 1.8 metres. It does not change remote voice gain,
 musical analysis, shared playback or room ambience, and respects the existing duck switch.
 
-CAMERA / desktop Photo produces a local still postcard, never an upload or automatic share.
-Capture excludes menu, peer names, chat and emoji, restores visibility even on failure,
-and does not embed room invitations. Copying an invite is a separate confirmed clipboard action.
-The access veil prevents capture. Physical-headset capture cost remains unmeasured.
+ONLINE → SAFETY offers a two-press confirmed room-invitation clipboard action while connected.
 
 The phone companion reuses eight-digit verified pairing, bounded cancellable polling and
 explicit music sync. Lighting transfers stage and validate all twelve slots before a

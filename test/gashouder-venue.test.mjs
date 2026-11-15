@@ -47,7 +47,12 @@ function loadVenue(globals = {}) {
 
 function loadVenueMethods() {
     const window = {};
-    const context = vm.createContext({ window, BABYLON, log: { info() {}, warn() {}, error() {} } });
+    const context = vm.createContext({
+        window,
+        BABYLON,
+        CLUB_POSITIONS: { sideTrussX: 7.6 },
+        log: { info() {}, warn() {}, error() {} }
+    });
     vm.runInContext(source, context, { filename: 'js/gashouderVenue.js' });
     context.VRClubEnvironment = class {};
     vm.runInContext(fixtureSource, context, { filename: 'js/club/05-fixtures.js' });
@@ -58,6 +63,31 @@ function loadVenueMethods() {
     vm.runInContext(animationSource, context, { filename: 'js/club/08-animation-fixtures.js' });
     vm.runInContext(mezzanineSource, context, { filename: 'js/mezzanine.js' });
     return window;
+}
+
+function createTechnoVenue(window) {
+    const venue = Object.assign(Object.create(window.GashouderVenue), {
+        gashouderPreset: 'techno',
+        createGashouderArchitecture() {},
+        createGashouderSeating() {},
+        createGashouderStage() {},
+        createGashouderEventTruss() {},
+        createLEDWall(options) { this.ledWallOptions = options; },
+        createGashouderLEDInstallation() {},
+        createLasers() { this.lasers = this.gashouderLighting.laserPositions; },
+        createLaserSheet() { this.hasLaserSheet = true; },
+        createTrussMountedLights() { this.trussLights = this.gashouderLighting.fixturePositions; },
+        createLights() {
+            this.spotlights = this.gashouderLighting.fixturePositions;
+            this.strobes = this.gashouderLighting.strobePositions;
+        },
+        createHyperrealisticSmoke() { this.hazeMachineCount = this.gashouderLighting.fogMachineCount; },
+        createMirrorBall() {},
+        createDJMonitors() {},
+        configureGashouderCamera() {}
+    });
+    venue.createGashouderVenue();
+    return venue;
 }
 
 test('the architecture-only setup still requests the local player body source', () => {
@@ -88,7 +118,8 @@ test('the architecture-only setup still requests the local player body source', 
 test('Gashouder dimensions and crowd source data are frozen at load time', () => {
     const window = loadVenue();
     assert.equal(window.GASHOUDER_VENUE.dimensions.structuralBays, 40);
-    assert.equal(window.GASHOUDER_VENUE.crowdSources.length, 14);
+    assert.equal(window.GASHOUDER_VENUE.crowdSources.length, 24);
+    assert.equal(window.GASHOUDER_VENUE.maxDancers, 200);
     assert.deepEqual({
         fixtures: window.GASHOUDER_VENUE.rig.fixtureCount,
         groups: window.GASHOUDER_VENUE.rig.fixtureGroups,
@@ -139,15 +170,28 @@ test('the event presets provide a curved arena LED wall through the shared singl
         assert.equal(wall.getTotalVertices(), 72 * 16 * 4);
         assert.equal(wall.material, scene.materials.find(material => material.name === 'ledWallMat'));
         assert.equal(collider.checkCollisions, true);
-        assert.equal(collider.isVisible, false);
+        assert.equal(collider.isVisible, true, 'the curved wall has a dark continuous backing');
         assert.ok(collider._curveMeta.curveRadius > 0);
         assert.ok(positions[2] > positions[(35 * 4) * 3 + 2],
             'the outer panels bow forward around the stage');
         let maxAbsX = 0;
         for (let i = 0; i < positions.length; i += 3) maxAbsX = Math.max(maxAbsX, Math.abs(positions[i]));
-        assert.ok(maxAbsX > window.GASHOUDER_VENUE.stage.width / 2 + 12,
+        assert.ok(maxAbsX > window.GASHOUDER_VENUE.stage.width / 2 + 10,
             `LED wall chord extends well past the ±9m stage edges (max |x| = ${maxAbsX.toFixed(1)}m)`);
         assert.equal(club.ledPanels.length, 72 * 16);
+        for (let col = 0; col < 71; col++) {
+            const end = col * 12 + 3;
+            const next = (col + 1) * 12;
+            const gap = Math.hypot(positions[end] - positions[next], positions[end + 2] - positions[next + 2]);
+            assert.ok(gap > 0.035 && gap < 0.05, `tile ${col} seam is ${gap} m`);
+        }
+        for (let i = 0; i < positions.length; i += 3) {
+            const x = positions[i], z = positions[i + 2];
+            const angle = Math.atan2(x, z);
+            const bay = Math.round(angle * 40 / (2 * Math.PI)) * 2 * Math.PI / 40;
+            assert.ok(x * Math.sin(bay) + z * Math.cos(bay) < 26.4 - 0.72,
+                'LED tiles remain inside the brick bay faces');
+        }
 
         // Verify walking behind the DJ table (z = -21.2) is NOT blocked by the curved LED wall's wing AABB
         const walkingClub = Object.assign({}, window.Mezzanine, {
@@ -217,27 +261,7 @@ test('integrated ceiling LED architecture tracks radial roof bays and concentric
 
 test('techno builds the configured circular + stage-bridge event rig and monumental LED wall', () => {
     const window = loadVenue();
-    const venue = Object.assign(Object.create(window.GashouderVenue), {
-        gashouderPreset: 'techno',
-        createGashouderArchitecture() {},
-        createGashouderStage() {},
-        createGashouderEventTruss() {},
-        createLEDWall(options) { this.ledWallOptions = options; },
-        createGashouderLEDInstallation() {},
-        createLasers() { this.lasers = this.gashouderLighting.laserPositions; },
-        createLaserSheet() { this.hasLaserSheet = true; },
-        createTrussMountedLights() { this.trussLights = this.gashouderLighting.fixturePositions; },
-        createLights() {
-            this.spotlights = this.gashouderLighting.fixturePositions;
-            this.strobes = this.gashouderLighting.strobePositions;
-        },
-        createHyperrealisticSmoke() { this.hazeMachineCount = this.gashouderLighting.fogMachineCount; },
-        createMirrorBall() {},
-        createDJMonitors() {},
-        configureGashouderCamera() {}
-    });
-
-    venue.createGashouderVenue();
+    const venue = createTechnoVenue(window);
     assert.equal(venue.ledWallOptions.cols, 72);
     assert.equal(venue.ledWallOptions.rows, 16);
     assert.equal(venue.trussLights.length, 24);
@@ -253,6 +277,83 @@ test('techno builds the configured circular + stage-bridge event rig and monumen
     for (const mount of venue.gashouderLighting.laserSheetPositions) {
         assert.ok(Number.isFinite(mount.yaw));
         assert.equal(mount.y, window.GASHOUDER_VENUE.rig.stageMountY);
+    }
+});
+
+test('Gashouder fixtures occupy separate truss nodes and laser housings hang below the chords', () => {
+    const window = loadVenueMethods();
+    const venue = createTechnoVenue(window);
+    const rig = window.GASHOUDER_VENUE.rig;
+
+    const ringFixtures = venue.gashouderLighting.fixturePositions.filter(pos => pos.role === 'ring');
+    const ringStrobes = venue.gashouderLighting.strobePositions.filter(pos => pos.y === rig.mountY);
+    const ringLasers = venue.gashouderLighting.laserPositions.filter(pos => pos.trussY === rig.centreY);
+    const ringFog = venue.gashouderLighting.fogMachinePositions.filter(pos => pos.y !== rig.stageMountY - 0.08);
+    const ringNodes = [...ringFixtures, ...ringStrobes, ...ringLasers, ...ringFog].map(pos => {
+        const angle = (Math.atan2(pos.x, pos.z) + 2 * Math.PI) % (2 * Math.PI);
+        const step = angle * rig.segments / (2 * Math.PI);
+        assert.ok(Math.abs(step - Math.round(step)) < 1e-8, 'ring fixture aligns with a radial truss node');
+        return Math.round(step) % rig.segments;
+    });
+    assert.equal(new Set(ringNodes).size, ringNodes.length, 'ring fixture categories do not share mounting nodes');
+    for (const pin of venue.gashouderLighting.mirrorPinspotPositions) {
+        for (const pos of [...ringFixtures, ...ringStrobes, ...ringLasers, ...ringFog]) {
+            assert.ok(Math.hypot(pin.x - pos.x, pin.z - pos.z) > 1.9,
+                'mirror pinspots have their own truss nodes');
+        }
+    }
+    assert.ok(ringNodes.length > rig.segments * 0.75, 'the truss grid supports a dense, interleaved layout');
+
+    const bridgeX = pos => {
+        const segment = (pos.x + rig.stageBridgeWidth / 2) * rig.stageBridgeSegments / rig.stageBridgeWidth;
+        assert.ok(Math.abs(segment - Math.round(segment)) < 1e-8, 'bridge fixture aligns with a structural cross-beam');
+        return Math.round(segment);
+    };
+    const stageFixtures = venue.gashouderLighting.fixturePositions.filter(pos => pos.role === 'stage');
+    const stageStrobes = venue.gashouderLighting.strobePositions.filter(pos => pos.aimZ === -2);
+    const stageLasers = venue.gashouderLighting.laserPositions.filter(pos => pos.trussY === rig.stageBridgeY);
+    const stageFog = venue.gashouderLighting.fogMachinePositions.filter(pos => pos.y === rig.stageMountY - 0.08);
+    const sheetMounts = venue.gashouderLighting.laserSheetPositions;
+    const bridgeNodes = [...stageFixtures, ...stageStrobes, ...stageLasers, ...stageFog, ...sheetMounts].map(bridgeX);
+    assert.equal(new Set(bridgeNodes).size, bridgeNodes.length, 'bridge fixture categories do not share mounting nodes');
+
+    const engine = new BABYLON.NullEngine();
+    const scene = new BABYLON.Scene(engine);
+    const fixture = Object.assign(Object.create(window.VRClubFixtures.prototype), {
+        scene,
+        gashouderLighting: venue.gashouderLighting,
+        materialFactory: {
+            createPBRMaterial(name) { return new BABYLON.StandardMaterial(name, scene); },
+            getPreset(name) { return new BABYLON.StandardMaterial(name, scene); }
+        },
+        _createLaserBeamBatch() {
+            return {
+                mesh: new BABYLON.Mesh('laserBeamBatch', scene),
+                material: new BABYLON.StandardMaterial('laserBeamBatchMaterial', scene)
+            };
+        }
+    });
+    try {
+        fixture.createLasers();
+        assert.equal(fixture.lasers.length, rig.laserCount);
+        for (let i = 0; i < fixture.lasers.length; i++) {
+            const laser = fixture.lasers[i];
+            const mount = venue.gashouderLighting.laserPositions[i];
+            laser.housing.computeWorldMatrix(true);
+            laser.clamp.computeWorldMatrix(true);
+            const housingBounds = laser.housing.getBoundingInfo().boundingBox;
+            const clampBounds = laser.clamp.getBoundingInfo().boundingBox;
+            assert.ok(housingBounds.maximumWorld.y < mount.trussY - 0.17,
+                `laser ${i} housing clears the truss underside`);
+            assert.ok(clampBounds.minimumWorld.y < mount.trussY - 0.174 &&
+                clampBounds.maximumWorld.y > mount.trussY - 0.174,
+            `laser ${i} clamp overlaps the lower chord to make a mounting connection`);
+            assert.ok(Math.abs(clampBounds.minimumWorld.y - housingBounds.maximumWorld.y) < 1e-6,
+                `laser ${i} clamp meets the housing without a gap`);
+        }
+    } finally {
+        scene.dispose();
+        engine.dispose();
     }
 });
 
@@ -272,7 +373,42 @@ test('setup presets cap the architectural and soundcheck crowds', () => {
 
     club.gashouderPreset = 'techno';
     assert.equal(club.getGashouderCrowdSize(), 14);
+    assert.equal(club.getGashouderCrowdLimit(), 200);
     assert.equal(club.getGashouderGuestSize(), 6);
+    club.gashouderCrowdOverride = 200;
+    assert.equal(club.getGashouderCrowdSize(), 200);
+    club.gashouderPreset = 'soundcheck';
+    assert.equal(club.getGashouderCrowdSize(), 2, 'the saved override cannot exceed the setup cap');
+});
+
+test('Gashouder dancer count override persists locally and can return to tier auto', () => {
+    const values = new Map();
+    const storage = {
+        getItem: key => values.has(key) ? values.get(key) : null,
+        setItem: (key, value) => values.set(key, value),
+        removeItem: key => values.delete(key)
+    };
+    const window = loadVenue({ localStorage: storage });
+    const messages = [];
+    const club = Object.assign({}, window.GashouderVenue, {
+        venueId: 'gashouder',
+        gashouderPreset: 'techno',
+        gashouderCrowdOverride: null,
+        tierSettings: { crowdSize: 14 },
+        _applyCrowdSize() {},
+        showErrorMessage: message => messages.push(message)
+    });
+
+    assert.equal(club.setGashouderCrowdCount(200), true);
+    assert.equal(values.get('vrclub.gashouderCrowdCount'), '200');
+    assert.equal(club.getGashouderCrowdSize(), 200);
+    assert.equal(club.setGashouderCrowdCount(201), false);
+    assert.equal(club.setGashouderCrowdCount(1.5), false);
+    assert.equal(values.get('vrclub.gashouderCrowdCount'), '200');
+    assert.ok(messages.length > 0);
+    assert.equal(club.setGashouderCrowdCount(null), true);
+    assert.equal(values.has('vrclub.gashouderCrowdCount'), false);
+    assert.equal(club.getGashouderCrowdSize(), 14);
 });
 
 test('Gashouder crowd and guest slots stay inside the hall and clear the stage footprint', () => {
@@ -284,7 +420,11 @@ test('Gashouder crowd and guest slots stay inside the hall and clear the stage f
     ];
     const stage = window.GASHOUDER_VENUE.stage;
 
-    assert.equal(slots.length, 20);
+    assert.equal(slots.length, 206);
+    const sourceIds = [...slots.slice(0, 24), ...slots.slice(200)].map(slot => slot.src);
+    assert.equal(new Set(sourceIds).size, sourceIds.length, 'no character source is assigned twice');
+    assert.deepEqual(new Set(slots.slice(0, 24).map(slot => slot.src)),
+        new Set(slots.slice(24, 200).map(slot => slot.src)), 'additional dancers reuse the existing cast');
     for (const slot of slots) {
         assert.ok(Math.hypot(slot.x, slot.z) < window.GASHOUDER_VENUE.dimensions.innerRadius);
         assert.equal(
@@ -293,11 +433,96 @@ test('Gashouder crowd and guest slots stay inside the hall and clear the stage f
             false,
             `${slot.src} overlaps the stage`
         );
+        const run = stage.stairSteps * stage.stairDepth;
+        assert.ok(!(Math.abs(slot.x) < stage.width / 2 + run + 0.9 &&
+            Math.abs(slot.x) > stage.width / 2 - 0.9 &&
+            Math.abs(slot.z - stage.stairZ) < stage.stairWidth / 2 + 0.9),
+        `${slot.src} overlaps a staircase`);
+    }
+    for (let i = 0; i < slots.length; i++) {
+        for (let j = i + 1; j < slots.length; j++) {
+            const minDistance = (i < 24 || i >= 200) && (j < 24 || j >= 200) ? 2.4 : 1.65;
+            assert.ok(Math.hypot(slots[i].x - slots[j].x, slots[i].z - slots[j].z) >= minDistance - 1e-9,
+                `${slots[i].src} and ${slots[j].src} are too close`);
+        }
     }
 });
 
-test('Gashouder model configuration excludes unrelated NOCTURNE props and relocates its rig', () => {
+test('experimental dancers load gradually, stop on a lower target, and release their resources', () => {
+    const timers = new Map();
+    let timerId = 0;
     const window = loadVenue();
+    window.VRClubAvatars = class {};
+    window.VRClubAudioCrowd = { DANCE_MOVES: ['Dance_Loop'], _setAnimating() {} };
+    const context = vm.createContext({
+        window, BABYLON, VRClubAudioCrowd: window.VRClubAudioCrowd, log: { warn() {} },
+        setTimeout: fn => { const id = ++timerId; timers.set(id, fn); return id; },
+        clearTimeout: id => timers.delete(id)
+    });
+    vm.runInContext(crowdSource, context, { filename: 'js/club/11-crowd.js' });
+    const club = Object.assign(Object.create(window.VRClubCrowd.prototype), window.GashouderVenue, {
+        venueId: 'gashouder',
+        gashouderPreset: 'techno',
+        tierSettings: { crowdSize: 14, guestSize: 0 },
+        gashouderCrowdOverride: 200,
+        _crowdSlots: window.GashouderVenue.gashouderCrowdSlots.call(window.GashouderVenue, id => id),
+        _crowdSourceContainers: Object.fromEntries(window.GASHOUDER_VENUE.crowdSources.map(id => [id, {}])),
+        _availableCrowdSources: [{}],
+        _characterStyles: { loading: null },
+        npcAvatars: [],
+        disposedNames: [],
+        _topUpCrowdSources() {},
+        _spawnGuestsTo() { this.guestSpawnCalls = (this.guestSpawnCalls || 0) + 1; },
+        _refreshContactShadows() {},
+        _disposeCharacterNPC(npc) { this.disposedNames.push(npc.name); },
+        _spawnAvatar(source, name) {
+            this.npcAvatars.push({ name, root: { setEnabled() {} } });
+            return {};
+        }
+    });
+    club._applyCrowdSize();
+    assert.equal(club.npcAvatars.length, 25);
+    while (timers.size) {
+        const [id, tick] = timers.entries().next().value;
+        timers.delete(id);
+        const before = club.npcAvatars.length;
+        tick();
+        assert.ok(club.npcAvatars.length - before <= 1, 'at most one extra dancer per timer');
+    }
+    assert.equal(club.npcAvatars.length, 200);
+    assert.equal(new Set(club.npcAvatars.map(npc => npc.name)).size, 200);
+
+    club._characterStyles.loading = 'diverse';
+    club.gashouderCrowdOverride = 24;
+    const guestSpawnCalls = club.guestSpawnCalls;
+    club._applyCrowdSize();
+    assert.equal(club.npcAvatars.length, 200, 'style replacement retains its actor snapshot');
+    assert.equal(club.guestSpawnCalls, guestSpawnCalls, 'style replacement also defers guest additions');
+    club._characterStyles.loading = null;
+    club._applyCrowdSize();
+    assert.equal(club.npcAvatars.length, 24);
+    assert.equal(club.disposedNames.length, 176);
+    assert.equal(timers.size, 0, 'lowering the target cancels pending additions');
+
+    club.gashouderCrowdOverride = 40;
+    club._applyCrowdSize();
+    assert.equal(club.npcAvatars.length, 25);
+    club.gashouderCrowdOverride = 14;
+    club._applyCrowdSize();
+    assert.equal(club.npcAvatars.length, 24);
+    assert.equal(timers.size, 0);
+
+    const errors = [];
+    club.showErrorMessage = message => errors.push(message);
+    club._spawnAvatar = () => { throw new Error('allocation failed'); };
+    club.gashouderCrowdOverride = 40;
+    assert.doesNotThrow(() => club._applyCrowdSize());
+    assert.match(errors[0], /could not be created/i);
+    assert.equal(timers.size, 0, 'a failed spawn does not retry indefinitely');
+});
+
+test('Gashouder model configuration excludes unrelated NOCTURNE props and relocates its rig', () => {
+    const window = loadVenue({ BABYLON });
     const club = Object.assign({}, window.GashouderVenue, { gashouderPreset: 'techno' });
     const configs = {
         dj_console: { placement: { centerZ: -18.62, bottomY: 1.42 } },
@@ -306,14 +531,14 @@ test('Gashouder model configuration excludes unrelated NOCTURNE props and reloca
         pa_speaker_right: { placement: { centerZ: -11, topY: 8.4 }, rigging: { anchorY: 8.4 } },
         bass_bin_left: {},
         bass_bin_right: {},
-        bar_stool: {}
+        bar_stool: { placement: { centerX: 9.2, centerZ: -12.9 } }
     };
 
     const selected = club.configureGashouderModelConfigs(configs);
     const stage = window.GASHOUDER_VENUE.stage;
     const trussRadius = window.GASHOUDER_VENUE.rig.radius;
     assert.deepEqual(Object.keys(selected).sort(), [
-        'bass_bin_left', 'bass_bin_rear_left', 'bass_bin_rear_right', 'bass_bin_right',
+        'bar_stool', 'bass_bin_left', 'bass_bin_rear_left', 'bass_bin_rear_right', 'bass_bin_right',
         'dj_console', 'dj_monitor',
         'pa_speaker_left', 'pa_speaker_rear_left', 'pa_speaker_rear_right', 'pa_speaker_right'
     ]);
@@ -342,10 +567,65 @@ test('Gashouder model configuration excludes unrelated NOCTURNE props and reloca
     assert.equal(configs.dj_console.placement.centerZ, -18.62);
     assert.equal(configs.dj_monitor.placement.centerZ, -18.22);
     assert.equal(configs.pa_speaker_left.rigging.anchorY, 8.4);
-    assert.deepEqual(configs.bar_stool, {});
+    assert.equal(configs.bar_stool.placement.centerX, 9.2);
+    const first = club.gashouderSeatingLayout()[0].stools[0];
+    assert.equal(selected.bar_stool.placement.centerX, first.x);
+    assert.equal(selected.bar_stool.placement.centerZ, first.z);
 
     club.gashouderPreset = 'architectural';
-    assert.deepEqual(Object.keys(club.configureGashouderModelConfigs(configs)), []);
+    assert.deepEqual(Object.keys(club.configureGashouderModelConfigs(configs)), ['bar_stool']);
+});
+
+test('Gashouder seating clears the stage, entrances, wall, guests and all 200 dancers', () => {
+    const window = loadVenue();
+    const club = Object.assign({}, window.GashouderVenue);
+    const { dimensions, stage, vrEntry } = window.GASHOUDER_VENUE;
+    const layout = club.gashouderSeatingLayout();
+    const people = [...club.gashouderCrowdSlots(() => 0), ...club.gashouderGuestSlots(() => 0)];
+    assert.equal(layout.length, 3);
+    assert.equal(people.length, 206);
+    const ids = new Set();
+    for (const table of layout) {
+        assert.equal(table.stools.length, 2);
+        for (const place of [table, ...table.stools]) {
+            assert.ok(Math.hypot(place.x, place.z) + 1 < dimensions.innerRadius);
+            assert.ok(Math.hypot(place.x - vrEntry.x, place.z - vrEntry.z) > 3);
+            assert.ok(Math.hypot(place.x, place.z + dimensions.innerRadius - 0.35) > 3);
+            assert.ok(Math.abs(place.x - stage.x) > stage.width / 2 + 1 ||
+                Math.abs(place.z - stage.z) > stage.depth / 2 + 1);
+            for (const person of people) {
+                assert.ok(Math.hypot(place.x - person.x, place.z - person.z) > 1.4);
+            }
+        }
+        for (const stool of table.stools) {
+            assert.ok(!ids.has(stool.id));
+            ids.add(stool.id);
+            const dx = stage.x - stool.x, dz = stage.z - stool.z;
+            assert.ok(Math.abs(Math.atan2(dx, dz) - stool.facing) < 1e-10);
+            assert.ok(Math.hypot(stool.viewX, stool.viewZ) + 0.5 < dimensions.innerRadius);
+            const side = Math.abs((table.x - stool.x) * dz - (table.z - stool.z) * dx) / Math.hypot(dx, dz);
+            assert.ok(side > 0.39, 'the table does not obscure the stage direction');
+        }
+    }
+});
+
+test('Gashouder reports a missing stool model without creating unusable seats', async () => {
+    const warnings = [], notices = [], blocks = [];
+    const window = loadVenue({ log: { warn: (...args) => warnings.push(args) } });
+    const club = Object.assign({}, window.GashouderVenue, {
+        modelLoadPromise: Promise.resolve(),
+        modelLoader: { loadedModels: {} },
+        materialFactory: { getPreset: () => ({}) },
+        _dressingBuilder: () => ({ group: () => ({}), cylinder() {}, finish() {} }),
+        _collisionBlock: name => blocks.push(name),
+        showToast: text => notices.push(text)
+    });
+    club.createGashouderSeating();
+    await club.modelLoadPromise;
+    assert.equal(warnings.length, 1);
+    assert.match(notices[0], /seating could not be loaded/i);
+    assert.equal(blocks.length, 3);
+    assert.ok(blocks.every(name => name.startsWith('gashouderTableBlock')));
 });
 
 test('the architectural shell, roof panels, stage, and event truss build with Babylon', () => {
@@ -361,6 +641,10 @@ test('the architectural shell, roof panels, stage, and event truss build with Ba
                 return materials.get(name);
             }
         },
+        _venueSurfaceMaterial(type) {
+            assert.equal(type, 'stageRust');
+            return new BABYLON.StandardMaterial('gashouderStageRustMat', scene);
+        },
         _applyWorldUVs() {}
     });
 
@@ -374,10 +658,56 @@ test('the architectural shell, roof panels, stage, and event truss build with Ba
         assert.ok(scene.getMeshByName('gashouderRoofPanels')?.getTotalVertices() > 0);
         assert.ok(scene.getMeshByName('gashouderRadialRoofTrusses'));
         assert.ok(scene.getMeshByName('gashouderCircularRoofRings'));
+        const rings = scene.getMeshByName('gashouderCircularRoofRings');
+        const ringBounds = rings.getBoundingInfo().boundingBox;
+        assert.ok(ringBounds.minimumWorld.y > 9.7 && ringBounds.maximumWorld.y < 14.5,
+            'roof rings stay horizontal at roof height');
+        const ringPositions = rings.getVerticesData(BABYLON.VertexBuffer.PositionKind);
+        const ringNormals = rings.getVerticesData(BABYLON.VertexBuffer.NormalKind);
+        const ringUvs = rings.getVerticesData(BABYLON.VertexBuffer.UVKind);
+        const ringIndices = rings.getIndices();
+        const radii = [3.2, 8.5, 14.2, 19.5, window.GASHOUDER_VENUE.dimensions.innerRadius];
+        const sweep = 128, section = 32, verticesPerRing = (sweep + 1) * (section + 1);
+        assert.equal(rings.getTotalIndices() / 3, radii.length * sweep * section * 2);
+        assert.equal(rings.getTotalVertices(), radii.length * verticesPerRing);
+        for (const [ringIndex, radius] of radii.entries()) {
+            const thickness = ringIndex === radii.length - 1 ? 0.28 : 0.2;
+            const original = BABYLON.VertexData.CreateTorus({ diameter: radius * 2, thickness, tessellation: sweep });
+            const height = 14.5 - 4.5 * radius / window.GASHOUDER_VENUE.dimensions.innerRadius;
+            for (let i = 0; i <= sweep; i++) {
+                for (let j = 0; j <= section; j++) {
+                    const actual = ringIndex * verticesPerRing + i * (section + 1) + j;
+                    const expected = i * (sweep + 1) + j * 4;
+                    for (let axis = 0; axis < 3; axis++) {
+                        assert.ok(Math.abs(ringPositions[actual * 3 + axis] -
+                            original.positions[expected * 3 + axis] - (axis === 1 ? height : 0)) < 0.00001);
+                        assert.ok(Math.abs(ringNormals[actual * 3 + axis] - original.normals[expected * 3 + axis]) < 0.00001);
+                    }
+                    for (let axis = 0; axis < 2; axis++) {
+                        assert.ok(Math.abs(ringUvs[actual * 2 + axis] - original.uvs[expected * 2 + axis]) < 0.00001);
+                    }
+                    if (i < sweep && j < section) {
+                        const next = actual + section + 1;
+                        const index = (ringIndex * sweep * section + i * section + j) * 6;
+                        assert.deepEqual(Array.from(ringIndices.slice(index, index + 6)),
+                            [actual, actual + 1, next, actual + 1, next + 1, next]);
+                    }
+                }
+            }
+            assert.ok(thickness / 2 * (1 - Math.cos(Math.PI / section)) < 0.0007,
+                'tube silhouette differs from a circle by less than 0.7 mm');
+        }
         assert.ok(scene.getMeshByName('gashouderMainStage')?.checkCollisions);
+        assert.equal(scene.getMeshByName('gashouderMainStage').material.name, 'steelGirder');
+        assert.equal(scene.getMeshByName('gashouderStageStairLeft0').material, scene.getMeshByName('gashouderMainStage').material);
         assert.ok(scene.getMeshByName('gashouderStageTop')?.checkCollisions);
-        assert.equal(window.GASHOUDER_VENUE.stage.stairSteps,
+        assert.equal(window.GASHOUDER_VENUE.stage.stairSteps * 2,
             scene.meshes.filter(mesh => mesh.name.startsWith('gashouderStageStair')).length);
+        const deck = scene.getMeshByName('gashouderMainStage');
+        deck.computeWorldMatrix(true);
+        assert.ok(deck.getBoundingInfo().boundingBox.minimumWorld.y > 1.7);
+        assert.ok(scene.getMeshByName('gashouderStageSupports')?.checkCollisions);
+        assert.ok(scene.getMeshByName('gashouderStageRails')?.checkCollisions);
         assert.ok(scene.getMeshByName('gashouderCircularEventTruss'));
         assert.ok(scene.getMeshByName('gashouderEventTrussBracing')?.getTotalVertices() > 0);
         assert.ok(scene.getMeshByName('gashouderRigHoistMotors')?.getTotalVertices() > 0,
@@ -387,6 +717,13 @@ test('the architectural shell, roof panels, stage, and event truss build with Ba
 
         const doorwayRay = new BABYLON.Ray(new BABYLON.Vector3(0, 2, 0), BABYLON.Vector3.Forward(), 40);
         assert.equal(doorwayRay.intersectsMesh(wall, false).hit, false, 'the main doorway remains open at walking height');
+        for (const kind of ['main', 'loading']) {
+            const door = scene.getMeshByName(`gashouder${kind}Door`);
+            const direction = kind === 'main' ? BABYLON.Vector3.Forward() : BABYLON.Vector3.Backward();
+            const ray = new BABYLON.Ray(new BABYLON.Vector3(0, 2, 0), direction, 30);
+            assert.ok(door.checkCollisions && ray.intersectsMesh(door, false).hit,
+                `${kind} doorway is closed rather than leading into the void`);
+        }
         const lintelRay = new BABYLON.Ray(new BABYLON.Vector3(0, 5, 0), BABYLON.Vector3.Forward(), 40);
         assert.equal(lintelRay.intersectsMesh(wall, false).hit, true, 'the door lintel closes the opening above 4 m');
 
@@ -400,7 +737,51 @@ test('the architectural shell, roof panels, stage, and event truss build with Ba
     }
 });
 
-test('Gashouder enables owner headset VR, pre-seeds latest Hernan and Miss Melera sets, and builds the stage VJ desk + DJ FX', async () => {
+test('Gashouder closed doors contain tracked and queued headset positions', () => {
+    const window = loadVenueMethods();
+    const club = Object.assign({}, window.Mezzanine, { venueId: 'gashouder' });
+    const camera = {
+        position: new BABYLON.Vector3(0, 1.7, 28),
+        ellipsoid: new BABYLON.Vector3(0.25, 0.5, 0.25),
+        _deferOnly: true,
+        _deferredUpdated: true,
+        _deferredPositionUpdate: new BABYLON.Vector3(0, 1.7, -28)
+    };
+    club._containLEDWall(camera);
+    assert.ok(camera.position.z < 26 && camera.position.z > 25);
+    assert.ok(camera._deferredPositionUpdate.z > -26 && camera._deferredPositionUpdate.z < -25);
+    camera.position.set(3, 1.7, 25.9);
+    camera._deferredUpdated = false;
+    club._containLEDWall(camera);
+    assert.equal(camera.position.z, 25.9, 'door containment does not alter other wall positions');
+});
+
+test('Gashouder optical rays stop at the curved LED backdrop and DJ table', () => {
+    const window = loadVenueMethods();
+    const wall = window.GASHOUDER_VENUE.rig.ledWall;
+    const club = Object.assign(Object.create(window.VRClubEffects.prototype), {
+        venueId: 'gashouder',
+        _ledWallCollider: { _curveMeta: {
+            width: 2 * wall.curveRadius * Math.sin(wall.cols * wall.panelWidth / (2 * wall.curveRadius)),
+            centerZ: wall.centerZ,
+            curveRadius: wall.curveRadius,
+            baseY: wall.baseY,
+            height: wall.rows * wall.panelHeight
+        } }
+    });
+    const hit = {};
+    club._intersectRoomInterior(0, 5, 0, 0, 0, -1, hit);
+    assert.ok(Math.abs(hit.pz - wall.centerZ) < 1e-6);
+    assert.ok(hit.nz > 0.99);
+    club._intersectRoomInterior(0, 5, window.GASHOUDER_VENUE.stage.consoleZ, 0, -1, 0, hit);
+    assert.equal(hit.py, window.GASHOUDER_VENUE.stage.consoleTop);
+    assert.equal(hit.ny, 1);
+    club._intersectRoomInterior(4, 5, window.GASHOUDER_VENUE.stage.consoleZ, 0, -1, 0, hit);
+    assert.ok(Math.abs(hit.py - window.GASHOUDER_VENUE.stage.height) < 1e-6,
+        'rays outside the table still hit the stage');
+});
+
+test('Gashouder enables owner headset VR, pre-seeds its podcast sources, and builds the stage VJ desk + DJ FX', async () => {
     const paymentSource = readFileSync(new URL('../js/paymentGate.js', import.meta.url), 'utf8');
     const audioUtilsSource = readFileSync(new URL('../js/audioUtils.js', import.meta.url), 'utf8');
     const musicSource = readFileSync(new URL('../js/musicLibrary.js', import.meta.url), 'utf8');
@@ -445,14 +826,35 @@ test('Gashouder enables owner headset VR, pre-seeds latest Hernan and Miss Meler
     const storage = { getItem: () => null, setItem() {} };
     const library = new musicCtx.window.MusicLibrary(club, storage, {
         getRelay: () => 'wss://vrclub-network-dev.garfieldapp.workers.dev',
-        fetchBuffer: async url => new TextEncoder().encode(
-            url.includes('colourizon/feed.xml') ? meleraFeed : hernanFeed
-        ).buffer
+        fetchBuffer: async url => {
+            if (url.includes('/soundcloud/resolve?url=')) {
+                return new TextEncoder().encode(JSON.stringify({
+                    path: '/soundcloud/stream/2280237869-adambeyer-dcr814-drumcode-radio.mp3',
+                    title: 'DCR814 - Drumcode Radio Live - Bart Skils live from Input, Barcelona by adambeyer'
+                })).buffer;
+            }
+            return new TextEncoder().encode(url.includes('colourizon/feed.xml') ? meleraFeed : hernanFeed).buffer;
+        }
     });
 
-    assert.equal(library.items.length, 2);
+    assert.equal(library.items.length, 3);
     assert.equal(library.items[0].name, 'Resident by Hernan Cattaneo');
     assert.equal(library.items[1].name, 'Colourizon by Miss Melera');
+    assert.equal(library.items[2].name, 'Bart Skils · Drumcode Radio 814');
+
+    const savedDefaults = JSON.stringify({
+        items: [
+            { url: 'https://podcast.hernancattaneo.com/feed.xml', name: 'Resident by Hernan Cattaneo' },
+            { url: 'https://soundcloud.com/missmelera/latest', name: 'Colourizon by Miss Melera' }
+        ],
+        selected: 1
+    });
+    const migrated = new musicCtx.window.MusicLibrary(club, {
+        getItem: key => key === musicCtx.window.MusicLibrary.KEY ? savedDefaults : null,
+        setItem() {}
+    }, { getRelay: () => 'wss://vrclub-network-dev.garfieldapp.workers.dev', fetchBuffer: async () => new ArrayBuffer(0) });
+    assert.equal(migrated.items.length, 3, 'existing untouched Gashouder defaults gain the new source');
+    assert.equal(migrated.selected, 1, 'adding the new source preserves the current selection');
 
     await library.play();
     assert.equal(plays[0][0], 'https://mcdn.podbean.com/resident-1002.mp3');
@@ -462,6 +864,11 @@ test('Gashouder enables owner headset VR, pre-seeds latest Hernan and Miss Meler
     await library.play();
     assert.equal(plays[1][0], 'https://vrclub-network-dev.garfieldapp.workers.dev/podcast/colourizon/stream/2421312102-missmelera-colourizon-169.mp3');
     assert.equal(club.nowPlayingLabel, 'Miss Melera ° Colourizon 169');
+
+    library.select(2);
+    await library.play();
+    assert.equal(plays[2][0], 'https://vrclub-network-dev.garfieldapp.workers.dev/soundcloud/stream/2280237869-adambeyer-dcr814-drumcode-radio.mp3');
+    assert.equal(club.nowPlayingLabel, 'DCR814 - Drumcode Radio Live - Bart Skils live from Input, Barcelona by adambeyer');
 
     const venueWin = loadVenue({ BABYLON });
     vm.runInContext(vjDeskSource, vm.createContext({ window: venueWin, BABYLON, performance }));
@@ -475,6 +882,7 @@ test('Gashouder enables owner headset VR, pre-seeds latest Hernan and Miss Meler
             materialFactory: {
                 getPreset(name) { return new BABYLON.StandardMaterial(name, scene); }
             },
+            _venueSurfaceMaterial() { return new BABYLON.StandardMaterial('stageRust', scene); },
             _applyWorldUVs() {},
             createVJDesk(args) { deskArgs = args; },
             _playerCamera: () => ({ position: new BABYLON.Vector3(0, 3.5, venueWin.GASHOUDER_VENUE.stage.consoleZ - 1.2) })
@@ -494,9 +902,14 @@ test('Gashouder enables owner headset VR, pre-seeds latest Hernan and Miss Meler
 test('stage walking levels and spotlight surface hits follow Gashouder geometry', () => {
     const window = loadVenueMethods();
     const walking = Object.assign({}, window.Mezzanine, { venueId: 'gashouder' });
-    assert.equal(walking._walkSurfaceLevel(0, -12.1, 0), 0.3);
-    assert.equal(walking._walkSurfaceLevel(0, -13.1, 0), 0.9);
-    assert.equal(walking._walkSurfaceLevel(0, -14.9, 0), 1.8);
+    for (const side of [-1, 1]) {
+        assert.equal(walking._walkSurfaceLevel(side * 12.59, -16.8, 0), 0.15);
+        assert.equal(walking._walkSurfaceLevel(side * 10.95, -16.8, 0.75), 0.9);
+        assert.equal(walking._walkSurfaceLevel(side * 9.01, -16.8, 1.65), 1.8);
+        assert.equal(walking._walkSurfaceLevel(side * 9.01, -16.8, 0), 0, 'floor-level players cannot snap onto upper stairs');
+    }
+    assert.equal(walking._walkSurfaceLevel(0, -14.9, 0), 0);
+    assert.equal(walking._walkSurfaceLevel(0, -20, 0), 0, 'the space under the deck stays on the floor');
     assert.equal(walking._walkSurfaceLevel(0, -20, 1.8), 1.8);
     assert.equal(walking._walkSurfaceLevel(10, -20, 1.8), 0);
 
@@ -516,6 +929,10 @@ test('stage walking levels and spotlight surface hits follow Gashouder geometry'
     // Verify mirror-ball reflections populate valid finite world positions & ray lengths in Gashouder
     const spotMatrices = new Float32Array(32 * 16);
     const rayMatrices = new Float32Array(16 * 16);
+    const rayOrigins = new Float32Array(16 * 3);
+    const rayDirections = new Float32Array(16 * 3);
+    const rayLengths = new Float32Array(16);
+    const rayStrengths = new Float32Array(16);
     const directions = new Float32Array(32 * 2);
     for (let i = 0; i < 32; i++) {
         directions[i * 2] = i * 0.6;
@@ -537,6 +954,11 @@ test('stage walking levels and spotlight surface hits follow Gashouder geometry'
             rayMat: { emissiveColor: new BABYLON.Color3(), alpha: 0 },
             spotMatrices,
             rayMatrices,
+            rayOrigins,
+            rayDirections,
+            rayLengths,
+            rayStrengths,
+            rayCount: 0,
             directions,
             hit: { t: 0, px: 0, py: 0, pz: 0, nx: 0, ny: 0, nz: 0 }
         }
@@ -544,6 +966,10 @@ test('stage walking levels and spotlight surface hits follow Gashouder geometry'
     mirrorClub._updateMirrorReflectionBatch();
     assert.ok(Array.from(spotMatrices).every(Number.isFinite), 'Gashouder mirror reflection spots have finite matrices (no NaN)');
     assert.ok(Array.from(rayMatrices).every(Number.isFinite), 'Gashouder mirror outgoing rays have finite matrices (no NaN)');
+    assert.ok(Array.from(rayOrigins).every(Number.isFinite) && Array.from(rayDirections).every(Number.isFinite),
+        'smoke reflection samples have finite ray origins and directions');
+    assert.ok(Array.from(rayLengths).some(length => length > 0) && Array.from(rayStrengths).some(strength => strength > 0),
+        'valid mirror rays are available to the smoke sampler');
     assert.ok(Math.hypot(spotMatrices[12], spotMatrices[14]) > 1, 'Gashouder mirror spots project onto arena surfaces');
     assert.ok(stageHit.surfaceBounds);
 

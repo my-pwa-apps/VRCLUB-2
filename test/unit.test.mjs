@@ -3179,6 +3179,53 @@ test('active fixture colours tint room fog subtly and never tint a deliberate bl
     }), { r: 0.024, g: 0.032, b: 0.07 }, 'the room fixtures must not tint street air');
 });
 
+test('Gashouder smoke tint blends active spot colours and plume haze washes beyond the beam core', () => {
+    const proto = loadClassic('js/club/07-animation-core.js', { VRClubEffects: class {} })
+        .window.VRClubAnimationCore.prototype;
+    const club = {
+        venueId: 'gashouder',
+        gashouderLighting: {},
+        scene: { fogDensity: 0.028, fogColor: { r: 0, g: 0, b: 0 }, getFrameId: () => 1,
+            activeCamera: { globalPosition: { x: 0, y: 1.7, z: 8 } } },
+        vrSettings: { desktop: { fogDensity: 0.028 } },
+        fogIntensity: 2, smokeActive: true, _smokeLevel: 1, _smokeImmersion: 0,
+        masterIntensity: 1, lightsActive: true, spotBrightness: 1,
+        currentSpotColor: { r: 1, g: 1, b: 1 },
+        spotlights: [
+            { beamVisible: true, _photoIntensity: 80, _renderColor: { r: 1, g: 0, b: 0 } },
+            { beamVisible: true, _photoIntensity: 80, _renderColor: { r: 0, g: 0, b: 1 } },
+            { beamVisible: false, _photoIntensity: 80, _renderColor: { r: 0, g: 1, b: 0 } }
+        ],
+        _tintClubAir: proto._tintClubAir
+    };
+    proto._tintClubAir.call(club, 1 / 60, 0);
+    assert.ok(club.scene.fogColor.r > 0.015 && club.scene.fogColor.b > 0.018);
+    assert.ok(Math.abs((club.scene.fogColor.r - 0.015) - (club.scene.fogColor.b - 0.018)) < 1e-9,
+        'equal active red and blue heads should contribute equally');
+    assert.equal(club.scene.fogColor.g, 0.012, 'a hidden green head must not tint the smoke');
+
+    club._airBeamFrame = -1;
+    club.spotlights = [{
+        _photoPos: { x: 0, y: 7, z: 0 },
+        _photoDir: { x: 0, y: -1, z: 0 },
+        _photoIntensity: 40,
+        _photoAngle: 0.5,
+        _surfaceHit: { centerDistanceToSurface: 7 }
+    }];
+    club.currentSpotColor = { r: 1, g: 0, b: 0 };
+    club._gatherAirBeams = proto._gatherAirBeams;
+    club.engine = { getDeltaTime: () => 1000 / 60 };
+    const outsideCore = { position: { x: 5, y: 3, z: 0 }, size: 1,
+        color: { r: 0.6, g: 0.6, b: 0.7, a: 0.04 } };
+    for (let frame = 2; frame < 20; frame++) {
+        club.scene.getFrameId = () => frame;
+        outsideCore.color = { r: 0.6, g: 0.6, b: 0.7, a: 0.04 };
+        proto._lightAirParticles.call(club, [outsideCore], 'plume');
+    }
+    assert.ok(outsideCore.color.r > outsideCore.color.b,
+        'the wide plume wash must carry the spot colour outside its narrow beam core');
+});
+
 test('aesthetic mirror sweeps start down, reach inward and return down at varied musical speeds, including late followers', () => {
     const { club } = spotRigHarness();
     const { ShowDirector } = loadClassic('js/showDirector.js').window;
@@ -3395,6 +3442,110 @@ test('ShowDirector resolves ramps and selects every calibrated energy band', () 
         director._energy = energy;
         assert.equal(director._pickMovement(), expected);
     }
+});
+
+test('Gashouder ahead analysis only biases the next movement when preview energy is ready', () => {
+    const { window } = loadClassic('js/showDirector.js');
+    let previewReads = 0, previewEnergy = 0.4;
+    const club = {
+        vjManualMode: false,
+        photosensitiveSafeMode: false,
+        vjDirector: { paletteMode: 'analogous' },
+        isGashouderLookaheadEnabled: () => true,
+        getGashouderLookaheadEnergy: () => { previewReads++; return previewEnergy; }
+    };
+    const director = new window.ShowDirector(club);
+    director.program = 'gashouder';
+    director._barsSinceMovement = Number.MAX_SAFE_INTEGER;
+    director._energy = 0.1;
+    assert.equal(director._pickMovement(), 'ascent', 'the ready preview should influence the next movement');
+
+    previewEnergy = null;
+    assert.equal(director._pickMovement(), 'arrival', 'an unavailable preview must fall back to live energy');
+    director.program = 'aesthetic';
+    assert.equal(director._pickMovement(), 'arrival', 'other show programs must remain live-reactive');
+    assert.equal(previewReads, 2, 'other show programs must not read preview energy');
+});
+
+test('Gashouder ahead analysis waits for and averages the covered future window', () => {
+    const { window } = loadClassic('js/club/11-audio.js', { VRClubUI: class {} });
+    const times = new Float64Array(16), energy = new Float32Array(16);
+    const samples = [[159, 1], ...Array.from({ length: 9 }, (_, i) => [160 + i * 2, 0.25]), [177, 1]];
+    for (let i = 0; i < samples.length; i++) [times[i], energy[i]] = samples[i];
+    const club = Object.assign(Object.create(window.VRClubAudio.prototype), {
+        venueId: 'gashouder',
+        _gashouderLookaheadEnabled: true,
+        _audioKind: 'stream',
+        audioContext: { state: 'running' },
+        audioElement: { currentTime: 100, currentSrc: 'https://audio.example/set.mp3', paused: false, ended: false },
+        _gashouderLookahead: { times, energy, writeIndex: samples.length, count: samples.length,
+            sourceUrl: 'https://audio.example/set.mp3', started: true, failed: false },
+        isGashouderLookaheadEnabled: () => true
+    });
+
+    assert.equal(club.getGashouderLookaheadEnergy(), 0.25);
+    assert.match(club.getGashouderLookaheadStatus(), /READY/);
+    club.audioElement.paused = true;
+    assert.equal(club.getGashouderLookaheadEnergy(), null);
+    assert.equal(club.getGashouderLookaheadStatus(), 'WAITING FOR PLAYBACK');
+    club.audioElement.paused = false;
+    club.audioElement.currentSrc = 'https://audio.example/other.mp3';
+    assert.equal(club.getGashouderLookaheadEnergy(), null);
+    assert.equal(club.getGashouderLookaheadStatus(), 'LOADING MUSIC FOR ANALYSIS');
+    club.audioElement.currentSrc = club._gashouderLookahead.sourceUrl;
+    club._gashouderLookahead.failed = true;
+    club._gashouderLookahead.status = 'SOURCE CANNOT BE ANALYZED';
+    assert.equal(club.getGashouderLookaheadEnergy(), null);
+    assert.equal(club.getGashouderLookaheadStatus(), 'SOURCE CANNOT BE ANALYZED');
+    club._gashouderLookahead.failed = false;
+    energy.fill(0);
+    club._gashouderLookaheadStatus = 'NO ANALYSIS DATA · QUIET OR CORS BLOCKED';
+    assert.equal(club.getGashouderLookaheadEnergy(), null);
+    assert.match(club.getGashouderLookaheadStatus(), /QUIET OR CORS BLOCKED/);
+    club._gashouderLookahead.count = 7;
+    assert.equal(club.getGashouderLookaheadEnergy(), null, 'an incomplete sample window is not forecast data');
+});
+
+test('Gashouder ahead analysis refreshes the open VR show status on transitions', () => {
+    const { window } = loadClassic('js/club/11-audio.js', { VRClubUI: class {} });
+    const button = { action: 'gashouderLookahead' }, drawn = [];
+    const club = Object.assign(Object.create(window.VRClubAudio.prototype), {
+        _vrQuickMenuPage: 'show', _vrQuickMenuRoot: { isEnabled: () => true },
+        _vrQuickMenuButtons: [button], _drawVRQuickMenuButton: value => drawn.push(value)
+    });
+    club._setGashouderLookaheadStatus('READY');
+    club._setGashouderLookaheadStatus('READY');
+    assert.deepEqual(drawn, [button]);
+    club._vrQuickMenuPage = 'music';
+    club._setGashouderLookaheadStatus('WAITING FOR PLAYBACK');
+    assert.deepEqual(drawn, [button], 'other pages are not redrawn');
+});
+
+test('Gashouder ahead analysis stops its monitor when disabled and clears failed-source retry state', () => {
+    const cleared = [];
+    let nextTimer = 1;
+    const { window } = loadClassic('js/club/11-audio.js', {
+        VRClubUI: class {},
+        setInterval: () => nextTimer++,
+        clearInterval: timer => cleared.push(timer)
+    });
+    const club = Object.assign(Object.create(window.VRClubAudio.prototype), {
+        venueId: 'gashouder',
+        guardHostControl: () => true,
+        _updateGashouderLookahead() { this.monitorUpdates = (this.monitorUpdates || 0) + 1; },
+        _disposeGashouderLookaheadScan() { this.scanDisposals = (this.scanDisposals || 0) + 1; }
+    });
+    club._gashouderLookaheadEnabled = false;
+    club._gashouderLookaheadFailureUrl = 'https://audio.example/track.mp3';
+    assert.equal(club.setGashouderLookaheadEnabled(true), true);
+    assert.equal(club._gashouderLookaheadFailureUrl, null);
+    const timer = club._gashouderLookaheadTimer;
+    assert.ok(timer);
+
+    assert.equal(club.setGashouderLookaheadEnabled(false), true);
+    assert.equal(club._gashouderLookaheadTimer, null);
+    assert.deepEqual(cleared, [timer]);
+    assert.equal(club.scanDisposals, 1);
 });
 
 test('ShowDirector preserves fixture output between synthetic no-audio beats', () => {
@@ -6720,6 +6871,34 @@ test('VR entry starts on the opposite pavement facing the club, preserves tracke
     }
 });
 
+test('Gashouder VR entry starts just inside the main entrance, facing the stage', () => {
+    const B = require('../js/vendor/babylon.js');
+    const venue = loadClassic('js/gashouderVenue.js').window.GASHOUDER_VENUE;
+    const { window } = loadClassic('js/club/02-lifecycle.js', { VRClubCore: class {}, BABYLON: B });
+    window.GASHOUDER_VENUE = venue;
+    const initialPose = new B.Observable();
+    const club = Object.assign(Object.create(window.VRClubLifecycle.prototype), {
+        venueId: 'gashouder', _xrHeadHeight() {}, standFromSeat() {},
+        jumpState: { active: true }, _vrFallSpeed: 1
+    });
+    club._setupXRSession({ baseExperience: {
+        onInitialXRPoseSetObservable: initialPose, onStateChangedObservable: new B.Observable()
+    } });
+    const camera = {
+        position: new B.Vector3(0, 0, 0), rotationQuaternion: B.Quaternion.Identity(),
+        cameraDirection: new B.Vector3(1, 2, 3), cameraRotation: new B.Vector2(1, 2), _deferredUpdated: true
+    };
+    initialPose.notifyObservers(camera);
+    assert.deepEqual(camera.position.asArray(), [venue.vrEntry.x, 0, venue.vrEntry.z]);
+    assert.ok(venue.vrEntry.z < venue.dimensions.innerRadius && venue.vrEntry.z > 21);
+    const forward = new B.Vector3();
+    B.Vector3.Forward().rotateByQuaternionToRef(camera.rotationQuaternion, forward);
+    assert.ok(forward.z < -0.99);
+    assert.deepEqual(camera.cameraDirection.asArray(), [0, 0, 0]);
+    assert.equal(camera._deferredUpdated, false);
+    assert.equal(club.jumpState.active, false);
+});
+
 test('Enter VR waits for background model loading, with a ceiling', async () => {
     const run = async ({ settleModels, supported = true }) => {
         const timers = [];
@@ -7468,7 +7647,7 @@ test('VR comfort separates advanced graphics and Wardrobe groups identity choice
     const same = (a, b, message = '') => assert.equal(JSON.stringify(a), JSON.stringify(b), message);
     const comfort = labels('comfort');
     same(comfort, ['LOCOMOTION', 'SAFE MODE', 'SEATED MODE', 'MEASURE EYE HEIGHT', 'QUALITY', 'AUTO QUALITY',
-        'CONVERSATION AUDIO', 'ADVANCED GRAPHICS', 'CREDITS / LICENCES', 'CAMERA', '\u2190 BACK', 'CLOSE']);
+        'CONVERSATION AUDIO', 'ADVANCED GRAPHICS', 'CREDITS / LICENCES', '\u2190 BACK', 'CLOSE']);
     same(labels('graphics'), ['4X EDGE SMOOTHING',
         'HIGH PRECISION SHADERS', 'SMOOTH SHINY SURFACES', 'MAX TEXTURE FILTERING',
         '\u2190 BACK', 'CLOSE']);
@@ -7479,9 +7658,10 @@ test('VR comfort separates advanced graphics and Wardrobe groups identity choice
     }
     club._multiplayer = () => ({ connected: true });
     club._immersive = { needsAccess: () => true };
-    assert.equal(labels('home').length, 12, 'social controls and ACCESS must not displace CLOSE');
+    assert.ok(labels('home').length <= 12, 'social controls and ACCESS must not displace CLOSE');
     assert.equal(labels('home').at(-1), 'CLOSE');
     assert.ok(labels('home').includes('ACCESS'));
+    assert.ok(!labels('home').includes('CAMERA'));
 
     // Page one: the default and the eight women; page two: the nine men. Each names the kind of person and what they wear.
     const first = UI._vrCharacterPageDefinitions.call(club, { back: { label: 'BACK', action: 'back' }, close: { label: 'CLOSE', action: 'close' } });
@@ -7876,6 +8056,34 @@ test('seat picks choose the nearest cushion and preserve tracked VR height', () 
     assert.equal(club._activeSeat, null);
 });
 
+test('smoke particle texture breaks up circular edges without losing its soft cloud core', () => {
+    const Fixtures = loadClassic('js/club/05-fixtures.js', {
+        VRClubEnvironment: class {}
+    }).window.VRClubFixtures;
+    const size = 128;
+    const pixels = new Uint8ClampedArray(size * size * 4);
+    Fixtures.prototype._paintSmokePuffPixels(pixels, size);
+    const alphaAt = (x, y) => pixels[(y * size + x) * 4 + 3];
+    assert.ok(alphaAt(64, 64) > 100, 'the center of a smoke puff must remain visible');
+    assert.equal(alphaAt(0, 0), 0, 'the texture corners must fade fully out');
+
+    let minEdgeAlpha = 255;
+    let maxEdgeAlpha = 0;
+    for (let y = 0; y < size; y++) {
+        const ny = (y + 0.5 - size / 2) * 2 / size;
+        for (let x = 0; x < size; x++) {
+            const nx = (x + 0.5 - size / 2) * 2 / size;
+            const radius = Math.hypot(nx * 0.88, ny * 0.74);
+            if (radius < 0.72 || radius > 0.8) continue;
+            const alpha = alphaAt(x, y);
+            minEdgeAlpha = Math.min(minEdgeAlpha, alpha);
+            maxEdgeAlpha = Math.max(maxEdgeAlpha, alpha);
+        }
+    }
+    assert.ok(maxEdgeAlpha - minEdgeAlpha > 120,
+        'cloud edges should vary around the same radius instead of forming a smooth circle');
+});
+
 test('smoke drift is smooth, bounded and independent of frame rate', () => {
     const { window } = loadClassic('js/club/07-animation-core.js', { VRClubEffects: class {} });
     const drift = window.VRClubAnimationCore.prototype._driftAirParticles;
@@ -7995,13 +8203,43 @@ test('beams light the smoke they cross and dust is only seen inside them', () =>
     assert.equal(vr[0].color.a, 0.5, 'unsampled VR particles must not be changed');
     assert.equal(vr[2].color.a, 0.5, 'unsampled VR particles must not be changed');
     assert.equal(vr[1]._airLightState != null, true, 'the rotating one-third sample must receive a lighting state');
-    for (let frame = 76; frame <= 99; frame++) {
+    vr[1].color = { r: 0.6, g: 0.6, b: 0.7, a: 0.5 };
+    club.scene.getFrameId = () => 76;
+    proto._lightAirParticles.call(club, vr, 'dust');
+    assert.notEqual(vr[1].color.a, 0.5, 'unsampled VR particles must reuse their previous lighting sample');
+    for (let frame = 77; frame <= 99; frame++) {
         club.scene.getFrameId = () => frame;
         for (const p of vr) p.color = { r: 0.6, g: 0.6, b: 0.7, a: 0.5 };
         proto._lightAirParticles.call(club, vr, 'dust');
     }
     assert.ok(vr[2]._airLightState.beam.lit > 0, 'the rotating one-third sample must smoothly catch the beam');
     assert.equal(spot._mediumDensity, null, 'VR must hand the beam-density feedback back to neutral');
+});
+
+test('smoke samples reflected mirror-ball rays and respects the ray toggle', () => {
+    const { window } = loadClassic('js/club/07-animation-core.js', { VRClubEffects: class {} });
+    const proto = window.VRClubAnimationCore.prototype;
+    const club = {
+        mirrorBallActive: true,
+        mirrorBallRaysActive: true,
+        mirrorBallSpotlightColor: { r: 1, g: 0, b: 0 },
+        mirrorReflectionBatch: {
+            rayCount: 1,
+            rayOrigins: new Float32Array([0, 0, 0]),
+            rayDirections: new Float32Array([0, 0, 1]),
+            rayLengths: new Float32Array([10]),
+            rayStrengths: new Float32Array([1])
+        }
+    };
+    const out = { r: 0, g: 0, b: 0, lit: 0 };
+    proto._sampleAirMirrorRays.call(club, { x: 0, y: 0, z: 5 }, 0.01,
+        { x: 0, y: 0, z: 10 }, 1, false, out);
+    assert.ok(out.lit > 0 && out.r > out.g, 'a reflected ray must tint smoke in its path');
+
+    club.mirrorBallRaysActive = false;
+    proto._sampleAirMirrorRays.call(club, { x: 0, y: 0, z: 5 }, 0.01,
+        { x: 0, y: 0, z: 10 }, 1, false, out);
+    assert.equal(out.lit, 0, 'disabling mirror-ball rays must remove their smoke contribution');
 });
 
 test('small dust catches the LED wall, mirror ball, strobes and laser sheets on desktop', () => {
@@ -8727,6 +8965,56 @@ test('mirror reflections use analytic room hits and thin-instance tier counts', 
     }
 });
 
+test('mirror reflections trace illuminated facets and reflect only the incident pinspots', () => {
+    const BABYLON = require('../js/vendor/babylon.js');
+    const effects = loadClassic('js/club/06-effects.js', {
+        BABYLON, VRClubFixtures: class {}
+    }).window.VRClubEffects.prototype;
+    const updated = [];
+    const mesh = () => ({
+        thinInstanceCount: 0,
+        thinInstanceBufferUpdated(kind) { updated.push(kind); }
+    });
+    const batch = {
+        spots: mesh(), spotMat: { emissiveColor: new BABYLON.Color3() },
+        spotMatrices: new Float32Array(16), spotColors: new Float32Array(4),
+        rays: mesh(), rayMat: { emissiveColor: new BABYLON.Color3(), alpha: 0 },
+        rayMatrices: new Float32Array(16), rayColors: new Float32Array(4),
+        facetNormals: new Float32Array([0, 1, 0]),
+        facetCenters: new Float32Array([0, 0.6, 0]),
+        facetIndices: new Uint16Array([0]),
+        trace: {}, hit: {}
+    };
+    const club = {
+        mirrorBall: { position: { x: 0, y: 0, z: 0 } },
+        mirrorBallRotation: 0,
+        mirrorBallSpotlightColor: new BABYLON.Color3(1, 0.5, 0.25),
+        mirrorBallBeams: [{ origin: { x: 0, y: 2, z: 0 }, direction: { x: 0, y: -1, z: 0 }, length: 2 }],
+        tierSettings: { mirrorSpots: 1, mirrorRays: 1 },
+        masterIntensity: 1,
+        mirrorReflectionBatch: batch,
+        _traceMirrorFacet: effects._traceMirrorFacet,
+        _writeMirrorSpotMatrix: effects._writeMirrorSpotMatrix,
+        _writeMirrorRayMatrix: effects._writeMirrorRayMatrix,
+        _updateMirrorReflectionColors: effects._updateMirrorReflectionColors,
+        _intersectRoomInterior(ox, oy, oz, dx, dy, dz, out) {
+            assert.ok(dy > 0, 'a top facet must reflect its incoming beam upward');
+            Object.assign(out, { t: 5, px: ox + dx * 5, py: oy + dy * 5, pz: oz + dz * 5, nx: 0, ny: -1, nz: 0 });
+            return out;
+        }
+    };
+    effects._updateMirrorReflectionBatch.call(club);
+    assert.ok(batch.spotColors[3] > 0, 'an illuminated facet must project a visible spot');
+    assert.ok(batch.rayColors[3] > 0, 'the reflected facet must contribute a visible ray');
+    assert.equal(batch.spots.thinInstanceCount, 1);
+    assert.equal(batch.rays.thinInstanceCount, 1);
+    assert.deepEqual(updated, ['matrix', 'color', 'matrix', 'color']);
+
+    const trace = {};
+    assert.equal(effects._traceMirrorFacet.call(club, 0, 0.6, 0, 0, -1, 0, trace), false,
+        'a facet facing away from the pinspot must remain dark');
+});
+
 test('mirror-ball pinspot housings, lenses, trusses and incident cones align optically with the mirror ball', () => {
     const BABYLON = require('../js/vendor/babylon.js');
     const ROOM_INTERIOR = {
@@ -8774,6 +9062,12 @@ test('mirror-ball pinspot housings, lenses, trusses and incident cones align opt
 
     assert.equal(club.mirrorBallHousings.length, 4);
     assert.equal(club.mirrorBallBeams.length, 4);
+    assert.equal(club.mirrorReflectionBatch.spots.useVertexColors, true,
+        'facet brightness must reach the spot mesh through its thin-instance color buffer');
+    assert.equal(club.mirrorReflectionBatch.rays.useVertexColors, true,
+        'facet brightness must reach the ray mesh through its thin-instance color buffer');
+    assert.equal(club.mirrorReflectionBatch.spots.hasVertexAlpha, true);
+    assert.equal(club.mirrorReflectionBatch.rays.hasVertexAlpha, true);
     assert.ok(scene.getMeshByName('mirrorSpotTrussClamps'), 'pinspots must clamp to the front/rear trusses');
     assert.ok(scene.getMeshByName('mirrorSpotRiggingMounts'), 'pinspots must hang from drop pipes and yokes');
     const bezels = scene.getMeshByName('mirrorSpotBezelMerged');
@@ -9272,13 +9566,69 @@ test('ceiling lasers end on the wall they reach, scatter forward, never alias be
     assert.ok(Math.abs(near.width - 0.032) < 1e-6, 'a near beam lost its physical width');
     assert.ok(far.alpha < near.alpha, 'widening a distant beam must dim it, not brighten the room');
 
+    const segmentedPositions = new Float32Array(3 * 12);
+    const segmentedColors = new Float32Array(3 * 16);
+    fixtures._writeLaserBeamQuad.call(fixtures, {
+        positions: segmentedPositions, colors: segmentedColors, segments: 3
+    }, 0, { x: 0, y: 8, z: 0 }, beamDir, { t: 12 }, null, 0, 1, 0.5);
+    for (let segment = 0; segment < 3; segment++) {
+        const offset = segment * 12;
+        const startY = (segmentedPositions[offset + 1] + segmentedPositions[offset + 4]) * 0.5;
+        const endY = (segmentedPositions[offset + 7] + segmentedPositions[offset + 10]) * 0.5;
+        assert.ok(Math.abs(startY - (8 - segment * 4)) < 1e-6);
+        assert.ok(Math.abs(endY - (8 - (segment + 1) * 4)) < 1e-6);
+        assert.ok(segmentedColors[segment * 16 + 3] > segmentedColors[segment * 16 + 15],
+            'each laser segment must attenuate along its path');
+    }
+    const mediumPositions = new Float32Array(12);
+    const mediumColors = new Float32Array(16);
+    const mediumBatch = { positions: mediumPositions, colors: mediumColors, segments: 1 };
+    fixtures._writeLaserBeamQuad.call(fixtures, mediumBatch, 0,
+        { x: 0, y: 8, z: 0 }, beamDir, { t: 12 }, null, 0, 1, 0);
+    const clearAlpha = mediumColors[3];
+    fixtures._writeLaserBeamQuad.call(fixtures, mediumBatch, 0,
+        { x: 0, y: 8, z: 0 }, beamDir, { t: 12 }, null, 0, 1, 1);
+    assert.ok(mediumColors[3] < clearAlpha, 'smoke medium must attenuate the laser ribbon');
+
     // The fan ends where the floor occludes it; it draws no separate line on the floor (removed by request).
     assert.equal(core._updateLaserSheetScanLines, undefined);
 });
 
+test('Gashouder ceiling lasers contribute to local plume colour and medium attenuation', () => {
+    const { window } = loadClassic('js/club/07-animation-core.js', { VRClubEffects: class {} });
+    const proto = window.VRClubAnimationCore.prototype;
+    const red = { r: 1, g: 0, b: 0 };
+    const laserBeam = { beamIndex: 0, length: 10, mediumDensity: 0 };
+    const club = {
+        gashouderLighting: {},
+        scene: { getFrameId: () => 0, activeCamera: { globalPosition: { x: 0, y: 2, z: 8 } } },
+        engine: { getDeltaTime: () => 1000 / 60 },
+        masterIntensity: 1, _smokeLevel: 1, currentSpotColor: red,
+        lightsActive: false, lasersActive: true, lasers: [{
+            originPos: { x: 0, y: 7, z: 0 }, beams: [laserBeam]
+        }],
+        _laserColor: () => red,
+        _aimLaserBeam(laser, beam, index, out) { out.set(0, -1, 0); },
+        _gatherAirBeams: proto._gatherAirBeams
+    };
+    const near = { position: { x: 0, y: 3, z: 0 }, size: 1,
+        color: { r: 0.6, g: 0.6, b: 0.7, a: 0.2 } };
+    const outsideCore = { position: { x: 5, y: 3, z: 0 }, size: 1,
+        color: { r: 0.6, g: 0.6, b: 0.7, a: 0.2 } };
+    for (let frame = 1; frame < 30; frame++) {
+        club.scene.getFrameId = () => frame;
+        near.color = { r: 0.6, g: 0.6, b: 0.7, a: 0.2 };
+        outsideCore.color = { r: 0.6, g: 0.6, b: 0.7, a: 0.2 };
+        proto._lightAirParticles.call(club, [near, outsideCore], 'plume');
+    }
+    assert.ok(laserBeam.mediumDensity > 0, 'plume particles must feed the laser beam medium');
+    assert.ok(outsideCore.color.r > outsideCore.color.b,
+        'the wide wash around the laser must tint nearby plume smoke');
+});
+
 test('ceiling laser ribbons stay out of the depthless glow pass', () => {
     const source = readFileSync(join(ROOT, 'js/club/05-fixtures.js'), 'utf8');
-    const start = source.indexOf('_createLaserBeamBatch(count)');
+    const start = source.indexOf('_createLaserBeamBatch(count, segments = 1)');
     const end = source.indexOf('\n    }\n\n}', start);
     const method = source.slice(start, end);
     assert.match(method, /glowLayer\.addExcludedMesh\(mesh\)/);
@@ -12269,6 +12619,23 @@ test('spot rig: every head, row and column edits only its members; invalid edits
     assert.equal(VRClubUI.SPOT_GROUPS.length, 12);
 });
 
+test('Gashouder spot controls name the six shared groups without changing their membership', () => {
+    const { club, VRClubUI } = spotRigHarness();
+    club.venueId = 'gashouder';
+    const groups = club.spotRigGroups();
+    assert.equal(groups[0].name, 'ALL 24 SPOTS');
+    assert.equal(groups[6].name, 'GROUP 1');
+    assert.deepEqual(groups.map(group => Array.from(group.heads)),
+        VRClubUI.SPOT_GROUPS.map(group => Array.from(group.heads)));
+    club.selectSpotRigGroup(6);
+    assert.equal(club.spotRigControlValue('cycleSpotTarget'), 'GROUP 1');
+    club.setSpotGroup(6, { enabled: false });
+    assert.equal(club.spotHead0Enabled, false);
+    assert.equal(club.spotHead1Enabled, true);
+    club.venueId = 'nocturne';
+    assert.equal(club.spotRigControlValue('cycleSpotTarget'), 'ENTRANCE LEFT');
+});
+
 test('spot rig: chase and fill really select the physical heads, rows and columns, including a black reset step', () => {
     const { fixtures } = spotRigHarness();
     const lit = (sequence, step) => Array.from({ length: 6 }, (_, i) => i).filter(i => fixtures.spotSequenceTarget(sequence, i, step));
@@ -13527,6 +13894,47 @@ test('VR menu: who is in the club has its own CROWD page on HOME, not the bottom
     assert.deepEqual([...crowd.filter(item => item.action === 'people').map(item => item.people)], ['dancers', 'bystanders', 'dj', 'all']);
     assert.ok(!club._vrQuickMenuPageDefinitions('comfort').some(item => item && item.action === 'people'));
     assert.ok(club._vrQuickMenuPageDefinitions('comfort').some(item => item && item.action === 'quality'), 'QUALITY moved off HOME, not away');
+
+    Object.assign(club, {
+        venueId: 'gashouder',
+        characterStyleStatus: () => ({ error: null })
+    });
+    const gashouderCrowd = club._vrQuickMenuPageDefinitions('crowd');
+    assert.ok(gashouderCrowd.some(item => item.target === 'gashouderCrowd'));
+    const countPage = club._vrQuickMenuPageDefinitions('gashouderCrowd');
+    assert.deepEqual([...countPage.filter(item => item.action === 'gashouderCrowdCount').map(item => item.delta)], [-10, -1, 1, 10]);
+    assert.ok(countPage.some(item => item.action === 'gashouderCrowdAuto'));
+    assert.ok(gashouderCrowd.length <= 12, 'Gashouder count controls fit the VR page');
+    assert.ok(countPage.length <= 12);
+});
+
+test('VR Gashouder dancer-count controls stay personal and respect the setup cap', () => {
+    const { window } = loadClassic('js/club/10-ui.js', { VRClubAnimationFinish: class {}, BABYLON: {} });
+    const club = Object.create(window.VRClubUI.prototype);
+    let count = 2;
+    const messages = [];
+    Object.assign(club, {
+        venueId: 'gashouder',
+        getGashouderCrowdSize: () => count,
+        getGashouderCrowdLimit: () => 2,
+        setGashouderCrowdCount: value => { count = value; return true; },
+        guardHostControl: () => assert.fail('Personal crowd settings must not be host-gated'),
+        showErrorMessage: message => messages.push(message),
+        _refreshVRQuickMenu() {}
+    });
+
+    club._activateVRQuickMenuButton({ action: 'gashouderCrowdCount', delta: 1 });
+    assert.equal(count, 2, 'the Soundcheck cap is enforced');
+    assert.match(messages.at(-1), /up to 2 dancers/);
+    club._activateVRQuickMenuButton({ action: 'gashouderCrowdCount', delta: -1 });
+    assert.equal(count, 1);
+    club.getGashouderCrowdLimit = () => 200;
+    club._activateVRQuickMenuButton({ action: 'gashouderCrowdCount', delta: 10 });
+    assert.equal(count, 11);
+    club._activateVRQuickMenuButton({ action: 'gashouderCrowdCount', delta: -10 });
+    assert.equal(count, 1);
+    club._activateVRQuickMenuButton({ action: 'gashouderCrowdAuto' });
+    assert.equal(count, null);
 });
 
 test('all VJ surfaces offer the multi-beam filter without projected shapes', () => {
@@ -13590,6 +13998,15 @@ test('VR menu: SAFETY has a NAME TAGS switch that reads and flips the shared set
     const common = { back: { label: 'BACK', action: 'back' }, close: { label: 'CLOSE', action: 'close' } };
     const safety = proto._vrNetPageDefinitions.call(club, 'safety', common);
     assert.ok(safety.length <= 12, 'the menu has twelve slots');
+    assert.ok(!safety.some(b => b.action === 'roomInvite'));
+    club.multiplayer.connected = true;
+    const connectedSafety = proto._vrNetPageDefinitions.call(club, 'safety', common);
+    assert.equal(connectedSafety.length, 12);
+    const invite = connectedSafety.find(b => b.label === 'COPY ROOM INVITE');
+    let invoked = false;
+    club.copyRoomInvite = () => { invoked = true; };
+    proto._activateVRQuickMenuButton.call(club, invite);
+    assert.equal(invoked, true);
     const button = safety.find(b => b.op === 'nameTags');
     assert.ok(button, 'no NAME TAGS button on the safety page');
     assert.equal(proto._vrNetActive.call(club, button), true);
@@ -14247,13 +14664,13 @@ test('the DJ never beat-pumps a crowd arm and uses only one finite lift on a rea
     assert.ok(repeated._lastCelebrationAt < 0.1, 'nearby drop edges do not repeat the lift');
 });
 
-test('the DJ holds a four-bar peak gesture without a bar line cutting it short', () => {
+test('the DJ holds a five-beat peak gesture without a bar line cutting it short', () => {
     for (const bpm of [120, 160]) for (const fps of [30, 90]) for (const offset of [0, 2, 3.8]) {
-        const { dj } = loadDJPerformer();
+        const { dj, DJPerformer } = loadDJPerformer();
         const rate = bpm / 60, dt = 1 / fps;
         const music = { hasAudio: true, bpm, energy: 0.9, beatPhase: 0, bar: 0, drop: false };
         let startedAt = null, overheadSeconds = 0, returned = false;
-        for (let frame = 0; frame < (8 + offset + 21) / rate * fps; frame++) {
+        for (let frame = 0; frame < (8 + offset + 8) / rate * fps; frame++) {
             const time = frame * dt, beat = time * rate;
             music.beatPhase = beat % 1;
             music.bar = Math.floor(beat / 4);
@@ -14263,15 +14680,20 @@ test('the DJ holds a four-bar peak gesture without a bar line cutting it short',
             if (startedAt === null) continue;
             const elapsedBeats = (time - startedAt) * rate;
             const label = `${bpm} BPM, ${fps} Hz, drop ${offset} beats into the bar`;
-            if (elapsedBeats < 15.9) assert.equal(dj.activity, 'handsUp', `${label}: peak cut short`);
-            if (elapsedBeats >= 2 && elapsedBeats <= 13.5) {
+            if (elapsedBeats < DJPerformer.CELEBRATION_BEATS - 0.12) {
+                assert.equal(dj.activity, 'handsUp', `${label}: peak cut short`);
+            }
+            if (elapsedBeats >= 1.8 && elapsedBeats <= 3.3) {
                 assert.ok(pose.left.y > pose.eyeY && pose.right.y > pose.eyeY, `${label}: hands lowered during the hold`);
             }
             if (pose.left.y > pose.eyeY && pose.right.y > pose.eyeY) overheadSeconds += dt;
-            if (elapsedBeats >= 20) returned ||= dj.activity !== 'handsUp';
+            if (elapsedBeats >= DJPerformer.CELEBRATION_BEATS + 0.25) {
+                assert.notEqual(dj.activity, 'handsUp', `${label}: peak held past five beats`);
+                returned = true;
+            }
         }
-        assert.ok(overheadSeconds >= 11.5 / rate, 'the overhead hold must occupy most of the four-bar gesture');
-        assert.ok(returned, 'the DJ must return to work after the gesture');
+        assert.ok(overheadSeconds >= 2.0 / rate, 'the overhead hold must occupy the middle of the five-beat gesture');
+        assert.ok(returned, 'the DJ must return to work after five beats');
     }
 });
 
@@ -14280,16 +14702,16 @@ test('the DJ peak gesture follows a tempo change without jumping to its end', ()
     dj._begin('handsUp', 99);
     const dt = 1 / 60;
     let beat = 0;
-    while (beat < 18) {
-        const bpm = beat < 8 ? 120 : 180;
+    while (beat < 8) {
+        const bpm = beat < 2 ? 120 : 180;
         const pose = dj.update(dt, { hasAudio: true, bpm, energy: 0.9, beatPhase: beat % 1, bar: Math.floor(beat / 4) });
         beat += dt * bpm / 60;
-        if (beat >= 12 && beat <= 13.5) {
+        if (beat >= 2.4 && beat <= 3.3) {
             assert.ok(pose.left.y > pose.eyeY && pose.right.y > pose.eyeY, 'a faster tempo ended the hold early');
         }
     }
     for (const hand of [dj.pose.left, dj.pose.right]) {
-        assert.ok(Math.abs(hand.y - desk.top - 0.035) < 0.002, 'the hands must return after sixteen beats');
+        assert.ok(Math.abs(hand.y - desk.top - 0.035) < 0.002, 'the hands must return after five beats');
     }
 });
 
@@ -15797,6 +16219,18 @@ test('smoke controls use shared host authority and the automatic show resets its
     assert.equal(showClub.fogBurstMode, 'continuous');
 });
 
+test('Gashouder automatic looks never enable the multi-beam filter', () => {
+    const ShowDirector = loadClassic('js/showDirector.js').window.ShowDirector;
+    const club = { venueId: 'gashouder', vjManualMode: false, photosensitiveSafeMode: false };
+    const show = new ShowDirector(club);
+    assert.equal(show.program, 'gashouder');
+    for (const [name, look] of Object.entries(show.looks)) {
+        if (name.startsWith('gashouder')) {
+            assert.notEqual(look.spotPrismActive, true, `${name} must not enable the multi-beam filter`);
+        }
+    }
+});
+
 test('smoke output follows the shared beat, drives both machines, and respects intensity and tier', () => {
     const proto = loadClassic('js/club/07-animation-core.js', { VRClubEffects: class {} }).window.VRClubAnimationCore.prototype;
     const machine = () => ({ emitter: { emitRate: 0 }, ledMat: {}, isBursting: false });
@@ -16147,7 +16581,7 @@ test('moving-head beams clip and place pools on elevated venue surfaces (mezzani
     assert.ok(Math.abs(backHit.surfaceIntersection.z - (-20)) < 1e-6, `expected backWall at z=-20, got ${backHit.surfaceIntersection.z}`);
 });
 
-test('Gashouder spot beams keep a 12-degree footprint that scales with throw and servo acceleration', () => {
+test('Gashouder spot beams retain the original 30-degree look and eased movement', () => {
     const BABYLON = require('../js/vendor/babylon.js');
     const { window } = loadClassic('js/club/08-animation-fixtures.js', {
         BABYLON, VRClubAnimationCore: class {}
@@ -16172,7 +16606,6 @@ test('Gashouder spot beams keep a 12-degree footprint that scales with throw and
         }
     });
     const spot = {
-        baseAngle: Math.PI / 15,
         beamFloorDiameter: 2.6,
         beam: {
             position: new BABYLON.Vector3(),
@@ -16183,9 +16616,8 @@ test('Gashouder spot beams keep a 12-degree footprint that scales with throw and
     };
     const direction = new BABYLON.Vector3(0, -0.8, -0.6);
     const geometry = club._updateSpotBeamGeometry(spot, 0, direction, 0, 1, 1);
-    const expectedDiameter = 2 * 30 * Math.tan(Math.PI / 30);
-    assert.ok(Math.abs(geometry.surfaceDiameter - expectedDiameter) < 1e-9);
-    assert.ok(Math.abs(spot.beam.scaling.x - expectedDiameter / 2.6) < 1e-9);
+    assert.equal(geometry.surfaceDiameter, 2.6);
+    assert.equal(spot.beam.scaling.x, 1);
     assert.equal(spot.beam.scaling.x, spot.beam.scaling.z);
 
     const movingSpot = {
@@ -16194,12 +16626,11 @@ test('Gashouder spot beams keep a 12-degree footprint that scales with throw and
     };
     const target = new BABYLON.Vector3(1, -1, 0).normalize();
     club._animateMovingHead(movingSpot, target, 1, true);
-    assert.ok(Math.abs(movingSpot._panVelocity) <= 4 / 60 + 1e-9);
-    assert.ok(Math.abs(movingSpot.yoke.rotation.y) <= 4 / (60 * 60) + 1e-9,
-        'the yoke starts within its acceleration limit');
+    assert.ok(Math.abs(movingSpot.yoke.rotation.y) <= 0.75 / 60 + 1e-9,
+        'the original limited mode caps pan speed');
     const priorPan = movingSpot.yoke.rotation.y;
     club._animateMovingHead(movingSpot, new BABYLON.Vector3(-1, -1, 0).normalize(), 1, true);
-    assert.ok(movingSpot.yoke.rotation.y >= priorPan, 'a direction reversal brakes before moving the other way');
+    assert.ok(movingSpot.yoke.rotation.y <= priorPan, 'a direction reversal follows the eased target');
 });
 
 test('Unity-ported fog machines face inward into the dance floor, wrap plume beam-scatter and record stream buffering diagnostics', () => {

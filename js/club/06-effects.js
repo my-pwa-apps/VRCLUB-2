@@ -157,13 +157,12 @@ class VRClubEffects extends VRClubFixtures {
             const posMountY = Number.isFinite(pos.y) ? pos.y : mountY;
             const spotRange = this.gashouderLighting ? 46 : 25;
             const beamFloorDiameter = this.gashouderLighting ? 2.6 : 2.0;
-            const beamAngle = this.gashouderLighting ? Math.PI / 15 : Math.PI / 6;
 
             // Spotlight from truss position - MATCH FIXTURE POSITION (y: 7.3)
             const spot = new BABYLON.SpotLight("spot" + i,
                 new BABYLON.Vector3(pos.x, posMountY - 0.5, pos.z),
                 new BABYLON.Vector3(0, -1, 0),           // Initial direction
-                beamAngle,                               // Gashouder uses a narrow 12-degree concert beam
+                Math.PI / 6,                              // Narrower cone for focused beams
                 5,                                        // Sharper falloff
                 this.scene
             );
@@ -452,7 +451,6 @@ class VRClubEffects extends VRClubFixtures {
                 lensMat: fixtureData ? fixtureData.lensMat : null,
                 basePos: new BABYLON.Vector3(pos.x, posMountY - 0.5, pos.z),
                 beamFloorDiameter,
-                baseAngle: beamAngle,
                 rigRole: pos.role || 'ring',
                 rigAngle: Number.isFinite(pos.angle) ? pos.angle : Math.atan2(pos.x, pos.z),
                 rigGroup: Number.isInteger(pos.group) ? pos.group : (i % 6),
@@ -773,6 +771,32 @@ class VRClubEffects extends VRClubFixtures {
         this.laserSheetSource.rotation.y = this._laserSheetBaseYaw;
     }
 
+    _buildMirrorReflectionFacets(radius) {
+        const facetCount = 512;
+        const facetNormals = new Float32Array(facetCount * 3);
+        const facetCenters = new Float32Array(facetCount * 3);
+        const goldenAngle = Math.PI * (3 - Math.sqrt(5));
+        for (let facet = 0; facet < facetCount; facet++) {
+            let latitude = 0.5 / facetCount, weight = 0.5;
+            for (let index = facet; index > 0; index = Math.floor(index / 2)) {
+                latitude += (index % 2) * weight;
+                weight *= 0.5;
+            }
+            const ny = 1 - 2 * latitude;
+            const horizontal = Math.sqrt(Math.max(0, 1 - ny * ny));
+            const theta = goldenAngle * facet;
+            const nx = horizontal * Math.cos(theta), nz = horizontal * Math.sin(theta);
+            const offset = facet * 3;
+            facetNormals[offset] = nx;
+            facetNormals[offset + 1] = ny;
+            facetNormals[offset + 2] = nz;
+            facetCenters[offset] = nx * radius;
+            facetCenters[offset + 1] = ny * radius;
+            facetCenters[offset + 2] = nz * radius;
+        }
+        return { facetNormals, facetCenters, facetCount };
+    }
+
     createMirrorBall() {
         // === DRAMATIC MIRROR/DISCO BALL EFFECT ===
         // Professional mirror ball suspended from center truss with dedicated spotlight
@@ -780,6 +804,7 @@ class VRClubEffects extends VRClubFixtures {
         const ballY = this.gashouderLighting ? this.gashouderLighting.mountY - 1.5 : 6.5;
         const ballZ = this.gashouderLighting ? 0 : -12;
         const ballPosition = new BABYLON.Vector3(0, ballY, ballZ);
+        const facets = this._buildMirrorReflectionFacets(0.6);
         
         // === MIRROR BALL SPHERE ===
         const mirrorBall = BABYLON.MeshBuilder.CreateSphere("mirrorBall", {
@@ -818,12 +843,14 @@ class VRClubEffects extends VRClubFixtures {
         mirrorBall.isPickable = false;
         
         // === HANGING CABLE/CHAIN ===
+        const cableTop = this.gashouderLighting ? window.GASHOUDER_VENUE.dimensions.centreHeight - 0.35 : ballY + 1.5;
+        const cableHeight = cableTop - ballY;
         const cable = BABYLON.MeshBuilder.CreateCylinder("mirrorBallCable", {
             diameter: 0.02,
-            height: 1.5, // Distance from truss to ball
+            height: cableHeight,
             tessellation: 8
         }, this.scene);
-        cable.position = new BABYLON.Vector3(0, ballY + 0.75, ballZ);
+        cable.position = new BABYLON.Vector3(0, ballY + cableHeight / 2, ballZ);
         
         const cableMat = this.materialFactory.createPBRMaterial("cableMat", {
             baseColor: [0.1, 0.1, 0.1],
@@ -910,14 +937,9 @@ class VRClubEffects extends VRClubFixtures {
         }, true);
         
         const spotlightConfigs = this.gashouderLighting
-            ? [0, 1, 2, 3].map(index => {
-                const angle = Math.PI / 4 + Math.PI * index / 2;
+            ? this.gashouderLighting.mirrorPinspotPositions.map((position, index) => {
                 return {
-                    pos: new BABYLON.Vector3(
-                        Math.sin(angle) * 15.5,
-                        this.gashouderLighting.mountY - 0.35,
-                        Math.cos(angle) * 15.5
-                    ),
+                    pos: new BABYLON.Vector3(position.x, position.y, position.z),
                     name: `Ring-${index + 1}`
                 };
             })
@@ -1275,7 +1297,11 @@ class VRClubEffects extends VRClubFixtures {
         spots.alwaysSelectAsActiveMesh = true;
         spots.setEnabled(false);
         const spotMatrices = new Float32Array(maxSpots * 16);
+        const spotColors = new Float32Array(maxSpots * 4);
         spots.thinInstanceSetBuffer('matrix', spotMatrices, 16, false);
+        spots.thinInstanceSetBuffer('color', spotColors, 4, false);
+        spots.useVertexColors = true;
+        spots.hasVertexAlpha = true;
 
         const rayMat = new BABYLON.StandardMaterial('sharedMirrorRayMat', this.scene);
         rayMat.diffuseColor = new BABYLON.Color3(0, 0, 0);
@@ -1298,7 +1324,11 @@ class VRClubEffects extends VRClubFixtures {
         rays.alwaysSelectAsActiveMesh = true;
         rays.setEnabled(false);
         const rayMatrices = new Float32Array(maxRays * 16);
+        const rayColors = new Float32Array(maxRays * 4);
         rays.thinInstanceSetBuffer('matrix', rayMatrices, 16, false);
+        rays.thinInstanceSetBuffer('color', rayColors, 4, false);
+        rays.useVertexColors = true;
+        rays.hasVertexAlpha = true;
 
         const goldenAngle = Math.PI * (3 - Math.sqrt(5));
         const directions = new Float32Array(maxSpots * 2);
@@ -1316,12 +1346,30 @@ class VRClubEffects extends VRClubFixtures {
             spots,
             spotMat,
             spotMatrices,
+            spotColors,
             rays,
             rayMat,
             rayMatrices,
+            rayColors,
+            rayOrigins: new Float32Array(maxRays * 3),
+            rayDirections: new Float32Array(maxRays * 3),
+            rayLengths: new Float32Array(maxRays),
+            rayStrengths: new Float32Array(maxRays),
+            rayCount: 0,
             directions,
+            facetNormals: facets.facetNormals,
+            facetCenters: facets.facetCenters,
+            facetCount: facets.facetCount,
+            facetIndices: new Uint16Array(maxSpots),
+            trace: { source: -1, strength: 0, dx: 0, dy: 0, dz: 0 },
             hit: { t: 0, px: 0, py: 0, pz: 0, nx: 0, ny: 0, nz: 0 }
         };
+        this.mirrorBallFacetNormals = facets.facetNormals;
+        this.mirrorBallFacetCenters = facets.facetCenters;
+        this.mirrorBallFacetCount = facets.facetCount;
+        for (let i = 0; i < maxSpots; i++) {
+            this.mirrorReflectionBatch.facetIndices[i] = Math.floor(i * facets.facetCount / maxSpots);
+        }
         
         // Store references for animation and color updates
         this.mirrorBall = mirrorBall;
@@ -1439,20 +1487,48 @@ class VRClubEffects extends VRClubFixtures {
                         const candidate = (-b + (i ? root : -root)) / (2 * horizontalLength);
                         if (candidate <= 0 || candidate >= t) continue;
                         const x = ox + dx * candidate;
+                        const z = oz + dz * candidate;
+                        t = candidate;
+                        nx = -x / radius; ny = 0; nz = -z / radius;
+                    }
+                }
+            }
+
+            const curve = this._ledWallCollider?._curveMeta;
+            if (curve && horizontalLength > 1e-8) {
+                const centerZ = curve.centerZ + curve.curveRadius;
+                const relativeZ = oz - centerZ;
+                const b = 2 * (ox * dx + relativeZ * dz);
+                const c = ox * ox + relativeZ * relativeZ - curve.curveRadius * curve.curveRadius;
+                const discriminant = b * b - 4 * horizontalLength * c;
+                if (discriminant >= 0) {
+                    const root = Math.sqrt(discriminant);
+                    for (let i = 0; i < 2; i++) {
+                        const candidate = (-b + (i ? root : -root)) / (2 * horizontalLength);
+                        if (candidate <= 0 || candidate >= t) continue;
+                        const x = ox + dx * candidate;
                         const y = oy + dy * candidate;
                         const z = oz + dz * candidate;
-                        const isDoor = Math.abs(x) < 1.5 && Math.abs(y) < 4
-                            && (z < 0 ? z < -radius + 0.2 : z > radius - 0.2);
-                        if (!isDoor) {
-                            t = candidate;
-                            nx = -x / radius; ny = 0; nz = -z / radius;
-                        }
+                        if (Math.abs(x) > curve.width / 2 || z > centerZ ||
+                            y < curve.baseY || y > curve.baseY + curve.height) continue;
+                        t = candidate;
+                        nx = -x / curve.curveRadius; ny = 0; nz = (centerZ - z) / curve.curveRadius;
                     }
                 }
             }
 
             if (dy < -1e-8) {
                 const stage = window.GASHOUDER_VENUE.stage;
+                if (curve && oy > stage.consoleTop) {
+                    const tableHit = (stage.consoleTop - oy) / dy;
+                    const x = ox + dx * tableHit;
+                    const z = oz + dz * tableHit;
+                    if (tableHit > 0 && tableHit < t && Math.abs(x) <= 2.25 &&
+                        Math.abs(z - stage.consoleZ) <= 0.6) {
+                        t = tableHit;
+                        nx = 0; ny = 1; nz = 0;
+                    }
+                }
                 if (oy > stage.height) {
                     const st = (stage.height - oy) / dy;
                     const sx = ox + dx * st;
@@ -1601,6 +1677,48 @@ class VRClubEffects extends VRClubFixtures {
         buf[o + 12] = ax + dx * length * 0.5; buf[o + 13] = ay + dy * length * 0.5; buf[o + 14] = az + dz * length * 0.5; buf[o + 15] = 1;
     }
 
+    _traceMirrorFacet(px, py, pz, nx, ny, nz, out) {
+        const beams = this.mirrorBallBeams;
+        out.source = -1;
+        out.strength = 0;
+        if (!beams) return false;
+        let best = 0;
+        for (let i = 0; i < beams.length; i++) {
+            const beam = beams[i];
+            if (!beam || !beam.origin || !beam.direction || !(beam.length > 0)) continue;
+            const vx = px - beam.origin.x, vy = py - beam.origin.y, vz = pz - beam.origin.z;
+            const distanceSq = vx * vx + vy * vy + vz * vz;
+            const distance = Math.sqrt(distanceSq) || 1;
+            const ix = vx / distance, iy = vy / distance, iz = vz / distance;
+            const facing = -(ix * nx + iy * ny + iz * nz);
+            if (facing <= 0.015) continue;
+
+            const along = vx * beam.direction.x + vy * beam.direction.y + vz * beam.direction.z;
+            if (along <= 0 || along > beam.length * 1.12) continue;
+            const radialSq = Math.max(0, distanceSq - along * along);
+            const beamRadius = 0.15 + 0.5 * Math.min(1, along / beam.length);
+            const q = radialSq / (beamRadius * beamRadius);
+            if (q >= 1.2) continue;
+            const edge = Math.max(0, Math.min(1, (1.2 - q) / 0.45));
+            const coverage = edge * edge * (3 - 2 * edge);
+            const strength = coverage * Math.pow(facing, 1.35) / (1 + distanceSq * 0.015);
+            if (strength <= best) continue;
+            best = strength;
+            const dot = ix * nx + iy * ny + iz * nz;
+            out.source = i;
+            out.strength = strength;
+            out.dx = ix - 2 * dot * nx;
+            out.dy = iy - 2 * dot * ny;
+            out.dz = iz - 2 * dot * nz;
+        }
+        if (out.source < 0) return false;
+        const reflectedLength = Math.hypot(out.dx, out.dy, out.dz) || 1;
+        out.dx /= reflectedLength;
+        out.dy /= reflectedLength;
+        out.dz /= reflectedLength;
+        return true;
+    }
+
     _updateMirrorReflectionBatch() {
         const batch = this.mirrorReflectionBatch;
         if (!batch || !this.mirrorBall) return;
@@ -1610,23 +1728,123 @@ class VRClubEffects extends VRClubFixtures {
         const oy = this.mirrorBall.position.y;
         const oz = this.mirrorBall.position.z;
         const spotScale = this.venueId === 'gashouder' ? 1.85 : 1.0;
-        for (let i = 0; i < spotCount; i++) {
-            const theta = batch.directions[i * 2] - this.mirrorBallRotation;
-            const phi = batch.directions[i * 2 + 1];
-            const sinPhi = Math.sin(phi);
-            const dx = sinPhi * Math.cos(theta);
-            const dy = Math.cos(phi);
-            const dz = sinPhi * Math.sin(theta);
-            const hit = this._intersectRoomInterior(ox, oy, oz, dx, dy, dz, batch.hit) || batch.hit;
-            this._writeMirrorSpotMatrix(batch.spotMatrices, i * 16, hit, dx, dy, dz, (0.24 + (i % 7) * 0.025) * spotScale);
-            if (i < rayCount) {
-                this._writeMirrorRayMatrix(batch.rayMatrices, i * 16, ox, oy, oz, dx, dy, dz, hit.t || 0);
+        const useFacets = !!(batch.facetNormals && batch.facetCenters && batch.facetIndices &&
+            this.mirrorBallBeams && this.mirrorBallBeams.length);
+        if (useFacets) {
+            const yaw = this.mirrorBallRotation || 0;
+            const cosYaw = Math.cos(yaw), sinYaw = Math.sin(yaw);
+            const trace = batch.trace;
+            for (let i = 0; i < spotCount; i++) {
+                const facet = batch.facetIndices[i];
+                const offset = facet * 3;
+                const nx0 = batch.facetNormals[offset], ny = batch.facetNormals[offset + 1];
+                const nz0 = batch.facetNormals[offset + 2];
+                const cx0 = batch.facetCenters[offset], cy = batch.facetCenters[offset + 1];
+                const cz0 = batch.facetCenters[offset + 2];
+                const nx = nx0 * cosYaw + nz0 * sinYaw;
+                const nz = -nx0 * sinYaw + nz0 * cosYaw;
+                const px = ox + cx0 * cosYaw + cz0 * sinYaw;
+                const py = oy + cy;
+                const pz = oz - cx0 * sinYaw + cz0 * cosYaw;
+                let valid = this._traceMirrorFacet(px, py, pz, nx, ny, nz, trace);
+                const hit = batch.hit;
+                if (valid) {
+                    valid = this._intersectRoomInterior(
+                        px + nx * 0.008, py + ny * 0.008, pz + nz * 0.008,
+                        trace.dx, trace.dy, trace.dz, hit
+                    ) && hit.t > 0;
+                }
+
+                const colorOffset = i * 4;
+                let attenuation = 0;
+                if (valid) {
+                    const size = Math.min(0.42, 0.18 + hit.t * 0.012) * spotScale;
+                    const incidence = Math.abs(trace.dx * hit.nx + trace.dy * hit.ny + trace.dz * hit.nz);
+                    const stretch = Math.min(2.5, 1 / Math.max(0.4, incidence));
+                    attenuation = 1 / (1 + (hit.t / 16) ** 2);
+                    batch.spotColors[colorOffset] = 1;
+                    batch.spotColors[colorOffset + 1] = 1;
+                    batch.spotColors[colorOffset + 2] = 1;
+                    batch.spotColors[colorOffset + 3] =
+                        Math.min(1, trace.strength * 2.4) * attenuation / stretch;
+                    this._writeMirrorSpotMatrix(batch.spotMatrices, i * 16, hit,
+                        trace.dx, trace.dy, trace.dz, size);
+                } else {
+                    batch.spotColors.fill(0, colorOffset, colorOffset + 4);
+                    batch.spotMatrices.fill(0, i * 16, i * 16 + 16);
+                }
+
+                if (i < rayCount) {
+                    const rayOffset = i * 4;
+                    if (valid) {
+                        const sx = px + nx * 0.008, sy = py + ny * 0.008, sz = pz + nz * 0.008;
+                        this._writeMirrorRayMatrix(batch.rayMatrices, i * 16,
+                            sx, sy, sz, trace.dx, trace.dy, trace.dz, hit.t);
+                        batch.rayColors[rayOffset] = 1;
+                        batch.rayColors[rayOffset + 1] = 1;
+                        batch.rayColors[rayOffset + 2] = 1;
+                        batch.rayColors[rayOffset + 3] =
+                            Math.min(1, trace.strength * 1.5) * attenuation;
+                        if (batch.rayOrigins && batch.rayDirections && batch.rayLengths && batch.rayStrengths) {
+                            const vectorOffset = i * 3;
+                            batch.rayOrigins[vectorOffset] = sx;
+                            batch.rayOrigins[vectorOffset + 1] = sy;
+                            batch.rayOrigins[vectorOffset + 2] = sz;
+                            batch.rayDirections[vectorOffset] = trace.dx;
+                            batch.rayDirections[vectorOffset + 1] = trace.dy;
+                            batch.rayDirections[vectorOffset + 2] = trace.dz;
+                            batch.rayLengths[i] = hit.t;
+                            batch.rayStrengths[i] = trace.strength;
+                        }
+                    } else {
+                        batch.rayColors.fill(0, rayOffset, rayOffset + 4);
+                        batch.rayMatrices.fill(0, i * 16, i * 16 + 16);
+                        if (batch.rayOrigins && batch.rayDirections && batch.rayLengths && batch.rayStrengths) {
+                            const vectorOffset = i * 3;
+                            batch.rayOrigins.fill(0, vectorOffset, vectorOffset + 3);
+                            batch.rayDirections.fill(0, vectorOffset, vectorOffset + 3);
+                            batch.rayLengths[i] = 0;
+                            batch.rayStrengths[i] = 0;
+                        }
+                    }
+                }
+            }
+        } else {
+            for (let i = 0; i < spotCount; i++) {
+                const theta = batch.directions[i * 2] - this.mirrorBallRotation;
+                const phi = batch.directions[i * 2 + 1];
+                const sinPhi = Math.sin(phi);
+                const dx = sinPhi * Math.cos(theta);
+                const dy = Math.cos(phi);
+                const dz = sinPhi * Math.sin(theta);
+                const hit = this._intersectRoomInterior(ox, oy, oz, dx, dy, dz, batch.hit) || batch.hit;
+                this._writeMirrorSpotMatrix(batch.spotMatrices, i * 16, hit, dx, dy, dz, (0.24 + (i % 7) * 0.025) * spotScale);
+                if (batch.spotColors) batch.spotColors.fill(1, i * 4, i * 4 + 4);
+                if (i < rayCount) {
+                    this._writeMirrorRayMatrix(batch.rayMatrices, i * 16, ox, oy, oz, dx, dy, dz, hit.t || 0);
+                    if (batch.rayColors) batch.rayColors.fill(1, i * 4, i * 4 + 4);
+                    if (batch.rayOrigins && batch.rayDirections && batch.rayLengths && batch.rayStrengths) {
+                        const vectorOffset = i * 3;
+                        const validLength = Number.isFinite(hit.t) && hit.t > 0 ? hit.t : 0;
+                        batch.rayOrigins[vectorOffset] = validLength > 0 ? ox : 0;
+                        batch.rayOrigins[vectorOffset + 1] = validLength > 0 ? oy : 0;
+                        batch.rayOrigins[vectorOffset + 2] = validLength > 0 ? oz : 0;
+                        batch.rayDirections[vectorOffset] = validLength > 0 ? dx : 0;
+                        batch.rayDirections[vectorOffset + 1] = validLength > 0 ? dy : 0;
+                        batch.rayDirections[vectorOffset + 2] = validLength > 0 ? dz : 0;
+                        batch.rayLengths[i] = validLength;
+                        batch.rayStrengths[i] = validLength > 0 ? 1 : 0;
+                    }
+                }
             }
         }
+        batch.rayCount = rayCount;
         batch.spots.thinInstanceCount = spotCount;
         batch.rays.thinInstanceCount = rayCount;
         batch.spots.thinInstanceBufferUpdated('matrix');
+        if (batch.spotColors) batch.spots.thinInstanceBufferUpdated('color');
         batch.rays.thinInstanceBufferUpdated('matrix');
+        if (batch.rayColors) batch.rays.thinInstanceBufferUpdated('color');
         this._updateMirrorReflectionColors();
     }
 

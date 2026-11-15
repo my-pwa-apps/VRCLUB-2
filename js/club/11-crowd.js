@@ -216,32 +216,63 @@ class VRClubCrowd extends window.VRClubAvatars {
     }
 
     _spawnCrowdTo(target) {
+        if (this._crowdSpawnTimer) {
+            clearTimeout(this._crowdSpawnTimer);
+            this._crowdSpawnTimer = null;
+        }
         if (!this._crowdSlots || !this._crowdSourceContainers || !this._availableCrowdSources?.length) return;
+        if (this._characterStyles?.loading) return;
         const existing = new Set(this.npcAvatars
             .filter(npc => npc.name.startsWith('dancer'))
             .map(npc => npc.name));
         const limit = Math.min(Math.max(0, target | 0), this._crowdSlots.length);
+        const gradual = this.venueId === 'gashouder';
+        let extraSpawned = 0;
+        let moreReady = false;
 
-        this._crowdSlots.slice(0, limit).forEach((slot, index) => {
+        for (let index = 0; index < limit; index++) {
+            const slot = this._crowdSlots[index];
             const name = `dancer${index}`;
-            if (existing.has(name)) return;
+            if (existing.has(name)) continue;
             // `undefined` = this tier's top-up is still fetching the file (it spawns afterwards); `null` = it failed,
             // so any loaded character stands in rather than leaving a hole.
             const own = this._crowdSourceContainers[slot.src];
-            if (own === undefined) return;
+            if (own === undefined) continue;
             const source = own || this._availableCrowdSources[index % this._availableCrowdSources.length];
-            if (!source) return;
-            this._spawnAvatar(
-                source,
-                name,
-                new BABYLON.Vector3(slot.x, 0, slot.z),
-                Math.PI + slot.facing,
-                slot.height,
-                0.85 + (index % 5) * 0.07,
-                // All floor dancers use the CC0 repertoire.
-                { repertoire: VRClubAudioCrowd.DANCE_MOVES }
-            );
-        });
+            if (!source) continue;
+            if (gradual && index >= window.GASHOUDER_VENUE.crowdSources.length && extraSpawned >= 1) {
+                moreReady = true;
+                break;
+            }
+            let entry;
+            try {
+                entry = this._spawnAvatar(
+                    source,
+                    name,
+                    new BABYLON.Vector3(slot.x, 0, slot.z),
+                    Math.PI + slot.facing,
+                    slot.height,
+                    0.85 + (index % 5) * 0.07,
+                    { repertoire: VRClubAudioCrowd.DANCE_MOVES }
+                );
+            } catch (error) {
+                log.warn(`Could not create ${name}; crowd loading stopped.`, error);
+                this.showErrorMessage('A dancer could not be created. Reduce the count or try again.');
+                break;
+            }
+            if (entry === null) {
+                log.warn(`Could not create ${name}; crowd loading stopped.`);
+                this.showErrorMessage('A dancer could not be created. Reduce the count or try again.');
+                break;
+            }
+            if (gradual && index >= window.GASHOUDER_VENUE.crowdSources.length) extraSpawned++;
+        }
+        if (moreReady && !this._disposed) {
+            this._crowdSpawnTimer = setTimeout(() => {
+                this._crowdSpawnTimer = null;
+                if (!this._disposed) this._applyCrowdSize();
+            }, 100);
+        }
     }
 
     /**
@@ -491,9 +522,20 @@ class VRClubCrowd extends window.VRClubAvatars {
         const guestTarget = bystandersOn ? Math.max(0, (this.venueId === 'gashouder'
             ? this.getGashouderGuestSize()
             : this.tierSettings.guestSize) | 0) : 0;
+        if (this.venueId === 'gashouder' && !this._characterStyles?.loading) {
+            for (let i = this.npcAvatars.length - 1; i >= 0; i--) {
+                const npc = this.npcAvatars[i];
+                if (!npc.name.startsWith('dancer')) continue;
+                const index = Number(npc.name.slice('dancer'.length));
+                if (index >= window.GASHOUDER_VENUE.crowdSources.length && index >= target) {
+                    this._disposeCharacterNPC(npc);
+                    this.npcAvatars.splice(i, 1);
+                }
+            }
+        }
         this._topUpCrowdSources();
         this._spawnCrowdTo(target);
-        this._spawnGuestsTo(guestTarget);
+        if (!(this.venueId === 'gashouder' && this._characterStyles?.loading)) this._spawnGuestsTo(guestTarget);
         this.npcAvatars.forEach(npc => {
             const isGuest = npc.name.startsWith('guest');
             const isDancer = npc.name.startsWith('dancer');

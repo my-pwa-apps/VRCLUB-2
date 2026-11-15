@@ -12,7 +12,7 @@
  *   cue      one hand holding a headphone cup to the ear, the other on the mixer: listening to the next track
  *   tweak    both hands on the mixer, alternating deliberate knob turns during a build
  *   crowd    looking up and out over the floor, scanning it, hands resting on the console
- *   handsUp  one four-bar staggered lift, hold and return on a drop, never repeated beat pumping
+ *   handsUp  one five-beat staggered lift, hold and return on a drop, never repeated beat pumping
  *   point    a brief point and look toward a visitor who has just walked up to the booth
  * Throughout, shaped head nods and knee bounces land just after the beat and grow with the music. Slow gaze and breath
  * offsets keep held poses alive. Without music it keeps a slow internal tempo and a calm repertoire.
@@ -27,13 +27,14 @@ class DJPerformer {
         cue: { bars: 2, weight: 2 },
         tweak: { bars: 2, weight: 1 },
         crowd: { bars: 2, weight: 1.5 },
-        handsUp: { bars: 4, weight: 0 },
+        handsUp: { bars: 1, weight: 0 },
         point: { bars: 1, weight: 0 }
     });
 
     /** A visitor is acknowledged once, then not again for this long (seconds). */
     static POINT_COOLDOWN = 45;
     static POINT_DURATION = 1.8;
+    static CELEBRATION_BEATS = 5;
     static CELEBRATION_COOLDOWN = 24;
 
     /**
@@ -102,6 +103,7 @@ class DJPerformer {
 
     _begin(name, bars) {
         this.activity = name;
+        this._activityPinned = bars !== undefined;
         this.barsLeft = bars || DJPerformer.ACTIVITIES[name].bars;
         this._activityStartedAt = this.time;
         this._activityBeats = 0;
@@ -207,6 +209,9 @@ class DJPerformer {
         } else if (this.activity === 'point' && this.time - this._activityStartedAt >= DJPerformer.POINT_DURATION) {
             this._visitor.id = null;
             this._begin(this._pick({ hasAudio: audio, energy }));
+        } else if (this.activity === 'handsUp' && !this._activityPinned &&
+            this._activityBeats >= DJPerformer.CELEBRATION_BEATS) {
+            this._begin(this._pick({ hasAudio: audio, energy }));
         }
 
         // Bar lines: count down, then choose the next activity.
@@ -214,7 +219,7 @@ class DJPerformer {
             if (this._lastBar !== null) this.barsLeft = Math.max(0, this.barsLeft - 1);
             this._lastBar = bar;
             const gestureComplete = this.activity !== 'point' && (this.activity !== 'handsUp' ||
-                this._activityBeats >= DJPerformer.ACTIVITIES.handsUp.bars * 4);
+                this._activityBeats >= DJPerformer.CELEBRATION_BEATS);
             if (this.barsLeft <= 0 && gestureComplete) {
                 this._begin(this._pick({ hasAudio: audio, energy }));
             }
@@ -373,7 +378,7 @@ class DJPerformer {
 
     static _celebrationLift(beats) {
         const rise = Math.max(0, Math.min(1, beats / 0.8));
-        const fall = Math.max(0, Math.min(1, (DJPerformer.ACTIVITIES.handsUp.bars * 4 - 0.3 - beats) / 1.1));
+        const fall = Math.max(0, Math.min(1, (DJPerformer.CELEBRATION_BEATS - 0.3 - beats) / 1.1));
         return rise * rise * (3 - 2 * rise) * fall * fall * (3 - 2 * fall);
     }
 

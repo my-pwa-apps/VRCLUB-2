@@ -252,7 +252,7 @@ class ShowDirector {
                 gashouderReveal: {
                     hue: 0.57, intensity: [0.76, 0.90], punch: 0.20,
                     ledPattern: 11, ledLevel: 0.78, ledHarmony: 'analogous',
-                    spotlightPattern: 1, spotlightSpeed: 0.55, spotPrismActive: true,
+                    spotlightPattern: 1, spotlightSpeed: 0.55,
                     laserSheetActive: true, laserSheetOrigin: 'both', laserSheetMotion: 'lateral',
                     fogIntensity: 1.25, gashouderCeilingMode: 0
                 },
@@ -269,7 +269,7 @@ class ShowDirector {
                 gashouderSweep: {
                     hue: 0.80, intensity: 0.94, punch: 0.28,
                     ledPattern: 19, ledLevel: 0.92, ledMulti: true, ledHarmony: 'triad',
-                    spotlightPattern: 3, spotPrismActive: true, spotlightSpeed: 0.9,
+                    spotlightPattern: 3, spotlightSpeed: 0.9,
                     laserSheetActive: true, laserSheetOrigin: 'both', laserSheetMotion: 'lateral',
                     strobesActive: true, strobePattern: 'sides', strobeSync: 'bar',
                     fogIntensity: 1.5, fogImmersion: 0.45, gashouderCeilingMode: 4
@@ -283,11 +283,11 @@ class ShowDirector {
                     strobesActive: true, strobePattern: 'build', strobeSync: 'beat',
                     fogIntensity: 1.65, fogImmersion: 0.55, gashouderCeilingMode: 3
                 },
-                // Full Awakenings-scale arena drop: all 24 heads with prism, 8 multi-lasers, 12 strobes, full wrap-around wall & ceiling matrix
+                // Full arena drop: all 24 heads, 8 multi-lasers, 12 strobes, full wrap-around wall & ceiling matrix
                 gashouderPeak: {
                     hue: 0.95, intensity: 1.0, punch: 0.36, palette: 'complementary',
                     ledPattern: 19, ledLevel: 1.0, ledMulti: true, ledHarmony: 'complement',
-                    spotlightPattern: 7, spotlightMode: 0, spotStrobeActive: true, spotPrismActive: true,
+                    spotlightPattern: 7, spotlightMode: 0, spotStrobeActive: true,
                     spotSequence: 0, spotlightSpeed: 1.3,
                     lasersActive: true, laserSpeed: 1.25,
                     laserSheetActive: true, laserSheetOrigin: 'both', laserSheetMotion: 'vertical',
@@ -298,7 +298,7 @@ class ShowDirector {
                 gashouderCathedral: {
                     hue: 0.62, intensity: 0.88, punch: 0.22, palette: 'triad',
                     ledPattern: 12, ledLevel: 0.82, ledHarmony: 'analogous',
-                    spotlightPattern: 2, spotPrismActive: true, spotlightSpeed: 0.75,
+                    spotlightPattern: 2, spotlightSpeed: 0.75,
                     lasersActive: true, laserSpeed: 0.65,
                     mirrorBallActive: true, mirrorBallRaysActive: true, mirrorBallSpeed: 0.55,
                     fogIntensity: 1.6, fogImmersion: 0.5, gashouderCeilingMode: 1
@@ -573,7 +573,11 @@ class ShowDirector {
      * lower movements and IGNITION would never fire.
      */
     _pickMovement() {
-        const e = this._energy;
+        let e = this._energy;
+        if (this.program === 'gashouder' && this.club.isGashouderLookaheadEnabled?.()) {
+            const preview = this.club.getGashouderLookaheadEnergy?.();
+            if (Number.isFinite(preview)) e = e * 0.4 + preview * 0.6;
+        }
         if (this._barsSinceMovement < this._movement.minBars) return this._movementName;
 
         if (e < 0.08) return 'afterglow';

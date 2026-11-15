@@ -260,12 +260,8 @@ const Mezzanine = {
         if (this.venueId === 'gashouder') {
             const stage = window.GASHOUDER_VENUE.stage;
             const frontEdge = stage.z + stage.depth / 2;
-            if (Math.abs(x - stage.x) <= stage.stairWidth / 2 + 0.2 &&
-                z > frontEdge && z <= stage.stairStartZ) {
-                    const step = Math.min(stage.stairSteps - 1,
-                        Math.max(0, Math.floor((stage.stairStartZ - z) / stage.stairDepth)));
-                    return stage.height * (step + 1) / stage.stairSteps;
-            }
+            const stair = window.GashouderVenue.gashouderStairHeight(x, z);
+            if (stair !== null && Math.abs(stair - level) <= 0.5) return stair;
             if (level >= stage.height - 0.45 &&
                 x >= stage.x - stage.width / 2 && x <= stage.x + stage.width / 2 &&
                 z >= stage.z - stage.depth / 2 && z <= frontEdge) {
@@ -315,6 +311,17 @@ const Mezzanine = {
 
     // Tracked XR poses bypass camera collisions. Keep both the eye and deferred locomotion on the room side.
     _containLEDWall(camera) {
+        if (this.venueId === 'gashouder') {
+            const radius = Math.max(0.25, camera.ellipsoid?.z || 0);
+            const limit = window.GASHOUDER_VENUE.dimensions.innerRadius - 0.35 - 0.09 - radius - 0.01;
+            if (Math.abs(camera.position.x) <= 1.5 + radius) {
+                camera.position.z = Math.max(-limit, Math.min(limit, camera.position.z));
+            }
+            if (camera._deferOnly && camera._deferredUpdated && Math.abs(camera._deferredPositionUpdate.x) <= 1.5 + radius) {
+                const queued = camera._deferredPositionUpdate;
+                queued.z = Math.max(-limit, Math.min(limit, queued.z));
+            }
+        }
         const wall = this._ledWallCollider;
         if (!wall || !wall.isEnabled()) return;
         const radius = Math.max(0.25, camera.ellipsoid?.z || 0);

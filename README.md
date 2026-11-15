@@ -218,7 +218,7 @@ js/venueDressing.js        Entrance stair hall (down from the street door) and b
 js/mezzanine.js            Steel balcony and stair along the left wall, plus the walking-surface follow, mixed into VRClub.prototype
 js/cityDistrict.js         The street outside (baked GLB), its sky and skyline, fence, street door and "outdoors" amount, mixed into VRClub.prototype
 js/vjDesk.js               The VJ desk: Auto show/DJ/presets, fixture/spot-rig/settings pages and a separate player/effects panel
-js/guestExperience.js      Simplified guest menus, mirror wardrobe entry, VR credits, phone transfer and local still postcards
+js/guestExperience.js      Simplified guest menus, mirror wardrobe entry, VR credits, phone transfer and room invitations
 js/sessionExperience.js    Room-authoritative water glasses and real-guest booth feedback
 js/lightingPresets.js      Twelve local lighting preset slots, validated backups and desktop/phone naming and transfer
 js/characterCatalog.js     Generated CC0 MakeHuman adult cast, measured eyes, NPC assignments and compatible player IDs
@@ -236,6 +236,7 @@ js/networkClient.js        Multiplayer WebSocket/WebRTC client (presence, mesh/S
 js/avatarManager.js        Remote guests as clip-driven Quaternius people: idle/walk/run, wave, nod, dance; name tags, spatial voice, mute and the personal-space bubble
 js/multiplayer.js          One multiplayer session for the whole club (DOM panel and VR menu): connect, mic, gestures, block, mute, kick/ban/lock, shared music
 js/gashouderVenue.js       Separate Gashouder shell, roof, stage, event rig, presets, and placements
+js/gashouderExperience.js  Optional, local Gashouder tabletop effect and its shared decorative props
 js/club/01-core.js         VRClub constructor, shared state, and device settings
 js/club/02-lifecycle.js    Scene initialization and disposal
 js/club/03-rendering.js    Pipelines, materials, shadows, floor, and walls

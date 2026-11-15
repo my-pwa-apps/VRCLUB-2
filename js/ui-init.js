@@ -645,7 +645,11 @@ function initVJMenu() {
     if (!vjToggle || !vjMenu) return;
     const spotRigSelection = document.getElementById('spotRigSelection');
     if (spotRigSelection) {
-        VRClubUI.SPOT_GROUPS.forEach(({ name }, index) => {
+        if (vrClubInstance.venueId === 'gashouder') {
+            const help = spotRigSelection.closest('.vj-section')?.querySelector('.vj-help');
+            if (help) help.textContent = 'Choose one or more of the six control groups; each group controls four spots. On/off, colour and aim apply to your selection. Light order affects all spots; moving orders use the main spot colour.';
+        }
+        vrClubInstance.spotRigGroups().forEach(({ name }, index) => {
             const option = document.createElement('option');
             option.value = String(index);
             option.textContent = name;
@@ -713,6 +717,44 @@ function initVJMenu() {
     // Declared as a function so the button handlers below can call it before
     // this point in the file is reached at runtime.
     const showReadout = document.getElementById('showMovementReadout');
+    const gashouderLookaheadControl = document.getElementById('gashouderLookaheadControl');
+    const gashouderLookaheadButton = document.getElementById('gashouderLookaheadButton');
+    const gashouderLookaheadStatus = document.getElementById('gashouderLookaheadStatus');
+    const audioLookaheadStatus = document.getElementById('audioLookaheadStatus');
+    const hasGashouderLookahead = vrClubInstance.venueId === 'gashouder';
+    if (gashouderLookaheadControl) gashouderLookaheadControl.hidden = !hasGashouderLookahead;
+    if (audioLookaheadStatus) audioLookaheadStatus.hidden = !hasGashouderLookahead;
+    function renderGashouderLookahead() {
+        if (!hasGashouderLookahead) return;
+        const enabled = vrClubInstance.isGashouderLookaheadEnabled();
+        if (gashouderLookaheadButton) {
+            gashouderLookaheadButton.setAttribute('aria-pressed', String(enabled));
+            gashouderLookaheadButton.textContent = `AHEAD ANALYSIS: ${enabled ? 'ON' : 'OFF'}`;
+            setToggleState(gashouderLookaheadButton, enabled);
+        }
+        const status = vrClubInstance.getGashouderLookaheadStatus();
+        if (gashouderLookaheadStatus) gashouderLookaheadStatus.textContent = status;
+        if (audioLookaheadStatus) audioLookaheadStatus.textContent = `Ahead analysis: ${status}${enabled ? '' : ' · enable in Show'}`;
+    }
+    if (gashouderLookaheadButton) {
+        gashouderLookaheadButton.addEventListener('click', () => {
+            const enabled = !vrClubInstance.isGashouderLookaheadEnabled();
+            if (!vrClubInstance.setGashouderLookaheadEnabled(enabled)) return;
+            renderGashouderLookahead();
+        });
+    }
+    if (hasGashouderLookahead) {
+        const onLookaheadChange = () => renderGashouderLookahead();
+        window.addEventListener('gashouderlookaheadchange', onLookaheadChange);
+        const lookaheadStatusInterval = setInterval(() => {
+            if (!document.hidden) renderGashouderLookahead();
+        }, 500);
+        teardowns.push(() => {
+            window.removeEventListener('gashouderlookaheadchange', onLookaheadChange);
+            clearInterval(lookaheadStatusInterval);
+        });
+        renderGashouderLookahead();
+    }
     function updateShowReadout() {
         if (!showReadout || !vrClubInstance.showDirector) return;
         const s = vrClubInstance.showDirector;
@@ -1096,6 +1138,11 @@ function initVJMenu() {
     const lightweightCharacters = document.getElementById('lightweightCharacters');
     const characterStyleStatus = document.getElementById('characterStyleStatus');
     const retryCharacterStyle = document.getElementById('retryCharacterStyle');
+    const gashouderCrowdControl = document.getElementById('gashouderCrowdControl');
+    const gashouderCrowdCount = document.getElementById('gashouderCrowdCount');
+    const gashouderCrowdValue = document.getElementById('gashouderCrowdValue');
+    const gashouderCrowdAuto = document.getElementById('gashouderCrowdAuto');
+    const gashouderCrowdStatus = document.getElementById('gashouderCrowdStatus');
     if (retryCharacterStyle) retryCharacterStyle.addEventListener('click', () => vrClubInstance.retryCharacterStyle());
     if (characterStyle) characterStyle.addEventListener('change', () => vrClubInstance.setCharacterStyle(characterStyle.value));
     if (lightweightCharacters) lightweightCharacters.addEventListener('click', () => {
@@ -1142,6 +1189,57 @@ function initVJMenu() {
     window.addEventListener('characterstylechange', renderPeopleButtons);
     teardowns.push(() => window.removeEventListener('characterstylechange', renderPeopleButtons));
     renderPeopleButtons();
+
+    function renderGashouderCrowdControl() {
+        if (!gashouderCrowdControl || !gashouderCrowdCount || !gashouderCrowdValue || !gashouderCrowdAuto) return;
+        const isGashouder = vrClubInstance.venueId === 'gashouder';
+        gashouderCrowdControl.hidden = !isGashouder;
+        if (!isGashouder) return;
+
+        const limit = vrClubInstance.getGashouderCrowdLimit();
+        const count = vrClubInstance.getGashouderCrowdSize();
+        const automatic = vrClubInstance.gashouderCrowdOverride === null;
+        gashouderCrowdCount.max = String(limit);
+        gashouderCrowdCount.value = String(count);
+        gashouderCrowdCount.disabled = limit === 0;
+        gashouderCrowdAuto.disabled = automatic;
+        gashouderCrowdValue.textContent = `${count} ${count === 1 ? 'dancer' : 'dancers'}${automatic ? ' - automatic' : ' selected - saved here'}`;
+        if (gashouderCrowdStatus) {
+            gashouderCrowdStatus.textContent = limit === 0
+                ? 'The Architectural setup has no dancers.'
+                : limit < window.GASHOUDER_VENUE.maxDancers
+                    ? `This setup allows up to ${limit} dancers.`
+                    : `0 to ${limit} dancers. Above 24 is experimental: dancers load gradually, appearances repeat, and memory use and frame time may rise severely. Auto follows your graphics tier.`;
+        }
+    }
+
+    const onGashouderCrowdInput = () => {
+        if (gashouderCrowdValue) gashouderCrowdValue.textContent = `${gashouderCrowdCount.value} selected; release to apply`;
+    };
+    const onGashouderCrowdChange = () => {
+        vrClubInstance.setGashouderCrowdCount(Number(gashouderCrowdCount.value));
+        renderGashouderCrowdControl();
+    };
+    const onGashouderCrowdAuto = () => {
+        vrClubInstance.setGashouderCrowdCount(null);
+        renderGashouderCrowdControl();
+    };
+    const onGashouderCrowdUpdate = () => renderGashouderCrowdControl();
+    if (gashouderCrowdCount) {
+        gashouderCrowdCount.addEventListener('input', onGashouderCrowdInput);
+        gashouderCrowdCount.addEventListener('change', onGashouderCrowdChange);
+        teardowns.push(() => {
+            gashouderCrowdCount.removeEventListener('input', onGashouderCrowdInput);
+            gashouderCrowdCount.removeEventListener('change', onGashouderCrowdChange);
+        });
+    }
+    if (gashouderCrowdAuto) {
+        gashouderCrowdAuto.addEventListener('click', onGashouderCrowdAuto);
+        teardowns.push(() => gashouderCrowdAuto.removeEventListener('click', onGashouderCrowdAuto));
+    }
+    window.addEventListener('gashoudercrowdchange', onGashouderCrowdUpdate);
+    teardowns.push(() => window.removeEventListener('gashoudercrowdchange', onGashouderCrowdUpdate));
+    renderGashouderCrowdControl();
 
     // Update button states periodically
     function updateButtonStates() {
@@ -2262,7 +2360,7 @@ function initAudioMenu() {
 function initRoomGuestLock(mp) {
     const club = vrClubInstance;
     const panels = [
-        { id: 'vjMenu', what: 'show controls', keep: '#reducedShowSmoke, #vjSafeModeBtn, #vjVRComfortBtn, #vjMinimize, #vjClose, [data-open-panel], [data-vj-tab-target], [data-control="cycleGraphicsQuality"], [data-control="cycleSpotTarget"], #spotRigSelection, [data-people], [data-hold], #vjHoldTiming, #djStyle, #myCharacter, #editPersonalAvatar, #uploadCustomAvatarBtn, #toggleCustomAvatarBtn, #clearCustomAvatarBtn, #customAvatarGlbInput, #customAvatarShare, #vjAutoQualityBtn, #lightweightCharacters, #retryCharacterStyle' },
+        { id: 'vjMenu', what: 'show controls', keep: '#reducedShowSmoke, #vjSafeModeBtn, #vjVRComfortBtn, #vjMinimize, #vjClose, [data-open-panel], [data-vj-tab-target], [data-control="cycleGraphicsQuality"], [data-control="cycleSpotTarget"], #spotRigSelection, [data-people], [data-hold], #vjHoldTiming, #djStyle, #myCharacter, #editPersonalAvatar, #uploadCustomAvatarBtn, #toggleCustomAvatarBtn, #clearCustomAvatarBtn, #customAvatarGlbInput, #customAvatarShare, #vjAutoQualityBtn, #lightweightCharacters, #retryCharacterStyle, #gashouderCrowdCount, #gashouderCrowdAuto' },
         { id: 'audioMenu', what: 'music', keep: '#audioMinimize, #audioClose, #audioVolume, #crowdAmbience, #retrySavedSets, #resetSavedSets, [data-open-panel], #audioSourceTabLive, #audioSourceLive button, #audioSourceLive input, #audioSourceLive select' }
     ];
     const renders = [];

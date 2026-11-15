@@ -188,6 +188,8 @@ class VRClubFixtures extends VRClubEnvironment {
         const curveRadius = options.curveRadius ?? 0;
         const wallName = options.name ?? 'ledPanel_wall';
         const wallWidth = cols * panelWidth;
+        const halfAngle = curveRadius > 0 ? wallWidth / (2 * curveRadius) : 0;
+        const chordWidth = curveRadius > 0 ? 2 * curveRadius * Math.sin(halfAngle) : wallWidth;
         const zAt = x => curveRadius > 0
             ? centerZ + curveRadius - Math.sqrt(Math.max(0, curveRadius * curveRadius - x * x))
             : centerZ;
@@ -210,7 +212,9 @@ class VRClubFixtures extends VRClubEnvironment {
 
         for (let row = 0; row < rows; row++) {
             for (let col = 0; col < cols; col++) {
-                const x = (col * panelWidth) - (wallWidth / 2) + (panelWidth / 2);
+                const theta = curveRadius > 0 ? (col + 0.5 - cols / 2) * panelWidth / curveRadius : 0;
+                const x = curveRadius > 0 ? curveRadius * Math.sin(theta)
+                    : (col * panelWidth) - (wallWidth / 2) + (panelWidth / 2);
                 const y = (row * panelHeight) + (panelHeight / 2) + baseY;
                 const index = row * cols + col;
                 const v = index * 4;
@@ -218,8 +222,8 @@ class VRClubFixtures extends VRClubEnvironment {
                 // Faces toward the dance floor; curved walls follow local arc tangent and inward normal.
                 const corners = [[-quadW, -quadH], [quadW, -quadH], [quadW, quadH], [-quadW, quadH]];
                 const uv = [(col + 0.5) / cols, (row + 0.5) / rows];
-                const sinTheta = curveRadius > 0 ? Math.max(-0.98, Math.min(0.98, x / curveRadius)) : 0;
-                const cosTheta = curveRadius > 0 ? Math.sqrt(Math.max(0, 1 - sinTheta * sinTheta)) : 1;
+                const sinTheta = Math.sin(theta);
+                const cosTheta = Math.cos(theta);
                 const centerTileZ = zAt(x);
                 for (let k = 0; k < 4; k++) {
                     const dx = corners[k][0];
@@ -287,7 +291,7 @@ class VRClubFixtures extends VRClubEnvironment {
             const colliderIndices = [];
             const segments = cols * 2;
             for (let i = 0; i <= segments; i++) {
-                const x = -wallWidth / 2 + wallWidth * i / segments;
+                const x = curveRadius * Math.sin(-halfAngle + 2 * halfAngle * i / segments);
                 const z = zAt(x) - 0.15;
                 colliderPositions.push(x, baseY, z, x, baseY + rows * panelHeight, z);
                 if (i < segments) {
@@ -303,9 +307,11 @@ class VRClubFixtures extends VRClubEnvironment {
             BABYLON.VertexData.ComputeNormals(colliderPositions, colliderIndices, colliderData.normals);
             colliderData.applyToMesh(wallCollider);
             wallCollider._curveMeta = {
-                width: wallWidth,
+                width: chordWidth,
                 centerZ,
-                curveRadius
+                curveRadius,
+                baseY,
+                height: rows * panelHeight
             };
         } else {
             wallCollider = BABYLON.MeshBuilder.CreateBox(colliderName, {
@@ -317,7 +323,17 @@ class VRClubFixtures extends VRClubEnvironment {
         }
         wallCollider.checkCollisions = true;
         wallCollider.isPickable = false;
-        wallCollider.isVisible = false;
+        if (curveRadius > 0) {
+            const backing = this.materialFactory.createStandardMaterial('arenaBackdropMat', {
+                mutable: true, diffuseColor: [0.025, 0.025, 0.025], specularColor: [0, 0, 0]
+            });
+            backing.backFaceCulling = false;
+            backing.freeze();
+            wallCollider.material = backing;
+            wallCollider.isVisible = true;
+        } else {
+            wallCollider.isVisible = false;
+        }
         wallCollider.freezeWorldMatrix();
         wallCollider.doNotSyncBoundingInfo = true;
         this._ledWallCollider = wallCollider;
@@ -386,6 +402,61 @@ class VRClubFixtures extends VRClubEnvironment {
         this.lastBPMUpdate = 0;
     }
 
+    _paintSmokePuffPixels(pixels, size) {
+        const makeNoiseGrid = (cells, seed) => {
+            const values = new Float32Array(cells * cells);
+            let state = seed >>> 0;
+            for (let i = 0; i < values.length; i++) {
+                state = (Math.imul(state, 1664525) + 1013904223) >>> 0;
+                values[i] = state / 4294967296;
+            }
+            return values;
+        };
+        const sample = (grid, cells, u, v) => {
+            const gx = u * (cells - 1);
+            const gy = v * (cells - 1);
+            const x0 = Math.min(cells - 2, Math.floor(gx));
+            const y0 = Math.min(cells - 2, Math.floor(gy));
+            const tx = gx - x0;
+            const ty = gy - y0;
+            const sx = tx * tx * (3 - 2 * tx);
+            const sy = ty * ty * (3 - 2 * ty);
+            const a = grid[y0 * cells + x0];
+            const b = grid[y0 * cells + x0 + 1];
+            const c = grid[(y0 + 1) * cells + x0];
+            const d = grid[(y0 + 1) * cells + x0 + 1];
+            return (a + (b - a) * sx) * (1 - sy) + (c + (d - c) * sx) * sy;
+        };
+        const coarse = makeNoiseGrid(5, 0x51f15e);
+        const medium = makeNoiseGrid(9, 0x2ad09b);
+        const detail = makeNoiseGrid(17, 0x73c4a1);
+        const warpX = makeNoiseGrid(7, 0x19a6d3);
+        const warpY = makeNoiseGrid(7, 0x4b82ef);
+        const clamp = value => Math.min(1, Math.max(0, value));
+
+        for (let y = 0; y < size; y++) {
+            const v = (y + 0.5) / size;
+            for (let x = 0; x < size; x++) {
+                const u = (x + 0.5) / size;
+                const low = sample(coarse, 5, u, v);
+                const mid = sample(medium, 9, u, v);
+                const high = sample(detail, 17, u, v);
+                const shapeX = (u - 0.5) * 2 + (sample(warpX, 7, u, v) - 0.5) * 0.3;
+                const shapeY = (v - 0.5) * 2 + (sample(warpY, 7, u, v) - 0.5) * 0.24;
+                const radius = Math.hypot(shapeX * 0.88, shapeY * 0.74);
+                const edge = 0.73 + (low - 0.5) * 0.3 + (mid - 0.5) * 0.12;
+                const coverage = clamp((edge + 0.16 - radius) / 0.32);
+                const softened = coverage * coverage * (3 - 2 * coverage);
+                const density = 0.42 + 0.58 * (low * 0.5 + mid * 0.32 + high * 0.18);
+                const offset = (y * size + x) * 4;
+                pixels[offset] = 255;
+                pixels[offset + 1] = 255;
+                pixels[offset + 2] = 255;
+                pixels[offset + 3] = Math.round(255 * softened * density);
+            }
+        }
+    }
+
     createHyperrealisticSmoke() {
         // === HYPERREALISTIC FOG MACHINE SYSTEM ===
         // Distributed, low-output fog machines feed the haze volume without multiplying
@@ -393,25 +464,34 @@ class VRClubFixtures extends VRClubEnvironment {
         
         log.info('💨 Creating hyperrealistic fog machine system...');
         
-        // Create a soft particle texture using Canvas
-        const smokeCanvas = document.createElement('canvas');
-        smokeCanvas.width = 128;
-        smokeCanvas.height = 128;
-        const ctx = smokeCanvas.getContext('2d');
-        
-        // Create soft radial gradient for smoke puff
-        const grad = ctx.createRadialGradient(64, 64, 0, 64, 64, 64);
+        // Keep dust glints round; smoke needs a broken-up, irregular silhouette.
+        const dustCanvas = document.createElement('canvas');
+        dustCanvas.width = 128;
+        dustCanvas.height = 128;
+        const dustContext = dustCanvas.getContext('2d');
+        const grad = dustContext.createRadialGradient(64, 64, 0, 64, 64, 64);
         grad.addColorStop(0, 'rgba(255, 255, 255, 1)');
         grad.addColorStop(0.3, 'rgba(255, 255, 255, 0.6)');
         grad.addColorStop(0.6, 'rgba(255, 255, 255, 0.25)');
         grad.addColorStop(1, 'rgba(255, 255, 255, 0)');
         
-        ctx.fillStyle = grad;
-        ctx.fillRect(0, 0, 128, 128);
+        dustContext.fillStyle = grad;
+        dustContext.fillRect(0, 0, 128, 128);
         
-        const particleTexture = new BABYLON.Texture(smokeCanvas.toDataURL(), this.scene);
-        particleTexture.name = "proceduralSmokeTexture";
-        this._fogParticleTexture = particleTexture; // Store for reuse
+        const dustTexture = new BABYLON.Texture(dustCanvas.toDataURL(), this.scene);
+        dustTexture.name = "proceduralDustTexture";
+
+        const smokeCanvas = document.createElement('canvas');
+        smokeCanvas.width = 128;
+        smokeCanvas.height = 128;
+        const smokeContext = smokeCanvas.getContext('2d');
+        const smokeImage = smokeContext.createImageData(128, 128);
+        this._paintSmokePuffPixels(smokeImage.data, 128);
+        smokeContext.putImageData(smokeImage, 0, 0);
+
+        const smokeTexture = new BABYLON.Texture(smokeCanvas.toDataURL(), this.scene);
+        smokeTexture.name = "proceduralSmokeTexture";
+        this._fogParticleTexture = smokeTexture;
         
         // NOCTURNE uses two truss-mounted emitters; Gashouder hangs eight units around
         // the circular overhead truss (and stage bridge) and aims each plume downward and inward.
@@ -526,7 +606,7 @@ class VRClubFixtures extends VRClubEnvironment {
             const machineBudget = 2 / fogMachinePositions.length;
             const fogEmitter = new BABYLON.ParticleSystem(
                 `fogEmitter${i}`, Math.ceil(this.tierSettings.fogParticleCapacity * machineBudget), this.scene);
-            fogEmitter.particleTexture = particleTexture;
+            fogEmitter.particleTexture = smokeTexture;
             
             // World position of the angled nozzle mouth (turned toward -Z dance floor)
             const nozzleWorldPos = new BABYLON.Vector3(
@@ -626,7 +706,7 @@ class VRClubFixtures extends VRClubEnvironment {
         // === AMBIENT HAZE (residual fog in air) ===
         // Light dispersed particles from accumulated fog - makes beams visible
         this.haze = new BABYLON.ParticleSystem("haze", this.tierSettings.hazeCapacity, this.scene);
-        this.haze.particleTexture = particleTexture;
+        this.haze.particleTexture = smokeTexture;
         
         // Emitter covers dance floor area
         const hazeCenter = this.gashouderLighting
@@ -692,7 +772,7 @@ class VRClubFixtures extends VRClubEnvironment {
         const moteCapacity = this.graphicsTier === 'ultra' ? 1400
             : this.graphicsTier === 'high' ? 900 : 400;
         this.dustMotes = new BABYLON.ParticleSystem("dustMotes", moteCapacity, this.scene);
-        this.dustMotes.particleTexture = particleTexture;
+        this.dustMotes.particleTexture = dustTexture;
         this.dustMotes.emitter = this.gashouderLighting
             ? new BABYLON.Vector3(0, 6, 0)
             : new BABYLON.Vector3(0, 4, -12);
@@ -1028,14 +1108,15 @@ class VRClubFixtures extends VRClubEnvironment {
         
         strobePositions.forEach((pos, i) => {
             const posMountY = Number.isFinite(pos.y) ? pos.y : mountY;
+            const clampY = posMountY + (this.gashouderLighting ? 0.15 : 0);
             // === STROBE MOUNTING HARDWARE ===
             // Bracket that connects strobe to truss
             const bracket = BABYLON.MeshBuilder.CreateBox("strobeBracket" + i, {
                 width: 0.1,
-                height: 0.4,  // Drops from truss (Y=8) to strobe (Y=7.6)
+                height: clampY - (posMountY - 0.4),
                 depth: 0.1
             }, this.scene);
-            bracket.position = new BABYLON.Vector3(pos.x, posMountY - 0.2, pos.z);
+            bracket.position = new BABYLON.Vector3(pos.x, (clampY + posMountY - 0.4) / 2, pos.z);
             strobeMountParts.push(bracket);
             
             // Clamp at top (grips truss)
@@ -1045,8 +1126,9 @@ class VRClubFixtures extends VRClubEnvironment {
                 tessellation: 12,
                 arc: 0.85
             }, this.scene);
-            clamp.position = new BABYLON.Vector3(pos.x, posMountY, pos.z);
+            clamp.position = new BABYLON.Vector3(pos.x, clampY, pos.z);
             clamp.rotation.x = Math.PI / 2;
+            if (this.gashouderLighting && pos.aimZ === 0) clamp.rotation.y = Math.atan2(pos.x, pos.z);
             strobeMountParts.push(clamp);
             
             const strobe = i ? this.strobes[0].mesh.createInstance('strobe' + i) : BABYLON.MeshBuilder.CreateBox("strobe" + i, {
@@ -1189,6 +1271,7 @@ class VRClubFixtures extends VRClubEnvironment {
         // ALL LASERS ARE MULTI-BEAM TYPE (5 rotating beams each)
         // The side units hang from the side cross beams at z -14, between the moving heads.
         const sideX = CLUB_POSITIONS.sideTrussX;
+        const gashouderMount = Boolean(this.gashouderLighting);
         const laserPositions = this.gashouderLighting?.laserPositions || [
             { x: -sideX, z: -14, trussY: 7.55, type: 'multi' },  // left cross beam
             { x: 0, z: -8, trussY: 7.55, type: 'multi' },        // centre, under the front truss
@@ -1224,16 +1307,20 @@ class VRClubFixtures extends VRClubEnvironment {
             
             // Mounting clamp connecting to truss
             const clamp = BABYLON.MeshBuilder.CreateBox("laserClamp" + i, {
-                width: 0.3,
-                height: 0.15,
-                depth: 0.3
+                width: gashouderMount ? 0.15 : 0.3,
+                height: gashouderMount ? 0.2 : 0.15,
+                depth: gashouderMount ? 0.15 : 0.3
             }, this.scene);
             
             if (parentTruss) {
                 clamp.position = new BABYLON.Vector3(localX, -0.2, localZ);
                 clamp.parent = parentTruss;
             } else {
-                clamp.position = new BABYLON.Vector3(pos.x, pos.trussY + 0.25, pos.z);
+                clamp.position = new BABYLON.Vector3(
+                    pos.x,
+                    pos.trussY + (gashouderMount ? -0.25 : 0.25),
+                    pos.z
+                );
             }
             const clampMat = this.materialFactory.createPBRMaterial("laserClampMat", {
                 mutable: true, // colour written at runtime
@@ -1254,7 +1341,11 @@ class VRClubFixtures extends VRClubEnvironment {
                 housing.position = new BABYLON.Vector3(localX, -0.45, localZ);
                 housing.parent = parentTruss;
             } else {
-                housing.position = new BABYLON.Vector3(pos.x, pos.trussY, pos.z);
+                housing.position = new BABYLON.Vector3(
+                    pos.x,
+                    pos.trussY - (gashouderMount ? 0.45 : 0),
+                    pos.z
+                );
             }
             housing.isPickable = false;
             
@@ -1278,7 +1369,11 @@ class VRClubFixtures extends VRClubEnvironment {
                 emitter.position = new BABYLON.Vector3(localX, -0.556, localZ + 0.06);
                 emitter.parent = parentTruss;
             } else {
-                emitter.position = new BABYLON.Vector3(pos.x, pos.trussY - 0.106, pos.z + 0.06);
+                emitter.position = new BABYLON.Vector3(
+                    pos.x,
+                    pos.trussY - (gashouderMount ? 0.556 : 0.106),
+                    pos.z + 0.06
+                );
             }
             emitter.isPickable = false;
             
@@ -1329,7 +1424,7 @@ class VRClubFixtures extends VRClubEnvironment {
         });
 
         const totalBeams = this.lasers.reduce((sum, laser) => sum + laser.beams.length, 0);
-        this.laserBeamBatch = this._createLaserBeamBatch(totalBeams);
+        this.laserBeamBatch = this._createLaserBeamBatch(totalBeams, this.gashouderLighting ? 3 : 1);
         let slot = 0;
         for (const laser of this.lasers) {
             for (const beam of laser.beams) {
@@ -1388,7 +1483,7 @@ class VRClubFixtures extends VRClubEnvironment {
      * brightness divided by the widening so a distant beam does not turn into a bright bar
      * (updateLasers()). Brightness lives in vertex alpha, which the glow layer reads too.
      */
-    _createLaserBeamBatch(count) {
+    _createLaserBeamBatch(count, segments = 1) {
         const profile = (name, w, h, alphaAt) => {
             const tex = new BABYLON.DynamicTexture(name, { width: w, height: h }, this.scene, false);
             const ctx = tex.getContext();
@@ -1414,12 +1509,13 @@ class VRClubFixtures extends VRClubEnvironment {
         });
         const build = (name, texture) => {
             const mesh = new BABYLON.Mesh(name, this.scene);
-            const positions = new Float32Array(count * 12);
-            const colors = new Float32Array(count * 16);
-            const normals = new Float32Array(count * 12);
-            const uvs = new Float32Array(count * 8);
-            const indices = new Uint16Array(count * 6);
-            for (let i = 0; i < count; i++) {
+            const quadCount = count * segments;
+            const positions = new Float32Array(quadCount * 12);
+            const colors = new Float32Array(quadCount * 16);
+            const normals = new Float32Array(quadCount * 12);
+            const uvs = new Float32Array(quadCount * 8);
+            const indices = new Uint16Array(quadCount * 6);
+            for (let i = 0; i < quadCount; i++) {
                 uvs.set([0, 0, 1, 0, 1, 1, 0, 1], i * 8);
                 for (let k = 0; k < 4; k++) {
                     normals[(i * 4 + k) * 3 + 1] = 1;
@@ -1464,6 +1560,7 @@ class VRClubFixtures extends VRClubEnvironment {
         const beams = build('laser_beams', beamTex);
         return {
             count,
+            segments,
             mesh: beams.mesh,
             material: beams.material,
             positions: beams.positions,

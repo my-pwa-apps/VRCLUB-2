@@ -159,6 +159,7 @@ class VRClubUI extends window.VRClubSocialUI {
             if (typeof this._pressStallDoor === 'function' && this._pressStallDoor(pickResult)) return;
             if (this.restroomInteractions?.press(pickResult)) return;
             if (this._pressGuestTouchpoint?.(pickResult)) return;
+            if (this.pressGashouderExperience?.(pickResult)) return;
             if (this.pressSessionExperience?.(pickResult)) return;
             if (this._pressSeat(pickResult)) return;
             if (typeof this.pressVJDesk === 'function') this.pressVJDesk(pickResult);
@@ -823,8 +824,9 @@ class VRClubUI extends window.VRClubSocialUI {
     _teleportFloorMeshes() {
         const venueFloors = this.venueId === 'gashouder'
             ? [this.scene?.getMeshByName('gashouderStageTop'),
-                ...Array.from({ length: window.GASHOUDER_VENUE.stage.stairSteps },
-                    (_, index) => this.scene?.getMeshByName(`gashouderStageStair${index}`))]
+                ...['Left', 'Right'].flatMap(side =>
+                    Array.from({ length: window.GASHOUDER_VENUE.stage.stairSteps },
+                        (_, index) => this.scene?.getMeshByName(`gashouderStageStair${side}${index}`)))]
             : [this._mezzDeck, this._vestibuleFloor, this._vestibuleStair, this._restroomFloor, ...(this._cityGround || [])];
         return [this.floorMesh, ...venueFloors].filter(Boolean);
     }
@@ -974,7 +976,7 @@ class VRClubUI extends window.VRClubSocialUI {
             },
             lightingGallery: { label: 'Rig View', pos: new BABYLON.Vector3(17, 1.7, 2), target: new BABYLON.Vector3(0, 9.5, 0), level: 0 },
             balcony: { label: 'Hall Perimeter', pos: new BABYLON.Vector3(20, 1.7, 0), target: new BABYLON.Vector3(0, 3.5, -19), level: 0 },
-            street: { label: 'Loading Entrance', pos: new BABYLON.Vector3(0, 1.7, 23), target: new BABYLON.Vector3(0, 4, 0), level: 0 }
+            street: { label: 'Main Entrance', pos: new BABYLON.Vector3(window.GASHOUDER_VENUE.vrEntry.x, 1.7, window.GASHOUDER_VENUE.vrEntry.z), target: new BABYLON.Vector3(0, 4, 0), level: 0 }
         } : nocturnePresets;
         
         const p = presets[preset];

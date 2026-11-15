@@ -3,7 +3,7 @@ import { enterClub, enterVR, useQuestHarness } from './support.mjs';
 
 useQuestHarness();
 
-test('guest menus, mirror wardrobe draft and private local postcard work inside XR', async ({ page }) => {
+test('guest menus and mirror wardrobe draft work inside XR without photo controls', async ({ page }) => {
     test.setTimeout(600_000);
     await enterClub(page);
     await page.evaluate(() => window.vrClub.modelLoadPromise);
@@ -17,10 +17,16 @@ test('guest menus, mirror wardrobe draft and private local postcard work inside 
         club._showVRQuickMenuPage('credits');
         return { home: names('home'), comfort: names('comfort'), graphics: names('graphics'),
             credits: club._vrCreditsLines.join('\n'),
-            signs: club._guestTouchpoints.map(entry => entry.mesh.name) };
+            signs: club._guestTouchpoints.map(entry => entry.mesh.name),
+            photoButton: !!document.querySelector('.postcard-toggle'),
+            photoCapture: typeof club.capturePostcard };
     });
     expect(menus.home).toContain('WARDROBE');
     expect(menus.home).not.toContain('LIGHTS');
+    expect(menus.home).not.toContain('CAMERA');
+    expect(menus.comfort).not.toContain('CAMERA');
+    expect(menus.photoButton).toBe(false);
+    expect(menus.photoCapture).toBe('undefined');
     expect(menus.comfort).not.toContain('HIGH PRECISION SHADERS');
     expect(menus.graphics).toContain('HIGH PRECISION SHADERS');
     expect(menus.credits).toContain('https://');
@@ -47,16 +53,24 @@ test('guest menus, mirror wardrobe draft and private local postcard work inside 
         hiddenInWorld: true, includedInMirror: true, saving: null });
     await page.evaluate(() => window.vrClub.avatarEditor.cancelVR());
     expect(await page.evaluate(() => window.vrClub._wardrobeMirrorPreview)).toBeNull();
-    const photo = await page.evaluate(async () => {
-        const club = window.vrClub, notices = [];
-        const original = club.showErrorMessage;
-        club.showErrorMessage = message => notices.push(message);
-        try { return { ok: await club.capturePostcard(), notices }; }
-        finally { club.showErrorMessage = original; }
+    expect(await page.evaluate(() => window.vrClub.isInVRMode)).toBe(true);
+});
+
+test('Gashouder has no in-app photo controls on desktop or in XR', async ({ page }) => {
+    await page.goto('/?venue=gashouder');
+    await page.locator('#enterClubBtn').click();
+    await page.waitForFunction(() => window.vrClub?.ready === true, null, { timeout: 180_000 });
+    await page.evaluate(() => window.vrClub.modelLoadPromise);
+    await enterVR(page);
+    const result = await page.evaluate(() => {
+        const club = window.vrClub;
+        const labels = page => club._vrQuickMenuPageDefinitions(page).filter(Boolean).map(button => button.label);
+        return { venue: club.venueId, home: labels('home'), comfort: labels('comfort'),
+            photoButton: !!document.querySelector('.postcard-toggle'), capture: typeof club.capturePostcard };
     });
-    expect(photo.ok, photo.notices.join('\n')).toBe(true);
-    expect(await page.evaluate(() => ({
-        xr: window.vrClub.isInVRMode, photo: window.vrClub._postcardUrl?.startsWith('blob:'),
-        menuEnabled: window.vrClub._vrQuickMenuRoot.isEnabled()
-    }))).toEqual({ xr: true, photo: true, menuEnabled: true });
+    expect(result.venue).toBe('gashouder');
+    expect(result.home).not.toContain('CAMERA');
+    expect(result.comfort).not.toContain('CAMERA');
+    expect(result.photoButton).toBe(false);
+    expect(result.capture).toBe('undefined');
 });

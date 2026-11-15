@@ -10,6 +10,13 @@ const GASHOUDER_VENUE = Object.freeze({
         centreHeight: 14.5,
         structuralBays: 40
     }),
+    vrEntry: Object.freeze({ x: 0, z: 23 }),
+    seating: Object.freeze({
+        radius: 23.2,
+        stoolOffset: 0.95,
+        seatHeight: 0.76,
+        angles: Object.freeze([-1.4, 1.4, 2.1])
+    }),
     stage: Object.freeze({
         x: 0,
         z: -19.5,
@@ -19,9 +26,10 @@ const GASHOUDER_VENUE = Object.freeze({
         consoleZ: -19.2,
         consoleTop: 2.7,
         stairWidth: 2.4,
-        stairDepth: 0.5,
-        stairSteps: 6,
-        stairStartZ: -12
+        stairDepth: 0.3,
+        stairSteps: 12,
+        stairZ: -16.8,
+        deckThickness: 0.06
     }),
     rig: Object.freeze({
         radius: 15.5,
@@ -30,6 +38,7 @@ const GASHOUDER_VENUE = Object.freeze({
         segments: 48,
         stageBridgeZ: -15.2,
         stageBridgeWidth: 20,
+        stageBridgeSegments: 16,
         stageBridgeY: 9.8,
         stageMountY: 9.5,
         ringFixtureCount: 18,
@@ -52,14 +61,16 @@ const GASHOUDER_VENUE = Object.freeze({
             panelHeight: 9.2 / 16,
             seam: 0.04,
             baseY: 0.6,
-            centerZ: -25.6,
+            centerZ: -24.9,
             curveRadius: 25.8
         })
     }),
     presetNames: Object.freeze(['architectural', 'soundcheck', 'techno', 'awakenings', 'custom']),
     crowdSources: Object.freeze([
-        'f1', 'm2', 'vm1', 'm1', 'f3', 'f2', 'm3', 'f4', 'vf1', 'm7', 'f5', 'vm2', 'm5', 'm9'
-    ])
+        'f1', 'm2', 'vm1', 'm1', 'f3', 'f2', 'm3', 'f4', 'vf1', 'm7', 'f5', 'vm2', 'm5', 'm9',
+        'vf2', 'vf3', 'vf5', 'vf6', 'vf7', 'vm3', 'vm4', 'vm5', 'vm6', 'vm7'
+    ]),
+    maxDancers: 200
 });
 
 const GASHOUDER_PRESETS = Object.freeze({
@@ -73,7 +84,10 @@ const GASHOUDER_PRESETS = Object.freeze({
 const CROWD_POINTS = Object.freeze([
     [-7, -12], [-3, -12], [3, -12], [7, -12],
     [-10, -7], [-5, -7], [0, -7], [5, -7], [10, -7],
-    [-8, -2], [-3, -2], [3, -2], [8, -2], [0, 5]
+    [-8, -2], [-3, -2], [3, -2], [8, -2], [0, 5],
+    [-15, -16], [15, -16], [-11, -12], [11, -12],
+    [-7.5, -7], [-2.5, -7], [2.5, -7], [7.5, -7],
+    [-11, -2], [11, -2]
 ]);
 
 const GUEST_IDS = Object.freeze(['m4', 'f6', 'f7', 'f8', 'm8', 'm6']);
@@ -113,6 +127,33 @@ function mergeStatic(parts, name, material, collision = false) {
 function roofHeight(radius) {
     const d = GASHOUDER_VENUE.dimensions;
     return d.centreHeight - (d.centreHeight - d.outerWallHeight) * Math.max(0, Math.min(1, radius / d.innerRadius));
+}
+
+function createRoofRing(scene, name, radius, thickness) {
+    const sweep = 128;
+    const section = 32;
+    const source = BABYLON.VertexData.CreateTorus({ diameter: radius * 2, thickness, tessellation: sweep });
+    const data = new BABYLON.VertexData();
+    data.positions = [];
+    data.normals = [];
+    data.uvs = [];
+    data.indices = [];
+    for (let i = 0; i <= sweep; i++) {
+        for (let j = 0; j <= section; j++) {
+            const sourceIndex = i * (sweep + 1) + j * (sweep / section);
+            data.positions.push(...source.positions.slice(sourceIndex * 3, sourceIndex * 3 + 3));
+            data.normals.push(...source.normals.slice(sourceIndex * 3, sourceIndex * 3 + 3));
+            data.uvs.push(...source.uvs.slice(sourceIndex * 2, sourceIndex * 2 + 2));
+            if (i < sweep && j < section) {
+                const current = i * (section + 1) + j;
+                const next = current + section + 1;
+                data.indices.push(current, current + 1, next, current + 1, next + 1, next);
+            }
+        }
+    }
+    const ring = new BABYLON.Mesh(name, scene);
+    data.applyToMesh(ring);
+    return ring;
 }
 
 function createRoofPanels(scene, material, dimensions) {
@@ -168,11 +209,42 @@ const GashouderVenue = {
         return GASHOUDER_PRESETS[this.gashouderPreset] ? this.gashouderPreset : 'techno';
     },
 
-    getGashouderCrowdSize(requested = this.tierSettings.crowdSize) {
+    getGashouderCrowdLimit() {
         const presetLimit = GASHOUDER_PRESETS[this.getGashouderPreset()].crowd;
-        if (presetLimit === 0) return 0;
-        if (Number.isInteger(presetLimit)) return Math.min(presetLimit, Math.max(0, requested | 0));
-        return Math.max(0, requested | 0);
+        return Number.isInteger(presetLimit)
+            ? Math.min(GASHOUDER_VENUE.maxDancers, presetLimit)
+            : GASHOUDER_VENUE.maxDancers;
+    },
+
+    getGashouderCrowdSize(requested = this.tierSettings.crowdSize) {
+        const desired = Number.isInteger(this.gashouderCrowdOverride)
+            ? this.gashouderCrowdOverride
+            : requested;
+        return Math.min(this.getGashouderCrowdLimit(), Math.max(0, desired | 0));
+    },
+
+    setGashouderCrowdCount(count) {
+        if (this.venueId !== 'gashouder') throw new Error('Gashouder crowd settings are only available in Gashouder.');
+        if (count !== null && (!Number.isInteger(count) || count < 0 || count > GASHOUDER_VENUE.maxDancers)) {
+            this.showErrorMessage?.(`Choose a whole number from 0 to ${GASHOUDER_VENUE.maxDancers}.`);
+            return false;
+        }
+
+        try {
+            if (count === null) localStorage.removeItem('vrclub.gashouderCrowdCount');
+            else localStorage.setItem('vrclub.gashouderCrowdCount', String(count));
+        } catch (error) {
+            console.error('Could not save the Gashouder dancer count.', error);
+            this.showErrorMessage?.('Could not save the Gashouder dancer count on this device.');
+            return false;
+        }
+
+        this.gashouderCrowdOverride = count;
+        this._applyCrowdSize();
+        if (typeof window !== 'undefined' && typeof CustomEvent === 'function') {
+            window.dispatchEvent(new CustomEvent('gashoudercrowdchange'));
+        }
+        return true;
     },
 
     getGashouderGuestSize(requested = this.tierSettings.guestSize) {
@@ -184,14 +256,56 @@ const GashouderVenue = {
 
     gashouderCrowdSlots(sourceIndex) {
         const stage = GASHOUDER_VENUE.stage;
-        return CROWD_POINTS.map(([x, z], index) => {
+        const points = CROWD_POINTS.map(point => [...point]);
+        const candidates = [];
+        const spacing = 1.65;
+        const guests = this.gashouderGuestSlots(id => id);
+        for (let row = -12; row <= 12; row++) {
+            for (let col = -12; col <= 12; col++) {
+                const x = col * spacing + (Math.abs(row) % 2) * spacing / 2;
+                const z = row * spacing;
+                if (Math.hypot(x, z) > 19.5 || (Math.abs(x) < 1.9 && z > -16 && z < -9)) continue;
+                if (Math.abs(x - stage.x) < stage.width / 2 + 0.9 &&
+                    Math.abs(z - stage.z) < stage.depth / 2 + 0.9) continue;
+                if (Math.abs(x) < stage.width / 2 + stage.stairSteps * stage.stairDepth + 0.9 &&
+                    Math.abs(x) > stage.width / 2 - 0.9 &&
+                    Math.abs(z - stage.stairZ) < stage.stairWidth / 2 + 0.9) continue;
+                let nearest = Infinity;
+                for (const [px, pz] of points) nearest = Math.min(nearest, Math.hypot(x - px, z - pz));
+                for (const guest of guests) nearest = Math.min(nearest, Math.hypot(x - guest.x, z - guest.z));
+                if (nearest >= spacing) candidates.push({ x, z, nearest });
+            }
+        }
+        while (points.length < GASHOUDER_VENUE.maxDancers && candidates.length) {
+            let best = 0;
+            for (let i = 1; i < candidates.length; i++) {
+                if (candidates[i].nearest > candidates[best].nearest) best = i;
+            }
+            const chosen = candidates.splice(best, 1)[0];
+            points.push([chosen.x, chosen.z]);
+            for (const candidate of candidates) {
+                candidate.nearest = Math.min(candidate.nearest, Math.hypot(candidate.x - chosen.x, candidate.z - chosen.z));
+            }
+        }
+        if (points.length !== GASHOUDER_VENUE.maxDancers) throw new Error('Not enough safe Gashouder dancer positions.');
+        return points.map(([x, z], index) => {
             const yaw = Math.atan2(stage.x - x, stage.z - z);
+            const source = index < GASHOUDER_VENUE.crowdSources.length ? index : (index * 7) % GASHOUDER_VENUE.crowdSources.length;
             return {
-                x, z, src: sourceIndex(GASHOUDER_VENUE.crowdSources[index] || GASHOUDER_VENUE.crowdSources[index % GASHOUDER_VENUE.crowdSources.length]),
+                x, z, src: sourceIndex(GASHOUDER_VENUE.crowdSources[source]),
                 height: 1.62 + (index % 5) * 0.055,
                 facing: yaw - Math.PI
             };
         });
+    },
+
+    gashouderStairHeight(x, z) {
+        const stage = GASHOUDER_VENUE.stage;
+        const distance = Math.abs(x - stage.x) - stage.width / 2;
+        const run = stage.stairSteps * stage.stairDepth;
+        if (distance < 0 || distance > run || Math.abs(z - stage.stairZ) > stage.stairWidth / 2) return null;
+        const step = Math.min(stage.stairSteps - 1, Math.max(0, Math.floor((run - distance) / stage.stairDepth)));
+        return stage.height * (step + 1) / stage.stairSteps;
     },
 
     gashouderGuestSlots(sourceIndex) {
@@ -212,6 +326,25 @@ const GashouderVenue = {
         });
     },
 
+    gashouderSeatingLayout() {
+        const { seating, stage } = GASHOUDER_VENUE;
+        return seating.angles.map((angle, index) => {
+            const x = Math.sin(angle) * seating.radius;
+            const z = Math.cos(angle) * seating.radius;
+            const stools = [-1, 1].map((side, seatIndex) => {
+                const sx = x + side * seating.stoolOffset * Math.cos(angle);
+                const sz = z - side * seating.stoolOffset * Math.sin(angle);
+                const facing = Math.atan2(stage.x - sx, stage.z - sz);
+                return {
+                    id: `gashouder-${index}-${seatIndex}`, x: sx, z: sz, facing,
+                    viewX: sx - Math.sin(facing) * 0.5,
+                    viewZ: sz - Math.cos(facing) * 0.5
+                };
+            });
+            return { x, z, stools };
+        });
+    },
+
     configureGashouderCamera() {
         if (!this.camera) return;
         this.camera.position.set(0, 1.65, 7);
@@ -220,13 +353,21 @@ const GashouderVenue = {
 
     configureGashouderModelConfigs(configs) {
         const preset = GASHOUDER_PRESETS[this.getGashouderPreset()];
-        if (!preset.stage) return {};
-        const keep = ['dj_console', 'dj_monitor', 'pa_speaker_left', 'pa_speaker_right', 'bass_bin_left', 'bass_bin_right'];
+        const keep = ['bar_stool', ...(preset.stage
+            ? ['dj_console', 'dj_monitor', 'pa_speaker_left', 'pa_speaker_right', 'bass_bin_left', 'bass_bin_right']
+            : [])];
         const selected = Object.fromEntries(keep.filter(key => configs[key]).map(key => [key, {
             ...configs[key],
             placement: configs[key].placement ? { ...configs[key].placement } : undefined,
             rigging: configs[key].rigging ? { ...configs[key].rigging } : undefined
         }]));
+        if (selected.bar_stool) {
+            const first = this.gashouderSeatingLayout()[0].stools[0];
+            selected.bar_stool.placement.centerX = first.x;
+            selected.bar_stool.placement.centerZ = first.z;
+            selected.bar_stool.rotation = new BABYLON.Vector3(0, first.facing - Math.PI / 2, 0);
+        }
+        if (!preset.stage) return selected;
         const deck = selected.dj_console;
         if (deck) {
             deck.placement.centerX = 0;
@@ -367,9 +508,9 @@ const GashouderVenue = {
             this._applyWorldUVs(pier, 1.5, this.textureLoader?.textureConfigs?.walls?.scale || { u: 1, v: 1 });
             pier.rotation.y = angle;
             pier.position.set(
-                Math.sin(angle) * (wallRadius - 0.1),
+                Math.sin(angle) * (wallRadius - 0.74),
                 dimensions.outerWallHeight / 2,
-                Math.cos(angle) * (wallRadius - 0.1)
+                Math.cos(angle) * (wallRadius - 0.74)
             );
             wallParts.push(pier);
         }
@@ -381,12 +522,8 @@ const GashouderVenue = {
         const ringParts = [];
         const ringRadii = [3.2, 8.5, 14.2, 19.5, dimensions.innerRadius];
         ringRadii.forEach((radius, index) => {
-            const ring = BABYLON.MeshBuilder.CreateTorus(`gashouderRoofRing${index}`, {
-                diameter: radius * 2,
-                thickness: index === ringRadii.length - 1 ? 0.28 : 0.2,
-                tessellation: 128
-            }, this.scene);
-            ring.rotation.x = Math.PI / 2;
+            const ring = createRoofRing(this.scene, `gashouderRoofRing${index}`, radius,
+                index === ringRadii.length - 1 ? 0.28 : 0.2);
             ring.position.y = roofHeight(radius);
             ringParts.push(ring);
         });
@@ -452,15 +589,26 @@ const GashouderVenue = {
         header.position = centre.add(new BABYLON.Vector3(0, 4.12, 0));
         frameParts.push(header);
         mergeStatic(frameParts, `gashouder${kind}DoorFrame`, frameMaterial, false);
+        const door = BABYLON.MeshBuilder.CreateBox(`gashouder${kind}Door`, {
+            width: 3, height: 4, depth: 0.18
+        }, this.scene);
+        door.position.set(Math.sin(angle) * (innerRadius - 0.35), 2, Math.cos(angle) * (innerRadius - 0.35));
+        door.rotation.y = angle;
+        door.material = frameMaterial;
+        door.checkCollisions = true;
+        door.isPickable = false;
+        door.freezeWorldMatrix();
+        door.doNotSyncBoundingInfo = true;
     },
 
     createGashouderStage() {
         const stage = GASHOUDER_VENUE.stage;
+        const stageMaterial = this.materialFactory.getPreset('steelGirder');
         const deck = BABYLON.MeshBuilder.CreateBox('gashouderMainStage', {
-            width: stage.width, height: stage.height, depth: stage.depth
+            width: stage.width, height: stage.deckThickness, depth: stage.depth
         }, this.scene);
-        deck.position.set(stage.x, stage.height / 2, stage.z);
-        deck.material = this.materialFactory.getPreset('stageRust');
+        deck.position.set(stage.x, stage.height - stage.deckThickness / 2, stage.z);
+        deck.material = stageMaterial;
         this._applyWorldUVs(deck, 2, { u: 1, v: 1 });
         deck.checkCollisions = true;
         deck.receiveShadows = true;
@@ -500,25 +648,98 @@ const GashouderVenue = {
             this.createVJDesk({ top: stage.consoleTop, frontZ: stage.consoleZ - 0.6 });
         }
 
-        const { stairWidth, stairDepth, stairSteps, stairStartZ } = stage;
-        for (let i = 0; i < stairSteps; i++) {
-            const height = stage.height * (i + 1) / stairSteps;
-            const tread = BABYLON.MeshBuilder.CreateBox(`gashouderStageStair${i}`, {
-                width: stairWidth, height, depth: stairDepth + 0.04
+        const structure = [];
+        for (const x of [-stage.width / 2 + 0.18, 0, stage.width / 2 - 0.18]) {
+            for (const z of [stage.z - stage.depth / 2 + 0.18, stage.z + stage.depth / 2 - 0.18]) {
+                const post = BABYLON.MeshBuilder.CreateBox('gashouderStageSupport', {
+                    width: 0.18, height: stage.height - stage.deckThickness, depth: 0.18
+                }, this.scene);
+                post.position.set(x, (stage.height - stage.deckThickness) / 2, z);
+                structure.push(post);
+            }
+            const beam = BABYLON.MeshBuilder.CreateBox('gashouderStageGirder', {
+                width: 0.18, height: 0.18, depth: stage.depth - 0.2
             }, this.scene);
-            tread.position.set(
-                stage.x,
-                height / 2,
-                stairStartZ - (i + 0.5) * stairDepth
-            );
-            tread.material = this.materialFactory.getPreset('stageRust');
-            this._applyWorldUVs(tread, 2, { u: 1, v: 1 });
-            tread.checkCollisions = true;
-            tread.collisionGroup = 2;
-            tread.receiveShadows = true;
-            tread.freezeWorldMatrix();
-            tread.doNotSyncBoundingInfo = true;
-            if (!i) this._mezzDeck = tread;
+            beam.position.set(x, stage.height - stage.deckThickness - 0.09, stage.z);
+            structure.push(beam);
+        }
+        for (const z of [stage.z - stage.depth / 2 + 0.18, stage.z + stage.depth / 2 - 0.18]) {
+            const beam = BABYLON.MeshBuilder.CreateBox('gashouderStageCrossGirder', {
+                width: stage.width - 0.2, height: 0.18, depth: 0.18
+            }, this.scene);
+            beam.position.set(0, stage.height - stage.deckThickness - 0.09, z);
+            structure.push(beam);
+        }
+        const support = mergeStatic(structure, 'gashouderStageSupports', stageMaterial, true);
+        if (support) support.receiveShadows = true;
+
+        const { stairWidth, stairDepth, stairSteps, stairZ } = stage;
+        const rails = [];
+        const rail = (a, b, diameter = 0.045) => {
+            const mesh = beamBetween(this.scene, 'gashouderStageRailPart',
+                new BABYLON.Vector3(...a), new BABYLON.Vector3(...b), diameter, 8);
+            if (mesh) rails.push(mesh);
+        };
+        const frontZ = stage.z + stage.depth / 2 - 0.06;
+        rail([-stage.width / 2, stage.height + 1.05, frontZ], [stage.width / 2, stage.height + 1.05, frontZ]);
+        rail([-stage.width / 2, stage.height + 0.55, frontZ], [stage.width / 2, stage.height + 0.55, frontZ]);
+        for (let x = -stage.width / 2; x <= stage.width / 2; x += 3) {
+            rail([x, stage.height, frontZ], [x, stage.height + 1.05, frontZ]);
+        }
+        for (const side of [-1, 1]) {
+            const inner = stage.width / 2;
+            const outer = inner + stairSteps * stairDepth;
+            for (let i = 0; i < stairSteps; i++) {
+                const height = stage.height * (i + 1) / stairSteps;
+                const tread = BABYLON.MeshBuilder.CreateBox(`gashouderStageStair${side < 0 ? 'Left' : 'Right'}${i}`, {
+                    width: stairDepth + 0.01, height, depth: stairWidth
+                }, this.scene);
+                tread.position.set(stage.x + side * (outer - (i + 0.5) * stairDepth), height / 2, stairZ);
+                tread.material = stageMaterial;
+                this._applyWorldUVs(tread, 2, { u: 1, v: 1 });
+                tread.checkCollisions = true;
+                tread.collisionGroup = 2;
+                tread.receiveShadows = true;
+                tread.freezeWorldMatrix();
+                tread.doNotSyncBoundingInfo = true;
+                if (!this._mezzDeck) this._mezzDeck = tread;
+            }
+            for (const z of [stairZ - stairWidth / 2, stairZ + stairWidth / 2]) {
+                const start = [stage.x + side * outer, 1.05, z];
+                const end = [stage.x + side * inner, stage.height + 1.05, z];
+                rail(start, end);
+                rail([start[0], 0.55, z], [end[0], stage.height + 0.55, z]);
+                for (let i = 0; i <= stairSteps; i += 3) {
+                    const t = i / stairSteps;
+                    const x = start[0] + (end[0] - start[0]) * t;
+                    const y = stage.height * t;
+                    rail([x, y, z], [x, y + 1.05, z]);
+                }
+            }
+        }
+        mergeStatic(rails, 'gashouderStageRails', stageMaterial, true);
+        if (typeof document !== 'undefined') {
+            const texture = new BABYLON.DynamicTexture('gashouderLowClearanceTexture', { width: 512, height: 128 }, this.scene, false);
+            const ctx = texture.getContext();
+            ctx.fillStyle = '#181b1e'; ctx.fillRect(0, 0, 512, 128);
+            ctx.fillStyle = '#fff1aa'; ctx.textAlign = 'center'; ctx.font = 'bold 34px sans-serif';
+            ctx.fillText('LOW CLEARANCE', 256, 52);
+            ctx.font = '28px sans-serif'; ctx.fillText('MIND YOUR HEAD', 256, 100);
+            texture.update(false);
+            const material = this.materialFactory.createPBRMaterial('gashouderLowClearance', {
+                baseColor: [0, 0, 0], metallic: 0, roughness: 1
+            }, false);
+            material.unlit = true;
+            material.albedoTexture = texture;
+            material.emissiveTexture = texture;
+            material.emissiveColor.set(0.5, 0.5, 0.5);
+            const sign = BABYLON.MeshBuilder.CreatePlane('gashouderLowClearanceSign',
+                { width: 0.9, height: 0.225, sideOrientation: BABYLON.Mesh.DOUBLESIDE }, this.scene);
+            sign.position.set(1.5, stage.height - 0.15, frontZ + 0.02);
+            sign.material = material;
+            sign.isPickable = false;
+            sign.freezeWorldMatrix();
+            this.scene.onDisposeObservable.addOnce(() => texture.dispose());
         }
     },
 
@@ -549,12 +770,12 @@ const GashouderVenue = {
                     if (beam) chords.push(beam);
                 }
             }
+            for (const vertical of [-0.15, 0.15]) {
+                const cross = beamBetween(this.scene, `gashouderEventCross${i}_${vertical}`,
+                    ringPoint(i, -0.15, vertical), ringPoint(i, 0.15, vertical), 0.038, 6);
+                if (cross) chords.push(cross);
+            }
             if (i % 2 === 0) {
-                for (const vertical of [-0.15, 0.15]) {
-                    const cross = beamBetween(this.scene, `gashouderEventCross${i}_${vertical}`,
-                        ringPoint(i, -0.15, vertical), ringPoint(i, 0.15, vertical), 0.038, 6);
-                    if (cross) chords.push(cross);
-                }
                 const diagonal = beamBetween(this.scene, `gashouderEventBrace${i}`,
                     ringPoint(i, -0.15, 0.15), ringPoint(next, 0.15, -0.15), 0.034, 6);
                 if (diagonal) bracing.push(diagonal);
@@ -573,7 +794,7 @@ const GashouderVenue = {
         const bridgeHalfW = rig.stageBridgeWidth / 2;
         const bridgeZ = rig.stageBridgeZ;
         const bridgeY = rig.stageBridgeY;
-        const bridgeSegments = 16;
+        const bridgeSegments = rig.stageBridgeSegments;
         const bridgePoint = (index, depthOff, vertOff) => new BABYLON.Vector3(
             -bridgeHalfW + rig.stageBridgeWidth * index / bridgeSegments,
             bridgeY + vertOff,
@@ -588,16 +809,22 @@ const GashouderVenue = {
                     if (beam) chords.push(beam);
                 }
             }
+            for (const vertOff of [-0.15, 0.15]) {
+                const cross = beamBetween(this.scene, `gashouderStageCross${i}_${vertOff}`,
+                    bridgePoint(i, -0.15, vertOff), bridgePoint(i, 0.15, vertOff), 0.036, 6);
+                if (cross) chords.push(cross);
+            }
             if (i % 2 === 0) {
-                for (const vertOff of [-0.15, 0.15]) {
-                    const cross = beamBetween(this.scene, `gashouderStageCross${i}_${vertOff}`,
-                        bridgePoint(i, -0.15, vertOff), bridgePoint(i, 0.15, vertOff), 0.036, 6);
-                    if (cross) chords.push(cross);
-                }
                 const diag = beamBetween(this.scene, `gashouderStageBrace${i}`,
                     bridgePoint(i, -0.15, 0.15), bridgePoint(next, 0.15, -0.15), 0.032, 6);
                 if (diag) bracing.push(diag);
             }
+        }
+        for (const vertOff of [-0.15, 0.15]) {
+            const cross = beamBetween(this.scene, `gashouderStageCross${bridgeSegments}_${vertOff}`,
+                bridgePoint(bridgeSegments, -0.15, vertOff),
+                bridgePoint(bridgeSegments, 0.15, vertOff), 0.036, 6);
+            if (cross) chords.push(cross);
         }
         for (const x of [-bridgeHalfW + 1.5, -3.2, 3.2, bridgeHalfW - 1.5]) {
             const r = Math.hypot(x, bridgeZ);
@@ -874,10 +1101,58 @@ const GashouderVenue = {
         mesh.thinInstanceBufferUpdated('color');
     },
 
+    createGashouderSeating() {
+        const layout = this.gashouderSeatingLayout();
+        const builder = this._dressingBuilder('gashouderSeating');
+        const table = builder.group('Tables', this.materialFactory.getPreset('steelGirder'));
+        layout.forEach((place, index) => {
+            builder.cylinder(table, 0.78, 0.04, place.x, 1.05, place.z, 'y', 24);
+            builder.cylinder(table, 0.09, 1.03, place.x, 0.53, place.z, 'y', 12);
+            builder.cylinder(table, 0.5, 0.03, place.x, 0.015, place.z, 'y', 20);
+            this._collisionBlock(`gashouderTableBlock${index}`, 0.8, 1.1, 0.8, place.x, 0.55, place.z);
+        });
+        builder.finish();
+        this.createGashouderExperienceProps?.(layout);
+        this.modelLoadPromise = this.modelLoadPromise.then(() => {
+            if (this._disposed) return;
+            const record = this.modelLoader.loadedModels.bar_stool;
+            if (!record?.rootMesh || !record.container) throw new Error('The seating stool model did not load.');
+            const { rootMesh, container } = record;
+            const meshes = container.meshes.filter(mesh => mesh.getTotalVertices && mesh.getTotalVertices() > 0);
+            if (!meshes.length) throw new Error('The seating stool model has no visible meshes.');
+            const stools = layout.flatMap(place => place.stools);
+            const first = stools[0];
+            stools.forEach((stool, index) => {
+                let seatMeshes = meshes;
+                if (index > 0) {
+                    const entry = container.instantiateModelsToScene(name => `gashouderStool${index}_${name}`, false,
+                        { doNotInstantiate: false });
+                    const root = entry.rootNodes[0];
+                    if (!root) throw new Error(`Could not create Gashouder stool ${index + 1}.`);
+                    root.position.x = rootMesh.position.x + stool.x - first.x;
+                    root.position.z = rootMesh.position.z + stool.z - first.z;
+                    root.rotation.y = rootMesh.rotation.y + stool.facing - first.facing;
+                    root.computeWorldMatrix(true);
+                    seatMeshes = root.getChildMeshes().filter(mesh => mesh.getTotalVertices && mesh.getTotalVertices() > 0);
+                    if (!seatMeshes.length) throw new Error(`Gashouder stool ${index + 1} has no visible meshes.`);
+                }
+                const seat = this._seat('a Gashouder stool', stool.id, stool.x, stool.z, 0,
+                    GASHOUDER_VENUE.seating.seatHeight, stool.facing, stool.viewX, stool.viewZ);
+                this._tagSeatMeshes(seatMeshes, [seat]);
+                this._collisionBlock(`gashouderStoolBlock${index}`, 0.46, 1.1, 0.46, stool.x, 0.55, stool.z);
+            });
+        }).catch(error => {
+            if (this._disposed) return;
+            log.warn('Gashouder seating could not be finished:', error);
+            this.showToast('Some Gashouder seating could not be loaded.');
+        });
+    },
+
     createGashouderVenue() {
         const preset = GASHOUDER_PRESETS[this.getGashouderPreset()];
         this.ledPanels = [];
         this.createGashouderArchitecture();
+        this.createGashouderSeating();
         if (preset.stage) this.createGashouderStage();
         if (this.scene?.onBeforeRenderObservable && typeof this._updateWalkSurface === 'function' && !this._walkSurfaceObserver) {
             this._walkLevel = this._walkLevel || 0;
@@ -900,7 +1175,7 @@ const GashouderVenue = {
         const ringFixtures = Array.from({ length: rig.ringFixtureCount }, (_, i) => {
             const group = Math.floor(i / 3) % rig.fixtureGroups;
             const local = (i % 3) - 1;
-            const angle = Math.PI * 2 * group / rig.fixtureGroups + local * 0.085;
+            const angle = Math.PI * 2 * group / rig.fixtureGroups + local * Math.PI * 2 / rig.segments;
             return {
                 x: Math.sin(angle) * rig.radius,
                 y: rig.mountY,
@@ -911,7 +1186,10 @@ const GashouderVenue = {
             };
         });
         // 6 moving heads along the front-of-stage bridge framing the DJ and monumental LED wall
-        const stageXs = [-8.4, -5.2, -2.0, 2.0, 5.2, 8.4];
+        // Keep bridge fixtures on separate nodes of the 1.25 m support grid.
+        const bridgeX = segment => -rig.stageBridgeWidth / 2 +
+            rig.stageBridgeWidth * segment / rig.stageBridgeSegments;
+        const stageXs = [1, 4, 6, 10, 12, 15].map(bridgeX);
         const stageFixtures = stageXs.map((x, idx) => ({
             x,
             y: rig.stageMountY,
@@ -921,8 +1199,10 @@ const GashouderVenue = {
             group: idx % rig.fixtureGroups
         }));
 
-        const ringStrobes = Array.from({ length: rig.ringStrobeCount }, (_, i) => {
-            const angle = Math.PI * 2 * i / rig.ringStrobeCount;
+        // These 7.5-degree nodes are interleaved with the heads, lasers, and haze units.
+        const ringStrobeSteps = [3, 5, 13, 21, 27, 29, 37, 45];
+        const ringStrobes = ringStrobeSteps.map(step => {
+            const angle = Math.PI * 2 * step / rig.segments;
             return {
                 x: Math.sin(angle) * rig.radius,
                 y: rig.mountY,
@@ -930,7 +1210,7 @@ const GashouderVenue = {
                 aimZ: 0
             };
         });
-        const stageStrobes = [-7.2, -2.6, 2.6, 7.2].map(x => ({
+        const stageStrobes = [2, 7, 9, 14].map(bridgeX).map(x => ({
             x,
             y: rig.stageMountY,
             z: rig.stageBridgeZ,
@@ -938,7 +1218,7 @@ const GashouderVenue = {
         }));
 
         const ringLasers = Array.from({ length: rig.ringLaserCount }, (_, i) => {
-            const angle = Math.PI * 2 * i / rig.ringLaserCount;
+            const angle = Math.PI * 2 * (i + 0.25) / rig.ringLaserCount;
             return {
                 x: Math.sin(angle) * rig.radius,
                 z: Math.cos(angle) * rig.radius,
@@ -946,7 +1226,7 @@ const GashouderVenue = {
                 type: 'multi'
             };
         });
-        const stageLasers = [-6.4, 6.4].map(x => ({
+        const stageLasers = [3, 13].map(bridgeX).map(x => ({
             x,
             z: rig.stageBridgeZ,
             trussY: rig.stageBridgeY,
@@ -969,7 +1249,7 @@ const GashouderVenue = {
                 };
             }),
             // 2 on the front-of-stage bridge jetting downward across the stage front and dancefloor
-            ...[-4.0, 4.0].map(x => ({
+            ...[5, 11].map(bridgeX).map(x => ({
                 x,
                 y: rig.stageMountY - 0.08,
                 z: rig.stageBridgeZ,
@@ -981,9 +1261,13 @@ const GashouderVenue = {
 
         this.gashouderLighting = {
             mountY: rig.mountY,
+            mirrorPinspotPositions: [6, 14, 30, 38].map(step => {
+                const angle = Math.PI * 2 * step / rig.segments;
+                return { x: Math.sin(angle) * rig.radius, y: rig.mountY - 0.35, z: Math.cos(angle) * rig.radius };
+            }),
             fixturePositions: [...ringFixtures, ...stageFixtures],
             strobePositions: [...ringStrobes, ...stageStrobes],
-            laserSheetPositions: [-7.8, 7.8].map(x => ({
+            laserSheetPositions: [-10, 10].map(x => ({
                 x,
                 y: rig.stageMountY,
                 z: rig.stageBridgeZ,

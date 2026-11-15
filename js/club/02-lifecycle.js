@@ -380,7 +380,7 @@ class VRClubLifecycle extends VRClubCore {
 
     _isXRPointerTarget(mesh) {
         if (!mesh) return false;
-        if (mesh.metadata?.vrclubSeats || mesh.metadata?.vrclubDoor !== undefined || mesh.metadata?.vrclubRestroom ||
+        if (mesh.metadata?.vrclubSeats || mesh.metadata?.vrclubGashouderExperience || mesh.metadata?.vrclubDoor !== undefined || mesh.metadata?.vrclubRestroom ||
             mesh.metadata?.vrclubGuestAction || mesh.metadata?.vrclubSession) return true;
         for (let node = mesh; node; node = node.parent) {
             if (node === this._vrQuickMenuRoot) return true;
@@ -692,7 +692,7 @@ class VRClubLifecycle extends VRClubCore {
             vrHelper.baseExperience.onInitialXRPoseSetObservable.add(camera => {
                 if (this.venueId === 'gashouder') {
                     this.standFromSeat(false);
-                    camera.position.set(0, 0, 5);
+                    camera.position.set(window.GASHOUDER_VENUE.vrEntry.x, 0, window.GASHOUDER_VENUE.vrEntry.z);
                     camera.rotationQuaternion.set(0, 1, 0, 0);
                     camera.cameraDirection.set(0, 0, 0);
                     camera.cameraRotation.set(0, 0);
@@ -1006,6 +1006,8 @@ class VRClubLifecycle extends VRClubCore {
         this._avatarSharing?.dispose();
         this._customAvatarBytes = null;
         if (this._disposed) return;
+        this._disposeGashouderLookahead?.();
+        this.disposeGashouderExperience?.();
         this.liveInput?.dispose();
         this.lightingPresets?.dispose();
         this.avatarEditor?.dispose();
@@ -1056,6 +1058,10 @@ class VRClubLifecycle extends VRClubCore {
         if (this._vrEntryTimer) {
             clearTimeout(this._vrEntryTimer);
             this._vrEntryTimer = null;
+        }
+        if (this._crowdSpawnTimer) {
+            clearTimeout(this._crowdSpawnTimer);
+            this._crowdSpawnTimer = null;
         }
         // The context-lost handler schedules a page reload. A host that disposes the
         // club must not have its document navigated two seconds later.

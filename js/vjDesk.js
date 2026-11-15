@@ -1291,8 +1291,17 @@ const VJDesk = {
         const vj = this.vjDirector;
         switch (button.kind) {
             case 'lightsPage': out.value = button.targetPage === 'rigGroups' ? this.spotRigControlValue('cycleSpotTarget') : button.targetPage === 'rig' ? 'SPOTS / ROWS / SIDES' : button.targetPage === 'settings' ? 'BRIGHTNESS / SPEED / SAFETY' : 'FIXTURES / COLOURS'; break;
-            case 'spotGroup': out.active = this.spotRigControlValue('cycleSpotTarget') === button.label; out.value = out.active ? 'SELECTED' : 'TAP TO EDIT'; break;
-            case 'spotRig': out.value = this.spotRigControlValue(button.control); out.active = !out.disabled; break;
+            case 'spotGroup': {
+                const index = VRClubUI.SPOT_GROUPS.findIndex(item => item.name === button.label);
+                const group = (this.spotRigGroups?.() || VRClubUI.SPOT_GROUPS)[index];
+                out.label = group?.name || button.label;
+                out.active = this.spotRigControlValue('cycleSpotTarget') === out.label;
+                out.value = out.active ? 'SELECTED' : 'TAP TO EDIT';
+                break;
+            }
+            case 'spotRig':
+                if (button.control === 'cycleSpotSequence' && this.venueId === 'gashouder') out.label = 'LIGHT ORDER: ALL SPOTS';
+                out.value = this.spotRigControlValue(button.control); out.active = !out.disabled; break;
             case 'auto':
                 out.active = !this.vjManualMode && this.showDirector?.enabled !== false;
                 out.value = out.active ? 'ON: TAP TO TURN OFF' : 'OFF: TAP TO TURN ON';
@@ -1472,8 +1481,8 @@ const VJDesk = {
         ctx.fillText(status ? status.title : this._vjDeskLightsPage === 'sheet' ? 'LASER SHEET SETTINGS' : this._vjDeskLightsPage === 'rigGroups' ? 'CHOOSE SPOTS' : this._vjDeskLightsPage === 'rig' ? 'SPOT RIG' : this._vjDeskLightsPage === 'settings' ? 'LIGHT SETTINGS' : 'LIGHTS', 68, 50, headerWidth);
         ctx.fillStyle = '#c3cad6';
         ctx.font = 'bold 28px sans-serif';
-        ctx.fillText(status ? status.detail : this._vjDeskLightsPage === 'rigGroups' ? 'ENTRANCE TO DJ; LEFT / RIGHT WHEN FACING THE DJ'
-            : this._vjDeskLightsPage === 'rig' ? 'SELECTED SPOTS ABOVE; LIGHT ORDER AFFECTS ALL SIX'
+        ctx.fillText(status ? status.detail : this._vjDeskLightsPage === 'rigGroups' ? (this.venueId === 'gashouder' ? 'EACH GROUP CONTROLS FOUR SPOTS' : 'ENTRANCE TO DJ; LEFT / RIGHT WHEN FACING THE DJ')
+            : this._vjDeskLightsPage === 'rig' ? (this.venueId === 'gashouder' ? 'SELECTED GROUPS ABOVE; LIGHT ORDER AFFECTS ALL SPOTS' : 'SELECTED SPOTS ABOVE; LIGHT ORDER AFFECTS ALL SIX')
             : this._vjDeskLightsPage === 'sheet' ? 'SHEET SPEED AND BRIGHTNESS; DENSE SMOKE IS A PERSONAL CHOICE'
             : this._vjDeskLightsPage === 'settings' ? 'YOUR RETURN-TO-AUTO PREFERENCE ALSO APPLIES TO RECALLED PRESETS'
                 : 'SWITCH FIXTURES ON / OFF. COLOUR AND PICTURE BUTTONS STEP TO THE NEXT OPTION', 68, 98, headerWidth);

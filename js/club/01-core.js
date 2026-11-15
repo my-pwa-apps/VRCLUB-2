@@ -72,6 +72,22 @@ class VRClubCore {
             presetSelect.value = this.gashouderPreset;
         }
         this.venueConfig = this.venueId === 'gashouder' ? window.GASHOUDER_VENUE : null;
+        this.gashouderCrowdOverride = null;
+        if (this.venueConfig) {
+            try {
+                const savedCrowdCount = localStorage.getItem('vrclub.gashouderCrowdCount');
+                if (savedCrowdCount !== null) {
+                    const count = Number(savedCrowdCount);
+                    if (Number.isInteger(count) && count >= 0 && count <= this.venueConfig.maxDancers) {
+                        this.gashouderCrowdOverride = count;
+                    } else {
+                        console.warn('Ignoring an invalid saved Gashouder dancer count.');
+                    }
+                }
+            } catch (error) {
+                console.warn('Could not read the saved Gashouder dancer count.', error);
+            }
+        }
         const radius = this.venueConfig?.dimensions.innerRadius;
         this.roomBounds = this.venueConfig
             ? {
@@ -938,6 +954,12 @@ class VRClubCore {
         } catch (err) {
             log.warn('Could not enable Fixed Foveated Rendering:', err);
         }
+        try { this._syncGashouderExperienceCamera?.(xrCamera); }
+        catch (error) {
+            log.warn('Could not continue the personal effect in VR:', error);
+            this.stopGashouderExperience?.();
+            this.showErrorMessage('The simulated effect stopped because VR could not display it.');
+        }
     }
     
     applyDesktopSettings() {
@@ -1077,6 +1099,12 @@ class VRClubCore {
         this.scene.fogMode = BABYLON.Scene.FOGMODE_EXP2;
         this.scene.fogDensity = desktop.fogDensity;
         log.info('🌫️ Restored scene fog and particle rates for desktop');
+        try { this._syncGashouderExperienceCamera?.(this.camera); }
+        catch (error) {
+            log.warn('Could not continue the personal effect on desktop:', error);
+            this.stopGashouderExperience?.();
+            this.showErrorMessage('The simulated effect stopped because the screen could not display it.');
+        }
     }
 
     /**
@@ -1169,6 +1197,9 @@ class VRClubCore {
         if (this.floorMesh) this.floorMesh.receiveShadows = !!this.tierSettings.floorShadows;
         this._rebuildFloorReflectionProbe();
         this._applyCrowdSize();
+        if (this.venueId === 'gashouder' && typeof window !== 'undefined' && typeof CustomEvent === 'function') {
+            window.dispatchEvent(new CustomEvent('gashoudercrowdchange'));
+        }
 
         // Re-run the active target's settings so the quality change is visible immediately.
         if (this.isInVRMode) {

@@ -134,21 +134,6 @@ class VRClubAnimationFixtures extends VRClubAnimationCore {
         }
     }
 
-    _stepSpotServo(spot, diff, velocityKey, maxSpeed, acceleration, dtScale) {
-        const dt = Math.max(0.25, Math.min(4, Number.isFinite(dtScale) ? dtScale : 1)) / 60;
-        const velocity = spot[velocityKey] || 0;
-        const desiredSpeed = Math.max(-maxSpeed, Math.min(maxSpeed, diff / dt));
-        const nextVelocity = velocity + Math.max(-acceleration * dt,
-            Math.min(acceleration * dt, desiredSpeed - velocity));
-        const step = nextVelocity * dt;
-        if (Math.abs(step) >= Math.abs(diff)) {
-            spot[velocityKey] = 0;
-            return diff;
-        }
-        spot[velocityKey] = nextVelocity;
-        return step;
-    }
-
     /**
      * Ceiling laser projectors. Every beam is aimed, clipped against the room's interior faces and written
      * into the shared ribbon batch (see _createLaserBeamBatch), without a separate surface-hit dot.
@@ -253,7 +238,7 @@ class VRClubAnimationFixtures extends VRClubAnimationCore {
                 this._intersectRoomInterior(o.x, o.y, o.z, dir.x, dir.y, dir.z, hit);
                 beam.length = hit.t;
                 const index = Number.isInteger(beam.slot) ? beam.slot : slot;
-                this._writeLaserBeamQuad(batch, index, o, dir, hit, camPos, pixelAngle, base);
+                this._writeLaserBeamQuad(batch, index, o, dir, hit, camPos, pixelAngle, base, beam.mediumDensity || 0);
                 slot++;
             }
 
@@ -311,16 +296,27 @@ class VRClubAnimationFixtures extends VRClubAnimationCore {
     }
 
     /** Write one clipped beam ribbon into the batch buffers. Allocates nothing. */
-    _writeLaserBeamQuad(batch, slot, o, d, hit, cam, pixelAngle, base) {
+    _writeLaserBeamQuad(batch, slot, o, d, hit, cam, pixelAngle, base, medium = 0) {
         const L = hit.t;
-        const ex = o.x + d.x * L, ey = o.y + d.y * L, ez = o.z + d.z * L;
         const P = batch.positions, C = batch.colors;
-        const p = slot * 12, c = slot * 16;
-        // Physical width: ~4 mm at the aperture, ~1.5 mrad divergence.
-        const core0 = 0.004 * 8, core1 = (0.004 + 0.0015 * L) * 8;
+        const segments = batch.segments || 1;
         const atten = this.gashouderLighting ? 0.011 : 0.02;
-        this._writeLaserBeamEnd(P, C, p, c, 0, 1, o.x, o.y, o.z, d, core0, base, cam, pixelAngle);
-        this._writeLaserBeamEnd(P, C, p, c, 3, 2, ex, ey, ez, d, core1, base * Math.exp(-atten * L), cam, pixelAngle);
+        const mediumGain = Math.exp(-Math.max(0, Math.min(3, medium)) * 0.28);
+        for (let segment = 0; segment < segments; segment++) {
+            const t0 = segment / segments, t1 = (segment + 1) / segments;
+            const l0 = L * t0, l1 = L * t1;
+            const p = (slot * segments + segment) * 12;
+            const c = (slot * segments + segment) * 16;
+            const x0 = o.x + d.x * l0, y0 = o.y + d.y * l0, z0 = o.z + d.z * l0;
+            const x1 = o.x + d.x * l1, y1 = o.y + d.y * l1, z1 = o.z + d.z * l1;
+            // Physical width: ~4 mm at the aperture, ~1.5 mrad divergence.
+            const core0 = (0.004 + 0.0015 * l0) * 8;
+            const core1 = (0.004 + 0.0015 * l1) * 8;
+            this._writeLaserBeamEnd(P, C, p, c, 0, 1, x0, y0, z0, d, core0,
+                base * mediumGain * Math.exp(-atten * l0), cam, pixelAngle);
+            this._writeLaserBeamEnd(P, C, p, c, 3, 2, x1, y1, z1, d, core1,
+                base * mediumGain * Math.exp(-atten * l1), cam, pixelAngle);
+        }
     }
 
     /**
@@ -595,10 +591,9 @@ class VRClubAnimationFixtures extends VRClubAnimationCore {
                 spot.light.direction.copyFrom(direction);
                 
                 // Dynamic beam angle (simulates zoom adjustment) - subtle variation
-                const baseAngle = spot.baseAngle || Math.PI / 6;
-                spot.light.angle = this.venueId === 'gashouder'
-                    ? baseAngle
-                    : baseAngle + Math.sin(time * 0.3 + i * 0.5) * 0.1;
+                const baseAngle = Math.PI / 6; // 30 degrees base
+                const angleVariation = Math.sin(time * 0.3 + i * 0.5) * 0.1; // ±6 degrees
+                spot.light.angle = baseAngle + angleVariation;
                 
                 // === HYPERREALISTIC MOVING HEAD ANIMATION ===
                 // Professional moving heads have pan (Y-axis) and tilt (X/Z-axis) motors
@@ -1086,11 +1081,10 @@ class VRClubAnimationFixtures extends VRClubAnimationCore {
             let panDiff = targetPanAngle - spot.yoke.rotation.y;
             if (panDiff > Math.PI) panDiff -= Math.PI * 2;
             if (panDiff < -Math.PI) panDiff += Math.PI * 2;
-            const panStep = limited
-                ? this._stepSpotServo(spot, panDiff, '_panVelocity', 1.4, 4, dtScale)
-                : panDiff * (1 - Math.pow(1 - 0.15, dtScale));
-            if (!limited) spot._panVelocity = 0;
-            spot.yoke.rotation.y += panStep;
+            const panLerpSpeed = 1 - Math.pow(1 - 0.15, dtScale);
+            const panStep = panDiff * panLerpSpeed;
+            const panLimit = 0.75 * dtScale / 60;
+            spot.yoke.rotation.y += limited ? Math.max(-panLimit, Math.min(panLimit, panStep)) : panStep;
 
             // 2. TILT (Head Rotation around X)
             // Calculate target angle from vertical (down).
@@ -1098,12 +1092,10 @@ class VRClubAnimationFixtures extends VRClubAnimationCore {
             // We use negative angle because positive rotation moves -Y to -Z (Back),
             // but we want to move -Y to +Z (Forward) relative to the Yoke.
             const targetTiltAngle = -Math.acos(Math.max(-1, Math.min(1, -direction.y)));
-            const tiltDiff = targetTiltAngle - spot.head.rotation.x;
-            const tiltStep = limited
-                ? this._stepSpotServo(spot, tiltDiff, '_tiltVelocity', 1, 3, dtScale)
-                : tiltDiff * (1 - Math.pow(1 - 0.12, dtScale));
-            if (!limited) spot._tiltVelocity = 0;
-            spot.head.rotation.x += tiltStep;
+            const tiltLerpSpeed = 1 - Math.pow(1 - 0.12, dtScale);
+            const tiltStep = (targetTiltAngle - spot.head.rotation.x) * tiltLerpSpeed;
+            const tiltLimit = 0.5 * dtScale / 60;
+            spot.head.rotation.x += limited ? Math.max(-tiltLimit, Math.min(tiltLimit, tiltStep)) : tiltStep;
             
             // Lens and bezel are children of the head and move automatically.
         } else if (spot.fixture) {
@@ -1377,14 +1369,10 @@ class VRClubAnimationFixtures extends VRClubAnimationCore {
         const sinTheta = Math.sqrt(1 - cosTheta * cosTheta);
         const tanTheta = cosTheta > 0.1 ? sinTheta / cosTheta : 0;
         
-        // Gashouder derives its footprint from the 12-degree optic; other venues keep their authored diameter.
+        // The beam's wide end keeps its authored surface diameter at every throw distance.
         const beamFloorDiameter = spot.beamFloorDiameter || 2.0;
-        const coneRadius = this.venueId === 'gashouder'
-            ? centerBeamLength * Math.tan((spot.baseAngle || Math.PI / 15) * 0.5)
-            : beamFloorDiameter * 0.5;
-        const baseScale = this.venueId === 'gashouder'
-            ? (2 * coneRadius) / beamFloorDiameter
-            : 1;
+        const coneRadius = beamFloorDiameter * 0.5;
+        const baseScale = 1.0;
         
         // Extension needed for uphill edge to reach surface: r * tan(θ)
         // For floor: extends cone past floor so edges touch
@@ -1530,7 +1518,7 @@ class VRClubAnimationFixtures extends VRClubAnimationCore {
         g.beamMidpoint = beamMidpoint;
         g.beamLength = beamLength;
         g.baseScale = baseScale;
-        g.surfaceDiameter = beamFloorDiameter * baseScale;
+        g.surfaceDiameter = beamFloorDiameter;
         g.centerBeamLength = centerBeamLength;
         g.hitSurface = hitSurface;
         g.surfaceIntersection = surfaceIntersection;
@@ -1663,8 +1651,9 @@ class VRClubAnimationFixtures extends VRClubAnimationCore {
                 //   - height = beamLength (scaled dynamically)
                 // The pool should match the beam's floor intersection exactly
                 
-                // Match the projected pool to the beam's scaled surface footprint.
-                const beamDiameterAtFloor = g.surfaceDiameter || spot.beamFloorDiameter || 2.0;
+                // The pool matches the beam's fixed wide-end diameter.
+                const meshFloorDiameter = spot.beamFloorDiameter || 2.0;
+                const beamDiameterAtFloor = meshFloorDiameter;
                 
                 // === ELLIPSE GEOMETRY ===
                 // When beam hits floor at angle θ from vertical:

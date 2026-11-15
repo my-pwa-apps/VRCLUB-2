@@ -127,6 +127,7 @@ class VRClubSocialUI extends window.VRClubMenu {
                 net('NOD TO NOD', 'autoNod'),
                 net('UNBLOCK ALL', 'unblockAll'),
                 net('REVIEW SAFETY GUIDE', 'reviewSafety'),
+                ...(mp.connected ? [{ label: 'COPY ROOM INVITE', action: 'roomInvite' }] : []),
                 net('LEAVE ROOM', 'leave', { danger: true }),
                 back('online'),
                 common.close

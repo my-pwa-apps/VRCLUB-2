@@ -161,6 +161,55 @@ test('An old-style source completing late cannot populate the new crowd source a
     assert.equal(club._crowdSourceContainers[3], undefined);
 });
 
+test('large Gashouder style replacements stay hidden while yielding and clean up on interruption', async () => {
+    const { club, context, window } = fixture();
+    club._replaceCharacterStyle = window.CharacterStyles._replaceCharacterStyle;
+    const callbacks = [], created = [], disposed = [];
+    context.setTimeout = callback => callbacks.push(callback);
+    window.GASHOUDER_VENUE = { crowdSources: Array(24) };
+    window.VRClubAudioCrowd = { AVATAR_SOURCES: [{}], sourceIndex: () => 0, _setAnimating: (npc, on) => { npc.playing = on; } };
+    const position = { y: 0, clone() { return { y: this.y }; } };
+    club.npcAvatars = Array.from({ length: 25 }, (_, i) => ({
+        name: `dancer${i}`, characterSourceId: 'f1', characterSpawn: { height: 1.7, floorOffset: 0, options: {} },
+        root: { position, rotation: { y: 0 } }, baseSpeed: 1
+    }));
+    Object.assign(club, {
+        venueId: 'gashouder',
+        _wantedCharacterStyle: () => 'diverse',
+        _requiredCrowdSources: () => [0],
+        _characterSource: () => ({ id: 'f1' }),
+        _loadCharacterContainer: async () => ({}),
+        _initialDJId: () => 'female',
+        _characterDJLook: () => ({}),
+        _mirrorAvatarId: () => null,
+        getLocalAvatarStyle: () => 'female',
+        _loadPlayerSource: async () => ({}),
+        _disposeCharacterNPC: npc => disposed.push(npc),
+        _spawnAvatar(source, name) {
+            const npc = {
+                name, playing: true,
+                root: { enabled: true, setEnabled(value) { this.enabled = value; } },
+                collider: { enabled: true, setEnabled(value) { this.enabled = value; } }
+            };
+            created.push(npc);
+            this.npcAvatars.push(npc);
+        }
+    });
+    const pending = club._replaceCharacterStyle('diverse');
+    while (!callbacks.length) await Promise.resolve();
+    callbacks.shift()();
+    while (!callbacks.length) await Promise.resolve();
+    assert.equal(created.length, 1);
+    assert.equal(created[0].root.enabled, false);
+    assert.equal(created[0].collider.enabled, false);
+    assert.equal(created[0].playing, false);
+    club._disposed = true;
+    callbacks.shift()();
+    await assert.rejects(pending, /interrupted/);
+    assert.equal(disposed[0], created[0]);
+    assert.equal(club.npcAvatars.length, 25);
+});
+
 test('Replacing a resident re-registers scoped accents through the light-order resynchronization helper', () => {
     const { club, window } = fixture();
     const oldMesh = {}, newMesh = {}, otherMesh = {};

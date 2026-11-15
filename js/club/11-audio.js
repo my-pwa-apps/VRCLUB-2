@@ -32,6 +32,15 @@ function _paListenerZones(x, y, z, venueId) {
 
 class VRClubAudio extends VRClubUI {
 
+    static GASHOUDER_LOOKAHEAD_KEY = 'vrclub.gashouderShowLookahead';
+    static GASHOUDER_LOOKAHEAD_SECONDS = 60;
+    static GASHOUDER_LOOKAHEAD_WINDOW_SECONDS = 16;
+    static GASHOUDER_LOOKAHEAD_MAX_AHEAD_SECONDS = 180;
+    static GASHOUDER_LOOKAHEAD_RESUME_AHEAD_SECONDS = 145;
+    static GASHOUDER_LOOKAHEAD_RATE = 4;
+    static GASHOUDER_LOOKAHEAD_SAMPLE_MS = 100;
+    static GASHOUDER_LOOKAHEAD_HISTORY_SECONDS = 240;
+
     _ensureAudioContext() {
         if (!this.audioContext) {
             this.audioContext = new (window.AudioContext || window.webkitAudioContext)();
@@ -953,12 +962,356 @@ class VRClubAudio extends VRClubUI {
         }
     }
 
+    _lookaheadEnabled() {
+        if (this.venueId !== 'gashouder') return false;
+        if (this._gashouderLookaheadEnabled === undefined) {
+            try { this._gashouderLookaheadEnabled = localStorage.getItem(VRClubAudio.GASHOUDER_LOOKAHEAD_KEY) === '1'; }
+            catch (_) { this._gashouderLookaheadEnabled = false; }
+        }
+        return this._gashouderLookaheadEnabled;
+    }
+
+    isGashouderLookaheadEnabled() {
+        const enabled = this._lookaheadEnabled();
+        if (enabled) this._ensureGashouderLookaheadMonitor();
+        return enabled;
+    }
+
+    setGashouderLookaheadEnabled(enabled) {
+        if (this.venueId !== 'gashouder') return false;
+        if (typeof this.guardHostControl === 'function' && !this.guardHostControl('lights')) return false;
+        const next = !!enabled;
+        if (next === this._lookaheadEnabled()) return true;
+        this._gashouderLookaheadEnabled = next;
+        try { localStorage.setItem(VRClubAudio.GASHOUDER_LOOKAHEAD_KEY, next ? '1' : '0'); }
+        catch (_) { this.showErrorMessage?.('Ahead analysis is active for this visit, but this browser could not save the setting.'); }
+        if (next) {
+            this._gashouderLookaheadFailureUrl = null;
+            this._setGashouderLookaheadStatus('WAITING FOR SEEKABLE MUSIC');
+            this._ensureGashouderLookaheadMonitor();
+        } else {
+            if (this._gashouderLookaheadTimer) clearInterval(this._gashouderLookaheadTimer);
+            this._gashouderLookaheadTimer = null;
+            this._disposeGashouderLookaheadScan();
+            this._setGashouderLookaheadStatus('OFF');
+        }
+        return true;
+    }
+
+    getGashouderLookaheadEnergy() {
+        const state = this._gashouderLookahead, audio = this.audioElement;
+        if (!this._lookaheadEnabled() || !state || !audio || audio.paused || audio.ended ||
+            !['stream', 'file'].includes(this._audioKind) || this.audioContext?.state !== 'running' ||
+            (audio.currentSrc || audio.src) !== state.sourceUrl || !state.started || state.failed ||
+            !Number.isFinite(audio.currentTime)) return null;
+        const start = audio.currentTime + VRClubAudio.GASHOUDER_LOOKAHEAD_SECONDS;
+        const end = start + VRClubAudio.GASHOUDER_LOOKAHEAD_WINDOW_SECONDS;
+        const capacity = state.times.length, oldest = (state.writeIndex - state.count + capacity) % capacity;
+        let count = 0, sum = 0, first = Infinity, last = -Infinity;
+        for (let i = 0; i < state.count; i++) {
+            const index = (oldest + i) % capacity, time = state.times[index];
+            if (time < start || time > end) continue;
+            first = Math.min(first, time);
+            last = Math.max(last, time);
+            sum += state.energy[index];
+            count++;
+        }
+        return count >= 8 && first <= start + 1.5 && last >= end - 1.5 && sum / count >= 0.001 ? sum / count : null;
+    }
+
+    getGashouderLookaheadStatus() {
+        if (!this.isGashouderLookaheadEnabled()) return 'OFF';
+        const audio = this.audioElement, state = this._gashouderLookahead;
+        if (!audio || audio.paused || audio.ended) return 'WAITING FOR PLAYBACK';
+        if (this._audioKind !== 'stream' && this._audioKind !== 'file') {
+            return this._audioKind === 'network' ? 'LIVE AUDIO HAS NO LOOKAHEAD' : 'THIS MUSIC SOURCE CANNOT BE SCANNED';
+        }
+        if (this.audioContext?.state !== 'running') return 'AUDIO ANALYSIS IS NOT RUNNING';
+        if (state && (audio.currentSrc || audio.src) !== state.sourceUrl) return 'LOADING MUSIC FOR ANALYSIS';
+        if (state?.failed) return state.status || 'SOURCE CANNOT BE ANALYZED';
+        const energy = this.getGashouderLookaheadEnergy();
+        return energy === null
+            ? this._gashouderLookaheadStatus === 'READY' ? 'SCANNING THE NEXT MINUTE'
+                : this._gashouderLookaheadStatus || 'WAITING FOR SEEKABLE MUSIC'
+            : 'READY · 60 s ahead';
+    }
+
+    _ensureGashouderLookaheadMonitor() {
+        if (!this._gashouderLookaheadTimer) {
+            this._gashouderLookaheadTimer = setInterval(
+                () => this._updateGashouderLookahead(),
+                VRClubAudio.GASHOUDER_LOOKAHEAD_SAMPLE_MS
+            );
+        }
+        this._updateGashouderLookahead();
+    }
+
+    _setGashouderLookaheadStatus(status) {
+        if (this._gashouderLookaheadStatus === status) return;
+        this._gashouderLookaheadStatus = status;
+        if (window.dispatchEvent && typeof window.CustomEvent === 'function') {
+            window.dispatchEvent(new window.CustomEvent('gashouderlookaheadchange'));
+        }
+        if (this._vrQuickMenuPage === 'show' && this._vrQuickMenuRoot?.isEnabled()) {
+            const button = this._vrQuickMenuButtons?.find(item => item.action === 'gashouderLookahead');
+            if (button) this._drawVRQuickMenuButton(button);
+        }
+    }
+
+    _updateGashouderLookahead() {
+        if (!this._lookaheadEnabled()) return;
+        const audio = this.audioElement;
+        if (!audio || audio.paused || audio.ended) {
+            this._gashouderLookahead?.media.pause();
+            this._setGashouderLookaheadStatus('WAITING FOR PLAYBACK');
+            return;
+        }
+        if (this._audioKind !== 'stream' && this._audioKind !== 'file') {
+            this._disposeGashouderLookaheadScan();
+            this._setGashouderLookaheadStatus(this._audioKind === 'network'
+                ? 'LIVE AUDIO HAS NO LOOKAHEAD' : 'THIS MUSIC SOURCE CANNOT BE SCANNED');
+            return;
+        }
+        if (!this.audioContext || this.audioContext.state !== 'running') {
+            this._setGashouderLookaheadStatus('AUDIO ANALYSIS IS NOT RUNNING');
+            return;
+        }
+        const sourceUrl = audio.currentSrc || audio.src;
+        if (!sourceUrl) {
+            this._setGashouderLookaheadStatus('WAITING FOR SEEKABLE MUSIC');
+            return;
+        }
+        if (this._gashouderLookahead && this._gashouderLookahead.sourceUrl !== sourceUrl) {
+            this._disposeGashouderLookaheadScan();
+        }
+        if (this._gashouderLookaheadFailureUrl !== sourceUrl && !this._gashouderLookahead) {
+            this._createGashouderLookaheadScan(sourceUrl);
+        }
+        const state = this._gashouderLookahead;
+        if (!state || state.failed) {
+            if (state?.status) this._setGashouderLookaheadStatus(state.status);
+            return;
+        }
+        if (!Number.isFinite(audio.duration) || !Number.isFinite(audio.currentTime)) {
+            this._setGashouderLookaheadStatus('THIS SOURCE DOES NOT HAVE A SEEKABLE END');
+            return;
+        }
+        const target = audio.currentTime + VRClubAudio.GASHOUDER_LOOKAHEAD_SECONDS;
+        const end = target + VRClubAudio.GASHOUDER_LOOKAHEAD_WINDOW_SECONDS;
+        if (audio.duration < end) {
+            this._setGashouderLookaheadStatus('LESS THAN 76 s OF MUSIC REMAINS');
+            return;
+        }
+        if (!VRClubAudio._lookaheadRangeContains(audio.seekable, target)) {
+            this._setGashouderLookaheadStatus('SOURCE CANNOT SEEK 60 s AHEAD');
+            return;
+        }
+        if (state.media.readyState < 1) {
+            this._setGashouderLookaheadStatus('LOADING MUSIC FOR ANALYSIS');
+            return;
+        }
+        if (!state.started) {
+            if (!state.seekRequested) this._seekGashouderLookahead(state, target);
+            else if (performance.now() - state.seekRequestedAt > 8000) {
+                state.failed = true;
+                state.status = 'SOURCE DID NOT SEEK TO THE PREVIEW';
+                this._setGashouderLookaheadStatus(state.status);
+            }
+            return;
+        }
+        const ahead = state.media.currentTime - audio.currentTime;
+        if (state.media.currentTime < target - 1) {
+            state.media.pause();
+            state.started = false;
+            state.seekRequested = false;
+            state.count = 0;
+            state.writeIndex = 0;
+            this._seekGashouderLookahead(state, target);
+            return;
+        }
+        if (ahead > VRClubAudio.GASHOUDER_LOOKAHEAD_MAX_AHEAD_SECONDS) {
+            state.media.pause();
+            state.pausedAtLimit = true;
+        } else if (state.pausedAtLimit && ahead < VRClubAudio.GASHOUDER_LOOKAHEAD_RESUME_AHEAD_SECONDS) {
+            state.pausedAtLimit = false;
+            this._playGashouderLookahead(state);
+        } else if (state.media.paused && !state.pausedAtLimit && !state.media.ended) {
+            this._playGashouderLookahead(state);
+        }
+        if (!state.media.paused) this._sampleGashouderLookahead(state);
+        this._setGashouderLookaheadStatus(this.getGashouderLookaheadEnergy() === null
+            ? state.status || 'SCANNING THE NEXT MINUTE' : 'READY');
+    }
+
+    static _lookaheadRangeContains(ranges, time) {
+        if (!ranges || !Number.isFinite(time)) return false;
+        for (let i = 0; i < ranges.length; i++) {
+            if (time >= ranges.start(i) && time <= ranges.end(i)) return true;
+        }
+        return false;
+    }
+
+    _createGashouderLookaheadScan(sourceUrl) {
+        if (!this.audioContext || typeof document === 'undefined') {
+            this._setGashouderLookaheadStatus('AUDIO ANALYSIS IS NOT AVAILABLE');
+            return;
+        }
+        const media = document.createElement('audio');
+        media.crossOrigin = 'anonymous';
+        media.preload = 'auto';
+        media.loop = false;
+        media.playbackRate = VRClubAudio.GASHOUDER_LOOKAHEAD_RATE;
+        if ('preservesPitch' in media) media.preservesPitch = false;
+        const state = {
+            sourceUrl, media, source: null, analyser: null, silentGain: null,
+            bins: new Uint8Array(128),
+            times: new Float64Array(VRClubAudio.GASHOUDER_LOOKAHEAD_HISTORY_SECONDS * 10),
+            energy: new Float32Array(VRClubAudio.GASHOUDER_LOOKAHEAD_HISTORY_SECONDS * 10),
+            writeIndex: 0, count: 0, lastSampleTime: -Infinity,
+            started: false, seekRequested: false, seekRequestedAt: 0, targetTime: 0,
+            pausedAtLimit: false, failed: false, status: 'LOADING MUSIC FOR ANALYSIS',
+            silentSince: 0
+        };
+        try {
+            state.source = this.audioContext.createMediaElementSource(media);
+            state.analyser = this.audioContext.createAnalyser();
+            state.analyser.fftSize = 256;
+            state.analyser.smoothingTimeConstant = 0.12;
+            state.silentGain = this.audioContext.createGain();
+            // Keep the source audible to the analyser, but make the secondary graph silent at the destination.
+            state.silentGain.gain.value = 0;
+            state.source.connect(state.analyser);
+            state.analyser.connect(state.silentGain);
+            state.silentGain.connect(this.audioContext.destination);
+            state.onSeeked = () => {
+                if (this._gashouderLookahead !== state || !state.seekRequested) return;
+                if (Math.abs(media.currentTime - state.targetTime) > 1.5) {
+                    state.failed = true;
+                    state.status = 'SOURCE DID NOT SEEK TO THE PREVIEW';
+                    this._setGashouderLookaheadStatus(state.status);
+                    return;
+                }
+                this._playGashouderLookahead(state);
+            };
+            state.onError = () => {
+                state.failed = true;
+                state.status = 'SOURCE CANNOT BE ANALYZED';
+                this._setGashouderLookaheadStatus(state.status);
+            };
+            media.addEventListener('seeked', state.onSeeked);
+            media.addEventListener('error', state.onError);
+            this._gashouderLookahead = state;
+            media.src = sourceUrl;
+            media.load();
+            this._setGashouderLookaheadStatus(state.status);
+        } catch (error) {
+            this._gashouderLookaheadFailureUrl = sourceUrl;
+            this._setGashouderLookaheadStatus('AUDIO ANALYSIS COULD NOT START');
+            this.showErrorMessage?.(`Ahead analysis could not start: ${error.message}`);
+            if (this._gashouderLookahead === state) this._gashouderLookahead = null;
+            try { state.media.pause(); state.media.removeAttribute('src'); state.media.load(); } catch (_) { /* failed media setup */ }
+            try { state.source?.disconnect(); } catch (_) { /* partial audio-graph teardown */ }
+            try { state.analyser?.disconnect(); } catch (_) { /* partial audio-graph teardown */ }
+            try { state.silentGain?.disconnect(); } catch (_) { /* partial audio-graph teardown */ }
+        }
+    }
+
+    _seekGashouderLookahead(state, target) {
+        if (state.media.readyState < 1 || !VRClubAudio._lookaheadRangeContains(state.media.seekable, target)) {
+            this._setGashouderLookaheadStatus('WAITING FOR SEEKABLE MUSIC');
+            return;
+        }
+        state.targetTime = target;
+        state.seekRequested = true;
+        state.seekRequestedAt = performance.now();
+        state.status = 'SCANNING THE NEXT MINUTE';
+        try {
+            state.media.currentTime = target;
+            if (Math.abs(state.media.currentTime - target) <= 0.25) this._playGashouderLookahead(state);
+        } catch (_) {
+            state.seekRequested = false;
+            this._setGashouderLookaheadStatus('SOURCE CANNOT SEEK 60 s AHEAD');
+        }
+    }
+
+    _playGashouderLookahead(state) {
+        if (this._gashouderLookahead !== state || state.failed || state.started && !state.media.paused) return;
+        state.media.playbackRate = VRClubAudio.GASHOUDER_LOOKAHEAD_RATE;
+        state.media.play().then(() => {
+            if (this._gashouderLookahead !== state) return;
+            state.started = true;
+            state.status = 'SCANNING THE NEXT MINUTE';
+            this._setGashouderLookaheadStatus(state.status);
+        }).catch(error => {
+            if (this._gashouderLookahead !== state) return;
+            state.failed = true;
+            state.status = 'BROWSER BLOCKED THE ANALYSIS AUDIO';
+            this._setGashouderLookaheadStatus(state.status);
+            this.showErrorMessage?.(`Ahead analysis was blocked by the browser: ${error.message}`);
+        });
+    }
+
+    _sampleGashouderLookahead(state) {
+        const time = state.media.currentTime;
+        if (!Number.isFinite(time) || time <= state.lastSampleTime + 0.05) return;
+        state.lastSampleTime = time;
+        state.analyser.getByteFrequencyData(state.bins);
+        const bassEnd = Math.floor(state.bins.length * 0.1);
+        const midEnd = Math.floor(state.bins.length * 0.5);
+        let bass = 0, mid = 0, treble = 0;
+        for (let i = 0; i < bassEnd; i++) bass += state.bins[i];
+        for (let i = bassEnd; i < midEnd; i++) mid += state.bins[i];
+        for (let i = midEnd; i < state.bins.length; i++) treble += state.bins[i];
+        bass /= bassEnd * 255;
+        mid /= (midEnd - bassEnd) * 255;
+        treble /= (state.bins.length - midEnd) * 255;
+        const energy = bass * 0.6 + mid * 0.3 + treble * 0.1;
+        const index = state.writeIndex;
+        state.times[index] = time;
+        state.energy[index] = energy;
+        state.writeIndex = (index + 1) % state.times.length;
+        state.count = Math.min(state.count + 1, state.times.length);
+        if (energy < 0.001) {
+            if (!state.silentSince) state.silentSince = performance.now();
+            if (performance.now() - state.silentSince > 6000) state.status = 'NO ANALYSIS DATA · QUIET OR CORS BLOCKED';
+        } else {
+            state.silentSince = 0;
+            state.status = 'SCANNING THE NEXT MINUTE';
+        }
+    }
+
+    _disposeGashouderLookaheadScan() {
+        const state = this._gashouderLookahead;
+        this._gashouderLookahead = null;
+        if (!state) return;
+        try { state.media.pause(); } catch (_) { /* detached media */ }
+        if (state.onSeeked) state.media.removeEventListener('seeked', state.onSeeked);
+        if (state.onError) state.media.removeEventListener('error', state.onError);
+        try { state.source?.disconnect(); } catch (_) { /* context may be closing */ }
+        try { state.analyser?.disconnect(); } catch (_) { /* context may be closing */ }
+        try { state.silentGain?.disconnect(); } catch (_) { /* context may be closing */ }
+        try { state.media.removeAttribute('src'); state.media.load(); } catch (_) { /* abort secondary media request */ }
+    }
+
+    _disposeGashouderLookahead() {
+        if (this._gashouderLookaheadTimer) clearInterval(this._gashouderLookaheadTimer);
+        this._gashouderLookaheadTimer = null;
+        this._disposeGashouderLookaheadScan();
+    }
+
+    _resetGashouderLookaheadSource() {
+        this._disposeGashouderLookaheadScan();
+        this._gashouderLookaheadFailureUrl = null;
+        if (this._lookaheadEnabled()) this._setGashouderLookaheadStatus('WAITING FOR PLAYBACK');
+    }
+
     /**
      * Swap the audio element src safely, revoking any previous blob URL to
      * avoid unbounded memory growth across file selections.
      */
     _setAudioSrc(newSrc) {
         if (!this.audioElement) return;
+        this._resetGashouderLookaheadSource();
         const prev = this.audioElement.src;
         if (prev && prev.startsWith('blob:')) {
             try { URL.revokeObjectURL(prev); } catch (_) { /* ignore */ }

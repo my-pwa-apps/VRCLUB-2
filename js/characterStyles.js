@@ -107,6 +107,7 @@ window.CharacterStyles = {
             } finally {
                 state.loading = null;
                 this._characterStylesChanged();
+                if (!this._disposed) this._applyCrowdSize?.();
             }
         };
         state.queue = (state.queue || Promise.resolve()).then(change);
@@ -183,6 +184,11 @@ window.CharacterStyles = {
         const indices = new Set(this._requiredCrowdSources());
         if (style === 'quaternius') { indices.add(0); indices.add(1); }
         const actors = (this.npcAvatars || []).slice();
+        const staged = this.venueId === 'gashouder' &&
+            actors.filter(npc => npc.name.startsWith('dancer')).length > window.GASHOUDER_VENUE.crowdSources.length;
+        if (staged) {
+            actors.sort((a, b) => Number(!a.name.startsWith('dancer')) - Number(!b.name.startsWith('dancer')));
+        }
         for (const npc of actors) {
             const index = Crowd.sourceIndex(npc.characterSourceId);
             if (index >= 0) indices.add(index);
@@ -217,6 +223,12 @@ window.CharacterStyles = {
         const replacements = [];
         try {
             for (const npc of actors) {
+                if (staged && npc.name.startsWith('dancer')) {
+                    await new Promise(resolve => setTimeout(resolve, 0));
+                    if (this._disposed || style !== this._wantedCharacterStyle()) {
+                        throw new Error('Character style change was interrupted.');
+                    }
+                }
                 const before = this.npcAvatars.length;
                 if (npc.name === 'djPerformer') {
                     if (!this._spawnPerformingDJ(djContainer, djLook)) throw new Error('The new DJ rig is incompatible.');
@@ -233,6 +245,11 @@ window.CharacterStyles = {
                 const next = this.npcAvatars[before];
                 if (!next || next.name !== npc.name) throw new Error(`Could not prepare ${npc.name}.`);
                 this.npcAvatars.splice(before, 1);
+                if (staged) {
+                    next.root.setEnabled(false);
+                    if (next.collider) next.collider.setEnabled(false);
+                    Crowd._setAnimating(next, false);
+                }
                 replacements.push({ npc, next });
             }
         } catch (error) {

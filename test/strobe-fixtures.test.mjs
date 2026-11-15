@@ -7,7 +7,7 @@ import vm from 'node:vm';
 const require = createRequire(import.meta.url);
 const B = require('../js/vendor/babylon.js');
 
-function fixtureScene(t) {
+function fixtureScene(t, gashouderLighting = null) {
     const canvas = {
         getContext: () => ({ fillRect() {}, createRadialGradient: () => ({ addColorStop() {} }) }),
         toDataURL: () => 'data:image/png;base64,'
@@ -35,11 +35,24 @@ function fixtureScene(t) {
     const scene = new B.Scene(engine);
     t.after(() => { scene.dispose(); engine.dispose(); });
     const club = Object.assign(Object.create(context.window.VRClubFixtures.prototype), {
-        scene, materialFactory: new context.window.MaterialFactory(scene, 4)
+        scene, gashouderLighting, materialFactory: new context.window.MaterialFactory(scene, 4)
     });
     club.createStrobeLights();
     return { club, scene, finish: context.window.VRClubAnimationFinish.prototype };
 }
+
+test('Gashouder strobe brackets reach the lower truss cross-member', t => {
+    const lighting = { mountY: 10.3, strobePositions: [{ x: 0, y: 10.3, z: 15.5, aimZ: 0 }] };
+    const { scene } = fixtureScene(t, lighting);
+    const vertices = scene.getMeshByName('strobeMounts').getVerticesData(B.VertexBuffer.PositionKind);
+    for (const y of [9.9, 10.45]) {
+        assert.ok(Array.from({ length: vertices.length / 3 }, (_, i) => i * 3).some(i =>
+            Math.abs(vertices[i] - 0.05) < 1e-5 &&
+            Math.abs(vertices[i + 1] - y) < 1e-5 &&
+            Math.abs(vertices[i + 2] - 15.55) < 1e-5),
+        `bracket reaches y=${y}`);
+    }
+});
 
 function close(actual, expected, message) {
     assert.ok(Math.abs(actual - expected) < 1e-6, `${message}: ${actual} != ${expected}`);

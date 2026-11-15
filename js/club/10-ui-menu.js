@@ -109,6 +109,7 @@ class VRClubMenu extends window.VRClubControls {
         }
         if (button.action === 'autoShow') return !this.vjManualMode;
         if (button.action === 'holdLook') return !!this.showDirector?.isHeld();
+        if (button.action === 'gashouderLookahead') return this.isGashouderLookaheadEnabled();
         if (button.action === 'dj') return (this._djWanted || this._djId || this._initialDJId()) === button.dj;
         if (button.action === 'playPause' || button.action === 'play') return this.getPlaybackInfo().playing;
         if (button.action === 'showSection') {
@@ -130,16 +131,15 @@ class VRClubMenu extends window.VRClubControls {
         if (this.multiplayer?.canControlLights?.() && !VR_MUSIC_ACTIONS.has(button.action)) return false;
         if (button.action === 'showMood' && button.value === 'gashouder' && this.venueId !== 'gashouder') return false;
         if (VR_MUSIC_ACTIONS.has(button.action) ||
-            ['autoShow', 'holdLook', 'reset', 'cycle', 'nextSection', 'showDrop', 'showPeak', 'showSection', 'showMood', 'showBlackout'].includes(button.action)) return true;
+            ['autoShow', 'holdLook', 'reset', 'cycle', 'nextSection', 'showDrop', 'showPeak', 'showSection', 'showMood', 'showBlackout', 'gashouderLookahead'].includes(button.action)) return true;
         return !!button.control && !button.action && !['vrComfortMode', 'vrSeatedMode', 'autoQuality', 'photosensitiveSafeMode'].includes(button.control);
     }
 
     _vrQuickMenuButtonValue(button, active) {
         if (button.action === 'creditText') return button.detail;
         if (button.action === 'voiceClarity') return this.getVoiceClarityMode?.() === 'nearby' ? 'NEARBY: GENTLE LOCAL DUCKING' : 'STANDARD: STRONGER DUCKING';
-        if (button.action === 'postcardCapture') return this._postcardCapturing ? 'CAPTURING...' : 'LOCAL STILL; NO NAMES OR CHAT';
-        if (button.action === 'postcardSave') return this._postcardUrl ? 'SAVE TO THIS DEVICE' : 'TAKE A PHOTO FIRST';
         if (button.action === 'showMood') return this.showDirector?.program === button.value && !this.vjManualMode ? 'PLAYING' : 'RESUME AUTOMATIC SHOW';
+        if (button.action === 'gashouderLookahead') return this.getGashouderLookaheadStatus();
         if (['cycleShowProgram', 'cycleSheetSpeed', 'toggleReducedShowSmoke'].includes(button.control) ||
             Object.hasOwn(VRClubUI.FIXTURE_BRIGHTNESS_CONTROLS, button.control)) {
             return this.isFollowingHost() && this._isHostOwnedVRButton(button) ? 'HOST ONLY' : this.aestheticControlValue(button.control);
@@ -161,6 +161,11 @@ class VRClubMenu extends window.VRClubControls {
         if (button.action === 'people') {
             if (button.people === 'dj' && this._roomDJVisible === false) return 'HOST SENT DJ HOME';
             return active ? 'HERE' : 'SENT HOME';
+        }
+        if (button.action === 'gashouderCrowdCount' || button.action === 'gashouderCrowdAuto') {
+            const count = this.getGashouderCrowdSize();
+            const mode = this.gashouderCrowdOverride === null ? 'AUTO' : 'ON THIS DEVICE';
+            return `${mode}: ${count}/${this.getGashouderCrowdLimit()}`;
         }
         if (button.action === 'welcomeSafe') return 'NO STROBES';
         if (button.action === 'welcomeFull') return 'STROBES ON';
@@ -318,8 +323,6 @@ class VRClubMenu extends window.VRClubControls {
                 { label: 'TRAVEL', action: 'page', target: 'travel' },
                 { label: 'COMFORT', action: 'page', target: 'comfort' },
                 { label: 'WARDROBE', action: 'page', target: 'me' },
-                ...(!social.length || !this._immersive?.needsAccess()
-                    ? [{ label: 'CAMERA', action: 'page', target: 'camera' }] : []),
                 // A headset in its free preview (or waiting to be paired) can always get back to its pairing code.
                 ...(this._immersive && this._immersive.needsAccess() ? [{ label: 'ACCESS', action: 'page', target: 'access' }] : []),
                 common.close
@@ -328,12 +331,6 @@ class VRClubMenu extends window.VRClubControls {
             welcome: [
                 { label: 'SAFE MODE', action: 'welcomeSafe' },
                 { label: 'FULL LIGHTS', action: 'welcomeFull' }
-            ],
-            camera: [
-                { label: 'TAKE PHOTO', action: 'postcardCapture' },
-                { label: 'SAVE PHOTO', action: 'postcardSave' },
-                { label: 'COPY ROOM INVITE', action: 'postcardInvite' },
-                common.back, common.close
             ],
             access: [
                 { label: 'NEW CODE', action: 'accessNewCode' },
@@ -364,11 +361,11 @@ class VRClubMenu extends window.VRClubControls {
                 common.back, common.close
             ],
             spotGroups: [
-                ...VRClubUI.SPOT_GROUPS.slice(0, 6).map(({ name: label }, group) => ({ label, group, action: 'spotGroup' })),
-                { label: 'INDIVIDUAL SPOTS', action: 'page', target: 'spotHeads' }, common.back, common.close
+                ...(this.spotRigGroups?.() || VRClubUI.SPOT_GROUPS).slice(0, 6).map(({ name: label }, group) => ({ label, group, action: 'spotGroup' })),
+                { label: this.venueId === 'gashouder' ? 'SINGLE GROUPS' : 'INDIVIDUAL SPOTS', action: 'page', target: 'spotHeads' }, common.back, common.close
             ],
             spotHeads: [
-                ...VRClubUI.SPOT_GROUPS.slice(6).map(({ name: label }, index) => ({ label, group: index + 6, action: 'spotGroup' })),
+                ...(this.spotRigGroups?.() || VRClubUI.SPOT_GROUPS).slice(6).map(({ name: label }, index) => ({ label, group: index + 6, action: 'spotGroup' })),
                 common.back, common.close
             ],
             effects: [
@@ -410,9 +407,15 @@ class VRClubMenu extends window.VRClubControls {
                 { label: 'CONVERSATION AUDIO', action: 'voiceClarity' },
                 { label: 'ADVANCED GRAPHICS', action: 'page', target: 'graphics' },
                 { label: 'CREDITS / LICENCES', action: 'page', target: 'credits' },
-                { label: 'CAMERA', action: 'page', target: 'camera' },
+                ...(this._gashouderExperience?.active ? [{ label: 'STOP SIMULATED EFFECT', action: 'stopGashouderExperience' }] : []),
                 common.back,
                 common.close
+            ],
+            gashouderExperience: [
+                this._gashouderExperience?.active
+                    ? { label: 'STOP EFFECT', action: 'stopGashouderExperience' }
+                    : { label: 'START 3-MIN EFFECT', action: 'startGashouderExperience' },
+                { label: 'NO THANKS', action: 'close' }
             ],
             graphics: [
                 { label: '4X EDGE SMOOTHING', action: 'vrMsaa4x' },
@@ -446,21 +449,32 @@ class VRClubMenu extends window.VRClubControls {
                 { label: 'DANCERS', action: 'people', people: 'dancers' },
                 { label: 'BYSTANDERS', action: 'people', people: 'bystanders' },
                 { label: 'DJ', action: 'people', people: 'dj' },
-                { label: 'CHOOSE DJ', action: 'page', target: 'dj' },
+                ...(this.venueId === 'gashouder' ? [] : [{ label: 'CHOOSE DJ', action: 'page', target: 'dj' }]),
                 { label: 'EVERYONE', action: 'people', people: 'all' },
                 { label: 'CROWD DETAIL', action: 'characterStyle' },
                 { label: 'STANDARD FOR ME', action: 'lightweightCharacters' },
+                ...(this.venueId === 'gashouder' ? [
+                    { label: 'DANCER COUNT', action: 'page', target: 'gashouderCrowd' }
+                ] : []),
                 ...(this.characterStyleStatus && this.characterStyleStatus().error
                     ? [{ label: 'RETRY CHARACTERS', action: 'retryCharacters' }] : []),
                 common.back,
                 common.close
+            ],
+            gashouderCrowd: [
+                { label: 'MINUS 10', action: 'gashouderCrowdCount', delta: -10 },
+                { label: 'MINUS 1', action: 'gashouderCrowdCount', delta: -1 },
+                { label: 'PLUS 1', action: 'gashouderCrowdCount', delta: 1 },
+                { label: 'PLUS 10', action: 'gashouderCrowdCount', delta: 10 },
+                { label: 'AUTO: QUALITY TIER', action: 'gashouderCrowdAuto' },
+                common.back, common.close
             ],
             travel: [
                 { label: 'ENTRANCE', control: 'arrival', action: 'travel' },
                 { label: 'DANCE FLOOR', control: 'danceFloor', action: 'travel' },
                 { label: 'DJ BOOTH', control: 'djBooth', action: 'travel' },
                 { label: this.venueId === 'gashouder' ? 'HALL PERIMETER' : 'BALCONY', control: 'balcony', action: 'travel' },
-                { label: this.venueId === 'gashouder' ? 'LOADING ENTRANCE' : 'STREET', control: 'street', action: 'travel' },
+                { label: this.venueId === 'gashouder' ? 'MAIN ENTRANCE' : 'STREET', control: 'street', action: 'travel' },
                 common.back,
                 common.close
             ],
@@ -468,7 +482,10 @@ class VRClubMenu extends window.VRClubControls {
                 { label: 'AUTO NOCTURNE', action: 'showMood', value: 'nocturne' },
                 { label: 'AUTO AESTHETIC', action: 'showMood', value: 'aesthetic' },
                 ...(this.venueId === 'gashouder'
-                    ? [{ label: 'GASHOUDER NIGHT', action: 'showMood', value: 'gashouder' }]
+                    ? [
+                        { label: 'GASHOUDER NIGHT', action: 'showMood', value: 'gashouder' },
+                        { label: 'AHEAD ANALYSIS', action: 'gashouderLookahead' }
+                    ]
                     : []),
                 { label: 'DROP NOW', action: 'showPeak' },
                 { label: 'BLACKOUT', action: 'showBlackout' },
@@ -606,10 +623,10 @@ class VRClubMenu extends window.VRClubControls {
             context.font = 'bold 66px sans-serif';
             context.textAlign = 'left';
             context.textBaseline = 'middle';
-            const titles = { home: 'VR CLUB', onlineSafety: 'BEFORE YOU GO ONLINE', room: 'JOIN ROOM', look: 'RANDOM LOOK', gestures: 'REACT', chat: 'CHAT', crowd: 'WHO IS HERE',
+            const titles = { home: 'VR CLUB', onlineSafety: 'BEFORE YOU GO ONLINE', room: 'JOIN ROOM', look: 'RANDOM LOOK', gestures: 'REACT', chat: 'CHAT', crowd: 'WHO IS HERE', gashouderCrowd: 'DANCER COUNT',
                 sheetSettings: 'FIXTURE BRIGHTNESS / SHEET',
                 me: 'WARDROBE', body: 'CHOOSE YOUR BODY', credits: 'CREDITS AND LICENCES', graphics: 'ADVANCED GRAPHICS',
-                camera: 'LOCAL POSTCARD', character: 'YOUR CHARACTER', uploadedSharing: 'SHARE YOUR UPLOADED MODEL',
+                character: 'YOUR CHARACTER', uploadedSharing: 'SHARE YOUR UPLOADED MODEL',
                 appearanceEditor: 'PERSONAL WARDROBE', appearanceBase: 'BASE CHARACTER', appearanceHair: 'HAIR STYLE',
                 appearanceOutfit: 'OUTFIT STYLE', appearanceSkin: 'SKIN COLOR', appearanceHairColor: 'HAIR COLOR',
                 appearanceTop: 'TOP COLOR', appearanceBottom: 'BOTTOM COLOR',
@@ -631,20 +648,20 @@ class VRClubMenu extends window.VRClubControls {
             // What each page is for, in plain words: the first thing a new visitor reads.
             const about = {
                 lights: 'FIXTURES, COLOURS AND SPOT MOVEMENT',
-                spotRig: 'SELECTED SPOTS ABOVE; ORDER AFFECTS ALL SIX',
-                spotGroups: 'ENTRANCE TO DJ; LEFT AND RIGHT FACE THE DJ',
-                spotHeads: 'ENTRANCE TO DJ; LEFT AND RIGHT FACE THE DJ',
+                spotRig: this.venueId === 'gashouder' ? 'SELECTED GROUPS ABOVE; ORDER AFFECTS ALL SPOTS' : 'SELECTED SPOTS ABOVE; ORDER AFFECTS ALL SIX',
+                spotGroups: this.venueId === 'gashouder' ? 'SELECT ONE OR MORE OF THE SIX CONTROL GROUPS' : 'ENTRANCE TO DJ; LEFT AND RIGHT FACE THE DJ',
+                spotHeads: this.venueId === 'gashouder' ? 'EACH GROUP CONTROLS FOUR SPOTS' : 'ENTRANCE TO DJ; LEFT AND RIGHT FACE THE DJ',
                 effects: 'LED WALL, STROBES, SMOKE AND BEAMS',
                 smokeSettings: 'CHOOSE THE AMOUNT AND HOW SMOKE IS RELEASED',
                 sheetSettings: 'EACH BRIGHTNESS CHANGES ONLY THAT FIXTURE',
                 show: 'QUICK MOODS; DETAILED CONTROLS AT THE VJ BOOTH',
                 showSections: 'JUMP TO A MOVEMENT AND KEEP IT BY YOUR HOLD RULE',
                 comfort: 'HOW YOU MOVE, WHAT YOU SEE AND FEEL',
+                gashouderExperience: 'PERSONAL COLOUR; MUSIC WHERE SUPPORTED; STOP ANY TIME',
                 me: 'ONE WARDROBE FOR CLUB AND UPLOADED BODIES',
                 body: 'CHOOSE A CLUB CHARACTER OR YOUR OWN MODEL',
                 graphics: 'EXPERIMENTS MAY COST FRAME RATE OR REQUIRE RELOAD',
                 credits: 'PAGED ATTRIBUTION AND SOURCE LINKS; STAY IN VR',
-                camera: 'SAVED LOCALLY; NOTHING IS AUTOMATICALLY SHARED',
                 character: 'YOUR BODY, MIRROR AND ONLINE APPEARANCE',
                 appearanceEditor: this.isCustomAvatarSelected?.() ? 'FIT CLOTHING TO YOUR UPLOADED BODY; APPLY TO SAVE' : 'CUSTOMIZE YOUR CLUB CHARACTER',
                 uploadedSharing: 'ROOM GUESTS RECEIVE YOUR MODEL AND MAY KEEP A COPY',
@@ -663,6 +680,7 @@ class VRClubMenu extends window.VRClubControls {
                 appearanceFacialHair: 'COLOUR FOLLOWS YOUR HAIR COLOUR',
                 appearanceHat: 'HEADWEAR COVERS YOUR HAIR TO AVOID CLIPPING',
                 crowd: 'HOST CHOOSES STYLE; LIGHTWEIGHT FOR ME IS PERSONAL',
+                gashouderCrowd: 'OVER 24: REPEATED LOOKS; HIGH MEMORY AND FRAME COST',
                 travel: 'POINT AT A PLACE TO JUMP THERE',
                 music: 'CONTROL THE CURRENT TRACK OR CHANGE SOURCE',
                 musicSources: 'SAVED LINKS AND THIS SESSION\u2019S LOCAL FOLDER',
@@ -919,6 +937,14 @@ class VRClubMenu extends window.VRClubControls {
 
     _activateVRQuickMenuButton(button) {
         if (!button) return;
+        if (button.action === 'startGashouderExperience') {
+            if (this.startGashouderExperience()) this.toggleVRQuickMenu(false);
+            return;
+        }
+        if (button.action === 'stopGashouderExperience') {
+            this.stopGashouderExperience();
+            return;
+        }
         if (button.action === 'phoneOpen') { this.openPhoneCompanion(button.kind); return; }
         if (button.action === 'phonePair') { this.startPhoneCompanionPairing(); return; }
         if (button.action === 'phoneTransfer') { void this.transferPhoneCompanion(button.operation); return; }
@@ -933,12 +959,20 @@ class VRClubMenu extends window.VRClubControls {
             this._refreshVRQuickMenu();
             return;
         }
-        if (button.action === 'postcardCapture') { void this.capturePostcard(); return; }
-        if (button.action === 'postcardSave') { this.savePostcard(); return; }
-        if (button.action === 'postcardInvite') { this.copyPostcardInvite(); return; }
+        if (button.action === 'roomInvite') { this.copyRoomInvite(); return; }
         if (button.action === 'showMood' || button.action === 'showBlackout') {
             if (button.action === 'showMood') this.setShowMood(button.value);
             else this.blackOutShow();
+            this._refreshVRQuickMenu();
+            return;
+        }
+        if (button.action === 'gashouderLookahead') {
+            const enabled = !this.isGashouderLookaheadEnabled();
+            if (this.setGashouderLookaheadEnabled(enabled)) {
+                this.showErrorMessage(enabled
+                    ? 'Ahead analysis enabled. It uses a muted second audio stream when the source can seek.'
+                    : 'Ahead analysis disabled.');
+            }
             this._refreshVRQuickMenu();
             return;
         }
@@ -1203,6 +1237,25 @@ class VRClubMenu extends window.VRClubControls {
             this.showErrorMessage(button.people === 'dj' && this._roomDJVisible === false
                 ? 'The host has sent the room DJ home. Your own DJ preference is saved.'
                 : here ? `${who}: back in the club` : `${who}: sent home`);
+            this._refreshVRQuickMenu();
+            return;
+        }
+        if (button.action === 'gashouderCrowdAuto') {
+            if (this.setGashouderCrowdCount(null)) this.showErrorMessage('Dancer count now follows your graphics tier.');
+            this._refreshVRQuickMenu();
+            return;
+        }
+        if (button.action === 'gashouderCrowdCount') {
+            const count = this.getGashouderCrowdSize();
+            const limit = this.getGashouderCrowdLimit();
+            const next = Math.max(0, Math.min(limit, count + button.delta));
+            if (next === count) {
+                this.showErrorMessage(`This setup allows up to ${limit} dancers.`);
+                return;
+            }
+            if (this.setGashouderCrowdCount(next)) {
+                this.showErrorMessage(`Gashouder dancer count set to ${next}. Extra dancers load gradually and may reduce performance.`);
+            }
             this._refreshVRQuickMenu();
             return;
         }

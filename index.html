@@ -277,6 +277,15 @@
                 <button class="vj-button vj-button-wide" id="lightweightCharacters" type="button" aria-pressed="false">LIGHTWEIGHT CHARACTERS FOR ME</button>
                 <p class="vj-help" id="characterStyleStatus" role="status">Your override never changes the host's room choice.</p>
                 <button class="vj-button vj-button-wide" id="retryCharacterStyle" type="button" hidden>RETRY LOADING CHARACTERS</button>
+                <div id="gashouderCrowdControl" hidden>
+                    <label class="vj-field-label" for="gashouderCrowdCount">Gashouder dancers (experimental above 24)</label>
+                    <input id="gashouderCrowdCount" class="gashouder-crowd-range" type="range" min="0" max="200" step="1" value="6">
+                    <div class="gashouder-crowd-summary">
+                        <output id="gashouderCrowdValue" for="gashouderCrowdCount">6 dancers</output>
+                        <button class="vj-button" id="gashouderCrowdAuto" type="button">AUTO: FOLLOW QUALITY TIER</button>
+                    </div>
+                    <p class="vj-help" id="gashouderCrowdStatus">The count is saved on this device. More dancers use more frame time.</p>
+                </div>
             </div>
             <div class="vj-section" data-vj-tab-panel="club" hidden>
                 <div class="vj-section-title">Wardrobe</div>
@@ -429,6 +438,12 @@
                     <span>Now playing</span>
                     <span id="showMovementReadout">I · ARRIVAL</span>
                 </div>
+                <div class="vj-section gashouder-lookahead-control" id="gashouderLookaheadControl" hidden>
+                    <div class="vj-section-title">Experimental show preview</div>
+                    <p class="vj-help">Analyze a seekable track from 60 seconds ahead. Its preview energy can influence the next Gashouder movement; playback, beat timing and Safe Mode stay live. This makes a second silent audio request and may use extra bandwidth.</p>
+                    <button class="vj-button vj-button-wide" id="gashouderLookaheadButton" type="button" aria-pressed="false">AHEAD ANALYSIS: OFF</button>
+                    <p class="vj-help" id="gashouderLookaheadStatus" role="status">OFF</p>
+                </div>
             </div>
 
             <!-- What the lights do after a hand-made change: keep it, return to auto, or shuffle the colours. -->
@@ -475,6 +490,13 @@
         </div>
     </div>
     
+    <dialog id="gashouderEffectDialog" class="lighting-presets" aria-labelledby="gashouderEffectTitle">
+        <h2 id="gashouderEffectTitle">Simulated personal effect</h2>
+        <p>A subtle visual tint and pattern, and a slight music change where supported, last three minutes. This affects only you; you can stop it at any time.</p>
+        <button id="gashouderEffectStart" type="button">Start effect</button>
+        <button id="gashouderEffectCancel" type="button">No thanks</button>
+    </dialog>
+
     <dialog id="lightingPresetDialog" class="lighting-presets" aria-labelledby="lightingPresetTitle">
         <h2 id="lightingPresetTitle">Lighting presets</h2>
         <p>Save and recall lighting at the VJ desk. Presets never change music, DJ presence or your Safe Mode choice.</p>
@@ -521,6 +543,7 @@
             <!-- Now playing -->
             <div class="audio-section">
                 <div id="audioNowPlaying" class="audio-now-playing" role="status" aria-live="polite">No audio yet</div>
+                <p id="audioLookaheadStatus" class="network-help" role="status" hidden></p>
             </div>
 
             <!-- User-provided music only -->
@@ -1228,6 +1251,7 @@
     <script src="js/multiplayer.js?v=20261114-15"></script>
     <script src="js/lightingPresets.js?v=20261114-15"></script>
     <script src="js/gashouderVenue.js?v=20261114-15"></script>
+    <script src="js/gashouderExperience.js?v=20261114-15"></script>
 
     <!-- VRClub implementation layers. Each extends the previous class; keep this order. -->
     <script src="js/club/01-core.js?v=20261114-15"></script>

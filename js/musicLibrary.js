@@ -8,7 +8,9 @@ class MusicLibrary {
     static DEFAULT_SET = Object.freeze({ path: 'audio/nocturne-house.mp3', name: 'NOCTURNE (club set)' });
     static COLOURIZON_FEED_PATH = '/podcast/colourizon/feed.xml';
     static SOUNDCLOUD_RESOLVE_PATH = '/soundcloud/resolve';
-    static DEFAULT_NAMES = new Set(['SoundCloud set', 'Resident by Hernan Cattaneo', 'Colourizon by Miss Melera']);
+    static BART_SKILS_TRACK_URL = 'https://soundcloud.com/adambeyer/dcr814-drumcode-radio';
+    static DEFAULT_NAMES = new Set(['SoundCloud set', 'Resident by Hernan Cattaneo', 'Colourizon by Miss Melera',
+        'Bart Skils · Drumcode Radio 814']);
     static RESIDENT_FEED = 'https://podcast.hernancattaneo.com/feed.xml';
     static MELERA_FEED_URL = 'https://soundcloud.com/missmelera/latest';
     static DEV_HOSTS = new Set(['nocturnedev.mitwee.nl', 'nocturne-dev.pages.dev']);
@@ -70,7 +72,8 @@ class MusicLibrary {
                 if (isGashouder) {
                     this.items = [
                         this._item(MusicLibrary.RESIDENT_FEED, 'Resident by Hernan Cattaneo'),
-                        this._item(MusicLibrary.MELERA_FEED_URL, 'Colourizon by Miss Melera')
+                        this._item(MusicLibrary.MELERA_FEED_URL, 'Colourizon by Miss Melera'),
+                        this._item(MusicLibrary.BART_SKILS_TRACK_URL, 'Bart Skils · Drumcode Radio 814')
                     ];
                 } else {
                     this.items = MusicLibrary.isDevHost()
@@ -90,6 +93,12 @@ class MusicLibrary {
             this.items = data.items.map(item => this._item(item.url, item.name, item.episode));
             this.selected = Number.isInteger(data.selected) && data.selected >= 0 && data.selected < this.items.length
                 ? data.selected : 0;
+            const isGashouder = this.club?.venueId === 'gashouder' || MusicLibrary.isGashouderHost();
+            if (isGashouder && this.items.length === 2 &&
+                this.items[0].url === MusicLibrary.RESIDENT_FEED &&
+                this.items[1].url === MusicLibrary.MELERA_FEED_URL) {
+                this.items.push(this._item(MusicLibrary.BART_SKILS_TRACK_URL, 'Bart Skils · Drumcode Radio 814'));
+            }
             this._playbackGeneration = typeof data.playbackGeneration === 'string' ? data.playbackGeneration : null;
         } catch (error) {
             this.items = [];
